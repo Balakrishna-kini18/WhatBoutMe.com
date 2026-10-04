@@ -87,7 +87,7 @@ export class UsersService {
   }
 
   async update(id: string, data: any) {
-    const { passwordHash, status, cohort, progress, joined, ...userData } = data;
+    const { passwordHash: _ph, status: _st, cohort: _co, progress: _pr, joined: _jo, ...userData } = data;
     const bcrypt = await import('bcryptjs');
     if (data.password) {
       userData.passwordHash = await bcrypt.hash(data.password, 12);

@@ -20,7 +20,9 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect((res) => {
+        if (res.body?.status !== 'ok') throw new Error('Expected status ok');
+      });
   });
 
   afterEach(async () => {

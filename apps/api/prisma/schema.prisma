@@ -41,6 +41,29 @@ enum ContentType {
   VIDEO
   PDF
   AUDIO
+  TEXT
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ReleaseSchedule {
+  IMMEDIATE
+  BATCH_SCHEDULED
+}
+
+enum ResourceType {
+  VIEW_ONLY_PDF
+  DOWNLOADABLE_WORKSHEET
+  STREAMABLE_AUDIO
+}
+
+enum ResourceScope {
+  STEP_SPECIFIC
+  PROGRAM_LIBRARY
 }
 
 enum InvoiceStatus {
@@ -116,6 +139,7 @@ model User {
   company   Company? @relation(fields: [companyId], references: [id])
 
   managedBatches          Batch[]                  @relation("ManagerBatches")
+  batchTrainers           BatchTrainer[]           @relation("BatchTrainers")
   enrolments              Enrolment[]
   messagesSent            Message[]
   sessions                UserSession[]
@@ -209,22 +233,24 @@ model LoginAudit {
 // -----------------------------------------------------------------------------
 
 model Program {
-  id          String  @id @default(uuid())
+  id          String        @id @default(uuid())
   title       String
-  slug        String  @unique
+  slug        String        @unique
   description String?
   price       Float
-  isActive    Boolean @default(true)
+  isActive    Boolean       @default(true)
+  status      ContentStatus @default(DRAFT)
 
   hasCertificate      Boolean @default(false)
   certificateTemplate String?
 
-  steps   Step[]
-  batches Batch[]
+  steps      Step[]
+  batches    Batch[]
+  resources  Resource[]
+  enrolments Enrolment[]
 
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  Enrolment Enrolment[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Step {
@@ -235,10 +261,16 @@ model Step {
   sequence    Int // 1 to 11
   title       String
   description String?
+  status      ContentStatus @default(DRAFT)
+
+  releaseSchedule ReleaseSchedule @default(IMMEDIATE)
+  unlockDelayDays Int?
 
   lessons   Lesson[]
+  resources Resource[]
   quiz      Quiz?
   overrides BatchStepOverride[]
+  progress  StepProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -255,11 +287,44 @@ model Lesson {
   type        ContentType
   mediaUrl    String // AWS S3 / Mux Asset ID
   durationSec Int?
+  content     String? // For TEXT content or lesson notes
+  order       Int           @default(1)
+  status      ContentStatus @default(DRAFT)
 
   progress UserLessonProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([stepId, order])
+}
+
+model Resource {
+  id          String        @id @default(uuid())
+  title       String
+  description String?
+  type        ResourceType
+  scope       ResourceScope @default(STEP_SPECIFIC)
+  mediaUrl    String        // Cloudinary / Object Storage URL
+  fileSize    Int?          // File size in bytes
+  mimeType    String?       // MIME type e.g. application/pdf, audio/mpeg
+  status      ContentStatus @default(PUBLISHED)
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  stepId String?
+  step   Step?   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  batchId String?
+  batch   Batch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+  @@index([stepId])
+  @@index([batchId])
 }
 
 model Quiz {
@@ -312,9 +377,27 @@ model Batch {
   enrolments Enrolment[]
   sessions   Session[]
   overrides  BatchStepOverride[]
+  trainers   BatchTrainer[]
+  resources  Resource[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model BatchTrainer {
+  id        String   @id @default(uuid())
+  batchId   String
+  batch     Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  trainerId String
+  trainer   User     @relation("BatchTrainers", fields: [trainerId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([batchId, trainerId])
+  @@index([trainerId])
+  @@index([batchId])
 }
 
 model Enrolment {
@@ -337,6 +420,7 @@ model Enrolment {
   attendance     Attendance[]
   certificate    Certificate?
   payments       Payment[]
+  stepProgress   StepProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -393,6 +477,30 @@ model BatchStepOverride {
   unlockDate DateTime? // For DRIP schedules
 
   @@unique([batchId, stepId])
+}
+
+// Step-level progression tracking
+model StepProgress {
+  id          String    @id @default(uuid())
+  enrolmentId String
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  stepId      String
+  step        Step      @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+
+  isUnlocked  Boolean   @default(false)
+  unlockedAt  DateTime?
+
+  score       Int?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([enrolmentId, stepId])
+  @@index([enrolmentId])
+  @@index([stepId])
 }
 
 // -----------------------------------------------------------------------------

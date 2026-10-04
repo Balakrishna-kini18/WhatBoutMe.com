@@ -103,16 +103,28 @@ model User {
   passwordHash String?
   role         Role    @default(USER)
 
+  // Authentication & Security (D1-004)
+  country              String?
+  timezone             String?
+  emailVerifiedAt      DateTime?
+  twoFactorSecret      String?
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorBackupCodes String[]  @default([])
+
   // Relations
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
 
-  managedBatches Batch[]        @relation("ManagerBatches")
-  enrolments     Enrolment[]
-  messagesSent   Message[]
-  sessions       UserSession[]
-  notifications  Notification[]
-  dailyAttendance DailyAttendance[]
+  managedBatches          Batch[]                  @relation("ManagerBatches")
+  enrolments              Enrolment[]
+  messagesSent            Message[]
+  sessions                UserSession[]
+  notifications           Notification[]
+  dailyAttendance         DailyAttendance[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  otpCodes                OtpCode[]
+  loginAudits             LoginAudit[]
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -125,10 +137,12 @@ model UserSession {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  token      String   @unique // Store the JWT or a session hash
-  ipAddress  String?
-  userAgent  String?
-  lastActive DateTime @default(now())
+  token             String    @unique // Store the JWT or a session hash
+  deviceFingerprint String?
+  ipAddress         String?
+  userAgent         String?
+  lastActive        DateTime  @default(now())
+  expiresAt         DateTime?
 
   revokedAt     DateTime?
   revokedReason String?
@@ -136,6 +150,58 @@ model UserSession {
   createdAt DateTime @default(now())
 
   @@index([userId, revokedAt])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model LoginAudit {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress         String?
+  userAgent         String?
+  country           String?
+  deviceFingerprint String?
+  isSuspicious      Boolean  @default(false)
+  reason            String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // -----------------------------------------------------------------------------

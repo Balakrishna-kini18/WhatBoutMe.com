@@ -1,6 +1,5 @@
-import { Controller, Post, Body, Request, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Request, BadRequestException } from '@nestjs/common';
 import { EnrollmentsService } from './enrollments.service.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
 import { IsString, IsNotEmpty } from 'class-validator';

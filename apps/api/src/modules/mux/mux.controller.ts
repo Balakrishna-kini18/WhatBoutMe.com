@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, Request, UnauthorizedException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, Param, Request, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { MuxService } from './mux.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';

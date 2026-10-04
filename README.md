@@ -75,11 +75,11 @@ npm run dev
 Once the `npm run dev` command finishes starting up, you can access the different parts of the platform in your browser:
 
 * 🌐 **Marketing Website:** [http://localhost:3001](http://localhost:3001)
-* 🎓 **Learner Portal:** [http://localhost:3000](http://localhost:3000) (Login here!)
+* 🎓 **Learner Portal:** [http://localhost:3003](http://localhost:3003)
 * ⚙️ **Admin Dashboard:** [http://localhost:3002](http://localhost:3002)
 * 🔌 **Backend API:** [http://localhost:4000](http://localhost:4000)
 
-*(Note: If you need to log in for the first time, you can register an account directly on the Learner Portal at `localhost:3000/login`, or ask an Admin to create one for you!)*
+*(Note: Learners can sign in or register directly on the Marketing Website at `localhost:3001/login` or `localhost:3001/signup` which seamlessly hands over sessions to the Learner Portal at `localhost:3003`!)*
 
 ---
 

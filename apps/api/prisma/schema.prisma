@@ -96,6 +96,8 @@ enum CouponType {
 enum AgreementStatus {
   PENDING
   SIGNED
+  EXPIRED
+  REVOKED
 }
 
 enum NotificationChannel {
@@ -155,6 +157,7 @@ model User {
   managedBatches          Batch[]                  @relation("ManagerBatches")
   batchTrainers           BatchTrainer[]           @relation("BatchTrainers")
   oralAssessmentsAssessed OralAssessment[]         @relation("AssessorOralAssessments")
+  signedAgreements        SignedAgreement[]
   enrolments              Enrolment[]
   messagesSent            Message[]
   sessions                UserSession[]
@@ -259,13 +262,15 @@ model Program {
   hasCertificate      Boolean @default(false)
   certificateTemplate String?
 
-  steps           Step[]
-  batches         Batch[]
-  resources       Resource[]
-  enrolments      Enrolment[]
-  questionBanks   QuestionBank[]
-  exams           Exam[]
-  oralAssessments OralAssessment[]
+  steps               Step[]
+  batches             Batch[]
+  resources           Resource[]
+  enrolments          Enrolment[]
+  questionBanks       QuestionBank[]
+  exams               Exam[]
+  oralAssessments     OralAssessment[]
+  agreementTemplates  AgreementTemplate[]
+  signedAgreements    SignedAgreement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -578,7 +583,7 @@ model Enrolment {
 
   status EnrolmentStatus @default(PENDING_PAYMENT)
 
-  agreement Agreement?
+  signedAgreement SignedAgreement?
 
   attempts        Attempt[]
   examAttempts    ExamAttempt[]
@@ -847,19 +852,60 @@ model Coupon {
   createdAt DateTime @default(now())
 }
 
-model Agreement {
+// -----------------------------------------------------------------------------
+// AGREEMENTS (TEMPLATES & SIGNED AGREEMENTS)
+// -----------------------------------------------------------------------------
+
+model AgreementTemplate {
+  id        String  @id @default(uuid())
+  title     String
+  version   String  // e.g. "v1.0", "v2.0"
+  content   String  // Agreement body/terms for rendering and PDF generation
+  isActive  Boolean @default(true) // Distinguishes usable/current version
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  signedAgreements SignedAgreement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([programId, version])
+  @@index([programId, isActive])
+}
+
+model SignedAgreement {
   id          String    @id @default(uuid())
   enrolmentId String    @unique
   enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
 
-  templateVersion String
-  signedPdfUrl    String?
-  signedAt        DateTime?
-  signerIp        String?
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  templateId String
+  template   AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  templateVersion String  // Immutable snapshot of version string at signing
+  consentGiven    Boolean @default(false) // Explicit read & consent tick
+  typedName       String? // Typed full name signature
+  drawnSignature  String? // Drawn signature data URL or storage pointer
+  signerIp        String? // Signer IP address
+  userAgent       String? // Signer User-Agent
+  signedPdfUrl    String? // Provider-neutral storage reference/URL to generated signed PDF
   status          AgreementStatus @default(PENDING)
+  signedAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([programId])
+  @@index([templateId])
+  @@index([status])
 }
 
 model Notification {

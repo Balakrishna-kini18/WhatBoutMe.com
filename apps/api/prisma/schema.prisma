@@ -15,18 +15,6 @@ datasource db {
 // ENUMS
 // -----------------------------------------------------------------------------
 
-enum OrderStatus {
-  PENDING
-  PAID
-  FAILED
-  REFUNDED
-}
-
-enum OrderProvider {
-  MOCK
-  STRIPE
-}
-
 enum Role {
   SUPER_ADMIN
   ADMIN
@@ -549,25 +537,4 @@ enum CertificateStatus {
   APPROVED
   REJECTED
   REVOKED
-}
-
-// -----------------------------------------------------------------------------
-// ORDERS & PAYMENTS
-// -----------------------------------------------------------------------------
-
-model Order {
-  id          String        @id @default(uuid())
-  userId      String
-  programId   String
-  amount      Float
-  currency    String        @default("usd")
-  status      OrderStatus   @default(PENDING)
-  provider    OrderProvider @default(MOCK)
-  providerRef String?
-  couponId    String?
-
-  createdAt DateTime  @default(now())
-  paidAt    DateTime?
-
-  @@index([userId, status])
 }

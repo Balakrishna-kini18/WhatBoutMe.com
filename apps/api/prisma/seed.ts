@@ -169,25 +169,6 @@ async function main() {
     }
   });
 
-  // Create Orders
-  await prisma.order.create({
-    data: {
-      userId: learner1.id,
-      programId: program1.id,
-      amount: 299.99,
-      status: 'PAID',
-    }
-  });
-
-  await prisma.order.create({
-    data: {
-      userId: learner2.id,
-      programId: program1.id,
-      amount: 299.99,
-      status: 'PAID',
-    }
-  });
-
   // Create Payments & Invoices
   const payment1 = await prisma.payment.create({
     data: {

@@ -100,6 +100,46 @@ enum AgreementStatus {
   REVOKED
 }
 
+enum SessionStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+enum SessionType {
+  GROUP_COHORT
+  ONE_ON_ONE
+}
+
+enum MeetingProvider {
+  ZOOM
+  GOOGLE_MEET
+  MANUAL
+}
+
+enum BookingStatus {
+  BOOKED
+  CONFIRMED
+  CANCELLED
+  RESCHEDULED
+  ATTENDED
+  NO_SHOW
+}
+
+enum AttendanceStatus {
+  ABSENT
+  PRESENT_AUTO
+  PRESENT_MANUAL
+  CORRECTED
+}
+
+enum CertificateType {
+  PROFESSIONAL
+  CORPORATE_PARTICIPATION
+}
+
 enum NotificationChannel {
   EMAIL
   IN_APP
@@ -158,6 +198,13 @@ model User {
   batchTrainers           BatchTrainer[]           @relation("BatchTrainers")
   oralAssessmentsAssessed OralAssessment[]         @relation("AssessorOralAssessments")
   signedAgreements        SignedAgreement[]
+  sessionBookings         SessionBooking[]         @relation("UserSessionBookings")
+  attendedSessions        Attendance[]             @relation("UserAttendances")
+  correctedAttendances    Attendance[]             @relation("CorrectedAttendances")
+  learnerSessions         Session[]                @relation("Learner1on1Sessions")
+  hostedSessions          Session[]                @relation("HostTrainerSessions")
+  certificates            Certificate[]            @relation("UserCertificates")
+  approvedCertificates    Certificate[]            @relation("ApprovedCertificates")
   enrolments              Enrolment[]
   messagesSent            Message[]
   sessions                UserSession[]
@@ -271,6 +318,7 @@ model Program {
   oralAssessments     OralAssessment[]
   agreementTemplates  AgreementTemplate[]
   signedAgreements    SignedAgreement[]
+  certificates        Certificate[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -301,6 +349,7 @@ model Step {
   updatedAt DateTime @updatedAt
 
   @@unique([programId, sequence])
+  @@index([programId, sequence])
 }
 
 model Lesson {
@@ -590,6 +639,7 @@ model Enrolment {
   oralAssessments OralAssessment[]
   lessonProgress  UserLessonProgress[]
   attendance      Attendance[]
+  sessionBookings SessionBooking[]
   certificate     Certificate?
   payments        Payment[]
   stepProgress    StepProgress[]
@@ -599,6 +649,7 @@ model Enrolment {
 
   @@unique([userId, programId])
   @@unique([userId, batchId])
+  @@index([userId, status])
 }
 
 // -----------------------------------------------------------------------------
@@ -704,41 +755,126 @@ model StepProgress {
 }
 
 // -----------------------------------------------------------------------------
-// SYNCHRONOUS OPERATIONS (ZOOM SESSIONS)
+// SYNCHRONOUS OPERATIONS (SESSIONS, BOOKINGS & ATTENDANCE)
 // -----------------------------------------------------------------------------
 
 model Session {
-  id      String @id @default(uuid())
+  id String @id @default(uuid())
+
+  // Scoping & Relations
   batchId String
   batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
-  title         String
-  startTime     DateTime
-  endTime       DateTime
-  zoomMeetingId String?
-  joinUrl       String?
-  recordingUrl  String?
-  quizId        String?
+  learnerId String? // For dedicated 1:1 sessions
+  learner   User?   @relation("Learner1on1Sessions", fields: [learnerId], references: [id], onDelete: SetNull)
 
-  attendancePulled Boolean      @default(false)
+  hostTrainerId String?
+  hostTrainer   User?   @relation("HostTrainerSessions", fields: [hostTrainerId], references: [id], onDelete: SetNull)
+
+  // Scheduling & Timing
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  timezone    String? @default("UTC") // Timezone-aware scheduling
+
+  // Lifecycle & Capacity
+  sessionType SessionType   @default(GROUP_COHORT)
+  status      SessionStatus @default(SCHEDULED)
+  capacity    Int?          // Maximum booking capacity (e.g. 1 for 1:1, or cohort size)
+
+  // Meeting Provider Metadata (Provider-Neutral)
+  meetingProvider      MeetingProvider @default(ZOOM)
+  providerMeetingId    String?         // Provider-neutral meeting ID
+  zoomMeetingId        String?         // Preserved for backward compatibility
+  joinUrl              String?         // Learner/attendee join URL
+  hostUrl              String?         // Host start/join URL
+  recordingUrl         String?         // Final recording URL
+  providerRecordingUrl String?         // Raw provider cloud recording URL
+
+  // Agenda & Assessment References
+  agenda String?
+  quizId String?
+
+  // Rescheduling & Cancellation Audit
+  cancelledAt     DateTime?
+  cancelReason    String?
+  rescheduledToId String?
+  rescheduledTo   Session?  @relation("RescheduledSessions", fields: [rescheduledToId], references: [id], onDelete: SetNull)
+  rescheduledFrom Session[] @relation("RescheduledSessions")
+
+  // Attendance & Booking Relations (Historical records protected via Restrict)
+  attendancePulled Boolean          @default(false)
   attendances      Attendance[]
+  bookings         SessionBooking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([batchId, startTime])
+  @@index([startTime])
+  @@index([status])
+  @@index([hostTrainerId])
+  @@index([learnerId])
+}
+
+model SessionBooking {
+  id String @id @default(uuid())
+
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  userId String
+  user   User   @relation("UserSessionBookings", fields: [userId], references: [id], onDelete: Cascade)
+
+  enrolmentId String?
+  enrolment   Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  status BookingStatus @default(BOOKED)
+
+  // Rescheduling & Cancellation Audit
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([status])
+  @@index([enrolmentId])
 }
 
 model Attendance {
-  id          String    @id @default(uuid())
-  sessionId   String
-  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
   enrolmentId String
   enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
+
+  status AttendanceStatus @default(ABSENT)
 
   joinTime    DateTime?
   leaveTime   DateTime?
   durationMin Int?
 
+  correctionReason String?
+  correctedById    String?
+  correctedBy      User?   @relation("CorrectedAttendances", fields: [correctedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([sessionId, enrolmentId])
+  @@index([sessionId, userId])
+  @@index([status])
+  @@index([enrolmentId])
 }
 
 // -----------------------------------------------------------------------------
@@ -779,17 +915,40 @@ model Payment {
 }
 
 model Certificate {
-  id          String    @id @default(uuid())
-  enrolmentId String    @unique
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
 
-  certificateNumber String            @unique
-  status            CertificateStatus @default(PENDING)
-  pdfUrl            String? // AWS S3 permanent URL for cert
-  issuedAt          DateTime?
+  enrolmentId String    @unique
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Restrict)
+
+  userId String?
+  user   User?   @relation("UserCertificates", fields: [userId], references: [id], onDelete: Restrict)
+
+  programId String?
+  program   Program? @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  certificateCode   String  @unique @default(uuid())
+  certificateNumber String? @unique // Legacy compatibility with existing services
+  verificationHash  String?
+
+  issueDate DateTime?
+  issuedAt  DateTime? // Legacy compatibility with existing services
+
+  approvedById String?
+  approvedBy   User?     @relation("ApprovedCertificates", fields: [approvedById], references: [id], onDelete: SetNull)
+  revokedAt    DateTime?
+  cpdHours     Int?
+
+  certificateType CertificateType   @default(PROFESSIONAL)
+  status          CertificateStatus @default(PENDING)
+  pdfUrl          String? // Storage key/URL for generated certificate PDF
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([programId])
+  @@index([status])
+  @@index([certificateCode])
 }
 
 // -----------------------------------------------------------------------------
@@ -948,8 +1107,9 @@ model Lead {
 }
 
 enum CertificateStatus {
+  ELIGIBLE
   PENDING
   APPROVED
+  ISSUED
   REJECTED
-  REVOKED
 }

@@ -16,9 +16,11 @@ import { WebsiteModule } from './modules/website/website.module.js';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
 import { QueueModule } from './modules/queue/queue.module.js';
 import { RedisGlobalModule } from './common/redis/redis.module.js';
+import { EmailModule } from './modules/email/email.module.js';
+import { ZoomModule } from './modules/zoom/zoom.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, Reflector } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 
@@ -57,6 +59,8 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     CloudinaryModule,
     RedisGlobalModule,
     QueueModule,
+    EmailModule,
+    ZoomModule,
   ],
   controllers: [AppController],
   providers: [
@@ -72,7 +76,8 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
-    }
+    },
+    Reflector
   ],
 })
 export class AppModule {}

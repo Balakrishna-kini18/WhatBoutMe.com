@@ -219,10 +219,10 @@
 
 
 ### D. Email Infrastructure (Resend & React Email)
-- [ ] **D2-023:** Install `resend`. Configure `EmailService` with `RESEND_API_KEY` and default sender `WhatBoutMe <no-reply@whatboutme.com>`.
-- [ ] **D2-024:** Set up `@react-email/components` and branded WhatBoutMe email layout.
-- [ ] **D2-025:** Build React Email templates for Auth: `SignupWelcomeEmail`, `EmailVerificationEmail`, `PasswordResetEmail`, `OneTimeOtpEmail`.
-- [ ] **D2-026:** Build React Email templates for LMS:
+- [x] **D2-023:** Install `resend`. Configure `EmailService` with `RESEND_API_KEY` and default sender `WhatBoutMe <no-reply@whatboutme.com>`.
+- [x] **D2-024:** Set up `@react-email/components` and branded WhatBoutMe email layout.
+- [x] **D2-025:** Build React Email templates for Auth: `SignupWelcomeEmail`, `EmailVerificationEmail`, `PasswordResetEmail`, `OneTimeOtpEmail`.
+- [x] **D2-026:** Build React Email templates for LMS:
   - `EnrolmentConfirmedEmail` (welcome to batch, next steps, calendar link)
   - `AgreementSignedConfirmationEmail` (copy of signed agreement record)
   - `SessionBookingConfirmationEmail`
@@ -231,8 +231,8 @@
   - `SessionRescheduledEmail`
   - `OralAssessmentResultEmail` (pass or retry instructions)
   - `CertificateIssuedEmail` (with download and verification links)
-- [ ] **D2-027:** Implement BullMQ `email` processor in `worker.ts`: render templates to HTML, dispatch via Resend SDK, and handle delivery status.
-- [ ] **D2-028:** Implement email delivery logging in `EmailDeliveryLog` and fallback mock logger for local dev when `RESEND_API_KEY` is not set.
+- [x] **D2-027:** Implement BullMQ `email` processor in `worker.ts`: render templates to HTML, dispatch via Resend SDK, and handle delivery status.
+- [x] **D2-028:** Implement email delivery logging in `EmailDeliveryLog` and fallback mock logger for local dev when `RESEND_API_KEY` is not set.
 
 
 
@@ -242,11 +242,11 @@
 
 
 ### E. Zoom Integration
-- [ ] **D2-029:** Implement Zoom Server-to-Server (S2S) OAuth 2.0 service with automated in-memory token refresh.
-- [ ] **D2-030:** Implement `ZoomMeetingProvider` adhering to `IMeetingProvider` (`createMeeting()`, `updateMeeting()`, `cancelMeeting()`).
-- [ ] **D2-031:** Implement `getRecordingUrl()` querying Zoom Cloud Recording API for completed sessions.
-- [ ] **D2-032:** Implement `getParticipantReport()` querying Zoom Reports API to return normalized participant attendance records.
-- [ ] **D2-033:** Implement webhook listener `POST /webhooks/zoom` with challenge validation and HMAC-SHA256 signature verification. Dispatch events to BullMQ.
+- [x] **D2-029:** Implement Zoom Server-to-Server (S2S) OAuth 2.0 service with automated in-memory token refresh.
+- [x] **D2-030:** Implement `ZoomMeetingProvider` adhering to `IMeetingProvider` (`createMeeting()`, `updateMeeting()`, `cancelMeeting()`).
+- [x] **D2-031:** Implement `getRecordingUrl()` querying Zoom Cloud Recording API for completed sessions.
+- [x] **D2-032:** Implement `getParticipantReport()` querying Zoom Reports API to return normalized participant attendance records.
+- [x] **D2-033:** Implement webhook listener `POST /webhooks/zoom` with challenge validation and HMAC-SHA256 signature verification. Dispatch events to BullMQ.
 
 
 

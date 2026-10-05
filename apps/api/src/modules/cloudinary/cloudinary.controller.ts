@@ -3,7 +3,7 @@ import { CloudinaryMediaProvider } from './cloudinary.service.js';
 import { CloudinaryObjectStorageProvider } from './cloudinary-object-storage.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { Readable } from 'stream';
 
 @Controller('media')
@@ -22,7 +22,7 @@ export class CloudinaryController {
   }
 
   // D2-016: Implement secure streaming fallback proxy with security headers
-  @Get('stream/:key(*)')
+  @Get('stream/*key')
   async streamMedia(@Param('key') key: string, @Res() res: Response) {
     try {
       // 1. Get the securely signed Cloudinary URL with a 5-minute TTL

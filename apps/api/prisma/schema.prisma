@@ -1113,3 +1113,24 @@ enum CertificateStatus {
   ISSUED
   REJECTED
 }
+
+// -----------------------------------------------------------------------------
+// EMAIL DELIVERY
+// -----------------------------------------------------------------------------
+
+model EmailDeliveryLog {
+  id         String         @id @default(uuid())
+  to         String
+  subject    String
+  template   String?
+  status     DeliveryStatus @default(QUEUED)
+  providerId String?        // E.g. Resend ID
+  error      String?
+  html       String?        // Useful for local dev / debugging
+
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([to])
+  @@index([status])
+}

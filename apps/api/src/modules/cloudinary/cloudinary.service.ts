@@ -45,11 +45,7 @@ export class CloudinaryMediaProvider implements IMediaProvider {
       format: 'm3u8',
       streaming_profile: 'auto',
       secure: true,
-      sign_url: true,
-      auth_token: {
-        key: process.env.CLOUDINARY_API_SECRET,
-        duration: 300 // 300 seconds TTL
-      }
+      sign_url: true
     };
 
     // D2-006: Apply static watermark if learnerEmail is provided
@@ -81,11 +77,7 @@ export class CloudinaryMediaProvider implements IMediaProvider {
       format: 'jpg',
       start_offset: offsetSeconds, // Time in seconds for the thumbnail frame
       secure: true,
-      sign_url: true, // Generate signature for access since it's an authenticated resource
-      auth_token: {
-        key: process.env.CLOUDINARY_API_SECRET,
-        duration: 3600 // 1 hour TTL for thumbnail caching on frontend
-      }
+      sign_url: true // Generate signature for access since it's an authenticated resource
     });
   }
 

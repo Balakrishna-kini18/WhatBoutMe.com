@@ -3,11 +3,14 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { UnauthorizedException } from '@nestjs/common';
-import { rememberLiveSession, sessionKnownLive } from '../../common/session-cache.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private cacheHelper: CacheHelperService
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -16,27 +19,34 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // Every authenticated API request using an access JWT must verify that the JWT's bound UserSession is still valid.
     if (!payload || !payload.sub || !payload.sessionId) {
       throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
     }
 
-    if (!sessionKnownLive(payload.sessionId, payload.sub)) {
-      const session = await this.prisma.userSession.findUnique({
-        where: { id: payload.sessionId },
-      });
+    const guardKey = await this.cacheHelper.getGuardKey(payload.sub, payload.sessionId);
+    
+    const isSessionValid = await this.cacheHelper.getOrSet(
+      guardKey,
+      async () => {
+        const session = await this.prisma.userSession.findUnique({
+          where: { id: payload.sessionId }
+        });
+        
+        if (
+          !session || 
+          session.userId !== payload.sub || 
+          session.revokedAt !== null || 
+          (session.expiresAt && session.expiresAt <= new Date())
+        ) {
+          return false;
+        }
+        return true;
+      },
+      900 // 15 mins cache for session validity
+    );
 
-      // Verify session exists, belongs to JWT subject/user, and is neither revoked nor expired
-      if (
-        !session ||
-        session.userId !== payload.sub ||
-        session.revokedAt !== null ||
-        (session.expiresAt && session.expiresAt <= new Date())
-      ) {
-        throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
-      }
-
-      rememberLiveSession(payload.sessionId, session.userId, session.expiresAt);
+    if (!isSessionValid) {
+      throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
     }
 
     // This decoded payload is attached to req.user

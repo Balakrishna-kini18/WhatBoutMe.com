@@ -1,13 +1,21 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class ProgramsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cacheHelper: CacheHelperService
+  ) {}
 
-  findAll() {
-    return this.prisma.program.findMany();
+  async findAll(role?: string) {
+    const cacheKey = await this.cacheHelper.getEndpointKey('programs', role as any || 'GUEST', { action: 'findAll' });
+    return this.cacheHelper.getOrSet(cacheKey, async () => {
+      const programs = await this.prisma.program.findMany();
+      return programs;
+    });
   }
 
   async enroll(programId: string, userId: string) {
@@ -72,10 +80,13 @@ export class ProgramsService {
       }
     });
 
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
+    await this.cacheHelper.invalidateNamespace('batches');
+
     return enrolment;
   }
 
-  create(data: any) {
+  async create(data: any) {
     if (data.title && !data.slug) {
       data.slug = data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     }
@@ -88,10 +99,12 @@ export class ProgramsService {
       hasCertificate: data.hasCertificate || false,
       certificateTemplate: data.certificateTemplate || null,
     };
-    return this.prisma.program.create({ data: programData });
+    const res = await this.prisma.program.create({ data: programData });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  update(id: string, data: any) {
+  async update(id: string, data: any) {
     const programData: any = {};
     if (data.title) programData.title = data.title;
     if (data.description !== undefined) programData.description = data.description;
@@ -100,27 +113,34 @@ export class ProgramsService {
     if (data.hasCertificate !== undefined) programData.hasCertificate = data.hasCertificate;
     if (data.certificateTemplate !== undefined) programData.certificateTemplate = data.certificateTemplate;
     
-    return this.prisma.program.update({
+    const res = await this.prisma.program.update({
       where: { id },
       data: programData,
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  remove(id: string) {
-    return this.prisma.program.delete({
+  async remove(id: string) {
+    const res = await this.prisma.program.delete({
       where: { id },
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  getSteps(programId: string) {
-    return this.prisma.step.findMany({
-      where: { programId },
-      orderBy: { sequence: 'asc' },
+  async getSteps(programId: string, role?: string) {
+    const cacheKey = await this.cacheHelper.getEndpointKey('programs', role as any || 'GUEST', { action: 'getSteps', programId });
+    return this.cacheHelper.getOrSet(cacheKey, async () => {
+      return this.prisma.step.findMany({
+        where: { programId },
+        orderBy: { sequence: 'asc' },
+      });
     });
   }
 
-  createStep(programId: string, data: any) {
-    return this.prisma.step.create({
+  async createStep(programId: string, data: any) {
+    const res = await this.prisma.step.create({
       data: {
         programId,
         title: data.title,
@@ -128,29 +148,56 @@ export class ProgramsService {
         sequence: data.sequence,
       }
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  getStep(stepId: string) {
-    return this.prisma.step.findUnique({
+  async getStep(stepId: string, role?: string) {
+    const cacheKey = await this.cacheHelper.getEndpointKey('programs', role as any || 'GUEST', { action: 'getStep', stepId });
+    return this.cacheHelper.getOrSet(cacheKey, async () => {
+      const step = await this.prisma.step.findUnique({
+        where: { id: stepId },
+        include: { lessons: true, quiz: { include: { questions: { include: { options: true } } } } }
+      });
+      if (!step) return null;
+
+      // Filter out answers if not admin
+      if (role !== 'SUPER_ADMIN' && role !== 'ADMIN' && step.quiz) {
+        step.quiz.questions.forEach(q => {
+          q.options.forEach(o => {
+            (o as any).isCorrect = undefined;
+          });
+        });
+      }
+      return step;
+    });
+  }
+
+  async removeStep(stepId: string) {
+    const res = await this.prisma.step.delete({
       where: { id: stepId },
-      include: { lessons: true, quiz: { include: { questions: { include: { options: true } } } } }
+    });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
+  }
+
+  async getLessons(stepId: string, role?: string) {
+    const cacheKey = await this.cacheHelper.getEndpointKey('programs', role as any || 'GUEST', { action: 'getLessons', stepId });
+    return this.cacheHelper.getOrSet(cacheKey, async () => {
+      const lessons = await this.prisma.lesson.findMany({
+        where: { stepId },
+      });
+      
+      if (role !== 'SUPER_ADMIN' && role !== 'ADMIN') {
+        // Strip mediaUrl/playbackIds from list
+        return lessons.map(l => ({ ...l, mediaUrl: undefined }));
+      }
+      return lessons;
     });
   }
 
-  removeStep(stepId: string) {
-    return this.prisma.step.delete({
-      where: { id: stepId },
-    });
-  }
-
-  getLessons(stepId: string) {
-    return this.prisma.lesson.findMany({
-      where: { stepId },
-    });
-  }
-
-  createLesson(stepId: string, data: any) {
-    return this.prisma.lesson.create({
+  async createLesson(stepId: string, data: any) {
+    const res = await this.prisma.lesson.create({
       data: {
         stepId,
         title: data.title,
@@ -159,12 +206,16 @@ export class ProgramsService {
         durationSec: data.durationSec || 0,
       }
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  removeLesson(lessonId: string) {
-    return this.prisma.lesson.delete({
+  async removeLesson(lessonId: string) {
+    const res = await this.prisma.lesson.delete({
       where: { id: lessonId }
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
   /**
@@ -205,6 +256,7 @@ export class ProgramsService {
     }
 
     await markDailyAttendance(this.prisma, userId, 'lessonDone');
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
     return { stepId, completed: true };
   }
 }

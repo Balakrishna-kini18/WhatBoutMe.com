@@ -219,6 +219,9 @@ model User {
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([role])
+  @@index([companyId])
 }
 
 model UserSession {
@@ -650,6 +653,7 @@ model Enrolment {
   @@unique([userId, programId])
   @@unique([userId, batchId])
   @@index([userId, status])
+  @@index([batchId, status])
 }
 
 // -----------------------------------------------------------------------------
@@ -752,6 +756,7 @@ model StepProgress {
   @@unique([enrolmentId, stepId])
   @@index([enrolmentId])
   @@index([stepId])
+  @@index([enrolmentId, isCompleted])
 }
 
 // -----------------------------------------------------------------------------

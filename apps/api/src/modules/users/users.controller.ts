@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors } from '@nestjs/common';
 import { CacheInterceptor, CacheKey, CacheTTL } from '@nestjs/cache-manager';
+import { Query } from '@nestjs/common';
 import { UsersService } from './users.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
@@ -26,11 +27,16 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  @UseInterceptors(CacheInterceptor)
-  @CacheKey('all_users')
-  @CacheTTL(60000) // Cache for 60 seconds
-  findAll() {
-    return this.usersService.findAll();
+  // @UseInterceptors(CacheInterceptor)
+  // @CacheKey('all_users')
+  // @CacheTTL(60000)
+  findAll(@Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('role') role?: Role) {
+    return this.usersService.findAll({
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 20,
+      search,
+      role
+    });
   }
 
   @Post()

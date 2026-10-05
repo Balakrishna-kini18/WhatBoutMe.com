@@ -18,8 +18,7 @@ const Icons = {
 };
 
 export default function AdminDashboard() {
-  const [users, setUsers] = useState<any[]>([]);
-  const [batches, setBatches] = useState<any[]>([]);
+  const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,16 +27,10 @@ export default function AdminDashboard() {
         const token = localStorage.getItem("token");
         const headers = { Authorization: `Bearer ${token}` };
         
-        const [usersRes, batchesRes] = await Promise.all([
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users`, { headers }),
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches`, { headers })
-        ]);
-
-        if (usersRes.ok && batchesRes.ok) {
-          const usersData = await usersRes.json();
-          const batchesData = await batchesRes.json();
-          setUsers(usersData);
-          setBatches(batchesData);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/admin/dashboard`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setDashboardData(data);
         }
       } catch (e) {
         console.error("Failed to fetch dashboard data", e);
@@ -49,9 +42,9 @@ export default function AdminDashboard() {
     fetchDashboardData();
   }, []);
 
-  const totalLearners = users.filter(u => u.role === "LEARNER" || u.role === "USER").length;
-  const totalBatches = batches.length;
-  const mockRevenue = "$28,500"; // Pending real Stripe integration endpoint
+  const totalLearners = dashboardData?.totalLearners || 0;
+  const totalBatches = dashboardData?.totalBatches || 0;
+  const mockRevenue = dashboardData?.mockRevenue || "$0";
 
   const avatarClasses = [styles.avatar1, styles.avatar2, styles.avatar3, styles.avatar4, styles.avatar5];
 
@@ -167,12 +160,12 @@ export default function AdminDashboard() {
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: 'var(--text-secondary)' }}>Loading data...</td>
                 </tr>
-              ) : users.length === 0 ? (
+              ) : !dashboardData?.recentEnrolments?.length ? (
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: 'var(--text-secondary)' }}>No recent enrolments.</td>
                 </tr>
               ) : (
-                users.slice(0, 5).map((user, idx) => {
+                dashboardData.recentEnrolments.map((user: any, idx: number) => {
                   const initial = user.name ? user.name[0].toUpperCase() : user.email[0].toUpperCase();
                   const avatarClass = avatarClasses[idx % avatarClasses.length];
                   

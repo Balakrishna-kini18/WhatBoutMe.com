@@ -26,11 +26,7 @@ export class CloudinaryObjectStorageProvider implements IObjectStorageProvider {
       resource_type: resourceType,
       type: 'authenticated',
       secure: true,
-      sign_url: true,
-      auth_token: {
-        key: process.env.CLOUDINARY_API_SECRET,
-        duration: expiresInSeconds
-      }
+      sign_url: true
     });
   }
 

@@ -6,7 +6,6 @@ import { UsersModule } from './modules/users/users.module.js';
 import { ProgramsModule } from './modules/programs/programs.module.js';
 import { BatchesModule } from './modules/batches/batches.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
-import { MuxModule } from './modules/mux/mux.module.js';
 import { QuizzesModule } from './modules/quizzes/quizzes.module.js';
 import { InvoicesModule } from './modules/invoices/invoices.module.js';
 import { RevenueModule } from './modules/revenue/revenue.module.js';
@@ -14,6 +13,7 @@ import { SessionsModule } from './modules/sessions/sessions.module.js';
 import { CertificatesModule } from './modules/certificates/certificates.module.js';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module.js';
 import { WebsiteModule } from './modules/website/website.module.js';
+import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 import { APP_GUARD } from '@nestjs/core';
@@ -45,7 +45,6 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     ProgramsModule,
     BatchesModule,
     AuthModule,
-    MuxModule,
     QuizzesModule,
     InvoicesModule,
     RevenueModule,
@@ -53,6 +52,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     CertificatesModule,
     EnrollmentsModule,
     WebsiteModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [

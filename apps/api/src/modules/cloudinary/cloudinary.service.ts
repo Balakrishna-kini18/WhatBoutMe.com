@@ -72,4 +72,20 @@ export class CloudinaryMediaProvider {
 
     return cloudinary.url(publicId, options);
   }
+
+  // D2-007: Implement video thumbnail extraction at specified offsets with signed delivery URLs
+  generateSignedThumbnailUrl(publicId: string, offsetSeconds: number = 0): string {
+    return cloudinary.url(publicId, {
+      resource_type: 'video',
+      type: 'authenticated',
+      format: 'jpg',
+      start_offset: offsetSeconds, // Time in seconds for the thumbnail frame
+      secure: true,
+      sign_url: true, // Generate signature for access since it's an authenticated resource
+      auth_token: {
+        key: process.env.CLOUDINARY_API_SECRET,
+        duration: 3600 // 1 hour TTL for thumbnail caching on frontend
+      }
+    });
+  }
 }

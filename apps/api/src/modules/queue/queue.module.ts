@@ -1,0 +1,44 @@
+import { Module, Global } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
+import { QueueEventsService } from './queue-events.service.js';
+
+const defaultJobOptions = {
+  attempts: 3,
+  backoff: {
+    type: 'exponential',
+    delay: 1000,
+  },
+};
+
+@Global()
+@Module({
+  imports: [
+    // D2-018: Configure BullModule.forRoot() strictly via Redis TCP/RESP
+    BullModule.forRoot({
+      connection: process.env.REDIS_URL 
+        ? {
+            url: process.env.REDIS_URL,
+            tls: process.env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+          }
+        : {
+            host: process.env.REDIS_HOST || 'localhost',
+            port: parseInt(process.env.REDIS_PORT || '6379', 10),
+            password: process.env.REDIS_PASSWORD || undefined,
+          },
+      defaultJobOptions,
+    }),
+    // D2-019: Register all required queues with exponential backoff defaults
+    BullModule.registerQueue(
+      { name: 'email' },
+      { name: 'notification' },
+      { name: 'attendance-import' },
+      { name: 'certificate-gen' },
+      { name: 'calendar-sync' },
+      { name: 'media-process' },
+      { name: 'invoice-gen' },
+    ),
+  ],
+  providers: [QueueEventsService],
+  exports: [BullModule, QueueEventsService],
+})
+export class QueueModule {}

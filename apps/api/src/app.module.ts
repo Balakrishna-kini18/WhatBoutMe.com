@@ -14,6 +14,8 @@ import { CertificatesModule } from './modules/certificates/certificates.module.j
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module.js';
 import { WebsiteModule } from './modules/website/website.module.js';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
+import { QueueModule } from './modules/queue/queue.module.js';
+import { RedisGlobalModule } from './common/redis/redis.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 import { APP_GUARD } from '@nestjs/core';
@@ -53,6 +55,8 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     EnrollmentsModule,
     WebsiteModule,
     CloudinaryModule,
+    RedisGlobalModule,
+    QueueModule,
   ],
   controllers: [AppController],
   providers: [

@@ -194,15 +194,29 @@
 - [x] **D2-015:** Implement `IObjectStorageProvider.getPresignedPutUrl(key, contentType, expiresInSeconds)` for authorized admin uploads.
 - [x] **D2-015b: In-Memory Worker Buffer Upload**
   Implement `IObjectStorageProvider.uploadBuffer(key, buffer, contentType)` enabling backend services and workers (e.g., certificate generation) to directly persist in-memory rendered files without circular HTTP roundtrips.
-- [ ] **D2-016:** Implement secure streaming fallback proxy with security headers (`Content-Disposition: inline`, `X-Content-Type-Options: nosniff`).
+- [x] **D2-016:** Implement secure streaming fallback proxy with security headers (`Content-Disposition: inline`, `X-Content-Type-Options: nosniff`).
+
+
+
+
+
+
+
 
 ### C. BullMQ / Redis Infrastructure
-- [ ] **D2-017:** Configure Docker Redis 7 Alpine in `docker-compose.yml` on TCP port 6379 with persistent volume.
-- [ ] **D2-018:** Install `@nestjs/bullmq` and `bullmq`. Configure NestJS `BullModule.forRoot()` strictly via Redis TCP/RESP (`redis://localhost:6379`). Explicitly reject HTTP/REST for BullMQ.
-- [ ] **D2-019:** Register queues: `email`, `notification`, `attendance-import`, `certificate-gen`, `calendar-sync`, `media-process`, `invoice-gen`. Configure 3-attempt exponential backoff.
-- [ ] **D2-020:** Create isolated background worker entrypoint `apps/api/src/worker.ts`.
-- [ ] **D2-021:** Implement job idempotency using deterministic BullMQ `jobId`s to prevent duplicate processing during retries.
-- [ ] **D2-022:** Configure dead-letter handling, failed job event listeners, and Sentry error alerting.
+- [x] **D2-017:** Configure Docker Redis 7 Alpine in `docker-compose.yml` on TCP port 6379 with persistent volume.
+- [x] **D2-018:** Install `@nestjs/bullmq` and `bullmq`. Configure NestJS `BullModule.forRoot()` strictly via Redis TCP/RESP (`redis://localhost:6379`). Explicitly reject HTTP/REST for BullMQ.
+- [x] **D2-019:** Register queues: `email`, `notification`, `attendance-import`, `certificate-gen`, `calendar-sync`, `media-process`, `invoice-gen`. Configure 3-attempt exponential backoff.
+- [x] **D2-020:** Create isolated background worker entrypoint `apps/api/src/worker.ts`.
+- [x] **D2-021:** Implement job idempotency using deterministic BullMQ `jobId`s to prevent duplicate processing during retries.
+- [x] **D2-022:** Configure dead-letter handling, failed job event listeners, and Sentry error alerting.
+
+
+
+
+
+
+
 
 ### D. Email Infrastructure (Resend & React Email)
 - [ ] **D2-023:** Install `resend`. Configure `EmailService` with `RESEND_API_KEY` and default sender `WhatBoutMe <no-reply@whatboutme.com>`.
@@ -220,6 +234,13 @@
 - [ ] **D2-027:** Implement BullMQ `email` processor in `worker.ts`: render templates to HTML, dispatch via Resend SDK, and handle delivery status.
 - [ ] **D2-028:** Implement email delivery logging in `EmailDeliveryLog` and fallback mock logger for local dev when `RESEND_API_KEY` is not set.
 
+
+
+
+
+
+
+
 ### E. Zoom Integration
 - [ ] **D2-029:** Implement Zoom Server-to-Server (S2S) OAuth 2.0 service with automated in-memory token refresh.
 - [ ] **D2-030:** Implement `ZoomMeetingProvider` adhering to `IMeetingProvider` (`createMeeting()`, `updateMeeting()`, `cancelMeeting()`).
@@ -227,11 +248,25 @@
 - [ ] **D2-032:** Implement `getParticipantReport()` querying Zoom Reports API to return normalized participant attendance records.
 - [ ] **D2-033:** Implement webhook listener `POST /webhooks/zoom` with challenge validation and HMAC-SHA256 signature verification. Dispatch events to BullMQ.
 
+
+
+
+
+
+
+
+
 ### F. Google Meet Integration
 - [ ] **D2-034:** Configure Google APIs client (`googleapis`) with service account credentials and domain-wide delegation.
 - [ ] **D2-035: Google Meet Provider Full Implementation (`GoogleMeetProvider`)**
   Implement `IMeetingProvider` using Google Calendar API (`conferenceDataVersion=1`) for meeting creation, update, and cancellation. Implement `getRecordingUrl()` by querying Google Drive API for Meet recordings in the host's drive (with manual admin URL upload fallback). Implement `getParticipantReport()` via Google Workspace Admin SDK Reports API (with manual attendance marking fallback if tenant licensing restricts API access).
 - [ ] **D2-036:** Implement `MeetingProviderFactory` dynamically resolving Zoom or Google Meet based on configuration.
+
+
+
+
+
+
 
 ### G. Microsoft Graph / Outlook Calendar Integration
 - [ ] **D2-037:** Configure `@microsoft/microsoft-graph-client` using Azure AD application permissions (client ID, tenant ID, client secret).
@@ -239,15 +274,26 @@
 - [ ] **D2-039:** Implement `getBusySlots()` querying MS Graph `POST /users/{id}/calendar/getSchedule` to detect conflicting bookings.
 - [ ] **D2-040:** Implement `CalendarSyncProcessor` in BullMQ worker for asynchronous calendar event syncing.
 
+
+
+
+
+
 ### H. Realtime Infrastructure (Socket.IO — Phase 6 Deferred)
 - [ ] **D2-041:** Install `@nestjs/websockets`, `@nestjs/platform-socket.io`, and `@socket.io/redis-adapter`. Configure adapter with Redis TCP.
 - [ ] **D2-042:** Implement WebSocket JWT connection guard validating handshake tokens against session store.
 - [ ] **D2-043:** Implement room routing (`conversation:${id}`, `batch:${id}`), message broadcasting, typing indicators, and read receipts.
 
+
+
+
+
 ### I. Observability & Health
 - [ ] **D2-044:** Install and configure `@sentry/nestjs` in `main.ts` and `worker.ts`. Filter sensitive auth data and capture unhandled exceptions.
 - [ ] **D2-045:** Implement `GET /api/health` using `@nestjs/terminus` checking PostgreSQL and Redis TCP ping.
 - [ ] **D2-046:** Implement structured JSON logger with correlation IDs and timestamps.
+
+
 
 ### J. Deployment & DevOps Infrastructure
 - [ ] **D2-047:** Create multi-stage production `Dockerfile` supporting dual commands (`main.js` and `worker.js`).
@@ -255,9 +301,15 @@
 - [ ] **D2-049:** Create comprehensive `.env.example` documenting all configuration keys.
 - [ ] **D2-050:** Prepare AWS ECS Fargate task definitions and CloudWatch logging templates.
 
+
+
+
+
 ### K. Certificate PDF Generation Infrastructure (Phase 5)
 - [ ] **D2-051:** Implement `CertificateGenProcessor` in BullMQ using `pdf-lib` to render certificate visual template, recipient name, course name, date, and QR code.
 - [ ] **D2-052:** Upload rendered certificate PDF to private object storage via `IObjectStorageProvider.uploadBuffer()` (`certificates/${certificateCode}.pdf`) and return object key to certificate service.
+
+
 
 ### L. Stripe Infrastructure (Phase 7 — Deferred)
 - [ ] **D2-053:** Install `stripe` SDK and initialize client with API secrets.
@@ -265,6 +317,7 @@
 - [ ] **D2-055:** Implement idempotency logging in `StripeWebhookEvent` and dispatch events to payment queue.
 
 ---
+
 
 ## 5. Cloudinary Ownership & Security Specification
 

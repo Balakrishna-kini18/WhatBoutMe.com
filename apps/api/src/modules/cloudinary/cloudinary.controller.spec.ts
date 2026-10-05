@@ -109,5 +109,64 @@ describe('CloudinaryController', () => {
         new HttpException('Media not found or inaccessible', HttpStatus.NOT_FOUND)
       );
     });
+
+    it('should safely stream even if Cloudinary omits Content-Length and Content-Type headers (Edge Case)', async () => {
+      const mockKey = 'weird-file.pdf';
+      const mockSignedUrl = 'https://res.cloudinary.com/weird-file';
+      
+      vi.spyOn(objectStorage, 'getPresignedGetUrl').mockResolvedValue(mockSignedUrl);
+      
+      // Mock fetch response with NO headers
+      const mockReadableStream = new Readable({
+        read() {
+          this.push(null);
+        }
+      });
+      
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        headers: new Headers(), // Empty headers
+        body: mockReadableStream,
+      });
+
+      const resMock = {
+        setHeader: vi.fn(),
+        end: vi.fn(),
+      } as unknown as Response;
+
+      vi.spyOn(Readable, 'fromWeb').mockReturnValue(mockReadableStream as any);
+      vi.spyOn(mockReadableStream, 'pipe').mockImplementation(() => resMock as any);
+
+      await controller.streamMedia(mockKey, resMock);
+
+      // Should still set explicit security headers
+      expect(resMock.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline');
+      expect(resMock.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
+      
+      // But should NOT attempt to set missing headers
+      expect(resMock.setHeader).not.toHaveBeenCalledWith('Content-Type', expect.anything());
+      expect(resMock.setHeader).not.toHaveBeenCalledWith('Content-Length', expect.anything());
+    });
+
+    it('should safely call res.end() if fetch response has absolutely no body (Edge Case)', async () => {
+      vi.spyOn(objectStorage, 'getPresignedGetUrl').mockResolvedValue('https://cloudinary.com/empty');
+      
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        headers: new Headers(),
+        body: null, // No body stream at all
+      });
+
+      const resMock = {
+        setHeader: vi.fn(),
+        end: vi.fn(),
+      } as unknown as Response;
+
+      await controller.streamMedia('empty-file.txt', resMock);
+
+      // Should still secure the response, but immediately close it
+      expect(resMock.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
+      expect(resMock.end).toHaveBeenCalled();
+    });
   });
 });

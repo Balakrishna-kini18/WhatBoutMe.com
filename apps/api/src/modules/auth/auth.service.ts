@@ -6,12 +6,14 @@ import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private cacheHelper: CacheHelperService
   ) {}
 
   /**
@@ -27,11 +29,20 @@ export class AuthService {
   async login(identifier: string, password: string) {
     const include = {
       enrolments: {
-        include: {
+        select: {
+          id: true,
+          status: true,
+          batchId: true,
           batch: {
-            include: { program: true },
-          },
-        },
+            select: {
+              name: true,
+              programId: true,
+              program: {
+                select: { title: true }
+              }
+            }
+          }
+        }
       },
     };
 
@@ -173,9 +184,18 @@ export class AuthService {
             programId: pId,
             status: 'ACTIVE'
           },
-          include: {
+          select: {
+            id: true,
+            status: true,
+            batchId: true,
             batch: {
-              include: { program: true }
+              select: {
+                name: true,
+                programId: true,
+                program: {
+                  select: { title: true }
+                }
+              }
             }
           }
         });
@@ -212,6 +232,11 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
+    await this.cacheHelper.invalidateNamespace('users');
+    if (data.programIds && data.programIds.length > 0) {
+      await this.cacheHelper.invalidateNamespace('batches');
+    }
 
     return {
       access_token: accessToken,
@@ -374,31 +399,36 @@ export class AuthService {
    * Get user profile with tenant-specific enrolled programs.
    */
   async getProfile(userId: string) {
-    // the two lookups do not depend on each other, so they run together
-    const [user, sessions] = await Promise.all([this.prisma.user.findUnique({
+    const cacheKey = await this.cacheHelper.getVersionedKey(`auth_user:${userId}`, 'profile');
+    return this.cacheHelper.getOrSet(
+      cacheKey,
+      async () => {
+        // the two lookups do not depend on each other, so they run together
+        const [user, sessions] = await Promise.all([this.prisma.user.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        role: true,
+        companyId: true,
+        createdAt: true,
         enrolments: {
-          include: {
+          select: {
+            id: true,
+            status: true,
+            batchId: true,
             batch: {
-              include: { 
-                program: {
-                  include: {
-                    steps: {
-                      include: {
-                        lessons: true,
-                        quiz: true,
-                      }
-                    }
-                  }
-                }
-              },
-            },
-            lessonProgress: true,
-            attempts: true,
-          },
-        },
-      },
+              select: {
+                name: true,
+                programId: true,
+                program: { select: { title: true } }
+              }
+            }
+          }
+        }
+      }
     }),
       // upcoming sessions of every batch the user is in
       this.prisma.session.findMany({
@@ -416,42 +446,17 @@ export class AuthService {
     }
 
     const enrolledPrograms = user.enrolments.map((e) => {
-      let totalItems = 0;
-      let completedItems = 0;
-      // lessons and quizzes still to do, in course order (for "My Courses")
-      const pending: { stepId: string; step: number; stepTitle: string; title: string; kind: 'LESSON' | 'QUIZ' }[] = [];
-
-      const steps = [...(e.batch?.program?.steps || [])].sort((x, y) => x.sequence - y.sequence);
-      for (const step of steps) {
-        // Count lessons
-        for (const lesson of step.lessons || []) {
-          totalItems++;
-          const lp = e.lessonProgress?.find(p => p.lessonId === lesson.id);
-          if (lp?.viewed) completedItems++;
-          else pending.push({ stepId: step.id, step: step.sequence, stepTitle: step.title, title: lesson.title, kind: 'LESSON' });
-        }
-        // Count quiz
-        if (step.quiz) {
-          totalItems++;
-          const attempt = e.attempts?.find(a => a.quizId === step.quiz?.id && a.status === 'PASSED');
-          if (attempt) completedItems++;
-          else pending.push({ stepId: step.id, step: step.sequence, stepTitle: step.title, title: 'Step quiz', kind: 'QUIZ' });
-        }
-      }
-
-      const progress = totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100);
-
       return {
         enrolmentId: e.id,
         batchId: e.batchId,
         batchName: e.batch.name,
         programId: e.batch.programId,
-        programTitle: e.batch.program.title,
+        programTitle: e.batch.program?.title || 'Unknown',
         status: e.status,
-        progress: progress, // Dynamic progress added
-        totalItems,
-        completedItems,
-        pending,
+        progress: 0, // Should be fetched separately by frontend
+        totalItems: 0,
+        completedItems: 0,
+        pending: [],
       };
     });
 
@@ -464,6 +469,7 @@ export class AuthService {
       enrolledPrograms,
       upcomingSessions: sessions,
     };
+  });
   }
 
   /**
@@ -497,6 +503,7 @@ export class AuthService {
 
     // older sessions may just have been revoked
     forgetSessions();
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
     return sessionId;
   }
 
@@ -528,6 +535,7 @@ export class AuthService {
       data: { revokedAt: new Date(), revokedReason: 'LOGOUT_ALL' }
     });
     forgetSessions();
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
     
     await this.prisma.logAction({
       actorId: userId,

@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class QuizzesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cacheHelper: CacheHelperService
+  ) {}
 
   async findAll() {
     const quizzes = await this.prisma.quiz.findMany({
@@ -22,20 +26,26 @@ export class QuizzesService {
     }));
   }
 
-  create(data: any) {
-    return this.prisma.quiz.create({ data });
+  async create(data: any) {
+    const res = await this.prisma.quiz.create({ data });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  update(id: string, data: any) {
-    return this.prisma.quiz.update({
+  async update(id: string, data: any) {
+    const res = await this.prisma.quiz.update({
       where: { id },
       data,
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 
-  remove(id: string) {
-    return this.prisma.quiz.delete({
+  async remove(id: string) {
+    const res = await this.prisma.quiz.delete({
       where: { id },
     });
+    await this.cacheHelper.invalidateNamespace('programs');
+    return res;
   }
 }

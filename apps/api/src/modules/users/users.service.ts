@@ -1,63 +1,102 @@
 import { Injectable } from '@nestjs/common';
 import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cacheHelper: CacheHelperService
+  ) {}
 
-  async findAll() {
-    const users = await this.prisma.user.findMany({
-      include: {
-        enrolments: {
-          include: {
-            batch: {
-              include: { 
-                program: {
-                  include: {
-                    steps: {
-                      include: {
-                        lessons: true,
-                        quiz: true,
-                      }
-                    }
-                  }
-                }
-              },
-            },
-            lessonProgress: true,
-            attempts: true,
+  async findAll(params: { page: number; limit: number; search?: string; role?: Role }) {
+    const { page, limit, search, role } = params;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (role) where.role = role;
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, users] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          enrolments: {
+            take: 1, // just one for demo as per original
+            include: {
+              batch: { select: { name: true, programId: true } }
+            }
           }
         }
+      })
+    ]);
+
+    const enrolments = users.flatMap(u => u.enrolments);
+    const enrolmentIds = enrolments.map(e => e.id);
+    const programIds = [...new Set(enrolments.map(e => e.batch?.programId).filter(Boolean))];
+
+    // 1. Total items (lessons + quizzes) per program
+    const programTotals: Record<string, number> = {};
+    if (programIds.length > 0) {
+      const steps = await this.prisma.step.findMany({
+        where: { programId: { in: programIds as string[] } },
+        select: {
+          programId: true,
+          _count: { select: { lessons: true } },
+          quiz: { select: { id: true } }
+        }
+      });
+      for (const step of steps) {
+        programTotals[step.programId] = (programTotals[step.programId] || 0) + step._count.lessons + (step.quiz ? 1 : 0);
       }
-    });
+    }
 
-    return users.map(user => {
-      const enrolment = user.enrolments[0]; // Just take first for demo
+    // 2. Completed items per enrolment
+    const enrolmentCompletions: Record<string, number> = {};
+    if (enrolmentIds.length > 0) {
+      const [lessonProgress, passedAttempts] = await Promise.all([
+        this.prisma.userLessonProgress.groupBy({
+          by: ['enrolmentId'],
+          where: { enrolmentId: { in: enrolmentIds }, viewed: true },
+          _count: { lessonId: true }
+        }),
+        this.prisma.attempt.groupBy({
+          by: ['enrolmentId'],
+          where: { enrolmentId: { in: enrolmentIds }, status: 'PASSED' },
+          _count: { quizId: true }
+        })
+      ]);
 
+      for (const lp of lessonProgress) {
+        enrolmentCompletions[lp.enrolmentId] = (enrolmentCompletions[lp.enrolmentId] || 0) + lp._count.lessonId;
+      }
+      for (const pa of passedAttempts) {
+        enrolmentCompletions[pa.enrolmentId] = (enrolmentCompletions[pa.enrolmentId] || 0) + pa._count.quizId;
+      }
+    }
+
+    const data = users.map(user => {
+      const enrolment = user.enrolments[0];
       let progressPct = 0;
-      if (enrolment) {
-        let totalItems = 0;
-        let completedItems = 0;
 
-        const steps = enrolment.batch?.program?.steps || [];
-        for (const step of steps) {
-          // Count lessons
-          for (const lesson of step.lessons || []) {
-            totalItems++;
-            const lp = enrolment.lessonProgress?.find(p => p.lessonId === lesson.id);
-            if (lp?.viewed) completedItems++;
-          }
-          // Count quiz
-          if (step.quiz) {
-            totalItems++;
-            const attempt = enrolment.attempts?.find(a => a.quizId === step.quiz?.id && a.status === 'PASSED');
-            if (attempt) completedItems++;
-          }
-        }
-
+      if (enrolment && enrolment.batch?.programId) {
+        const totalItems = programTotals[enrolment.batch.programId] || 0;
+        const completedItems = enrolmentCompletions[enrolment.id] || 0;
         if (totalItems > 0) {
           progressPct = Math.round((completedItems / totalItems) * 100);
+          // clamp to 100 in case of data inconsistencies
+          if (progressPct > 100) progressPct = 100;
         }
       }
 
@@ -67,11 +106,19 @@ export class UsersService {
         email: user.email,
         role: user.role,
         status: enrolment?.status || 'Active',
-        progress: `${progressPct}%`, // Real progress calculated
+        progress: `${progressPct}%`,
         cohort: enrolment?.batch?.name || 'Unassigned',
         joined: new Date(user.createdAt).toLocaleDateString(),
       };
     });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
   }
 
   async create(data: any) {
@@ -119,13 +166,17 @@ export class UsersService {
         where: { userId: id, revokedAt: null },
         data: { revokedAt: new Date(), revokedReason: revokeReason }
       });
-    forgetSessions();
+      forgetSessions();
+      await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
     }
 
-    return this.prisma.user.update({
+    const updatedUser = await this.prisma.user.update({
       where: { id },
       data: userData,
     });
+    
+    await this.cacheHelper.invalidateNamespace('users');
+    return updatedUser;
   }
 
   async remove(id: string) {
@@ -134,6 +185,8 @@ export class UsersService {
       data: { revokedAt: new Date(), revokedReason: 'USER_DELETED' }
     });
     forgetSessions();
+    await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
+    await this.cacheHelper.invalidateNamespace('users');
     return this.prisma.user.delete({
       where: { id },
     });
@@ -152,6 +205,7 @@ export class UsersService {
       data: { revokedAt: new Date(), revokedReason: 'ADMIN_REVOKED' }
     });
     forgetSessions();
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
 
     await this.prisma.logAction({
       action: 'SESSIONS_REVOKED',

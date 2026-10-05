@@ -5,6 +5,7 @@ import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import express from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import { QueryCountInterceptor } from './common/interceptors/query-count.interceptor.js';
 import { UPLOAD_DIR } from './modules/website/storage.js';
 import { RedisIoAdapter } from './common/adapters/redis-io.adapter.js';
 import { SentryGlobalFilter } from '@sentry/nestjs/setup';
@@ -78,6 +79,8 @@ async function bootstrap() {
     new SentryGlobalFilter(),
     new HttpExceptionFilter()
   );
+
+  app.useGlobalInterceptors(new QueryCountInterceptor());
 
   // Realtime Socket.IO Redis Adapter
   const redisIoAdapter = new RedisIoAdapter(app);

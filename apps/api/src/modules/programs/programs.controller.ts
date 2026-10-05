@@ -40,8 +40,8 @@ export class ProgramsController {
 
   @Public()
   @Get()
-  findAll() {
-    return this.programsService.findAll();
+  findAll(@Request() req: any) {
+    return this.programsService.findAll(req?.user?.role);
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -64,8 +64,8 @@ export class ProgramsController {
 
   @Public()
   @Get(':id/steps')
-  getSteps(@Param('id') id: string) {
-    return this.programsService.getSteps(id);
+  getSteps(@Param('id') id: string, @Request() req: any) {
+    return this.programsService.getSteps(id, req?.user?.role);
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -82,8 +82,8 @@ export class ProgramsController {
   }
 
   @Get('steps/:stepId')
-  getStep(@Param('stepId') stepId: string) {
-    return this.programsService.getStep(stepId);
+  getStep(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.programsService.getStep(stepId, req?.user?.role);
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -93,8 +93,8 @@ export class ProgramsController {
   }
 
   @Get('steps/:stepId/lessons')
-  getLessons(@Param('stepId') stepId: string) {
-    return this.programsService.getLessons(stepId);
+  getLessons(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.programsService.getLessons(stepId, req?.user?.role);
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)

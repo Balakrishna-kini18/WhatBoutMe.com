@@ -20,6 +20,10 @@ export default function UsersPage() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const limit = 20;
   const [batches, setBatches] = useState<{id: string, name: string}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -43,8 +47,16 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
-    Promise.all([fetchUsers(), fetchBatches()]);
+    fetchBatches();
   }, []);
+
+  useEffect(() => {
+    setIsLoading(true);
+    const delay = setTimeout(() => {
+      fetchUsers();
+    }, 300); // debounce search
+    return () => clearTimeout(delay);
+  }, [page, search]);
 
   const fetchBatches = async () => {
     try {
@@ -64,12 +76,13 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        setUsers(data);
+        const json = await res.json();
+        setUsers(json.data || []);
+        setTotalUsers(json.total || 0);
       }
     } catch (e) {
       console.error("Failed to fetch users", e);
@@ -187,9 +200,15 @@ export default function UsersPage() {
 
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
-          <h2>All Learners ({users.length})</h2>
+          <h2>All Learners ({totalUsers})</h2>
           <div className={styles.searchContainer}>
-            <input type="text" placeholder="Search by name or email..." className={styles.searchInput} />
+            <input 
+              type="text" 
+              placeholder="Search by name or email..." 
+              className={styles.searchInput} 
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+            />
           </div>
         </div>
         
@@ -264,6 +283,28 @@ export default function UsersPage() {
             </tbody>
           </table>
         </div>
+        
+        {totalUsers > limit && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
+            <button 
+              className={styles.secondaryBtn} 
+              disabled={page === 1} 
+              onClick={() => setPage(p => p - 1)}
+            >
+              Previous
+            </button>
+            <span style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              Page {page} of {Math.ceil(totalUsers / limit)}
+            </span>
+            <button 
+              className={styles.secondaryBtn} 
+              disabled={page >= Math.ceil(totalUsers / limit)} 
+              onClick={() => setPage(p => p + 1)}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </section>
 
       {/* INVITE USER MODAL */}

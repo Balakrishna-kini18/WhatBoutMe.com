@@ -1,10 +1,25 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Scope } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+
+export let queryCount = 0;
+export const resetQueryCount = () => { queryCount = 0; };
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  constructor() {
+    super({
+      log: [
+        { emit: 'event', level: 'query' },
+      ],
+    });
+  }
+
   async onModuleInit() {
     await this.$connect();
+    // @ts-ignore
+    this.$on('query', (e) => {
+      queryCount++;
+    });
   }
 
   async onModuleDestroy() {

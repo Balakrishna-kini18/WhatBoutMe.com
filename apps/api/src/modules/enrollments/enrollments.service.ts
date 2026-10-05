@@ -1,10 +1,14 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EnrolmentStatus } from '@prisma/client';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class EnrollmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheHelper: CacheHelperService
+  ) {}
 
   async mockCheckout(userId: string, programId: string) {
     if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_MODE !== 'stripe') {
@@ -16,7 +20,7 @@ export class EnrollmentsService {
     });
     if (!program) throw new BadRequestException('Program not found');
 
-    return this.prisma.$transaction(async (tx) => {
+    const res = await this.prisma.$transaction(async (tx) => {
       // Find or create batch
       let batch = await tx.batch.findFirst({
         where: { programId }
@@ -54,6 +58,11 @@ export class EnrollmentsService {
 
       return enrolment;
     });
+
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
+    await this.cacheHelper.invalidateNamespace('batches');
+
+    return res;
   }
 }
 

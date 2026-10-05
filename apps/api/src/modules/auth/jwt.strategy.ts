@@ -3,11 +3,14 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { UnauthorizedException } from '@nestjs/common';
-import { rememberLiveSession, sessionKnownLive } from '../../common/session-cache.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private cacheHelper: CacheHelperService
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -16,18 +19,26 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    if (payload.sessionId && !sessionKnownLive(payload.sessionId)) {
-      const session = await this.prisma.userSession.findUnique({
-        where: { id: payload.sessionId }
-      });
-      // A revoked row still exists, so checking for the row alone let an
-      // ended session keep working until its access token expired.
-      if (!session || session.revokedAt) {
+    if (payload.sessionId) {
+      const guardKey = await this.cacheHelper.getGuardKey(payload.sub, payload.sessionId);
+      
+      const isSessionValid = await this.cacheHelper.getOrSet(
+        guardKey,
+        async () => {
+          const session = await this.prisma.userSession.findUnique({
+            where: { id: payload.sessionId }
+          });
+          if (!session || session.revokedAt) {
+            return false;
+          }
+          return true;
+        },
+        900 // 15 mins cache for session validity
+      );
+
+      if (!isSessionValid) {
         throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
       }
-      rememberLiveSession(payload.sessionId);
-      
-      // Optionally update lastActive here (may cause many DB writes, usually skipped or debounced)
     }
 
     // This decoded payload is attached to req.user

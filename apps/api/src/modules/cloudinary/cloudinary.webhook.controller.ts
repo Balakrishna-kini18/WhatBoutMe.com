@@ -40,8 +40,9 @@ export class CloudinaryWebhookController {
 
       // Return 200 OK to acknowledge receipt
       return { received: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Cloudinary webhook verification failed:', error);
+      if (error instanceof HttpException) throw error;
       throw new HttpException('Webhook verification failed', HttpStatus.UNAUTHORIZED);
     }
   }

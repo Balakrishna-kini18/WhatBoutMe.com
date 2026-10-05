@@ -168,8 +168,8 @@
 ## 4. Developer 2 — Complete Task List (Infra & Integrations)
 
 ### A. Cloudinary Media Infrastructure (100% Owned by Dev 2)
-- [ ] **D2-001:** Configure Cloudinary account and SDK in `apps/api`. Set up `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
-- [ ] **D2-002:** Configure video upload pipeline to store LMS videos strictly as `type: 'authenticated'`. Verify public unsigned URLs return 404/401.
+- [x] **D2-001:** Configure Cloudinary account and SDK in `apps/api`. Set up `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
+- [x] **D2-002:** Configure video upload pipeline to store LMS videos strictly as `type: 'authenticated'`. Verify public unsigned URLs return 404/401.
 - [ ] **D2-003:** Implement `CloudinaryMediaProvider.generateSignedPlaybackUrl()` with `sign_url: true` and short TTL (300 seconds / 5 minutes).
 - [ ] **D2-004:** Configure Cloudinary Allowed Strict Referral Domains (`whatboutme.com` and authorized frontend origins) to block hotlinking.
 - [ ] **D2-005:** Configure adaptive bitrate streaming delivery (HLS/DASH profiles `sp_auto`, 1080p, 720p, 480p).

@@ -1,4 +1,5 @@
-import { Controller, Post, Headers, HttpException, HttpStatus, Req, RawBodyRequest } from '@nestjs/common';
+import { Controller, Post, Headers, HttpException, HttpStatus, Req } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { Request } from 'express';

@@ -1,0 +1,113 @@
+:root {
+  /* Blue theme, shared by the admin and the learner portal. Keep the two
+     globals.css files in step so both apps look like one product. */
+  --bg-main: #f4f7fb;
+  --bg-soft: #f8fafc;
+  --bg-card: #ffffff;
+
+  /* Primary accents */
+  --accent-primary: #1d4ed8;
+  --accent-primary-hover: #1e40af;
+  --accent-secondary: #60a5fa;
+  --accent-highlight: #eaf1ff; /* soft blue tint for active states */
+
+  /* Typography */
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+  --text-disabled: #cbd5e1;
+
+  /* Borders and shadows */
+  --border-light: #e2e8f0;
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.05), 0 2px 4px -1px rgba(15, 23, 42, 0.03);
+  --shadow-card: 0 10px 30px -5px rgba(15, 23, 42, 0.06);
+
+  /* Status colours */
+  --status-success: #15803d;
+  --status-success-bg: #dcfce7;
+  --status-warning: #b45309;
+  --status-warning-bg: #fef3c7;
+  --status-error: #b91c1c;
+  --status-error-bg: #fee2e2;
+
+  /* One scale for every screen: text sizes, radii and control height */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --control-height: 2.75rem;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* form controls take the page font instead of the browser default */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Base headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  margin-top: 0;
+  font-weight: 600;
+}
+
+/* Hide sidebar and topbar on login page demo */
+body.login-page-active aside,
+body.login-page-active header {
+  display: none !important;
+}
+
+body.login-page-active ._layout_mainWrapper__xxxxxx { /* Fallback */ }
+body.login-page-active div[class*="mainWrapper"] {
+  margin-left: 0 !important;
+}
+
+/* Printing (certificates): drop the app chrome and use the whole page */
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  main,
+  div[class*="mainWrapper"],
+  div[class*="content"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+}

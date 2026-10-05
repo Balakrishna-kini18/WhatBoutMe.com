@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 1672" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <pattern id="dots" width="26" height="27" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="3" r="2.2" fill="#dcc6a8"/>
+    </pattern>
+  </defs>
+  <rect width="940" height="1672" fill="#fffaf2"/>
+  <!-- soft shapes -->
+  <path d="M620 0C640 110 760 170 860 230c50 30 70 60 80 80V0z" fill="#fbf0e2"/>
+  <path d="M0 0h340c10 90-60 210-180 220C90 226 40 205 0 180z" fill="#f8e8d6"/>
+  <path d="M0 180c60 30 150 50 250 20-40 90-140 150-250 160z" fill="#f6ede2" opacity=".8"/>
+  <path d="M0 560c120 60 190 190 250 350 60 170 170 300 330 340-190 110-420 90-580 40z" fill="#fcf3e8"/>
+  <path d="M940 1030c-110 50-200 150-250 260-50 100-130 180-250 220h500z" fill="#fbefe0"/>
+  <path d="M0 1320c110-10 190-30 280-15 150 25 220 150 420 180 90 14 170 0 240-20v207H0z" fill="#f9ead9"/>
+  <path d="M0 1420c160-20 300 60 440 130 110 55 170 90 220 122H0z" fill="#f6e2cc"/>
+  <path d="M940 1210c-170 10-290 150-300 330 100 20 210 0 300-30z" fill="#f5dfc9"/>
+  <!-- thin gold lines -->
+  <g fill="none" stroke="#c9a36b" stroke-width="1.6">
+    <path d="M432 0C380 130 250 250 0 302"/>
+    <path d="M940 1188c-150 8-240 90-310 200-50 80-90 130-170 150"/>
+    <path d="M0 1362c90-10 160 10 230 80 110 110 280 110 430 190"/>
+  </g>
+  <!-- dot grids -->
+  <rect x="14" y="390" width="104" height="170" fill="url(#dots)"/>
+  <rect x="848" y="902" width="92" height="150" fill="url(#dots)"/>
+</svg>

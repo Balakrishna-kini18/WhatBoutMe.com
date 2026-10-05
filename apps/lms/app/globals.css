@@ -1,0 +1,132 @@
+:root {
+  /* The public website's theme (cream, ink and gold; see its globals.css),
+     so the learner side looks like the same product. The admin keeps its
+     own blue theme. */
+  --bg-main: #fffbf3; /* cream */
+  --bg-soft: #f3eee6; /* sand */
+  --bg-card: #ffffff;
+
+  /* Primary accents. The primary is deep gold, not the bright gold: it is
+     used both as text and behind white button text, and stays readable. */
+  --accent-primary: #a9670f; /* gold-deep */
+  --accent-primary-hover: #8a530a;
+  --accent-secondary: #efa944; /* gold */
+  --accent-highlight: #fbeed2; /* cream-deep, for active states */
+
+  /* Typography */
+  --text-primary: #14110f; /* ink */
+  --text-secondary: #4a443d; /* ink-soft */
+  --text-disabled: #cfc8bd;
+
+  /* Borders and shadows */
+  --border-light: #e8e1d5;
+  --shadow-sm: 0 1px 2px 0 rgba(20, 17, 15, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(20, 17, 15, 0.05), 0 2px 4px -1px rgba(20, 17, 15, 0.03);
+  --shadow-card: 0 10px 30px -5px rgba(20, 17, 15, 0.06);
+
+  /* Status colours */
+  --status-success: #15803d;
+  --status-success-bg: #dcfce7;
+  --status-warning: #b45309;
+  --status-warning-bg: #fef3c7;
+  --status-error: #b91c1c;
+  --status-error-bg: #fee2e2;
+
+  /* One scale for every screen: text sizes, radii and control height */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --control-height: 2.75rem;
+  /* height of the phone top bar; the chat page sizes itself against it */
+  --topbar-h: 3rem;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Phones: the whole interface one step smaller (16px -> 15px base); sizes
+   and spacing are in rem, so everything shrinks together */
+@media (max-width: 639px) {
+  html {
+    font-size: 93.75%;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* form controls take the page font instead of the browser default */
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Base headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  margin-top: 0;
+  font-weight: 600;
+}
+
+/* Glassmorphism utility to card utility */
+.glass {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+}
+
+/* Hide sidebar on auth pages */
+body.auth-page-active aside {
+  display: none !important;
+}
+
+body.auth-page-active div[class*="mainContent"] {
+  margin-left: 0 !important;
+  padding: 0 !important;
+}
+
+/* Printing (certificates): drop the app chrome and use the whole page */
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  main,
+  div[class*="mainWrapper"],
+  div[class*="content"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+}

@@ -1,0 +1,785 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 2.5rem 1.25rem;
+  box-sizing: border-box;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  margin-bottom: 0;
+}
+
+.title {
+  font-size: 1.6rem;
+  letter-spacing: -0.015em;
+  margin: 0;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin: 0.15rem 0 0;
+}
+
+.notice {
+  margin: 0;
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  background: var(--status-error-bg);
+  color: var(--status-error);
+  font-size: 0.8125rem;
+}
+
+/* ---- 2-Column Main Layout: Left Calendar, Right Stats & Inspector ---- */
+.mainLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 360px);
+  gap: 1.25rem;
+  align-items: start;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.calendarColumn {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sidebarColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  position: sticky;
+  top: 1rem;
+}
+
+/* ---- Calendar Card (Left Side) ---- */
+.calendarCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.04);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Calendar Top Bar */
+.calendarNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 1.15rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-card);
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.monthSelector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.monthTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+  min-width: 140px;
+  letter-spacing: -0.01em;
+}
+
+.navBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.navBtn:hover {
+  background: var(--bg-soft);
+  border-color: var(--text-secondary);
+}
+
+.todayBtn {
+  padding: 0.25rem 0.65rem;
+  border-radius: 7px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-soft);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.todayBtn:hover {
+  background: var(--accent-highlight);
+  color: var(--accent-primary);
+  border-color: var(--accent-secondary);
+}
+
+.viewToggle {
+  display: flex;
+  align-items: center;
+  background: var(--bg-soft);
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  gap: 2px;
+}
+
+.toggleBtn {
+  border: none;
+  background: transparent;
+  padding: 0.25rem 0.65rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toggleBtnActive {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Weekday Names Header */
+.weekHeader {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border-light);
+  text-align: center;
+}
+
+.weekDayName {
+  padding: 0.45rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+/* 7-column Calendar Grid */
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: var(--border-light);
+  gap: 1px;
+  /* every week the same height, whatever a day holds */
+  grid-auto-rows: 1fr;
+}
+
+.dayCell {
+  min-height: clamp(50px, 6.8vh, 64px);
+  background: var(--bg-card);
+  padding: 0.35rem 0.4rem 0.45rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dayCell:hover {
+  background: var(--bg-main);
+}
+
+.otherMonth {
+  background: var(--bg-soft);
+  opacity: 0.45;
+}
+
+.otherMonth:hover {
+  opacity: 0.75;
+}
+
+.selectedCell {
+  background: var(--bg-main) !important;
+  box-shadow: inset 0 0 0 2px var(--accent-secondary);
+  z-index: 2;
+}
+
+.dayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.2rem;
+}
+
+.dayNumber {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.todayPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: white;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* Event & Attendance Pills in Day Cell */
+.cellEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+/* labels shorten with an ellipsis; they never widen the day */
+.cellEvents > * {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellEvents svg {
+  margin-right: 3px;
+  vertical-align: -1px;
+}
+
+.presentBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  background: var(--accent-highlight);
+  color: var(--accent-primary);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.sessionPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  background: var(--accent-secondary);
+  color: var(--text-primary);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionPillLive {
+  background: var(--status-error-bg);
+  color: var(--status-error);
+  animation: livePulse 1.5s infinite;
+}
+
+@keyframes livePulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.65; }
+  100% { opacity: 1; }
+}
+
+/* Calendar Legend */
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.5rem 1.15rem;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border-light);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legendDotPresent {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+}
+
+.legendDotSession {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-secondary);
+}
+
+.legendDotToday {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-primary);
+}
+
+/* ---- Right Sidebar Column ---- */
+
+/* Stat Summary Widget (Top of Right Column) */
+.statsCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.04);
+}
+
+.statsHeader {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.statsTitle {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.statsSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  background: var(--bg-card);
+}
+
+.statsSummaryGrid > div {
+  padding: 0.65rem 0.5rem;
+  text-align: center;
+  border-left: 1px solid var(--border-light);
+}
+
+.statsSummaryGrid > div:first-child {
+  border-left: none;
+}
+
+.statsSummaryGrid dd {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.statsSummaryGrid dt {
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  line-height: 1.2;
+}
+
+/* Selected Day Inspector (Below Stats in Right Column) */
+.inspectorCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.04);
+  display: flex;
+  flex-direction: column;
+}
+
+.inspectorHeader {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.inspectorDate {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.todayBadge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: white;
+}
+
+.inspectorBody {
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sectionBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sectionLabel {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activityItem {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sessionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+}
+
+.sessionCardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sessionCardTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.sessionCardTime {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin: 0.2rem 0 0;
+}
+
+.joinSessionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.joinSessionBtn:hover {
+  background: var(--accent-primary-hover);
+}
+
+.recordingLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.emptyNotice {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ---- List View (Fallback) ---- */
+.listView {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.listPanel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.04);
+}
+
+.listPanelHead {
+  padding: 1rem 1.4rem;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.listPanelHead h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.4rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.listItem:last-child {
+  border-bottom: none;
+}
+
+.listDateTile {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+  background: var(--accent-secondary);
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.listDateTile span {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.listDateTile strong {
+  margin-top: 2px;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.listItemBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.listItemTitle {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.listItemMeta {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.badgePresent {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--accent-highlight);
+  color: var(--accent-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.badgeUpcoming {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.badgeAbsent {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: var(--status-error-bg);
+  color: var(--status-error);
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .mainLayout {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+  }
+  /* one column: the stats first, then the calendar, then the selected day.
+     The side column's two cards become items of the page grid so the stats
+     can move above the calendar. */
+  .sidebarColumn {
+    display: contents;
+  }
+  .statsCard {
+    order: -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 0.5rem 0.75rem 1.75rem;
+    gap: 1rem;
+  }
+  .calendarNav {
+    padding: 0.9rem;
+  }
+  .monthTitle {
+    font-size: 1.05rem;
+    min-width: 0;
+  }
+  .dayCell {
+    min-height: 54px;
+    padding: 0.3rem 0.2rem;
+  }
+  .dayNumber {
+    font-size: 0.72rem;
+  }
+  .todayPill {
+    width: 18px;
+    height: 18px;
+    font-size: 0.65rem;
+  }
+  .presentBadge {
+    padding: 1px 3px;
+    font-size: 0.58rem;
+  }
+  .sessionPill {
+    padding: 1px 3px;
+    font-size: 0.58rem;
+  }
+}
+
+/* Wide screens: the page fills the height of the window, with no empty band
+   under the calendar. The calendar rows share whatever height is left, and
+   the selected-day panel stretches to end level with the calendar.
+   5.25rem is the top bar. */
+@media (min-width: 1025px) {
+  .container {
+    min-height: calc(100vh - 5.25rem);
+  }
+
+  .mainLayout {
+    flex: 1;
+    align-items: stretch;
+  }
+
+  .calendarColumn > *,
+  .calendarGrid,
+  .inspectorCard {
+    flex: 1;
+  }
+
+  .calendarGrid {
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  .sidebarColumn {
+    position: static;
+  }
+
+  .dayNumber {
+    font-size: 0.875rem;
+  }
+
+  .presentBadge,
+  .sessionPill {
+    padding: 3px 7px;
+    font-size: 0.75rem;
+  }
+}

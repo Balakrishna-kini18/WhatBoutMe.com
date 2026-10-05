@@ -1,0 +1,249 @@
+/*
+ * Certificate sheet: A4 landscape, gold band on the left, name and course beside it.
+ * Sized in container units so it looks the same on screen and on paper.
+ * Keep this file identical in the learner portal and the admin app.
+ */
+.sheet {
+  --gold: #efa944;
+  --gold-deep: #a9670f;
+  --ink: #14110f;
+  --rule: #d9d4cb;
+
+  container-type: inline-size;
+  position: relative;
+  display: grid;
+  grid-template-columns: 15% 1fr;
+  width: 100%;
+  max-width: 1100px;
+  aspect-ratio: 297 / 210;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 20px 50px -30px rgba(15, 23, 42, 0.35);
+  /* browsers drop backgrounds when printing unless asked to keep them */
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.band {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 6cqw 0 6cqw 3.2cqw;
+  background: var(--gold);
+}
+
+.band span {
+  color: #ffffff;
+  font-size: 5.6cqw;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6cqw 6cqw 5cqw 5cqw;
+}
+
+.logo {
+  display: block;
+  /* a column flex item stretches by default, which would distort the logo */
+  align-self: flex-start;
+  width: auto;
+  height: 2.6cqw;
+}
+
+.seal {
+  position: absolute;
+  top: 4.5cqw;
+  right: 6cqw;
+  width: 11cqw;
+  height: auto;
+}
+
+.lead {
+  margin: 4.2cqw 0 0;
+  font-size: 1.7cqw;
+}
+
+.name {
+  max-width: 78%;
+  margin: 1.4cqw 0 0;
+  overflow-wrap: anywhere;
+  color: var(--gold-deep);
+  font-size: 4.6cqw;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.text {
+  max-width: 86%;
+  margin: 2.6cqw 0 0;
+  font-size: 1.7cqw;
+  line-height: 1.5;
+}
+
+.text strong {
+  display: block;
+  margin-top: 0.4cqw;
+  font-size: 2.5cqw;
+  line-height: 1.2;
+}
+
+.divider {
+  width: 100%;
+  height: 0.9cqw;
+  margin-top: 2.8cqw;
+}
+
+.foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 5cqw;
+  margin-top: auto;
+}
+
+.verified {
+  margin: 0 0 4.4cqw;
+  font-size: 1.35cqw;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.signature {
+  width: 22cqw;
+  padding-top: 0.8cqw;
+  border-top: 1px solid var(--ink);
+  font-size: 1.5cqw;
+  font-weight: 700;
+}
+
+.signature span,
+.number {
+  display: block;
+  font-size: 1.2cqw;
+  font-weight: 400;
+}
+
+.number {
+  margin: 0 0 0 auto;
+  text-align: right;
+}
+
+.number strong {
+  display: block;
+  font-size: 1.3cqw;
+}
+
+/* the page around the sheet */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 1100px;
+  margin: 0 auto 1.25rem;
+}
+
+.toolbar h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.toolbar p {
+  margin: 0.15rem 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height);
+  padding: 0 1.25rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primary {
+  border: none;
+  background: var(--accent-primary);
+  color: #ffffff;
+}
+
+.primary:hover {
+  background: var(--accent-primary-hover);
+}
+
+.secondary {
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.message {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* several certificates on one screen, one per page on paper */
+.stack {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media print {
+  .toolbar,
+  .screenOnly {
+    display: none;
+  }
+
+  .stack {
+    display: block;
+  }
+
+  .stack .sheet {
+    break-after: page;
+  }
+
+  .stack .sheet:last-child {
+    break-after: auto;
+  }
+
+  .sheet {
+    width: 297mm;
+    max-width: none;
+    height: 210mm;
+    border: none;
+    box-shadow: none;
+  }
+}

@@ -2,26 +2,8 @@ import { Controller, Post, Body, Get, Request } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
-import { IsString, IsEmail, IsNotEmpty, IsOptional, IsArray, ValidateIf } from 'class-validator';
-
-export class LoginDto {
-  // sign in with either the account email or its mobile number
-  @ValidateIf((o) => !o.phone) @IsEmail() @IsNotEmpty() email?: string;
-  @ValidateIf((o) => !o.email) @IsString() @IsNotEmpty() phone?: string;
-  @IsString() @IsNotEmpty() password: string;
-}
-
-export class SignupDto {
-  @IsString() @IsNotEmpty() name: string;
-  @IsEmail() @IsNotEmpty() email: string;
-  @IsOptional() @IsString() phone?: string;
-  @IsString() @IsNotEmpty() password: string;
-  @IsOptional() @IsArray() @IsString({ each: true }) programIds?: string[];
-}
-
-export class RefreshDto {
-  @IsString() @IsNotEmpty() refresh_token: string;
-}
+import { LoginDto, SignupDto, RefreshDto } from './dto/index.js';
+export { LoginDto, SignupDto, RefreshDto };
 
 // Strict limit for the endpoints that take a password. Applied per endpoint,
 // not to the whole controller: /auth/me, /auth/session and /auth/refresh are

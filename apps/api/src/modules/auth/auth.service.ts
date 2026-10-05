@@ -1,4 +1,11 @@
-import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Role, EnrolmentStatus } from '@prisma/client';
@@ -7,6 +14,15 @@ import * as bcrypt from 'bcryptjs';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
+import {
+  generateTotpSecret,
+  generateOtpauthUri,
+  verifyTotp,
+  encryptTotpSecret,
+  decryptTotpSecret,
+  generateBackupCodes,
+  hashBackupCode,
+} from './totp.util.js';
 
 export interface DeviceSessionMetadata {
   deviceFingerprint?: string | null;
@@ -81,6 +97,21 @@ export class AuthService {
 
     if (!user.emailVerifiedAt) {
       throw new UnauthorizedException('Please verify your email before logging in');
+    }
+
+    // Security check (D1-022): prevent 2FA bypass by calling /auth/login instead of /auth/admin-login
+    if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
+      const tempToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa_login' },
+        {
+          secret: process.env.JWT_SECRET || 'fallback-secret',
+          expiresIn: '5m',
+        },
+      );
+      return {
+        requires2fa: true,
+        tempToken,
+      };
     }
 
     const sessionId = randomUUID();
@@ -316,7 +347,7 @@ export class AuthService {
   /**
    * Admin login: only ADMIN / SUPER_ADMIN / MANAGER roles can log in here.
    */
-  async adminLogin(email: string, password: string) {
+  async adminLogin(email: string, password: string, metadata?: DeviceSessionMetadata) {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -336,6 +367,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    // If SUPER_ADMIN or ADMIN and 2FA is enabled: DO NOT create a session yet!
+    if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
+      const tempToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa_login' },
+        {
+          secret: process.env.JWT_SECRET || 'fallback-secret',
+          expiresIn: '5m',
+        },
+      );
+      return {
+        requires2fa: true,
+        tempToken,
+      };
+    }
+
     const sessionId = randomUUID();
     const refreshPayload = { sub: user.id, sessionId };
     const refreshToken = this.jwtService.sign(refreshPayload, {
@@ -345,7 +391,7 @@ export class AuthService {
     const tokenHash = await bcrypt.hash(refreshToken, 10);
 
     // Enforce device limits
-    await this.createDeviceSession(user.id, user.role, tokenHash, undefined, sessionId);
+    await this.createDeviceSession(user.id, user.role, tokenHash, metadata, sessionId);
 
     const accessPayload = {
       sub: user.id,
@@ -357,7 +403,7 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
 
-    return {
+    const response: any = {
       access_token: accessToken,
       refresh_token: refreshToken,
       user: {
@@ -367,6 +413,12 @@ export class AuthService {
         role: user.role,
       },
     };
+
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
+      response.requires2faSetup = true;
+    }
+
+    return response;
   }
 
   /**
@@ -678,24 +730,143 @@ export class AuthService {
   }
 
   /**
-   * Logout all sessions
+   * Logout current session (D1-023): Revokes the current UserSession, clears session cache, and logs audit event.
+   * Idempotent: returns success even if session is already revoked or missing.
+   */
+  async logout(userId: string, sessionId?: string) {
+    if (sessionId) {
+      await this.prisma.userSession.updateMany({
+        where: { id: sessionId, userId, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: 'LOGOUT' },
+      });
+      forgetSessions();
+
+      if (typeof (this.prisma as any).logAction === 'function') {
+        await (this.prisma as any).logAction({
+          actorId: userId,
+          action: 'LOGOUT',
+          entity: 'UserSession',
+          entityId: sessionId,
+        }).catch(() => {});
+      }
+    } else {
+      forgetSessions();
+    }
+
+    return { success: true, message: 'Logged out successfully' };
+  }
+
+  /**
+   * Logout all sessions (D1-023): Revokes all active UserSessions for the user and clears session cache.
    */
   async logoutAll(userId: string) {
     const res = await this.prisma.userSession.updateMany({
       where: { userId, revokedAt: null },
-      data: { revokedAt: new Date(), revokedReason: 'LOGOUT_ALL' }
+      data: { revokedAt: new Date(), revokedReason: 'LOGOUT_ALL' },
     });
     forgetSessions();
-    
-    await this.prisma.logAction({
-      actorId: userId,
-      action: 'LOGOUT_ALL_SESSIONS',
-      entity: 'User',
-      entityId: userId,
-      meta: { count: res.count }
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: userId,
+        action: 'LOGOUT_ALL_SESSIONS',
+        entity: 'User',
+        entityId: userId,
+        meta: { count: res.count },
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      count: res.count,
+      message: 'All sessions logged out successfully',
+    };
+  }
+
+  /**
+   * List all active sessions for the authenticated user (D1-023).
+   * Strips all token hashes and sensitive credentials.
+   */
+  async getSessions(userId: string, currentSessionId?: string) {
+    const sessions = await this.prisma.userSession.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        deviceFingerprint: true,
+        ipAddress: true,
+        userAgent: true,
+        lastActive: true,
+        expiresAt: true,
+        createdAt: true,
+      },
     });
 
-    return { success: true, count: res.count };
+    return sessions.map((s) => ({
+      id: s.id,
+      deviceFingerprint: s.deviceFingerprint,
+      ipAddress: s.ipAddress,
+      userAgent: s.userAgent,
+      lastActive: s.lastActive,
+      expiresAt: s.expiresAt,
+      createdAt: s.createdAt,
+      isCurrent: currentSessionId ? s.id === currentSessionId : false,
+    }));
+  }
+
+  /**
+   * Revoke a specific session belonging to the authenticated user (D1-023).
+   * Verifies ownership and invalidates session cache immediately.
+   */
+  async revokeSession(userId: string, sessionIdToRevoke: string, currentSessionId?: string) {
+    if (!sessionIdToRevoke || typeof sessionIdToRevoke !== 'string') {
+      throw new BadRequestException('Session ID is required');
+    }
+
+    const session = await this.prisma.userSession.findUnique({
+      where: { id: sessionIdToRevoke },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (session.revokedAt !== null) {
+      return {
+        success: true,
+        message: 'Session is already revoked',
+        isCurrent: sessionIdToRevoke === currentSessionId,
+      };
+    }
+
+    await this.prisma.userSession.update({
+      where: { id: sessionIdToRevoke },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: 'USER_REVOKED',
+      },
+    });
+
+    forgetSessions();
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: userId,
+        action: 'REVOKE_SESSION',
+        entity: 'UserSession',
+        entityId: sessionIdToRevoke,
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: 'Session revoked successfully',
+      isCurrent: sessionIdToRevoke === currentSessionId,
+    };
   }
 
   /**
@@ -839,6 +1010,221 @@ export class AuthService {
     return {
       success: true,
       message: 'Password has been reset successfully',
+    };
+  }
+
+  /**
+   * Generate 2FA Secret (D1-022): Generates TOTP secret and otpauth URI for SUPER_ADMIN or ADMIN.
+   * Does NOT enable 2FA until verified.
+   */
+  async generate2faSecret(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Two-factor authentication is only available for admin roles');
+    }
+
+    const secret = generateTotpSecret();
+    const otpauthUrl = generateOtpauthUri({
+      issuer: 'WhatBoutMe',
+      accountName: user.email,
+      secret,
+    });
+
+    return {
+      secret,
+      otpauthUrl,
+    };
+  }
+
+  /**
+   * Enable 2FA (D1-022): Verifies TOTP code against setup secret, encrypts secret at rest with AES-256-GCM,
+   * generates 10 hashed backup codes, and enables twoFactorEnabled.
+   */
+  async enable2fa(userId: string, code: string, secret?: string) {
+    if (!code || typeof code !== 'string') {
+      throw new BadRequestException('Verification code is required');
+    }
+
+    if (!secret || typeof secret !== 'string' || !/^[A-Z2-7]{16,64}$/i.test(secret.trim())) {
+      throw new BadRequestException('Setup secret is required and must be a valid Base32 string (16-64 characters)');
+    }
+
+    const trimmedSecret = secret.trim().toUpperCase();
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Two-factor authentication is only available for admin roles');
+    }
+
+    const isValid = verifyTotp(code, trimmedSecret, { window: 1 });
+    if (!isValid) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    const rawBackupCodes = generateBackupCodes(10);
+    const hashedBackupCodes = rawBackupCodes.map(hashBackupCode);
+    const encryptedSecret = encryptTotpSecret(trimmedSecret);
+
+    // Atomically persist under advisory lock
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          twoFactorSecret: encryptedSecret,
+          twoFactorEnabled: true,
+          twoFactorBackupCodes: hashedBackupCodes,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Two-factor authentication enabled successfully',
+      backupCodes: rawBackupCodes,
+    };
+  }
+
+  /**
+   * Verify 2FA (D1-022): Verifies TOTP or backup code during admin login handshake,
+   * creates UserSession with device limit, and issues access + refresh tokens.
+   */
+  async verify2fa(tempToken: string, code: string, metadata?: DeviceSessionMetadata) {
+    if (!tempToken || typeof tempToken !== 'string') {
+      throw new UnauthorizedException('Two-factor authentication token is required');
+    }
+
+    if (!code || typeof code !== 'string') {
+      throw new UnauthorizedException('Verification code is required');
+    }
+
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(tempToken, {
+        secret: process.env.JWT_SECRET || 'fallback-secret',
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired two-factor authentication session');
+    }
+
+    if (!payload || !payload.sub || payload.purpose !== '2fa_login') {
+      throw new UnauthorizedException('Invalid or expired two-factor authentication session');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+
+    if (!user || user.deletedAt || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      throw new UnauthorizedException('Two-factor authentication is not active for this account');
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Two-factor authentication is only available for admin roles');
+    }
+
+    const trimmedCode = code.trim().toUpperCase();
+
+    // 1. Try TOTP code verification
+    let verified = false;
+
+    try {
+      const decryptedSecret = decryptTotpSecret(user.twoFactorSecret);
+      if (verifyTotp(trimmedCode, decryptedSecret, { window: 1 })) {
+        verified = true;
+      }
+    } catch {
+      throw new UnauthorizedException('Two-factor authentication verification failed');
+    }
+
+    // 2. If TOTP failed, try backup code verification under transactional advisory lock
+    if (!verified) {
+      const candidateHash = hashBackupCode(trimmedCode);
+
+      await this.prisma.$transaction(async (tx: any) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
+
+        const freshUser = await tx.user.findUnique({
+          where: { id: user.id },
+        });
+
+        if (
+          !freshUser ||
+          freshUser.deletedAt ||
+          !freshUser.twoFactorEnabled ||
+          !freshUser.twoFactorBackupCodes ||
+          freshUser.twoFactorBackupCodes.length === 0
+        ) {
+          throw new UnauthorizedException('Invalid two-factor authentication code');
+        }
+
+        const usedIdx = freshUser.twoFactorBackupCodes.indexOf(candidateHash);
+        if (usedIdx === -1) {
+          throw new UnauthorizedException('Invalid two-factor authentication code');
+        }
+
+        const remainingBackupCodes = freshUser.twoFactorBackupCodes.filter(
+          (_: string, idx: number) => idx !== usedIdx,
+        );
+
+        await tx.user.update({
+          where: { id: freshUser.id },
+          data: { twoFactorBackupCodes: remainingBackupCodes },
+        });
+
+        verified = true;
+      });
+    }
+
+    if (!verified) {
+      throw new UnauthorizedException('Invalid two-factor authentication code');
+    }
+
+    // 3. Issue full session tokens with D1-017 limits and D1-018 rotation
+    const sessionId = randomUUID();
+    const refreshPayload = { sub: user.id, sessionId };
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
+      expiresIn: '7d',
+    });
+    const tokenHash = await bcrypt.hash(refreshToken, 10);
+
+    await this.createDeviceSession(user.id, user.role, tokenHash, metadata, sessionId);
+
+    const accessPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      companyId: user.companyId,
+      sessionId,
+    };
+
+    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
     };
   }
 }

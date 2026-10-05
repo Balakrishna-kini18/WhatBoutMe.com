@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ConflictException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  ConflictException,
+  BadRequestException,
+  UnauthorizedException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Role, EnrolmentStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -9,6 +15,14 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { SignupDto } from './dto/index.js';
 import { rememberLiveSession, sessionKnownLive } from '../../common/session-cache.js';
 import { JwtStrategy } from './jwt.strategy.js';
+import {
+  generateTotp,
+  generateTotpSecret,
+  decryptTotpSecret,
+  encryptTotpSecret,
+  hashBackupCode,
+  generateBackupCodes,
+} from './totp.util.js';
 
 describe('AuthService - Authentication Tests', () => {
   let authService: AuthService;
@@ -41,6 +55,9 @@ describe('AuthService - Authentication Tests', () => {
       },
       dailyAttendance: {
         upsert: vi.fn().mockResolvedValue({}),
+      },
+      session: {
+        findMany: vi.fn().mockResolvedValue([]),
       },
       userSession: {
         create: vi.fn(),
@@ -863,8 +880,8 @@ describe('AuthService - Authentication Tests', () => {
         take: 2,
       });
 
-      expect(result.user.id).toBe('user-phone-1');
-      expect(result.user.email).toBe('phoneuser@example.com');
+      expect((result as any).user.id).toBe('user-phone-1');
+      expect((result as any).user.email).toBe('phoneuser@example.com');
     });
 
     it('rejects wrong password with generic UnauthorizedException', async () => {
@@ -956,7 +973,7 @@ describe('AuthService - Authentication Tests', () => {
 
       const result = await authService.login('manager@example.com', plainPassword);
 
-      expect(result.user.role).toBe(Role.MANAGER);
+      expect((result as any).user.role).toBe(Role.MANAGER);
     });
 
     it('rejects empty identifier or empty password', async () => {
@@ -1198,8 +1215,8 @@ describe('AuthService - Authentication Tests', () => {
 
       it('4. Current/new session remains active after eviction', async () => {
         const u1 = 'user-lifecycle-1';
-        const s1 = await simulateCreateDeviceSession(u1, 'token-1');
-        const s2 = await simulateCreateDeviceSession(u1, 'token-2');
+        const _s1 = await simulateCreateDeviceSession(u1, 'token-1');
+        const _s2 = await simulateCreateDeviceSession(u1, 'token-2');
         const s3 = await simulateCreateDeviceSession(u1, 'token-3');
 
         const s3Row = sessionStore.find((s) => s.id === s3);
@@ -1274,7 +1291,7 @@ describe('AuthService - Authentication Tests', () => {
         const u2 = 'user-B';
 
         // User A fills 2 sessions
-        const a1 = await simulateCreateDeviceSession(u1, 'token-a1');
+        const _a1 = await simulateCreateDeviceSession(u1, 'token-a1');
         const a2 = await simulateCreateDeviceSession(u1, 'token-a2');
 
         // User B logs in with 1 session
@@ -2051,6 +2068,795 @@ describe('AuthService - Authentication Tests', () => {
         expect(successes.length).toBe(1);
         expect(failures.length).toBe(1);
         expect(tokenState.usedAt).not.toBeNull();
+      });
+    });
+  });
+
+  describe('AuthService - D1-022 TOTP / Admin Two-Factor Authentication', () => {
+    const adminUser = {
+      id: 'admin-uuid-1',
+      email: 'admin@whatboutme.com',
+      name: 'Super Admin',
+      role: Role.SUPER_ADMIN,
+      passwordHash: '',
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+      twoFactorBackupCodes: [],
+      deletedAt: null,
+      emailVerifiedAt: new Date(),
+    };
+
+    beforeEach(async () => {
+      adminUser.passwordHash = await bcrypt.hash('AdminSecret123!', 10);
+      process.env.TOTP_ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    });
+
+    describe('1. Role-based access control for 2FA setup', () => {
+      it('allows SUPER_ADMIN to generate TOTP secret', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.SUPER_ADMIN });
+        const res = await authService.generate2faSecret(adminUser.id);
+        expect(res).toHaveProperty('secret');
+        expect(res).toHaveProperty('otpauthUrl');
+        expect(res.otpauthUrl).toContain('otpauth://totp/WhatBoutMe');
+      });
+
+      it('allows ADMIN to generate TOTP secret', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+        const res = await authService.generate2faSecret(adminUser.id);
+        expect(res).toHaveProperty('secret');
+        expect(res.otpauthUrl).toContain('otpauth://totp/WhatBoutMe');
+      });
+
+      it('denies MANAGER from generating 2FA secret with ForbiddenException', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.MANAGER });
+        await expect(authService.generate2faSecret(adminUser.id)).rejects.toThrow(ForbiddenException);
+      });
+
+      it('denies USER from generating 2FA secret with ForbiddenException', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.USER });
+        await expect(authService.generate2faSecret(adminUser.id)).rejects.toThrow(ForbiddenException);
+      });
+
+      it('denies MANAGER from enabling 2FA with ForbiddenException', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.MANAGER });
+        await expect(authService.enable2fa(adminUser.id, '123456', 'JBSWY3DPEHPK3PXP')).rejects.toThrow(
+          ForbiddenException,
+        );
+      });
+
+      it('denies USER from enabling 2FA with ForbiddenException', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.USER });
+        await expect(authService.enable2fa(adminUser.id, '123456', 'JBSWY3DPEHPK3PXP')).rejects.toThrow(
+          ForbiddenException,
+        );
+      });
+    });
+
+    describe('2. Secret Generation & Protection (/auth/2fa/generate)', () => {
+      it('generates a valid Base32 RFC 4648 secret and does NOT enable 2FA or touch DB', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+        const res = await authService.generate2faSecret(adminUser.id);
+
+        expect(typeof res.secret).toBe('string');
+        expect(res.secret.length).toBeGreaterThanOrEqual(16);
+        expect(/^[A-Z2-7]+$/.test(res.secret)).toBe(true);
+        expect(res.otpauthUrl).toContain(`secret=${res.secret}`);
+        expect(res.otpauthUrl).toContain('WhatBoutMe');
+        // DB update is never called during generate
+        expect(prismaMock.user.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('3. Enable 2FA & Backup Codes (/auth/2fa/enable)', () => {
+      it('enables 2FA with valid TOTP code, encrypts secret with AES-256-GCM, and issues 10 backup codes', async () => {
+        const secret = generateTotpSecret();
+        const code = generateTotp(secret);
+
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+        let updatedData: any = null;
+        prismaMock.user.update.mockImplementation(async ({ data }: any) => {
+          updatedData = data;
+          return { ...adminUser, ...data };
+        });
+
+        const res = await authService.enable2fa(adminUser.id, code, secret);
+
+        expect(res.success).toBe(true);
+        expect(res.message).toContain('enabled successfully');
+        expect(res.backupCodes).toHaveLength(10);
+        // Backup codes are returned raw only once
+        for (const bc of res.backupCodes) {
+          expect(typeof bc).toBe('string');
+          expect(bc.length).toBe(8);
+        }
+
+        // Verify DB update: secret is encrypted (iv:tag:data), not plaintext
+        expect(updatedData).not.toBeNull();
+        expect(updatedData.twoFactorEnabled).toBe(true);
+        expect(updatedData.twoFactorSecret).not.toEqual(secret);
+        expect(updatedData.twoFactorSecret.split(':')).toHaveLength(3);
+
+        // Verify secret can be decrypted with AES-256-GCM to original secret
+        const decrypted = decryptTotpSecret(updatedData.twoFactorSecret);
+        expect(decrypted).toBe(secret);
+
+        // Verify backup codes stored in DB are SHA-256 hashes, not plaintext
+        expect(updatedData.twoFactorBackupCodes).toHaveLength(10);
+        for (let i = 0; i < 10; i++) {
+          const rawCode = res.backupCodes[i];
+          const expectedHash = hashBackupCode(rawCode);
+          expect(updatedData.twoFactorBackupCodes).toContain(expectedHash);
+          expect(updatedData.twoFactorBackupCodes).not.toContain(rawCode);
+        }
+      });
+
+      it('rejects enable2fa with invalid TOTP code and does not modify user state', async () => {
+        const secret = generateTotpSecret();
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+
+        await expect(authService.enable2fa(adminUser.id, '000000', secret)).rejects.toThrow(BadRequestException);
+        expect(prismaMock.user.update).not.toHaveBeenCalled();
+      });
+
+      it('rejects enable2fa when secret is missing', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+        await expect(authService.enable2fa(adminUser.id, '123456', '')).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects enable2fa when setup secret has invalid Base32 characters', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+        await expect(authService.enable2fa(adminUser.id, '123456', 'INVALID!@#SECRET')).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+
+      it('rejects enable2fa when setup secret is shorter than 16 characters', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({ ...adminUser, role: Role.ADMIN });
+        await expect(authService.enable2fa(adminUser.id, '123456', 'SHORT')).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+    });
+
+    describe('4. Admin Login Integration & 2FA Challenge', () => {
+      it('adminLogin for admin with 2FA enabled returns tempToken and does NOT create UserSession', async () => {
+        const secret = generateTotpSecret();
+        const encryptedSecret = encryptTotpSecret(secret);
+
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        });
+
+        jwtServiceMock.sign.mockReturnValue('mock-2fa-temp-jwt');
+
+        const res = await authService.adminLogin(adminUser.email, 'AdminSecret123!');
+
+        expect(res).toEqual({
+          requires2fa: true,
+          tempToken: 'mock-2fa-temp-jwt',
+        });
+        // No session created, no access_token
+        expect(res).not.toHaveProperty('access_token');
+        expect(prismaMock.userSession.create).not.toHaveBeenCalled();
+        expect(jwtServiceMock.sign).toHaveBeenCalledWith(
+          { sub: adminUser.id, purpose: '2fa_login' },
+          expect.objectContaining({ expiresIn: '5m' }),
+        );
+      });
+
+      it('adminLogin for admin WITHOUT 2FA enabled issues normal session with requires2faSetup flag', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          twoFactorEnabled: false,
+        });
+
+        prismaMock.userSession.create.mockResolvedValue({ id: 'session-admin-1' });
+        jwtServiceMock.sign
+          .mockReturnValueOnce('mock-admin-refresh')
+          .mockReturnValueOnce('mock-admin-access');
+
+        const res = await authService.adminLogin(adminUser.email, 'AdminSecret123!');
+
+        expect(res).toHaveProperty('access_token');
+        expect(res).toHaveProperty('refresh_token');
+        expect(res.requires2faSetup).toBe(true);
+        expect(prismaMock.$transaction).toHaveBeenCalled();
+      });
+
+      it('prevent 2FA bypass: calling /auth/login for 2FA-enabled admin also requires 2FA', async () => {
+        const secret = generateTotpSecret();
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptTotpSecret(secret),
+        });
+
+        jwtServiceMock.sign.mockReturnValue('mock-login-temp-jwt');
+
+        const res = await authService.login(adminUser.email, 'AdminSecret123!');
+
+        expect(res).toEqual({
+          requires2fa: true,
+          tempToken: 'mock-login-temp-jwt',
+        });
+        expect(prismaMock.userSession.create).not.toHaveBeenCalled();
+      });
+
+      it('normal learner and manager login behavior remains unchanged', async () => {
+        const learnerPassword = await bcrypt.hash('LearnerPass123!', 10);
+        prismaMock.user.findUnique.mockResolvedValue({
+          id: 'learner-1',
+          email: 'learner@example.com',
+          name: 'Learner One',
+          role: Role.USER,
+          passwordHash: learnerPassword,
+          emailVerifiedAt: new Date(),
+          twoFactorEnabled: false,
+        });
+
+        prismaMock.userSession.create.mockResolvedValue({ id: 'sess-l-1' });
+        jwtServiceMock.sign.mockReturnValue('learner-token');
+
+        const res = await authService.login('learner@example.com', 'LearnerPass123!');
+
+        expect(res).toHaveProperty('access_token');
+        expect(res).not.toHaveProperty('requires2fa');
+      });
+    });
+
+    describe('5. Complete 2FA Verification (/auth/2fa/verify)', () => {
+      it('completes login with valid TOTP code and creates canonical UserSession', async () => {
+        const secret = generateTotpSecret();
+        const encryptedSecret = encryptTotpSecret(secret);
+        const code = generateTotp(secret);
+
+        jwtServiceMock.verify.mockReturnValue({
+          sub: adminUser.id,
+          purpose: '2fa_login',
+        });
+
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptedSecret,
+        });
+
+        prismaMock.userSession.create.mockResolvedValue({ id: 'canonical-admin-session' });
+        jwtServiceMock.sign
+          .mockReturnValueOnce('refresh-after-2fa')
+          .mockReturnValueOnce('access-after-2fa');
+
+        const res = await authService.verify2fa('valid-temp-token', code, {
+          ipAddress: '127.0.0.1',
+          userAgent: 'Admin-Test-Agent',
+        });
+
+        expect(res).toHaveProperty('access_token', 'access-after-2fa');
+        expect(res).toHaveProperty('refresh_token', 'refresh-after-2fa');
+        expect(res.user).toEqual({
+          id: adminUser.id,
+          email: adminUser.email,
+          name: adminUser.name,
+          role: adminUser.role,
+        });
+        expect(prismaMock.$transaction).toHaveBeenCalled();
+      });
+
+      it('completes login with valid single-use backup code and atomically consumes it', async () => {
+        const rawBackupCodes = generateBackupCodes(5);
+        const hashedBackupCodes = rawBackupCodes.map(hashBackupCode);
+        const secret = generateTotpSecret();
+        const codeToUse = rawBackupCodes[2];
+
+        jwtServiceMock.verify.mockReturnValue({
+          sub: adminUser.id,
+          purpose: '2fa_login',
+        });
+
+        let currentBackupCodes = [...hashedBackupCodes];
+        prismaMock.user.findUnique.mockImplementation(async () => ({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptTotpSecret(secret),
+          twoFactorBackupCodes: currentBackupCodes,
+        }));
+
+        prismaMock.user.update.mockImplementation(async ({ data }: any) => {
+          currentBackupCodes = data.twoFactorBackupCodes;
+          return { ...adminUser, twoFactorBackupCodes: currentBackupCodes };
+        });
+
+        prismaMock.userSession.create.mockResolvedValue({ id: 'session-backup-code' });
+        jwtServiceMock.sign
+          .mockReturnValueOnce('refresh-backup')
+          .mockReturnValueOnce('access-backup');
+
+        const res = await authService.verify2fa('valid-temp-token', codeToUse);
+
+        expect(res).toHaveProperty('access_token', 'access-backup');
+        // The used backup code should be consumed
+        const usedHash = hashBackupCode(codeToUse);
+        expect(currentBackupCodes).not.toContain(usedHash);
+        expect(currentBackupCodes).toHaveLength(4);
+
+        // Replay attempt with same backup code fails
+        await expect(authService.verify2fa('valid-temp-token', codeToUse)).rejects.toThrow(
+          UnauthorizedException,
+        );
+      });
+
+      it('rejects invalid TOTP code and invalid backup code with UnauthorizedException', async () => {
+        const secret = generateTotpSecret();
+        jwtServiceMock.verify.mockReturnValue({
+          sub: adminUser.id,
+          purpose: '2fa_login',
+        });
+
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptTotpSecret(secret),
+          twoFactorBackupCodes: [hashBackupCode('VALIDONE')],
+        });
+
+        await expect(authService.verify2fa('valid-temp-token', '999999')).rejects.toThrow(
+          UnauthorizedException,
+        );
+        expect(prismaMock.userSession.create).not.toHaveBeenCalled();
+      });
+
+      it('rejects invalid or expired tempToken', async () => {
+        jwtServiceMock.verify.mockImplementation(() => {
+          throw new Error('jwt expired');
+        });
+
+        await expect(authService.verify2fa('expired-temp-token', '123456')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      });
+
+      it('rejects tempToken with incorrect purpose', async () => {
+        jwtServiceMock.verify.mockReturnValue({
+          sub: adminUser.id,
+          purpose: 'some_other_purpose',
+        });
+
+        await expect(authService.verify2fa('wrong-purpose-token', '123456')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      });
+
+      it('rejects verify2fa when user role is not ADMIN or SUPER_ADMIN', async () => {
+        jwtServiceMock.verify.mockReturnValue({
+          sub: 'user-manager-1',
+          purpose: '2fa_login',
+        });
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          id: 'user-manager-1',
+          role: Role.MANAGER,
+          twoFactorEnabled: true,
+          twoFactorSecret: 'enc-secret',
+        });
+
+        await expect(authService.verify2fa('valid-temp-token', '123456')).rejects.toThrow(
+          ForbiddenException,
+        );
+      });
+
+      it('concurrent backup-code consumption: exactly one request consumes the code and succeeds under advisory lock', async () => {
+        const rawBackupCodes = generateBackupCodes(5);
+        const hashedBackupCodes = rawBackupCodes.map(hashBackupCode);
+        const secret = generateTotpSecret();
+        const codeToUse = rawBackupCodes[0];
+        const targetHash = hashBackupCode(codeToUse);
+
+        jwtServiceMock.verify.mockReturnValue({
+          sub: adminUser.id,
+          purpose: '2fa_login',
+        });
+
+        // Shared database state
+        let currentCodes = [...hashedBackupCodes];
+        let activeLock: Promise<void> | null = null;
+        let releaseLock: (() => void) | null = null;
+
+        prismaMock.user.findUnique.mockImplementation(async () => ({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptTotpSecret(secret),
+          twoFactorBackupCodes: currentCodes,
+        }));
+
+        prismaMock.$transaction.mockImplementation(async (callback: any) => {
+          if (Array.isArray(callback)) {
+            return Promise.all(callback);
+          }
+          // Simulate serialized PostgreSQL advisory transaction lock
+          while (activeLock) {
+            await activeLock;
+          }
+          activeLock = new Promise<void>((resolve) => {
+            releaseLock = resolve;
+          });
+
+          const mockTx = {
+            ...prismaMock,
+            $executeRaw: vi.fn().mockResolvedValue(1),
+            user: {
+              findUnique: vi.fn().mockImplementation(async () => ({
+                ...adminUser,
+                twoFactorEnabled: true,
+                twoFactorSecret: encryptTotpSecret(secret),
+                twoFactorBackupCodes: [...currentCodes],
+              })),
+              update: vi.fn().mockImplementation(async ({ data }: any) => {
+                currentCodes = [...data.twoFactorBackupCodes];
+                return { ...adminUser, twoFactorBackupCodes: currentCodes };
+              }),
+            },
+          };
+
+          try {
+            // Tiny delay to allow second concurrent promise to queue up on the lock
+            await new Promise((resolve) => setTimeout(resolve, 15));
+            return await callback(mockTx);
+          } finally {
+            const unlock = releaseLock;
+            activeLock = null;
+            releaseLock = null;
+            if (unlock) unlock();
+          }
+        });
+
+        // Launch simultaneous concurrent verify2fa requests using the same backup code
+        const req1 = authService.verify2fa('valid-temp-token', codeToUse);
+        const req2 = authService.verify2fa('valid-temp-token', codeToUse);
+
+        const [res1, res2] = await Promise.all([
+          req1.catch((e) => e),
+          req2.catch((e) => e),
+        ]);
+
+        const successes = [res1, res2].filter((r) => r && (r as any).access_token);
+        const failures = [res1, res2].filter((r) => r instanceof UnauthorizedException);
+
+        expect(successes.length).toBe(1);
+        expect(failures.length).toBe(1);
+        expect(currentCodes).not.toContain(targetHash);
+        expect(currentCodes.length).toBe(4);
+      });
+    });
+
+    describe('6. Security Guarantees & Token Invalidation', () => {
+      it('tempToken cannot be used to authenticate normal protected routes via JwtStrategy', async () => {
+        const strategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+
+        // The tempToken payload has sub and purpose: '2fa_login', but NO sessionId
+        const tempTokenPayload = {
+          sub: adminUser.id,
+          purpose: '2fa_login',
+        };
+
+        await expect(strategy.validate(tempTokenPayload)).rejects.toThrow(UnauthorizedException);
+      });
+
+      it('twoFactorSecret and twoFactorBackupCodes are never exposed in user responses', async () => {
+        const secret = generateTotpSecret();
+        prismaMock.user.findUnique.mockResolvedValue({
+          ...adminUser,
+          twoFactorEnabled: true,
+          twoFactorSecret: encryptTotpSecret(secret),
+          twoFactorBackupCodes: [hashBackupCode('BACKUP01')],
+          enrolments: [],
+        });
+        prismaMock.session.findMany.mockResolvedValue([]);
+
+        const profile = await authService.getProfile(adminUser.id);
+
+        expect(profile).not.toHaveProperty('twoFactorSecret');
+        expect(profile).not.toHaveProperty('twoFactorBackupCodes');
+        expect((profile as any).twoFactorSecret).toBeUndefined();
+        expect((profile as any).twoFactorBackupCodes).toBeUndefined();
+      });
+    });
+  });
+
+  describe('D1-023: Logout & Session Management', () => {
+    const userId = 'user-d1-023-test';
+    const currentSessionId = 'sess-current-123';
+    const otherSessionId = 'sess-other-456';
+
+    describe('1. Logout Current Session', () => {
+      it('revokes only the current UserSession with LOGOUT reason and clears cache', async () => {
+        prismaMock.userSession.updateMany.mockResolvedValue({ count: 1 });
+
+        const result = await authService.logout(userId, currentSessionId);
+
+        expect(prismaMock.userSession.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: currentSessionId,
+            userId,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: expect.any(Date),
+            revokedReason: 'LOGOUT',
+          },
+        });
+        expect(result).toEqual({
+          success: true,
+          message: 'Logged out successfully',
+        });
+      });
+
+      it('is idempotent when session is already revoked or missing', async () => {
+        prismaMock.userSession.updateMany.mockResolvedValue({ count: 0 });
+
+        const result = await authService.logout(userId, 'non-existent-or-already-revoked');
+
+        expect(result).toEqual({
+          success: true,
+          message: 'Logged out successfully',
+        });
+      });
+
+      it('succeeds gracefully when sessionId is undefined', async () => {
+        const result = await authService.logout(userId, undefined);
+
+        expect(prismaMock.userSession.updateMany).not.toHaveBeenCalled();
+        expect(result).toEqual({
+          success: true,
+          message: 'Logged out successfully',
+        });
+      });
+    });
+
+    describe('2. Logout All Sessions', () => {
+      it('revokes all active UserSessions for the user with LOGOUT_ALL reason', async () => {
+        prismaMock.userSession.updateMany.mockResolvedValue({ count: 3 });
+
+        const result = await authService.logoutAll(userId);
+
+        expect(prismaMock.userSession.updateMany).toHaveBeenCalledWith({
+          where: {
+            userId,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: expect.any(Date),
+            revokedReason: 'LOGOUT_ALL',
+          },
+        });
+        expect(result).toEqual({
+          success: true,
+          count: 3,
+          message: 'All sessions logged out successfully',
+        });
+      });
+    });
+
+    describe('3. Session Listing', () => {
+      it('returns safe metadata only and sets isCurrent correctly', async () => {
+        const mockSessions = [
+          {
+            id: currentSessionId,
+            userId,
+            token: '$2a$10$secretHashMustNotBeExposed1',
+            deviceFingerprint: 'fp-chrome-laptop',
+            ipAddress: '192.168.1.10',
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            lastActive: new Date('2026-10-05T10:00:00Z'),
+            expiresAt: new Date('2026-10-12T10:00:00Z'),
+            createdAt: new Date('2026-10-05T09:00:00Z'),
+            revokedAt: null,
+            revokedReason: null,
+          },
+          {
+            id: otherSessionId,
+            userId,
+            token: '$2a$10$secretHashMustNotBeExposed2',
+            deviceFingerprint: 'fp-safari-iphone',
+            ipAddress: '192.168.1.20',
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+            lastActive: new Date('2026-10-05T08:00:00Z'),
+            expiresAt: new Date('2026-10-12T08:00:00Z'),
+            createdAt: new Date('2026-10-05T07:00:00Z'),
+            revokedAt: null,
+            revokedReason: null,
+          },
+        ];
+
+        prismaMock.userSession.findMany.mockResolvedValue(mockSessions);
+
+        const list = await authService.getSessions(userId, currentSessionId);
+
+        expect(list).toHaveLength(2);
+
+        // Safe fields only
+        expect(list[0]).toEqual({
+          id: currentSessionId,
+          deviceFingerprint: 'fp-chrome-laptop',
+          ipAddress: '192.168.1.10',
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          lastActive: mockSessions[0].lastActive,
+          expiresAt: mockSessions[0].expiresAt,
+          createdAt: mockSessions[0].createdAt,
+          isCurrent: true,
+        });
+
+        expect(list[1]).toEqual({
+          id: otherSessionId,
+          deviceFingerprint: 'fp-safari-iphone',
+          ipAddress: '192.168.1.20',
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+          lastActive: mockSessions[1].lastActive,
+          expiresAt: mockSessions[1].expiresAt,
+          createdAt: mockSessions[1].createdAt,
+          isCurrent: false,
+        });
+
+        // Security check: no tokens or secrets
+        expect(list[0]).not.toHaveProperty('token');
+        expect(list[1]).not.toHaveProperty('token');
+        expect((list[0] as any).token).toBeUndefined();
+      });
+    });
+
+    describe('4. Revoke Specific Session', () => {
+      it('allows a user to revoke an active session belonging to themselves', async () => {
+        prismaMock.userSession.findUnique.mockResolvedValue({
+          id: otherSessionId,
+          userId,
+          revokedAt: null,
+        });
+        prismaMock.userSession.update.mockResolvedValue({
+          id: otherSessionId,
+          revokedAt: new Date(),
+          revokedReason: 'USER_REVOKED',
+        });
+
+        const result = await authService.revokeSession(userId, otherSessionId, currentSessionId);
+
+        expect(prismaMock.userSession.update).toHaveBeenCalledWith({
+          where: { id: otherSessionId },
+          data: {
+            revokedAt: expect.any(Date),
+            revokedReason: 'USER_REVOKED',
+          },
+        });
+        expect(result).toEqual({
+          success: true,
+          message: 'Session revoked successfully',
+          isCurrent: false,
+        });
+      });
+
+      it('correctly reports isCurrent: true when the user revokes their own current session', async () => {
+        prismaMock.userSession.findUnique.mockResolvedValue({
+          id: currentSessionId,
+          userId,
+          revokedAt: null,
+        });
+        prismaMock.userSession.update.mockResolvedValue({
+          id: currentSessionId,
+          revokedAt: new Date(),
+          revokedReason: 'USER_REVOKED',
+        });
+
+        const result = await authService.revokeSession(userId, currentSessionId, currentSessionId);
+
+        expect(result).toEqual({
+          success: true,
+          message: 'Session revoked successfully',
+          isCurrent: true,
+        });
+      });
+
+      it('rejects with NotFoundException when session belongs to a different user', async () => {
+        prismaMock.userSession.findUnique.mockResolvedValue({
+          id: 'victim-session-id',
+          userId: 'other-victim-user-id',
+          revokedAt: null,
+        });
+
+        await expect(
+          authService.revokeSession(userId, 'victim-session-id', currentSessionId),
+        ).rejects.toThrow(NotFoundException);
+        expect(prismaMock.userSession.update).not.toHaveBeenCalled();
+      });
+
+      it('rejects with NotFoundException when session does not exist', async () => {
+        prismaMock.userSession.findUnique.mockResolvedValue(null);
+
+        await expect(
+          authService.revokeSession(userId, 'non-existent-session', currentSessionId),
+        ).rejects.toThrow(NotFoundException);
+        expect(prismaMock.userSession.update).not.toHaveBeenCalled();
+      });
+
+      it('returns success when session is already revoked without attempting redundant update', async () => {
+        prismaMock.userSession.findUnique.mockResolvedValue({
+          id: otherSessionId,
+          userId,
+          revokedAt: new Date('2026-10-01'),
+        });
+
+        const result = await authService.revokeSession(userId, otherSessionId, currentSessionId);
+
+        expect(prismaMock.userSession.update).not.toHaveBeenCalled();
+        expect(result).toEqual({
+          success: true,
+          message: 'Session is already revoked',
+          isCurrent: false,
+        });
+      });
+
+      it('rejects when sessionId is empty string', async () => {
+        await expect(
+          authService.revokeSession(userId, '', currentSessionId),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('5. Integration: Revocation Enforcement on Refresh and JWT Validation', () => {
+      it('revoked session immediately fails refresh token rotation with SESSION_REVOKED', async () => {
+        const rawRefreshToken = 'valid.jwt.refreshToken';
+        const refreshTokenPayload = {
+          sub: userId,
+          sessionId: otherSessionId,
+        };
+
+        jwtServiceMock.verify.mockReturnValue(refreshTokenPayload);
+        prismaMock.user.findUnique.mockResolvedValue({
+          id: userId,
+          email: 'user@test.com',
+          role: Role.USER,
+          deletedAt: null,
+        });
+
+        prismaMock.$transaction.mockImplementation(async (callback: any) => {
+          const mockTx = {
+            $executeRaw: vi.fn(),
+            userSession: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: otherSessionId,
+                userId,
+                token: '$2a$10$someHash',
+                revokedAt: new Date(), // Revoked!
+                revokedReason: 'USER_REVOKED',
+                expiresAt: new Date(Date.now() + 100000),
+              }),
+            },
+          };
+          return callback(mockTx);
+        });
+
+        await expect(authService.refreshToken(rawRefreshToken)).rejects.toThrow(
+          UnauthorizedException,
+        );
+      });
+
+      it('revoked session immediately fails JwtStrategy validation with SESSION_REVOKED', async () => {
+        const strategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+
+        prismaMock.userSession.findUnique.mockResolvedValue({
+          id: otherSessionId,
+          userId,
+          revokedAt: new Date(), // Revoked!
+          expiresAt: new Date(Date.now() + 100000),
+        });
+
+        const jwtPayload = {
+          sub: userId,
+          sessionId: otherSessionId,
+          email: 'user@test.com',
+          role: Role.USER,
+        };
+
+        await expect(strategy.validate(jwtPayload)).rejects.toThrow(UnauthorizedException);
       });
     });
   });

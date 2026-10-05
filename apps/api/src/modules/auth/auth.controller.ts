@@ -1,7 +1,9 @@
-import { Controller, Post, Body, Get, Request, Query } from '@nestjs/common';
+import { Controller, Post, Body, Get, Request, Query, Delete, Param } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { Role } from '@prisma/client';
 import { AuthService } from './auth.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 import {
   LoginDto,
   SignupDto,
@@ -9,6 +11,8 @@ import {
   EmailVerificationDto,
   PasswordResetRequestDto,
   PasswordResetConfirmDto,
+  TotpSetupDto,
+  TotpVerifyDto,
 } from './dto/index.js';
 export {
   LoginDto,
@@ -17,6 +21,8 @@ export {
   EmailVerificationDto,
   PasswordResetRequestDto,
   PasswordResetConfirmDto,
+  TotpSetupDto,
+  TotpVerifyDto,
 };
 
 // Strict limit for the endpoints that take a password. Applied per endpoint,
@@ -103,8 +109,61 @@ export class AuthController {
   @Public()
   @Throttle(CREDENTIAL_LIMIT)
   @Post('admin-login')
-  adminLogin(@Body() body: LoginDto) {
-    return this.authService.adminLogin(body.email ?? '', body.password);
+  adminLogin(@Body() body: LoginDto, @Request() req?: any) {
+    const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
+    const userAgent = req?.headers?.['user-agent'] || null;
+    const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
+    return this.authService.adminLogin(body.email ?? '', body.password, {
+      ipAddress,
+      userAgent,
+      deviceFingerprint,
+    });
+  }
+
+  /**
+   * 2FA Setup - Generate Secret: POST /auth/2fa/generate
+   * Authenticated. Only SUPER_ADMIN and ADMIN roles can generate a TOTP secret.
+   */
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @Post('2fa/generate')
+  generate2fa(@Request() req: any) {
+    return this.authService.generate2faSecret(req.user.sub);
+  }
+
+  /**
+   * 2FA Setup - Enable TOTP: POST /auth/2fa/enable
+   * Authenticated. Only SUPER_ADMIN and ADMIN roles can enable 2FA after verifying code.
+   */
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @Post('2fa/enable')
+  enable2fa(@Body() body: TotpSetupDto, @Request() req: any) {
+    return this.authService.enable2fa(req.user.sub, body.code, body.secret);
+  }
+
+  /**
+   * 2FA Verify - Complete Login: POST /auth/2fa/verify
+   * Public (second step of admin login), throttled.
+   */
+  @Public()
+  @Throttle(CREDENTIAL_LIMIT)
+  @Post('2fa/verify')
+  verify2fa(@Body() body: TotpVerifyDto, @Request() req?: any) {
+    const tempToken =
+      body.tempToken ||
+      (req?.headers?.['x-temp-token'] as string) ||
+      (req?.headers?.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.substring(7)
+        : undefined) ||
+      '';
+    const code = body.backupCode || body.code;
+    const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
+    const userAgent = req?.headers?.['user-agent'] || null;
+    const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
+    return this.authService.verify2fa(tempToken, code, {
+      ipAddress,
+      userAgent,
+      deviceFingerprint,
+    });
   }
 
   /**
@@ -137,10 +196,42 @@ export class AuthController {
   }
 
   /**
-   * Logout all sessions
+   * Logout current session: POST /auth/logout
+   */
+  @Post('logout')
+  logout(@Request() req: any) {
+    return this.authService.logout(req.user.sub, req.user.sessionId);
+  }
+
+  /**
+   * Logout all sessions: POST /auth/logout-all
    */
   @Post('logout-all')
   logoutAll(@Request() req: any) {
     return this.authService.logoutAll(req.user.sub);
+  }
+
+  /**
+   * List all active sessions for current user: GET /auth/sessions
+   */
+  @Get('sessions')
+  getSessions(@Request() req: any) {
+    return this.authService.getSessions(req.user.sub, req.user.sessionId);
+  }
+
+  /**
+   * Revoke specific session: DELETE /auth/sessions/:id
+   */
+  @Delete('sessions/:id')
+  revokeSession(@Param('id') id: string, @Request() req: any) {
+    return this.authService.revokeSession(req.user.sub, id, req.user.sessionId);
+  }
+
+  /**
+   * Revoke specific session (POST alternative): POST /auth/sessions/:id/revoke
+   */
+  @Post('sessions/:id/revoke')
+  revokeSessionPost(@Param('id') id: string, @Request() req: any) {
+    return this.authService.revokeSession(req.user.sub, id, req.user.sessionId);
   }
 }

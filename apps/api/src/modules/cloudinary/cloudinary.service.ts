@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
+import { IMediaProvider } from '../../common/interfaces/media-provider.interface.js';
 
 @Injectable()
-export class CloudinaryMediaProvider {
+export class CloudinaryMediaProvider implements IMediaProvider {
   constructor() {
     cloudinary.config({
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -71,5 +72,49 @@ export class CloudinaryMediaProvider {
     }
 
     return cloudinary.url(publicId, options);
+  }
+
+  // D2-007: Implement video thumbnail extraction at specified offsets with signed delivery URLs
+  generateSignedThumbnailUrl(publicId: string, offsetSeconds: number = 0): string {
+    return cloudinary.url(publicId, {
+      resource_type: 'video',
+      type: 'authenticated',
+      format: 'jpg',
+      start_offset: offsetSeconds, // Time in seconds for the thumbnail frame
+      secure: true,
+      sign_url: true, // Generate signature for access since it's an authenticated resource
+      auth_token: {
+        key: process.env.CLOUDINARY_API_SECRET,
+        duration: 3600 // 1 hour TTL for thumbnail caching on frontend
+      }
+    });
+  }
+
+  // D2-010: Implement exponential backoff and rate-limit handling for Cloudinary API requests
+  async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelayMs: number = 1000
+  ): Promise<T> {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        // Cloudinary API throws errors with http_code for rate limiting (420 or 429)
+        const isRateLimit = error?.http_code === 420 || error?.http_code === 429;
+        
+        if (!isRateLimit || attempt === maxRetries - 1) {
+          throw error;
+        }
+
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        console.warn(`Cloudinary rate limit hit. Retrying in ${delay}ms... (Attempt ${attempt + 1} of ${maxRetries})`);
+        
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        attempt++;
+      }
+    }
+    throw new Error('Cloudinary operation failed after maximum retries');
   }
 }

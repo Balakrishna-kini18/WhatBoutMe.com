@@ -11,10 +11,12 @@ export default function AuthShell({
   headline,
   subtitle,
   children,
+  maxWidth = "max-w-sm",
 }: {
   headline: string;
   subtitle: string;
   children: ReactNode;
+  maxWidth?: string;
 }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-ink p-4 text-ink md:p-8">
@@ -54,9 +56,9 @@ export default function AuthShell({
         </section>
 
         {/* right: the form */}
-        <section className="flex overflow-y-auto px-5 py-8 md:px-10">
+        <section className="flex overflow-y-auto px-5 py-6 md:px-8 lg:py-8">
           {/* auto margins centre the form yet let a tall one scroll from its top */}
-          <div className="m-auto w-full max-w-sm">
+          <div className={`m-auto w-full ${maxWidth}`}>
             <div className="mb-10 flex items-center justify-between lg:hidden">
               <Link href="/" aria-label="whatboutme home">
                 <Logo className="h-6" />

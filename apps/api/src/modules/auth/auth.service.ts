@@ -1,12 +1,37 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Role } from '@prisma/client';
+import { Role, EnrolmentStatus } from '@prisma/client';
+import { SignupDto } from './dto/index.js';
 import * as bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import {
+  generateTotpSecret,
+  generateOtpauthUri,
+  verifyTotp,
+  encryptTotpSecret,
+  decryptTotpSecret,
+  generateBackupCodes,
+  hashBackupCode,
+} from './totp.util.js';
+
+export interface DeviceSessionMetadata {
+  deviceFingerprint?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  country?: string | null;
+  expiresAt?: Date | null;
+}
 
 @Injectable()
 export class AuthService {
@@ -25,8 +50,73 @@ export class AuthService {
     return (trimmed.startsWith('+') ? '+' : '') + trimmed.replace(/\D/g, '');
   }
 
+  /**
+   * Helper: Record login audit entry in a non-blocking safe manner (D1-024).
+   * Flags suspicious login activity on failed attempts, country mismatch, or country-hopping.
+   */
+  private async recordLoginAudit(params: {
+    userId: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+    country?: string | null;
+    deviceFingerprint?: string | null;
+    isSuspicious?: boolean;
+    reason?: string | null;
+    userCountry?: string | null;
+  }): Promise<void> {
+    if (!params.userId || !this.prisma?.loginAudit) return;
+
+    try {
+      let isSuspicious = params.isSuspicious ?? false;
+
+      // Country-hopping / anomaly detection
+      if (!isSuspicious && params.country) {
+        const reqCountry = params.country.trim().toUpperCase();
+
+        if (params.userCountry && params.userCountry.trim().toUpperCase() !== reqCountry) {
+          isSuspicious = true;
+        } else if (typeof this.prisma.loginAudit.findFirst === 'function') {
+          const lastAudit = await this.prisma.loginAudit.findFirst({
+            where: { userId: params.userId, country: { not: null } },
+            orderBy: { createdAt: 'desc' },
+            select: { country: true },
+          }).catch(() => null);
+
+          if (lastAudit?.country && lastAudit.country.trim().toUpperCase() !== reqCountry) {
+            isSuspicious = true;
+          }
+        }
+      }
+
+      if (typeof this.prisma.loginAudit.create === 'function') {
+        await this.prisma.loginAudit.create({
+          data: {
+            userId: params.userId,
+            ipAddress: params.ipAddress ?? null,
+            userAgent: params.userAgent ?? null,
+            country: params.country ?? null,
+            deviceFingerprint: params.deviceFingerprint ?? null,
+            isSuspicious,
+            reason: params.reason ?? null,
+          },
+        });
+      }
+    } catch {
+      // Non-blocking: audit write failure must not break the authentication flow
+    }
+  }
+
   /** `identifier` is the account email, or its mobile number. */
-  async login(identifier: string, password: string) {
+  async login(
+    identifier: string,
+    password: string,
+    metadata?: DeviceSessionMetadata,
+  ) {
+    const trimmedIdentifier = identifier?.trim() || '';
+    if (!trimmedIdentifier || !password) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
     const include = {
       enrolments: {
         select: {
@@ -47,34 +137,91 @@ export class AuthService {
     };
 
     let user;
-    if (identifier.includes('@')) {
-      user = await this.prisma.user.findUnique({ where: { email: identifier }, include });
+    if (trimmedIdentifier.includes('@')) {
+      const normalizedEmail = trimmedIdentifier.toLowerCase();
+      user = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, include });
     } else {
       // a number only signs in when exactly one account holds it
+      const normalizedPhone = this.normalizePhone(trimmedIdentifier);
       const matches = await this.prisma.user.findMany({
-        where: { phone: { in: [this.normalizePhone(identifier), identifier.trim()] } },
+        where: {
+          phone: { in: [normalizedPhone, trimmedIdentifier] },
+          deletedAt: null,
+        },
         include,
         take: 2,
       });
       user = matches.length === 1 ? matches[0] : null;
     }
 
-    if (!user || !user.passwordHash) {
+    if (!user || !user.passwordHash || user.deletedAt) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_PASSWORD',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Build basic payload for refresh token (sessionId is added later for access token)
+    if (!user.emailVerifiedAt) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'UNVERIFIED_EMAIL',
+        userCountry: user.country,
+      });
+      throw new UnauthorizedException('Please verify your email before logging in');
+    }
+
+    // Security check (D1-022): prevent 2FA bypass by calling /auth/login instead of /auth/admin-login
+    if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: false,
+        reason: '2FA_CHALLENGED',
+        userCountry: user.country,
+      });
+      const tempToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa_login' },
+        {
+          secret: process.env.JWT_SECRET || 'fallback-secret',
+          expiresIn: '5m',
+        },
+      );
+      return {
+        requires2fa: true,
+        tempToken,
+      };
+    }
+
+    const sessionId = randomUUID();
+
+    // Build payload for refresh token bound to the created session
     const refreshPayload = {
       sub: user.id,
+      sessionId,
     };
 
     const refreshToken = this.jwtService.sign(refreshPayload, {
-      secret: process.env.JWT_REFRESH_SECRET,
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
       expiresIn: '7d',
     });
 
@@ -82,7 +229,7 @@ export class AuthService {
     const tokenHash = await bcrypt.hash(refreshToken, 10);
 
     // Enforce device limits and store session
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash);
+    await this.createDeviceSession(user.id, user.role, tokenHash, metadata, sessionId);
 
     // Build JWT payload with user role and tenant context (enrolled programs)
     const accessPayload = {
@@ -99,15 +246,26 @@ export class AuthService {
     // not awaited: it must not hold up the sign-in (it never throws)
     if (user.role === Role.USER) void markDailyAttendance(this.prisma, user.id, 'visited');
 
+    await this.recordLoginAudit({
+      userId: user.id,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      country: metadata?.country,
+      deviceFingerprint: metadata?.deviceFingerprint,
+      isSuspicious: false,
+      reason: 'SUCCESS',
+      userCountry: user.country,
+    });
+
     // Return user data with enrolled programs for tenant separation
-    const enrolledPrograms = user.enrolments.map((e) => ({
+    const enrolledPrograms = user.enrolments?.map((e) => ({
       enrolmentId: e.id,
       batchId: e.batchId,
-      batchName: e.batch.name,
-      programId: e.batch.programId,
-      programTitle: e.batch.program.title,
+      batchName: e.batch?.name,
+      programId: e.batch?.programId,
+      programTitle: e.batch?.program?.title,
       status: e.status,
-    }));
+    })) || [];
 
     return {
       access_token: accessToken,
@@ -116,8 +274,11 @@ export class AuthService {
         id: user.id,
         email: user.email,
         name: user.name,
+        phone: user.phone,
         role: user.role,
         companyId: user.companyId,
+        country: user.country,
+        timezone: user.timezone,
         enrolledPrograms,
       },
     };
@@ -126,19 +287,23 @@ export class AuthService {
   /**
    * Production-level signup: hashes password, creates user, enrolls in programs, returns JWT.
    */
-  async signup(data: { name: string; email: string; phone?: string; password: string; programIds?: string[] }) {
+  async signup(data: SignupDto) {
+    const normalizedEmail = data.email.trim().toLowerCase();
+
     // Check if user already exists
     const existing = await this.prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email: normalizedEmail },
     });
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
 
     // A mobile number may belong to one account only, so it can be used to sign in
-    const phone = data.phone ? this.normalizePhone(data.phone) : undefined;
+    const phone = data.phone?.trim() ? this.normalizePhone(data.phone) : null;
     if (phone) {
-      const phoneTaken = await this.prisma.user.findFirst({ where: { phone } });
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone, deletedAt: null },
+      });
       if (phoneTaken) {
         throw new ConflictException('An account with this mobile number already exists');
       }
@@ -147,42 +312,64 @@ export class AuthService {
     // Hash password with bcrypt (12 rounds)
     const passwordHash = await bcrypt.hash(data.password, 12);
 
-    const user = await this.prisma.user.create({
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          name: data.name.trim(),
+          phone,
+          country: data.country?.trim() || null,
+          timezone: data.timezone?.trim() || null,
+          passwordHash,
+          role: Role.USER,
+          emailVerifiedAt: null,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw err;
+    }
+
+    // Create verification token for D1-015
+    const verificationToken = randomUUID();
+    await this.prisma.emailVerificationToken.create({
       data: {
-        email: data.email,
-        name: data.name,
-        phone,
-        passwordHash,
-        role: Role.USER,
+        userId: user.id,
+        token: verificationToken,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours expiry
       },
     });
 
-    // Enrol user in default batches for the selected programs
+    // Enrol user in default batches for the selected programs with payment/agreement gating
     const enrolledPrograms = [];
     if (data.programIds && data.programIds.length > 0) {
-      for (const pId of data.programIds) {
-        let batch = await this.prisma.batch.findFirst({
-          where: { programId: pId }
+      const uniqueProgramIds = Array.from(new Set(data.programIds));
+      for (const pId of uniqueProgramIds) {
+        const program = await this.prisma.program.findUnique({
+          where: { id: pId },
         });
-        
-        // Create a default batch if none exists
-        if (!batch) {
-          batch = await this.prisma.batch.create({
-            data: {
-              name: 'Default Cohort',
-              programId: pId,
-              capacity: 100,
-              startDate: new Date()
-            }
-          });
-        }
+        if (!program) continue;
+
+        const batch = await this.prisma.batch.findFirst({
+          where: { programId: pId },
+        });
+        if (!batch) continue;
+
+        // Canonical initial status: PENDING_PAYMENT for paid programs, PENDING_AGREEMENT for free programs
+        const initialStatus: EnrolmentStatus =
+          program.price > 0
+            ? EnrolmentStatus.PENDING_PAYMENT
+            : EnrolmentStatus.PENDING_AGREEMENT;
 
         const enrolment = await this.prisma.enrolment.create({
           data: {
             userId: user.id,
             batchId: batch.id,
             programId: pId,
-            status: 'ACTIVE'
+            status: initialStatus,
           },
           select: {
             id: true,
@@ -200,61 +387,89 @@ export class AuthService {
           }
         });
 
-        // Add to enrolled programs array to be returned in JWT payload
+        // Add to enrolled programs array to be returned in response
         enrolledPrograms.push({
           enrolmentId: enrolment.id,
           batchId: batch.id,
           batchName: batch.name,
           programId: pId,
-          programTitle: enrolment.batch?.program?.title || 'Unknown',
+          programTitle: enrolment.batch?.program?.title || program.title,
           status: enrolment.status,
           progress: 0,
         });
       }
     }
 
-    const refreshPayload = { sub: user.id };
-    const refreshToken = this.jwtService.sign(refreshPayload, {
-      secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: '7d',
-    });
-    const tokenHash = await bcrypt.hash(refreshToken, 10);
-
-    // Enforce device limits
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash);
-
-    const accessPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      companyId: user.companyId,
-      sessionId,
-    };
-
-    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
-
     await this.cacheHelper.invalidateNamespace('users');
     if (data.programIds && data.programIds.length > 0) {
       await this.cacheHelper.invalidateNamespace('batches');
     }
-
     return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
+        phone: user.phone,
         role: user.role,
+        country: user.country,
+        timezone: user.timezone,
         enrolledPrograms,
       },
     };
   }
 
   /**
+   * Email Verification (D1-015): validates token, marks emailVerifiedAt, invalidates token.
+   */
+  async verifyEmail(token: string) {
+    if (!token || typeof token !== 'string') {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    const verificationToken = await this.prisma.emailVerificationToken.findUnique({
+      where: { token: token.trim() },
+      include: { user: true },
+    });
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    if (verificationToken.usedAt !== null) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    if (verificationToken.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    if (!verificationToken.user) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.emailVerificationToken.update({
+        where: { id: verificationToken.id },
+        data: { usedAt: now },
+      }),
+      this.prisma.user.update({
+        where: { id: verificationToken.userId },
+        data: { emailVerifiedAt: now },
+      }),
+    ]);
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+    };
+  }
+
+  /**
    * Admin login: only ADMIN / SUPER_ADMIN / MANAGER roles can log in here.
    */
-  async adminLogin(email: string, password: string) {
+  async adminLogin(email: string, password: string, metadata?: DeviceSessionMetadata) {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -266,23 +481,69 @@ export class AuthService {
     // Enforce role-based access: only admin roles can use admin login
     const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER];
     if (!adminRoles.includes(user.role)) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INSUFFICIENT_PERMISSIONS',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Insufficient permissions for admin access');
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_PASSWORD',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const refreshPayload = { sub: user.id };
+    // If SUPER_ADMIN or ADMIN and 2FA is enabled: DO NOT create a session yet!
+    if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: false,
+        reason: '2FA_CHALLENGED',
+        userCountry: user.country,
+      });
+      const tempToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa_login' },
+        {
+          secret: process.env.JWT_SECRET || 'fallback-secret',
+          expiresIn: '5m',
+        },
+      );
+      return {
+        requires2fa: true,
+        tempToken,
+      };
+    }
+
+    const sessionId = randomUUID();
+    const refreshPayload = { sub: user.id, sessionId };
     const refreshToken = this.jwtService.sign(refreshPayload, {
-      secret: process.env.JWT_REFRESH_SECRET,
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
       expiresIn: '7d',
     });
     const tokenHash = await bcrypt.hash(refreshToken, 10);
 
     // Enforce device limits
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash);
+    await this.createDeviceSession(user.id, user.role, tokenHash, metadata, sessionId);
 
     const accessPayload = {
       sub: user.id,
@@ -294,7 +555,23 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
 
-    return {
+    const auditReason =
+      user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN
+        ? 'SUCCESS_SETUP_REQUIRED'
+        : 'SUCCESS';
+
+    await this.recordLoginAudit({
+      userId: user.id,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      country: metadata?.country,
+      deviceFingerprint: metadata?.deviceFingerprint,
+      isSuspicious: false,
+      reason: auditReason,
+      userCountry: user.country,
+    });
+
+    const response: any = {
       access_token: accessToken,
       refresh_token: refreshToken,
       user: {
@@ -304,90 +581,138 @@ export class AuthService {
         role: user.role,
       },
     };
+
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
+      response.requires2faSetup = true;
+    }
+
+    return response;
   }
 
   /**
-   * Refresh token endpoint
+   * Refresh token endpoint (D1-018: JWT Access/Refresh Token Rotation)
    */
   async refreshToken(refreshTokenStr: string) {
+    if (!refreshTokenStr || typeof refreshTokenStr !== 'string') {
+      throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
+    }
+
     try {
       const payload = this.jwtService.verify(refreshTokenStr, {
-        secret: process.env.JWT_REFRESH_SECRET,
+        secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
       });
+
+      if (!payload || !payload.sub) {
+        throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
+      }
 
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
       });
 
-      if (!user) {
-        throw new UnauthorizedException({ message: 'User not found', error: 'INVALID_CREDENTIALS' });
+      if (!user || user.deletedAt) {
+        throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
       }
 
-      // Refresh tokens issued at login and signup carry no session id (the
-      // session is created after the token is signed), so the first renewal
-      // was always rejected and the learner was signed out. Find the session
-      // by its stored token hash in that case.
-      let sessionId: string | undefined = payload.sessionId;
-      if (!sessionId) {
+      let targetSessionId = payload.sessionId;
+
+      if (!targetSessionId) {
+        // Fallback for legacy tokens without embedded sessionId
         const active = await this.prisma.userSession.findMany({
-          where: { userId: user.id, revokedAt: null },
+          where: {
+            userId: user.id,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
           orderBy: { createdAt: 'desc' },
         });
+
         for (const candidate of active) {
           if (await bcrypt.compare(refreshTokenStr, candidate.token)) {
-            sessionId = candidate.id;
+            targetSessionId = candidate.id;
             break;
           }
         }
-        if (!sessionId) {
-          throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
+
+        if (!targetSessionId) {
+          throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
         }
       }
 
-      const session = await this.checkSession(sessionId);
+      // Execute serialized rotation inside a PostgreSQL transaction with an advisory lock on the session ID.
+      // This prevents race conditions where simultaneous requests with the same token both validate before either rotates.
+      const result = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${targetSessionId}))`;
 
-      // Verify token hash
-      const isValid = await bcrypt.compare(refreshTokenStr, session.token);
-      if (!isValid) {
-        // Reuse detected! Revoke the session
-        await this.prisma.userSession.update({
-          where: { id: session.id },
-          data: { revokedAt: new Date(), revokedReason: 'TOKEN_REUSED' }
+        // Fetch fresh session state under lock
+        const session = await tx.userSession.findUnique({
+          where: { id: targetSessionId },
         });
-        forgetSessions();
-        throw new UnauthorizedException({ message: 'Session revoked due to token reuse', error: 'SESSION_REVOKED' });
-      }
 
-      // Generate new tokens
-      const newPayload = {
-        sub: user.id,
-        email: user.email,
-        role: user.role,
-        companyId: user.companyId,
-        sessionId,
-      };
+        if (
+          !session ||
+          session.userId !== user.id ||
+          session.revokedAt !== null ||
+          (session.expiresAt && session.expiresAt <= new Date())
+        ) {
+          throw new UnauthorizedException({
+            message: 'Session has expired or been revoked',
+            error: 'SESSION_REVOKED',
+          });
+        }
 
-      const newRefreshToken = this.jwtService.sign(newPayload, {
-        secret: process.env.JWT_REFRESH_SECRET,
-        expiresIn: '7d',
+        // Verify token hash against the current, locked session token
+        const isValid = await bcrypt.compare(refreshTokenStr, session.token);
+        if (!isValid) {
+          // Reuse detected! Revoke the session immediately to protect against token theft
+          await tx.userSession.update({
+            where: { id: session.id },
+            data: { revokedAt: new Date(), revokedReason: 'TOKEN_REUSED' },
+          });
+          forgetSessions();
+          throw new UnauthorizedException({
+            message: 'Session revoked due to token reuse',
+            error: 'SESSION_REVOKED',
+          });
+        }
+
+        // Generate rotated tokens
+        const newPayload = {
+          sub: user.id,
+          email: user.email,
+          role: user.role,
+          companyId: user.companyId,
+          sessionId: session.id,
+        };
+
+        const newRefreshToken = this.jwtService.sign(newPayload, {
+          secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
+          expiresIn: '7d',
+        });
+        const newHash = await bcrypt.hash(newRefreshToken, 10);
+        const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+        // Rotate token hash in database, update lastActive and extend expiresAt
+        await tx.userSession.update({
+          where: { id: session.id },
+          data: {
+            token: newHash,
+            lastActive: new Date(),
+            expiresAt: newExpiresAt,
+          },
+        });
+
+        const accessToken = this.jwtService.sign(newPayload, { expiresIn: '15m' });
+
+        return { access_token: accessToken, refresh_token: newRefreshToken };
       });
-      const newHash = await bcrypt.hash(newRefreshToken, 10);
 
-      // Rotate hash in db
-      await this.prisma.userSession.update({
-        where: { id: session.id },
-        data: { token: newHash }
-      });
-
-      const accessToken = this.jwtService.sign(newPayload, { expiresIn: '15m' });
-
-      return { access_token: accessToken, refresh_token: newRefreshToken };
+      return result;
     } catch (e: any) {
       if (e instanceof UnauthorizedException) {
         throw e;
       }
-      // Only a bad or expired token is a 401. A database timeout used to be
-      // reported as "expired" too, which signed the learner out.
+      // Only a bad or expired token is a 401
       if (e?.name === 'TokenExpiredError' || e?.name === 'JsonWebTokenError' || e?.name === 'NotBeforeError') {
         throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
       }
@@ -473,38 +798,66 @@ export class AuthService {
   }
 
   /**
-   * Helper: Create a device session and enforce limits
+   * Helper: Create a device session and enforce limits (D1-017: 2 active devices max)
    */
-  async createDeviceSession(userId: string, role: string, tokenHash: string): Promise<string> {
-    const maxSessions = role === Role.USER ? 1 : 3;
+  async createDeviceSession(
+    userId: string,
+    role: string,
+    tokenHash: string,
+    metadata?: DeviceSessionMetadata,
+    sessionId?: string,
+  ): Promise<string> {
+    const parsedMax = parseInt(process.env.MAX_ACTIVE_SESSIONS ?? '', 10);
+    const maxSessions = Number.isInteger(parsedMax) && parsedMax > 0 ? parsedMax : 2;
 
-    // Two statements in one transaction, instead of four: each statement is a
-    // round trip to the database. The lock makes two sign-ins at the same
-    // moment take turns; the second statement then revokes whatever exceeds
-    // the limit (keeping the newest maxSessions - 1) and adds the new session.
-    const id = randomUUID();
+    const id = sessionId ?? randomUUID();
+    const expiresAt = metadata?.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7d TTL
+    const ipAddress = metadata?.ipAddress ?? null;
+    const userAgent = metadata?.userAgent ?? null;
+    const deviceFingerprint = metadata?.deviceFingerprint ?? null;
+
+    // pg_advisory_xact_lock on userId serializes concurrent logins for the same user.
+    // The subquery targets active sessions: revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now()).
+    // Ordering by createdAt DESC and skipping maxSessions - 1 selects the oldest active sessions beyond the limit.
     await this.prisma.$transaction([
       this.prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`,
       this.prisma.$executeRaw`
         WITH revoked AS (
           UPDATE "UserSession"
-          SET "revokedAt" = now(), "revokedReason" = 'NEW_LOGIN'
+          SET "revokedAt" = now(), "revokedReason" = 'DEVICE_LIMIT_EXCEEDED'
           WHERE id IN (
             SELECT id FROM "UserSession"
-            WHERE "userId" = ${userId} AND "revokedAt" IS NULL
+            WHERE "userId" = ${userId}
+              AND "revokedAt" IS NULL
+              AND ("expiresAt" IS NULL OR "expiresAt" > now())
             ORDER BY "createdAt" DESC
             OFFSET ${maxSessions - 1}
           )
         )
-        INSERT INTO "UserSession" (id, "userId", token, "lastActive", "createdAt")
-        VALUES (${id}, ${userId}, ${tokenHash}, now(), now())`,
+        INSERT INTO "UserSession" (id, "userId", token, "deviceFingerprint", "ipAddress", "userAgent", "lastActive", "expiresAt", "createdAt")
+        VALUES (${id}, ${userId}, ${tokenHash}, ${deviceFingerprint}, ${ipAddress}, ${userAgent}, now(), ${expiresAt}, now())`,
     ]);
-    const sessionId = id;
-
     // older sessions may just have been revoked
     forgetSessions();
     await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
-    return sessionId;
+    return id;
+  }
+
+  /**
+   * Get all currently active sessions for a user (unrevoked, non-expired)
+   */
+  async getActiveSessions(userId: string) {
+    return this.prisma.userSession.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   /**
@@ -519,32 +872,567 @@ export class AuthService {
       where: { id: sessionId },
     });
 
-    if (!session || session.revokedAt) {
-      throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
+    if (!session || session.revokedAt || (session.expiresAt && session.expiresAt <= new Date())) {
+      throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
     }
 
     return session;
   }
 
   /**
-   * Logout all sessions
+   * Logout current session (D1-023): Revokes the current UserSession, clears session cache, and logs audit event.
+   * Idempotent: returns success even if session is already revoked or missing.
+   */
+  async logout(userId: string, sessionId?: string) {
+    if (sessionId) {
+      await this.prisma.userSession.updateMany({
+        where: { id: sessionId, userId, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: 'LOGOUT' },
+      });
+      forgetSessions();
+
+      if (typeof (this.prisma as any).logAction === 'function') {
+        await (this.prisma as any).logAction({
+          actorId: userId,
+          action: 'LOGOUT',
+          entity: 'UserSession',
+          entityId: sessionId,
+        }).catch(() => {});
+      }
+    } else {
+      forgetSessions();
+    }
+
+    return { success: true, message: 'Logged out successfully' };
+  }
+
+  /**
+   * Logout all sessions (D1-023): Revokes all active UserSessions for the user and clears session cache.
    */
   async logoutAll(userId: string) {
     const res = await this.prisma.userSession.updateMany({
       where: { userId, revokedAt: null },
-      data: { revokedAt: new Date(), revokedReason: 'LOGOUT_ALL' }
+      data: { revokedAt: new Date(), revokedReason: 'LOGOUT_ALL' },
     });
     forgetSessions();
     await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
-    
-    await this.prisma.logAction({
-      actorId: userId,
-      action: 'LOGOUT_ALL_SESSIONS',
-      entity: 'User',
-      entityId: userId,
-      meta: { count: res.count }
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: userId,
+        action: 'LOGOUT_ALL_SESSIONS',
+        entity: 'User',
+        entityId: userId,
+        meta: { count: res.count },
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      count: res.count,
+      message: 'All sessions logged out successfully',
+    };
+  }
+
+  /**
+   * List all active sessions for the authenticated user (D1-023).
+   * Strips all token hashes and sensitive credentials.
+   */
+  async getSessions(userId: string, currentSessionId?: string) {
+    const sessions = await this.prisma.userSession.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        deviceFingerprint: true,
+        ipAddress: true,
+        userAgent: true,
+        lastActive: true,
+        expiresAt: true,
+        createdAt: true,
+      },
     });
 
-    return { success: true, count: res.count };
+    return sessions.map((s) => ({
+      id: s.id,
+      deviceFingerprint: s.deviceFingerprint,
+      ipAddress: s.ipAddress,
+      userAgent: s.userAgent,
+      lastActive: s.lastActive,
+      expiresAt: s.expiresAt,
+      createdAt: s.createdAt,
+      isCurrent: currentSessionId ? s.id === currentSessionId : false,
+    }));
+  }
+
+  /**
+   * Revoke a specific session belonging to the authenticated user (D1-023).
+   * Verifies ownership and invalidates session cache immediately.
+   */
+  async revokeSession(userId: string, sessionIdToRevoke: string, currentSessionId?: string) {
+    if (!sessionIdToRevoke || typeof sessionIdToRevoke !== 'string') {
+      throw new BadRequestException('Session ID is required');
+    }
+
+    const session = await this.prisma.userSession.findUnique({
+      where: { id: sessionIdToRevoke },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new NotFoundException('Session not found');
+    }
+
+    if (session.revokedAt !== null) {
+      return {
+        success: true,
+        message: 'Session is already revoked',
+        isCurrent: sessionIdToRevoke === currentSessionId,
+      };
+    }
+
+    await this.prisma.userSession.update({
+      where: { id: sessionIdToRevoke },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: 'USER_REVOKED',
+      },
+    });
+
+    forgetSessions();
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: userId,
+        action: 'REVOKE_SESSION',
+        entity: 'UserSession',
+        entityId: sessionIdToRevoke,
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: 'Session revoked successfully',
+      isCurrent: sessionIdToRevoke === currentSessionId,
+    };
+  }
+
+  /**
+   * Password Reset Request (D1-021): Generates secure token, stores token hash with 1h expiry.
+   * Generic response prevents account enumeration.
+   */
+  async requestPasswordReset(email: string) {
+    const genericResponse = {
+      message: 'If an account with that email exists, a password reset link has been sent.',
+    };
+
+    const trimmedEmail = email?.trim();
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      return genericResponse;
+    }
+
+    const normalizedEmail = trimmedEmail.toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user || user.deletedAt) {
+      return genericResponse;
+    }
+
+    // Generate cryptographically secure random token (256-bit entropy)
+    const rawToken = randomBytes(32).toString('hex');
+    // Store only SHA-256 hash in DB; never persist raw token
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour expiry
+
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        token: tokenHash,
+        expiresAt,
+      },
+    });
+
+    // NOTE: When D2 implements email queue workers, enqueue job here.
+    // Provider-neutral abstraction ensures no external vendor dependency is hardcoded.
+    // Raw token is not returned in API response and not logged.
+
+    return genericResponse;
+  }
+
+  /**
+   * Password Reset Confirm (D1-021): Validates token hash, updates password,
+   * consumes token, invalidates prior tokens, revokes all sessions, and clears session cache.
+   */
+  async confirmPasswordReset(token: string, newPassword: string) {
+    if (!token || typeof token !== 'string') {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters long');
+    }
+
+    const tokenHash = createHash('sha256').update(token.trim()).digest('hex');
+
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { token: tokenHash },
+      include: { user: true },
+    });
+
+    if (
+      !resetToken ||
+      resetToken.usedAt !== null ||
+      resetToken.expiresAt <= new Date() ||
+      !resetToken.user ||
+      resetToken.user.deletedAt !== null
+    ) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    const now = new Date();
+
+    // Atomic transaction: lock on userId, re-verify unused state, update password, consume token,
+    // invalidate all other tokens for this user, and revoke all active sessions.
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${resetToken.userId}))`;
+
+      // Re-fetch token under advisory lock to prevent race condition / duplicate resets
+      const currentToken = await tx.passwordResetToken.findUnique({
+        where: { id: resetToken.id },
+      });
+
+      if (!currentToken || currentToken.usedAt !== null || currentToken.expiresAt <= now) {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+
+      // 1. Update password
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: { passwordHash: newPasswordHash },
+      });
+
+      // 2. Mark this token as used
+      await tx.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: now },
+      });
+
+      // 3. Invalidate any other active reset tokens for this user
+      await tx.passwordResetToken.updateMany({
+        where: {
+          userId: resetToken.userId,
+          usedAt: null,
+        },
+        data: { usedAt: now },
+      });
+
+      // 4. Revoke all active sessions for this user
+      await tx.userSession.updateMany({
+        where: {
+          userId: resetToken.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedReason: 'PASSWORD_RESET',
+        },
+      });
+    });
+
+    // Invalidate local in-memory session cache so any in-flight access JWTs for these sessions
+    // immediately fail revocation check in D1-019
+    forgetSessions();
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: resetToken.userId,
+        action: 'PASSWORD_RESET',
+        entity: 'User',
+        entityId: resetToken.userId,
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: 'Password has been reset successfully',
+    };
+  }
+
+  /**
+   * Generate 2FA Secret (D1-022): Generates TOTP secret and otpauth URI for SUPER_ADMIN or ADMIN.
+   * Does NOT enable 2FA until verified.
+   */
+  async generate2faSecret(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Two-factor authentication is only available for admin roles');
+    }
+
+    const secret = generateTotpSecret();
+    const otpauthUrl = generateOtpauthUri({
+      issuer: 'WhatBoutMe',
+      accountName: user.email,
+      secret,
+    });
+
+    return {
+      secret,
+      otpauthUrl,
+    };
+  }
+
+  /**
+   * Enable 2FA (D1-022): Verifies TOTP code against setup secret, encrypts secret at rest with AES-256-GCM,
+   * generates 10 hashed backup codes, and enables twoFactorEnabled.
+   */
+  async enable2fa(userId: string, code: string, secret?: string) {
+    if (!code || typeof code !== 'string') {
+      throw new BadRequestException('Verification code is required');
+    }
+
+    if (!secret || typeof secret !== 'string' || !/^[A-Z2-7]{16,64}$/i.test(secret.trim())) {
+      throw new BadRequestException('Setup secret is required and must be a valid Base32 string (16-64 characters)');
+    }
+
+    const trimmedSecret = secret.trim().toUpperCase();
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Two-factor authentication is only available for admin roles');
+    }
+
+    const isValid = verifyTotp(code, trimmedSecret, { window: 1 });
+    if (!isValid) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    const rawBackupCodes = generateBackupCodes(10);
+    const hashedBackupCodes = rawBackupCodes.map(hashBackupCode);
+    const encryptedSecret = encryptTotpSecret(trimmedSecret);
+
+    // Atomically persist under advisory lock
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          twoFactorSecret: encryptedSecret,
+          twoFactorEnabled: true,
+          twoFactorBackupCodes: hashedBackupCodes,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Two-factor authentication enabled successfully',
+      backupCodes: rawBackupCodes,
+    };
+  }
+
+  /**
+   * Verify 2FA (D1-022): Verifies TOTP or backup code during admin login handshake,
+   * creates UserSession with device limit, and issues access + refresh tokens.
+   */
+  async verify2fa(tempToken: string, code: string, metadata?: DeviceSessionMetadata) {
+    if (!tempToken || typeof tempToken !== 'string') {
+      throw new UnauthorizedException('Two-factor authentication token is required');
+    }
+
+    if (!code || typeof code !== 'string') {
+      throw new UnauthorizedException('Verification code is required');
+    }
+
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(tempToken, {
+        secret: process.env.JWT_SECRET || 'fallback-secret',
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired two-factor authentication session');
+    }
+
+    if (!payload || !payload.sub || payload.purpose !== '2fa_login') {
+      throw new UnauthorizedException('Invalid or expired two-factor authentication session');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+
+    if (!user || user.deletedAt || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      if (user) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: '2FA_NOT_ACTIVE',
+          userCountry: user.country,
+        });
+      }
+      throw new UnauthorizedException('Two-factor authentication is not active for this account');
+    }
+
+    if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INSUFFICIENT_PERMISSIONS',
+        userCountry: user.country,
+      });
+      throw new ForbiddenException('Two-factor authentication is only available for admin roles');
+    }
+
+    const trimmedCode = code.trim().toUpperCase();
+
+    // 1. Try TOTP code verification
+    let verified = false;
+
+    try {
+      const decryptedSecret = decryptTotpSecret(user.twoFactorSecret);
+      if (verifyTotp(trimmedCode, decryptedSecret, { window: 1 })) {
+        verified = true;
+      }
+    } catch {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_2FA_CODE',
+        userCountry: user.country,
+      });
+      throw new UnauthorizedException('Two-factor authentication verification failed');
+    }
+
+    // 2. If TOTP failed, try backup code verification under transactional advisory lock
+    if (!verified) {
+      const candidateHash = hashBackupCode(trimmedCode);
+
+      try {
+        await this.prisma.$transaction(async (tx: any) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
+
+          const freshUser = await tx.user.findUnique({
+            where: { id: user.id },
+          });
+
+          if (
+            !freshUser ||
+            freshUser.deletedAt ||
+            !freshUser.twoFactorEnabled ||
+            !freshUser.twoFactorBackupCodes ||
+            freshUser.twoFactorBackupCodes.length === 0
+          ) {
+            return;
+          }
+
+          const usedIdx = freshUser.twoFactorBackupCodes.indexOf(candidateHash);
+          if (usedIdx === -1) {
+            return;
+          }
+
+          const remainingBackupCodes = freshUser.twoFactorBackupCodes.filter(
+            (_: string, idx: number) => idx !== usedIdx,
+          );
+
+          await tx.user.update({
+            where: { id: freshUser.id },
+            data: { twoFactorBackupCodes: remainingBackupCodes },
+          });
+
+          verified = true;
+        });
+      } catch {
+        // Any transaction failure leaves verified as false
+      }
+    }
+
+    if (!verified) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_2FA_CODE',
+        userCountry: user.country,
+      });
+      throw new UnauthorizedException('Invalid two-factor authentication code');
+    }
+
+    // 3. Issue full session tokens with D1-017 limits and D1-018 rotation
+    const sessionId = randomUUID();
+    const refreshPayload = { sub: user.id, sessionId };
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
+      expiresIn: '7d',
+    });
+    const tokenHash = await bcrypt.hash(refreshToken, 10);
+
+    await this.createDeviceSession(user.id, user.role, tokenHash, metadata, sessionId);
+
+    const accessPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      companyId: user.companyId,
+      sessionId,
+    };
+
+    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
+    await this.recordLoginAudit({
+      userId: user.id,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      country: metadata?.country,
+      deviceFingerprint: metadata?.deviceFingerprint,
+      isSuspicious: false,
+      reason: '2FA_SUCCESS',
+      userCountry: user.country,
+    });
+
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    };
   }
 }

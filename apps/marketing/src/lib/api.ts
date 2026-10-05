@@ -129,6 +129,42 @@ export async function signupUser(details: {
   email: string;
   phone?: string;
   password: string;
+  country?: string;
+  timezone?: string;
 }) {
   return authRequest("/auth/signup", details, "Could not create the account.");
+}
+
+export async function verifyEmailUser(token: string) {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/auth/verify-email?token=${encodeURIComponent(token.trim())}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {
+    throw new Error("Could not reach the server. Please try again in a moment.");
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const raw = data?.error?.message ?? data?.message;
+    throw new Error((Array.isArray(raw) ? raw.join(", ") : raw) || "Invalid or expired verification token.");
+  }
+  return await res.json();
+}
+
+export async function requestPasswordResetUser(email: string) {
+  return authRequest(
+    "/auth/password-reset/request",
+    { email: email.trim().toLowerCase() },
+    "Could not request password reset.",
+  );
+}
+
+export async function confirmPasswordResetUser(token: string, newPassword: string) {
+  return authRequest(
+    "/auth/password-reset/confirm",
+    { token: token.trim(), newPassword },
+    "Could not reset password.",
+  );
 }

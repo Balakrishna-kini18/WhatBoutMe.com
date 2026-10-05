@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { API_BASE_URL, LMS_URL, loginUser, signupUser } from "@/lib/api";
+import { API_BASE_URL, LMS_URL, loginUser, signupUser } from "./api";
 
 /** Signed-in learner, as returned by POST /auth/login. */
 export type SessionUser = {
@@ -63,14 +63,16 @@ export async function signIn(identifier: string, password: string) {
   storeSession(await loginUser(identifier, password));
 }
 
-/** Creates a learner account and signs it in. */
+/** Creates a learner account. Returns created user. Email verification is required before login. */
 export async function signUp(details: {
   name: string;
   email: string;
   phone?: string;
   password: string;
+  country?: string;
+  timezone?: string;
 }) {
-  storeSession(await signupUser(details));
+  return await signupUser(details);
 }
 
 export function signOut() {

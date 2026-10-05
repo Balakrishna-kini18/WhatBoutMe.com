@@ -177,7 +177,7 @@
   Implement Cloudinary text overlay transformation utility pinning the learner’s email/ID onto the video stream at fixed coordinates (e.g., bottom-right) per signed playback URL. *Note: Truly animated/moving watermarks are handled client-side by the custom video player wrapper overlay (Frontend responsibility), while server-side animated watermarking remains a deferred spike (Spike U1).*
 - [x] **D2-007:** Implement video thumbnail extraction at specified offsets with signed delivery URLs.
 - [x] **D2-008:** Implement backend endpoint `POST /media/upload-signature` generating signed parameters for secure direct-from-client uploads.
-- [ ] **D2-009:** Implement webhook listener `POST /webhooks/cloudinary` with HMAC-SHA256 signature verification to process video encoding completion and metadata.
+- [x] **D2-009:** Implement webhook listener `POST /webhooks/cloudinary` with HMAC-SHA256 signature verification to process video encoding completion and metadata.
 - [ ] **D2-010:** Implement exponential backoff and rate-limit handling for Cloudinary API requests.
 - [ ] **D2-011:** Implement shared `IMediaProvider` interface using Cloudinary.
 - [ ] **D2-012:** Author automated test suite verifying signed URL generation, expiration parameter enforcement, and signature validity without leaking API secrets.

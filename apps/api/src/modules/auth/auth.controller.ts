@@ -22,7 +22,8 @@ export class AuthController {
   @Throttle(CREDENTIAL_LIMIT)
   @Post('login')
   login(@Body() body: LoginDto) {
-    return this.authService.login(body.email ?? body.phone ?? '', body.password);
+    const identifier = body.email?.trim() || body.phone?.trim() || '';
+    return this.authService.login(identifier, body.password);
   }
 
   /**

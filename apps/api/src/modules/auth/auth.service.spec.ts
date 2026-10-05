@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ConflictException, BadRequestException } from '@nestjs/common';
+import { ConflictException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Role, EnrolmentStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -17,6 +17,7 @@ describe('AuthService - Authentication Tests', () => {
       user: {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
+        findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
       },
@@ -34,6 +35,9 @@ describe('AuthService - Authentication Tests', () => {
       },
       enrolment: {
         create: vi.fn(),
+      },
+      dailyAttendance: {
+        upsert: vi.fn().mockResolvedValue({}),
       },
       userSession: {
         create: vi.fn(),
@@ -744,6 +748,210 @@ describe('AuthService - Authentication Tests', () => {
       await expect(authService.verifyEmail('')).rejects.toThrow(BadRequestException);
       await expect(authService.verifyEmail('   ')).rejects.toThrow(BadRequestException);
       await expect(authService.verifyEmail(null as any)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('Credential Login (D1-016)', () => {
+    it('successfully logs in with verified email and password, returning tokens and safe user payload', async () => {
+      const plainPassword = 'ValidPassword123!';
+      const passwordHash = await bcrypt.hash(plainPassword, 10);
+      const mockUser = {
+        id: 'user-login-1',
+        email: 'learner@example.com',
+        name: 'Learner One',
+        phone: '+15551234567',
+        role: Role.USER,
+        companyId: 'company-1',
+        country: 'US',
+        timezone: 'America/New_York',
+        passwordHash,
+        emailVerifiedAt: new Date(),
+        deletedAt: null,
+        enrolments: [
+          {
+            id: 'enrol-1',
+            batchId: 'batch-1',
+            status: 'ACTIVE',
+            batch: {
+              name: 'Cohort Alpha',
+              programId: 'prog-1',
+              program: { title: 'Web Development' },
+            },
+          },
+        ],
+      };
+
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      // Email login with mixed case and whitespace
+      const result = await authService.login('  LEARNER@example.com  ', plainPassword);
+
+      // Verifies normalization to lowercase and trim
+      expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'learner@example.com' },
+        include: expect.any(Object),
+      });
+
+      expect(result).toHaveProperty('access_token');
+      expect(result).toHaveProperty('refresh_token');
+      expect(result.user).toEqual({
+        id: 'user-login-1',
+        email: 'learner@example.com',
+        name: 'Learner One',
+        phone: '+15551234567',
+        role: Role.USER,
+        companyId: 'company-1',
+        country: 'US',
+        timezone: 'America/New_York',
+        enrolledPrograms: [
+          {
+            enrolmentId: 'enrol-1',
+            batchId: 'batch-1',
+            batchName: 'Cohort Alpha',
+            programId: 'prog-1',
+            programTitle: 'Web Development',
+            status: 'ACTIVE',
+          },
+        ],
+      });
+      // Ensure passwordHash and secrets are never leaked
+      expect((result.user as any).passwordHash).toBeUndefined();
+      expect((result.user as any).twoFactorSecret).toBeUndefined();
+    });
+
+    it('successfully logs in with phone number and password', async () => {
+      const plainPassword = 'PhonePassword123!';
+      const passwordHash = await bcrypt.hash(plainPassword, 10);
+      const mockUser = {
+        id: 'user-phone-1',
+        email: 'phoneuser@example.com',
+        name: 'Phone User',
+        phone: '+15559876543',
+        role: Role.USER,
+        companyId: null,
+        country: null,
+        timezone: null,
+        passwordHash,
+        emailVerifiedAt: new Date(),
+        deletedAt: null,
+        enrolments: [],
+      };
+
+      prismaMock.user.findMany.mockResolvedValue([mockUser]);
+
+      const result = await authService.login('+1 (555) 987-6543', plainPassword);
+
+      expect(prismaMock.user.findMany).toHaveBeenCalledWith({
+        where: {
+          phone: { in: ['+15559876543', '+1 (555) 987-6543'] },
+          deletedAt: null,
+        },
+        include: expect.any(Object),
+        take: 2,
+      });
+
+      expect(result.user.id).toBe('user-phone-1');
+      expect(result.user.email).toBe('phoneuser@example.com');
+    });
+
+    it('rejects wrong password with generic UnauthorizedException', async () => {
+      const passwordHash = await bcrypt.hash('CorrectPassword123!', 10);
+      const mockUser = {
+        id: 'user-wrong-pass',
+        email: 'wrongpass@example.com',
+        passwordHash,
+        emailVerifiedAt: new Date(),
+        deletedAt: null,
+      };
+
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      await expect(
+        authService.login('wrongpass@example.com', 'IncorrectPassword!'),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        authService.login('wrongpass@example.com', 'IncorrectPassword!'),
+      ).rejects.toThrow('Invalid email or password');
+    });
+
+    it('rejects nonexistent identifier with generic UnauthorizedException without leaking existence', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        authService.login('nonexistent@example.com', 'AnyPassword123!'),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        authService.login('nonexistent@example.com', 'AnyPassword123!'),
+      ).rejects.toThrow('Invalid email or password');
+    });
+
+    it('rejects soft-deleted user with generic UnauthorizedException', async () => {
+      const passwordHash = await bcrypt.hash('ValidPassword123!', 10);
+      const mockUser = {
+        id: 'deleted-user',
+        email: 'deleted@example.com',
+        passwordHash,
+        emailVerifiedAt: new Date(),
+        deletedAt: new Date(),
+      };
+
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      await expect(
+        authService.login('deleted@example.com', 'ValidPassword123!'),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        authService.login('deleted@example.com', 'ValidPassword123!'),
+      ).rejects.toThrow('Invalid email or password');
+    });
+
+    it('rejects unverified account with UnauthorizedException requiring email verification', async () => {
+      const plainPassword = 'ValidPassword123!';
+      const passwordHash = await bcrypt.hash(plainPassword, 10);
+      const mockUser = {
+        id: 'unverified-user',
+        email: 'unverified@example.com',
+        passwordHash,
+        emailVerifiedAt: null, // Unverified account
+        deletedAt: null,
+      };
+
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      await expect(
+        authService.login('unverified@example.com', plainPassword),
+      ).rejects.toThrow(UnauthorizedException);
+      await expect(
+        authService.login('unverified@example.com', plainPassword),
+      ).rejects.toThrow('Please verify your email before logging in');
+    });
+
+    it('preserves existing user role on authenticated user payload', async () => {
+      const plainPassword = 'ManagerPassword123!';
+      const passwordHash = await bcrypt.hash(plainPassword, 10);
+      const mockUser = {
+        id: 'manager-user',
+        email: 'manager@example.com',
+        role: Role.MANAGER,
+        passwordHash,
+        emailVerifiedAt: new Date(),
+        deletedAt: null,
+        enrolments: [],
+      };
+
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      const result = await authService.login('manager@example.com', plainPassword);
+
+      expect(result.user.role).toBe(Role.MANAGER);
+    });
+
+    it('rejects empty identifier or empty password', async () => {
+      await expect(authService.login('', 'password')).rejects.toThrow(UnauthorizedException);
+      await expect(authService.login('   ', 'password')).rejects.toThrow(UnauthorizedException);
+      await expect(authService.login('user@example.com', '')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 });

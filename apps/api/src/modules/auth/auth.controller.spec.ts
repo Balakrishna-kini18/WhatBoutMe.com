@@ -50,4 +50,38 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
       message: 'Email verified successfully',
     });
   });
+
+  describe('POST /auth/login', () => {
+    it('calls authService.login with email and password', async () => {
+      authServiceMock.login.mockResolvedValue({
+        access_token: 'access-1',
+        refresh_token: 'refresh-1',
+        user: { id: 'u1', email: 'test@example.com' },
+      });
+
+      const res = await controller.login({
+        email: 'test@example.com',
+        password: 'Password123!',
+      });
+
+      expect(authServiceMock.login).toHaveBeenCalledWith('test@example.com', 'Password123!');
+      expect(res).toHaveProperty('access_token');
+    });
+
+    it('calls authService.login with phone when email is omitted', async () => {
+      authServiceMock.login.mockResolvedValue({
+        access_token: 'access-2',
+        refresh_token: 'refresh-2',
+        user: { id: 'u2', phone: '+15551234567' },
+      });
+
+      const res = await controller.login({
+        phone: '+15551234567',
+        password: 'Password123!',
+      });
+
+      expect(authServiceMock.login).toHaveBeenCalledWith('+15551234567', 'Password123!');
+      expect(res).toHaveProperty('access_token');
+    });
+  });
 });

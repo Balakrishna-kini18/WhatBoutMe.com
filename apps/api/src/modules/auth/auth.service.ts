@@ -26,6 +26,11 @@ export class AuthService {
 
   /** `identifier` is the account email, or its mobile number. */
   async login(identifier: string, password: string) {
+    const trimmedIdentifier = identifier?.trim() || '';
+    if (!trimmedIdentifier || !password) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
     const include = {
       enrolments: {
         include: {
@@ -37,25 +42,34 @@ export class AuthService {
     };
 
     let user;
-    if (identifier.includes('@')) {
-      user = await this.prisma.user.findUnique({ where: { email: identifier }, include });
+    if (trimmedIdentifier.includes('@')) {
+      const normalizedEmail = trimmedIdentifier.toLowerCase();
+      user = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, include });
     } else {
       // a number only signs in when exactly one account holds it
+      const normalizedPhone = this.normalizePhone(trimmedIdentifier);
       const matches = await this.prisma.user.findMany({
-        where: { phone: { in: [this.normalizePhone(identifier), identifier.trim()] } },
+        where: {
+          phone: { in: [normalizedPhone, trimmedIdentifier] },
+          deletedAt: null,
+        },
         include,
         take: 2,
       });
       user = matches.length === 1 ? matches[0] : null;
     }
 
-    if (!user || !user.passwordHash) {
+    if (!user || !user.passwordHash || user.deletedAt) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException('Please verify your email before logging in');
     }
 
     // Build basic payload for refresh token (sessionId is added later for access token)
@@ -90,14 +104,14 @@ export class AuthService {
     if (user.role === Role.USER) void markDailyAttendance(this.prisma, user.id, 'visited');
 
     // Return user data with enrolled programs for tenant separation
-    const enrolledPrograms = user.enrolments.map((e) => ({
+    const enrolledPrograms = user.enrolments?.map((e) => ({
       enrolmentId: e.id,
       batchId: e.batchId,
-      batchName: e.batch.name,
-      programId: e.batch.programId,
-      programTitle: e.batch.program.title,
+      batchName: e.batch?.name,
+      programId: e.batch?.programId,
+      programTitle: e.batch?.program?.title,
       status: e.status,
-    }));
+    })) || [];
 
     return {
       access_token: accessToken,
@@ -106,8 +120,11 @@ export class AuthService {
         id: user.id,
         email: user.email,
         name: user.name,
+        phone: user.phone,
         role: user.role,
         companyId: user.companyId,
+        country: user.country,
+        timezone: user.timezone,
         enrolledPrograms,
       },
     };

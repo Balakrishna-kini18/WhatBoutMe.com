@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Role, EnrolmentStatus } from '@prisma/client';
@@ -231,6 +231,54 @@ export class AuthService {
         timezone: user.timezone,
         enrolledPrograms,
       },
+    };
+  }
+
+  /**
+   * Email Verification (D1-015): validates token, marks emailVerifiedAt, invalidates token.
+   */
+  async verifyEmail(token: string) {
+    if (!token || typeof token !== 'string') {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    const verificationToken = await this.prisma.emailVerificationToken.findUnique({
+      where: { token: token.trim() },
+      include: { user: true },
+    });
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    if (verificationToken.usedAt !== null) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    if (verificationToken.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    if (!verificationToken.user) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.emailVerificationToken.update({
+        where: { id: verificationToken.id },
+        data: { usedAt: now },
+      }),
+      this.prisma.user.update({
+        where: { id: verificationToken.userId },
+        data: { emailVerifiedAt: now },
+      }),
+    ]);
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
     };
   }
 

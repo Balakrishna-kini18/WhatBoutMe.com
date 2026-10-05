@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Role, EnrolmentStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -7,7 +7,7 @@ import { AuthService } from './auth.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { SignupDto } from './dto/index.js';
 
-describe('AuthService - Signup (D1-014)', () => {
+describe('AuthService - Authentication Tests', () => {
   let authService: AuthService;
   let prismaMock: any;
   let jwtServiceMock: any;
@@ -18,9 +18,12 @@ describe('AuthService - Signup (D1-014)', () => {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
         create: vi.fn(),
+        update: vi.fn(),
       },
       emailVerificationToken: {
+        findUnique: vi.fn(),
         create: vi.fn(),
+        update: vi.fn(),
       },
       program: {
         findUnique: vi.fn(),
@@ -40,6 +43,7 @@ describe('AuthService - Signup (D1-014)', () => {
       },
       $transaction: vi.fn().mockImplementation(async (fns) => {
         if (typeof fns === 'function') return fns(prismaMock);
+        if (Array.isArray(fns)) return Promise.all(fns);
         return fns;
       }),
       $executeRaw: vi.fn().mockResolvedValue(1),
@@ -574,6 +578,172 @@ describe('AuthService - Signup (D1-014)', () => {
       expect(prismaMock.batch.findFirst).not.toHaveBeenCalled();
       expect(prismaMock.enrolment.create).not.toHaveBeenCalled();
       expect(response.user.enrolledPrograms).toHaveLength(0);
+    });
+  });
+
+  describe('Email Verification (D1-015)', () => {
+    it('successfully verifies user with valid token and consumes the token', async () => {
+      const tokenStr = 'valid-token-uuid-1234';
+      const mockToken = {
+        id: 'evt-100',
+        userId: 'user-100',
+        token: tokenStr,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // in future
+        usedAt: null,
+        user: {
+          id: 'user-100',
+          email: 'test@example.com',
+          emailVerifiedAt: null,
+        },
+      };
+
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(mockToken);
+      prismaMock.emailVerificationToken.update.mockResolvedValue({ ...mockToken, usedAt: new Date() });
+      prismaMock.user.update.mockResolvedValue({ ...mockToken.user, emailVerifiedAt: new Date() });
+
+      const result = await authService.verifyEmail(tokenStr);
+
+      expect(prismaMock.emailVerificationToken.findUnique).toHaveBeenCalledWith({
+        where: { token: tokenStr },
+        include: { user: true },
+      });
+
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(prismaMock.emailVerificationToken.update).toHaveBeenCalledWith({
+        where: { id: 'evt-100' },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(prismaMock.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-100' },
+        data: { emailVerifiedAt: expect.any(Date) },
+      });
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Email verified successfully',
+      });
+    });
+
+    it('rejects an already-consumed token (token cannot be reused)', async () => {
+      const tokenStr = 'consumed-token-uuid';
+      const mockToken = {
+        id: 'evt-101',
+        userId: 'user-101',
+        token: tokenStr,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        usedAt: new Date(Date.now() - 3600000), // already used 1 hour ago
+        user: { id: 'user-101', email: 'test@example.com' },
+      };
+
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(mockToken);
+
+      await expect(authService.verifyEmail(tokenStr)).rejects.toThrow(BadRequestException);
+      await expect(authService.verifyEmail(tokenStr)).rejects.toThrow(
+        'Invalid or expired verification token',
+      );
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects an expired token', async () => {
+      const tokenStr = 'expired-token-uuid';
+      const mockToken = {
+        id: 'evt-102',
+        userId: 'user-102',
+        token: tokenStr,
+        expiresAt: new Date(Date.now() - 1000), // expired 1s ago
+        usedAt: null,
+        user: { id: 'user-102', email: 'test@example.com' },
+      };
+
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(mockToken);
+
+      await expect(authService.verifyEmail(tokenStr)).rejects.toThrow(BadRequestException);
+      await expect(authService.verifyEmail(tokenStr)).rejects.toThrow(
+        'Invalid or expired verification token',
+      );
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a nonexistent token', async () => {
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(null);
+
+      await expect(authService.verifyEmail('nonexistent-token')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(authService.verifyEmail('nonexistent-token')).rejects.toThrow(
+        'Invalid or expired verification token',
+      );
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects token if associated user record does not exist', async () => {
+      const mockToken = {
+        id: 'evt-103',
+        userId: 'deleted-user',
+        token: 'orphan-token',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        usedAt: null,
+        user: null,
+      };
+
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(mockToken);
+
+      await expect(authService.verifyEmail('orphan-token')).rejects.toThrow(BadRequestException);
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('does NOT issue access/refresh JWTs or create UserSession during verification', async () => {
+      const mockToken = {
+        id: 'evt-104',
+        userId: 'user-104',
+        token: 'valid-token-no-jwt',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        usedAt: null,
+        user: { id: 'user-104', email: 'nojwt@example.com' },
+      };
+
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(mockToken);
+
+      const result = await authService.verifyEmail('valid-token-no-jwt');
+
+      expect(jwtServiceMock.sign).not.toHaveBeenCalled();
+      expect(prismaMock.userSession.create).not.toHaveBeenCalled();
+      expect(result).not.toHaveProperty('access_token');
+      expect(result).not.toHaveProperty('refresh_token');
+    });
+
+    it('does NOT expose sensitive token or user secrets in response payload', async () => {
+      const mockToken = {
+        id: 'evt-105',
+        userId: 'user-105',
+        token: 'sensitive-token',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        usedAt: null,
+        user: {
+          id: 'user-105',
+          email: 'secret@example.com',
+          passwordHash: 'hash',
+          twoFactorSecret: '2fa',
+        },
+      };
+
+      prismaMock.emailVerificationToken.findUnique.mockResolvedValue(mockToken);
+
+      const result = await authService.verifyEmail('sensitive-token');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Email verified successfully',
+      });
+      expect(result).not.toHaveProperty('token');
+      expect(result).not.toHaveProperty('passwordHash');
+      expect(result).not.toHaveProperty('twoFactorSecret');
+    });
+
+    it('rejects empty or malformed token string', async () => {
+      await expect(authService.verifyEmail('')).rejects.toThrow(BadRequestException);
+      await expect(authService.verifyEmail('   ')).rejects.toThrow(BadRequestException);
+      await expect(authService.verifyEmail(null as any)).rejects.toThrow(BadRequestException);
     });
   });
 });

@@ -1,9 +1,9 @@
-import { Controller, Post, Body, Get, Request } from '@nestjs/common';
+import { Controller, Post, Body, Get, Request, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
-import { LoginDto, SignupDto, RefreshDto } from './dto/index.js';
-export { LoginDto, SignupDto, RefreshDto };
+import { LoginDto, SignupDto, RefreshDto, EmailVerificationDto } from './dto/index.js';
+export { LoginDto, SignupDto, RefreshDto, EmailVerificationDto };
 
 // Strict limit for the endpoints that take a password. Applied per endpoint,
 // not to the whole controller: /auth/me, /auth/session and /auth/refresh are
@@ -33,6 +33,24 @@ export class AuthController {
   @Post('signup')
   signup(@Body() body: SignupDto) {
     return this.authService.signup(body);
+  }
+
+  /**
+   * Learner Email Verification: POST /auth/verify-email
+   */
+  @Public()
+  @Post('verify-email')
+  verifyEmail(@Body() body: EmailVerificationDto) {
+    return this.authService.verifyEmail(body.token);
+  }
+
+  /**
+   * Learner Email Verification: GET /auth/verify-email?token=...
+   */
+  @Public()
+  @Get('verify-email')
+  verifyEmailGet(@Query() query: EmailVerificationDto) {
+    return this.authService.verifyEmail(query.token);
   }
 
   /**

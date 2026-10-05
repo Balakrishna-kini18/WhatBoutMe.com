@@ -18,4 +18,7 @@ async function bootstrap() {
   const logger = app.get(Logger);
   logger.log('BullMQ Background Worker initialized and waiting for jobs...');
 }
-bootstrap();
+bootstrap().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

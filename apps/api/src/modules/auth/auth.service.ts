@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { Role, EnrolmentStatus } from '@prisma/client';
 import { SignupDto } from './dto/index.js';
 import * as bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 
@@ -696,5 +696,149 @@ export class AuthService {
     });
 
     return { success: true, count: res.count };
+  }
+
+  /**
+   * Password Reset Request (D1-021): Generates secure token, stores token hash with 1h expiry.
+   * Generic response prevents account enumeration.
+   */
+  async requestPasswordReset(email: string) {
+    const genericResponse = {
+      message: 'If an account with that email exists, a password reset link has been sent.',
+    };
+
+    const trimmedEmail = email?.trim();
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      return genericResponse;
+    }
+
+    const normalizedEmail = trimmedEmail.toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user || user.deletedAt) {
+      return genericResponse;
+    }
+
+    // Generate cryptographically secure random token (256-bit entropy)
+    const rawToken = randomBytes(32).toString('hex');
+    // Store only SHA-256 hash in DB; never persist raw token
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour expiry
+
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        token: tokenHash,
+        expiresAt,
+      },
+    });
+
+    // NOTE: When D2 implements email queue workers, enqueue job here.
+    // Provider-neutral abstraction ensures no external vendor dependency is hardcoded.
+    // Raw token is not returned in API response and not logged.
+
+    return genericResponse;
+  }
+
+  /**
+   * Password Reset Confirm (D1-021): Validates token hash, updates password,
+   * consumes token, invalidates prior tokens, revokes all sessions, and clears session cache.
+   */
+  async confirmPasswordReset(token: string, newPassword: string) {
+    if (!token || typeof token !== 'string') {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters long');
+    }
+
+    const tokenHash = createHash('sha256').update(token.trim()).digest('hex');
+
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { token: tokenHash },
+      include: { user: true },
+    });
+
+    if (
+      !resetToken ||
+      resetToken.usedAt !== null ||
+      resetToken.expiresAt <= new Date() ||
+      !resetToken.user ||
+      resetToken.user.deletedAt !== null
+    ) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    const now = new Date();
+
+    // Atomic transaction: lock on userId, re-verify unused state, update password, consume token,
+    // invalidate all other tokens for this user, and revoke all active sessions.
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${resetToken.userId}))`;
+
+      // Re-fetch token under advisory lock to prevent race condition / duplicate resets
+      const currentToken = await tx.passwordResetToken.findUnique({
+        where: { id: resetToken.id },
+      });
+
+      if (!currentToken || currentToken.usedAt !== null || currentToken.expiresAt <= now) {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+
+      // 1. Update password
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: { passwordHash: newPasswordHash },
+      });
+
+      // 2. Mark this token as used
+      await tx.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: now },
+      });
+
+      // 3. Invalidate any other active reset tokens for this user
+      await tx.passwordResetToken.updateMany({
+        where: {
+          userId: resetToken.userId,
+          usedAt: null,
+        },
+        data: { usedAt: now },
+      });
+
+      // 4. Revoke all active sessions for this user
+      await tx.userSession.updateMany({
+        where: {
+          userId: resetToken.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedReason: 'PASSWORD_RESET',
+        },
+      });
+    });
+
+    // Invalidate local in-memory session cache so any in-flight access JWTs for these sessions
+    // immediately fail revocation check in D1-019
+    forgetSessions();
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: resetToken.userId,
+        action: 'PASSWORD_RESET',
+        entity: 'User',
+        entityId: resetToken.userId,
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: 'Password has been reset successfully',
+    };
   }
 }

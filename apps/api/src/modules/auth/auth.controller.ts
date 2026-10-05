@@ -2,8 +2,22 @@ import { Controller, Post, Body, Get, Request, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
-import { LoginDto, SignupDto, RefreshDto, EmailVerificationDto } from './dto/index.js';
-export { LoginDto, SignupDto, RefreshDto, EmailVerificationDto };
+import {
+  LoginDto,
+  SignupDto,
+  RefreshDto,
+  EmailVerificationDto,
+  PasswordResetRequestDto,
+  PasswordResetConfirmDto,
+} from './dto/index.js';
+export {
+  LoginDto,
+  SignupDto,
+  RefreshDto,
+  EmailVerificationDto,
+  PasswordResetRequestDto,
+  PasswordResetConfirmDto,
+};
 
 // Strict limit for the endpoints that take a password. Applied per endpoint,
 // not to the whole controller: /auth/me, /auth/session and /auth/refresh are
@@ -59,6 +73,27 @@ export class AuthController {
   @Get('verify-email')
   verifyEmailGet(@Query() query: EmailVerificationDto) {
     return this.authService.verifyEmail(query.token);
+  }
+
+  /**
+   * Password Reset Request: POST /auth/password-reset/request
+   */
+  @Public()
+  @Throttle(CREDENTIAL_LIMIT)
+  @Post('password-reset/request')
+  requestPasswordReset(@Body() body: PasswordResetRequestDto) {
+    return this.authService.requestPasswordReset(body.email);
+  }
+
+  /**
+   * Password Reset Confirm: POST /auth/password-reset/confirm
+   */
+  @Public()
+  @Throttle(CREDENTIAL_LIMIT)
+  @Post('password-reset/confirm')
+  confirmPasswordReset(@Body() body: PasswordResetConfirmDto) {
+    const newPassword = body.newPassword || body.password || '';
+    return this.authService.confirmPasswordReset(body.token, newPassword);
   }
 
   /**

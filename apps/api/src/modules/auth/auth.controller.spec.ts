@@ -14,6 +14,8 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
       adminLogin: vi.fn(),
       refreshToken: vi.fn(),
       verifyEmail: vi.fn(),
+      requestPasswordReset: vi.fn(),
+      confirmPasswordReset: vi.fn(),
     };
 
     controller = new AuthController(authServiceMock as AuthService);
@@ -108,6 +110,44 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
       expect(res).toEqual({
         access_token: 'new-access-token',
         refresh_token: 'new-refresh-token',
+      });
+    });
+  });
+
+  describe('AuthController - Password Reset Endpoints (D1-021)', () => {
+    it('POST /auth/password-reset/request calls authService.requestPasswordReset with email', async () => {
+      authServiceMock.requestPasswordReset.mockResolvedValue({
+        message: 'If an account with that email exists, a password reset link has been sent.',
+      });
+
+      const res = await controller.requestPasswordReset({
+        email: 'user@example.com',
+      });
+
+      expect(authServiceMock.requestPasswordReset).toHaveBeenCalledWith('user@example.com');
+      expect(res).toEqual({
+        message: 'If an account with that email exists, a password reset link has been sent.',
+      });
+    });
+
+    it('POST /auth/password-reset/confirm calls authService.confirmPasswordReset with token and newPassword', async () => {
+      authServiceMock.confirmPasswordReset.mockResolvedValue({
+        success: true,
+        message: 'Password has been reset successfully',
+      });
+
+      const res = await controller.confirmPasswordReset({
+        token: 'valid-reset-token',
+        newPassword: 'BrandNewSecurePassword123!',
+      });
+
+      expect(authServiceMock.confirmPasswordReset).toHaveBeenCalledWith(
+        'valid-reset-token',
+        'BrandNewSecurePassword123!',
+      );
+      expect(res).toEqual({
+        success: true,
+        message: 'Password has been reset successfully',
       });
     });
   });

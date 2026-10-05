@@ -3,9 +3,12 @@ import { ConflictException, BadRequestException, UnauthorizedException } from '@
 import { JwtService } from '@nestjs/jwt';
 import { Role, EnrolmentStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import { AuthService } from './auth.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { SignupDto } from './dto/index.js';
+import { rememberLiveSession, sessionKnownLive } from '../../common/session-cache.js';
+import { JwtStrategy } from './jwt.strategy.js';
 
 describe('AuthService - Authentication Tests', () => {
   let authService: AuthService;
@@ -44,7 +47,16 @@ describe('AuthService - Authentication Tests', () => {
         findMany: vi.fn(),
         findUnique: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
+      passwordResetToken: {
+        findUnique: vi.fn(),
+        findMany: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      logAction: vi.fn().mockResolvedValue({}),
       $transaction: vi.fn().mockImplementation(async (fns) => {
         if (typeof fns === 'function') return fns(prismaMock);
         if (Array.isArray(fns)) return Promise.all(fns);
@@ -1648,6 +1660,398 @@ describe('AuthService - Authentication Tests', () => {
       expect(res3).toHaveProperty('refresh_token');
       const session2 = dbSessions.get(sessionId2);
       expect(session2.revokedAt).toBeNull();
+    });
+  });
+
+  describe('Password Reset Flow (D1-021)', () => {
+    const rawToken = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+    describe('requestPasswordReset', () => {
+      it('existing user requests reset successfully: token is generated securely and not returned by the API', async () => {
+        const user = {
+          id: 'user-reset-1',
+          email: 'learner@example.com',
+          deletedAt: null,
+        };
+        prismaMock.user.findUnique.mockResolvedValue(user);
+        prismaMock.passwordResetToken.create.mockResolvedValue({ id: 'prt-1' });
+
+        const res = await authService.requestPasswordReset('Learner@Example.Com ');
+
+        expect(prismaMock.user.findUnique).toHaveBeenCalledWith({
+          where: { email: 'learner@example.com' },
+        });
+        expect(prismaMock.passwordResetToken.create).toHaveBeenCalledWith({
+          data: {
+            userId: user.id,
+            token: expect.stringMatching(/^[a-f0-9]{64}$/), // SHA-256 hex string
+            expiresAt: expect.any(Date),
+          },
+        });
+
+        // The API response must be generic and never leak the token or its hash
+        expect(res).toEqual({
+          message: 'If an account with that email exists, a password reset link has been sent.',
+        });
+        expect((res as any).token).toBeUndefined();
+        expect((res as any).rawToken).toBeUndefined();
+      });
+
+      it('nonexistent email receives the same generic request response without leaking existence', async () => {
+        prismaMock.user.findUnique.mockResolvedValue(null);
+
+        const res = await authService.requestPasswordReset('nonexistent@example.com');
+
+        expect(prismaMock.passwordResetToken.create).not.toHaveBeenCalled();
+        expect(res).toEqual({
+          message: 'If an account with that email exists, a password reset link has been sent.',
+        });
+      });
+
+      it('deleted/non-eligible account does not leak existence', async () => {
+        prismaMock.user.findUnique.mockResolvedValue({
+          id: 'user-deleted',
+          email: 'deleted@example.com',
+          deletedAt: new Date(),
+        });
+
+        const res = await authService.requestPasswordReset('deleted@example.com');
+
+        expect(prismaMock.passwordResetToken.create).not.toHaveBeenCalled();
+        expect(res).toEqual({
+          message: 'If an account with that email exists, a password reset link has been sent.',
+        });
+      });
+    });
+
+    describe('confirmPasswordReset', () => {
+      it('valid reset token succeeds: updates password hash, marks token used, and revokes all active sessions', async () => {
+        const mockUser = {
+          id: 'user-reset-1',
+          email: 'learner@example.com',
+          role: Role.USER,
+          deletedAt: null,
+        };
+
+        const mockResetToken = {
+          id: 'prt-1',
+          userId: mockUser.id,
+          token: tokenHash,
+          expiresAt: new Date(Date.now() + 3600000), // 1 hour future
+          usedAt: null,
+          user: mockUser,
+        };
+
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue(mockResetToken);
+        prismaMock.user.update.mockResolvedValue({});
+        prismaMock.passwordResetToken.update.mockResolvedValue({});
+        prismaMock.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+        prismaMock.userSession.updateMany.mockResolvedValue({ count: 2 });
+
+        const res = await authService.confirmPasswordReset(rawToken, 'BrandNewSecurePassword123!');
+
+        expect(res).toEqual({
+          success: true,
+          message: 'Password has been reset successfully',
+        });
+
+        // 1. Password updated with bcrypt hash
+        expect(prismaMock.user.update).toHaveBeenCalledWith({
+          where: { id: mockUser.id },
+          data: {
+            passwordHash: expect.stringMatching(/^\$2[aby]\$\d+\$/),
+          },
+        });
+
+        // 2. Token marked as used
+        expect(prismaMock.passwordResetToken.update).toHaveBeenCalledWith({
+          where: { id: mockResetToken.id },
+          data: { usedAt: expect.any(Date) },
+        });
+
+        // 3. Other unused tokens for this user invalidated
+        expect(prismaMock.passwordResetToken.updateMany).toHaveBeenCalledWith({
+          where: {
+            userId: mockUser.id,
+            usedAt: null,
+          },
+          data: { usedAt: expect.any(Date) },
+        });
+
+        // 4. All active sessions revoked
+        expect(prismaMock.userSession.updateMany).toHaveBeenCalledWith({
+          where: {
+            userId: mockUser.id,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: expect.any(Date),
+            revokedReason: 'PASSWORD_RESET',
+          },
+        });
+      });
+
+      it('invalid token fails generically', async () => {
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue(null);
+
+        await expect(
+          authService.confirmPasswordReset('non-existent-token', 'BrandNewSecurePassword123!'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('expired token fails generically', async () => {
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue({
+          id: 'prt-expired',
+          userId: 'user-1',
+          token: tokenHash,
+          expiresAt: new Date(Date.now() - 1000), // in the past
+          usedAt: null,
+          user: { id: 'user-1', deletedAt: null },
+        });
+
+        await expect(
+          authService.confirmPasswordReset(rawToken, 'BrandNewSecurePassword123!'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('already-used token fails generically', async () => {
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue({
+          id: 'prt-used',
+          userId: 'user-1',
+          token: tokenHash,
+          expiresAt: new Date(Date.now() + 3600000),
+          usedAt: new Date(Date.now() - 5000), // already used
+          user: { id: 'user-1', deletedAt: null },
+        });
+
+        await expect(
+          authService.confirmPasswordReset(rawToken, 'BrandNewSecurePassword123!'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects password shorter than 8 characters', async () => {
+        await expect(
+          authService.confirmPasswordReset(rawToken, 'short'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('new password is stored hashed and is usable for login, while old password fails', async () => {
+        const oldPassword = 'OldPassword123!';
+        const newPassword = 'BrandNewSecurePassword123!';
+        const oldHash = await bcrypt.hash(oldPassword, 10);
+
+        let savedNewHash = '';
+        prismaMock.user.update.mockImplementation(async ({ data }: any) => {
+          savedNewHash = data.passwordHash;
+          return {};
+        });
+
+        const mockUser = {
+          id: 'user-reset-pw',
+          email: 'learner@example.com',
+          role: Role.USER,
+          passwordHash: oldHash,
+          emailVerifiedAt: new Date(),
+          deletedAt: null,
+        };
+
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue({
+          id: 'prt-login-test',
+          userId: mockUser.id,
+          token: tokenHash,
+          expiresAt: new Date(Date.now() + 3600000),
+          usedAt: null,
+          user: mockUser,
+        });
+
+        await authService.confirmPasswordReset(rawToken, newPassword);
+        expect(savedNewHash).toBeTruthy();
+
+        // Simulate user record with new password hash
+        const userWithNewPassword = {
+          ...mockUser,
+          passwordHash: savedNewHash,
+          enrolments: [],
+        };
+        prismaMock.user.findUnique.mockResolvedValue(userWithNewPassword);
+
+        // 1. Old password fails
+        await expect(
+          authService.login('learner@example.com', oldPassword),
+        ).rejects.toThrow(UnauthorizedException);
+
+        // 2. New password succeeds
+        const loginRes = await authService.login('learner@example.com', newPassword);
+        expect(loginRes).toHaveProperty('access_token');
+        expect(loginRes).toHaveProperty('refresh_token');
+      });
+
+      it('session cache is invalidated and previously issued access JWT is rejected by D1-019 after reset', async () => {
+        const sessionId = 'session-to-revoke-123';
+        const userId = 'user-reset-session';
+
+        // Populate session in cache as live
+        rememberLiveSession(sessionId, userId);
+        expect(sessionKnownLive(sessionId, userId)).toBe(true);
+
+        const mockUser = {
+          id: userId,
+          email: 'user-session@example.com',
+          role: Role.USER,
+          deletedAt: null,
+        };
+
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue({
+          id: 'prt-session-test',
+          userId,
+          token: tokenHash,
+          expiresAt: new Date(Date.now() + 3600000),
+          usedAt: null,
+          user: mockUser,
+        });
+
+        // Perform reset
+        await authService.confirmPasswordReset(rawToken, 'BrandNewSecurePassword123!');
+
+        // 1. In-memory session cache was invalidated
+        expect(sessionKnownLive(sessionId, userId)).toBe(false);
+
+        // 2. JWT Strategy (D1-019) validates against DB and rejects revoked session
+        const revokedSessionInDb = {
+          id: sessionId,
+          userId,
+          token: 'mock-token-hash',
+          revokedAt: new Date(),
+          revokedReason: 'PASSWORD_RESET',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        };
+        prismaMock.userSession.findUnique.mockResolvedValue(revokedSessionInDb);
+
+        const jwtStrategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+        await expect(
+          jwtStrategy.validate({ sub: userId, sessionId }),
+        ).rejects.toThrow(UnauthorizedException);
+      });
+
+      it('previously issued refresh token cannot be used after reset', async () => {
+        const sessionId = 'session-refresh-revoked';
+        const userId = 'user-refresh-revoked';
+
+        const mockUser = {
+          id: userId,
+          email: 'user-refresh@example.com',
+          role: Role.USER,
+          deletedAt: null,
+        };
+
+        prismaMock.passwordResetToken.findUnique.mockResolvedValue({
+          id: 'prt-refresh-test',
+          userId,
+          token: tokenHash,
+          expiresAt: new Date(Date.now() + 3600000),
+          usedAt: null,
+          user: mockUser,
+        });
+
+        await authService.confirmPasswordReset(rawToken, 'BrandNewSecurePassword123!');
+
+        // Setup refresh token payload bound to the revoked session
+        const oldRefreshToken = 'old-refresh-token';
+        jwtServiceMock.verify.mockReturnValue({
+          sub: userId,
+          sessionId,
+        });
+
+        prismaMock.user.findUnique.mockResolvedValue(mockUser);
+        prismaMock.userSession.findUnique.mockResolvedValue({
+          id: sessionId,
+          userId,
+          token: await bcrypt.hash(oldRefreshToken, 10),
+          revokedAt: new Date(),
+          revokedReason: 'PASSWORD_RESET',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        });
+
+        await expect(
+          authService.refreshToken(oldRefreshToken),
+        ).rejects.toThrow(UnauthorizedException);
+      });
+
+      it('concurrent/repeated use of the same reset token cannot perform two successful resets', async () => {
+        const userId = 'concurrent-reset-user';
+        const tokenId = 'concurrent-reset-token';
+
+        let tokenState = {
+          id: tokenId,
+          userId,
+          token: tokenHash,
+          expiresAt: new Date(Date.now() + 3600000),
+          usedAt: null as Date | null,
+          user: { id: userId, deletedAt: null },
+        };
+
+        prismaMock.passwordResetToken.findUnique.mockImplementation(async () => ({ ...tokenState }));
+
+        // Simulate PostgreSQL advisory transaction lock: serialize transactions per user
+        let userLock: Promise<void> | null = null;
+        let resolveUserLock: (() => void) | null = null;
+
+        prismaMock.$transaction.mockImplementation(async (callback: any) => {
+          while (userLock) {
+            await userLock;
+          }
+          userLock = new Promise<void>((resolve) => {
+            resolveUserLock = resolve;
+          });
+
+          const mockTx = {
+            ...prismaMock,
+            $executeRaw: vi.fn().mockResolvedValue(1),
+            passwordResetToken: {
+              findUnique: vi.fn().mockImplementation(async () => ({ ...tokenState })),
+              update: vi.fn().mockImplementation(async ({ data }: any) => {
+                tokenState = { ...tokenState, usedAt: data.usedAt };
+                return tokenState;
+              }),
+              updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+            user: {
+              update: vi.fn().mockResolvedValue({}),
+            },
+            userSession: {
+              updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+          };
+
+          try {
+            // Introduce slight delay to allow second concurrent promise to queue up
+            await new Promise((resolve) => setTimeout(resolve, 15));
+            return await callback(mockTx);
+          } finally {
+            const unlock = resolveUserLock;
+            userLock = null;
+            resolveUserLock = null;
+            if (unlock) unlock();
+          }
+        });
+
+        // Launch two simultaneous reset requests with the same token
+        const req1 = authService.confirmPasswordReset(rawToken, 'NewPassword12345!');
+        const req2 = authService.confirmPasswordReset(rawToken, 'NewPassword12345!');
+
+        const [res1, res2] = await Promise.all([
+          req1.catch((e) => e),
+          req2.catch((e) => e),
+        ]);
+
+        const successes = [res1, res2].filter((r) => r && r.success === true);
+        const failures = [res1, res2].filter((r) => r instanceof BadRequestException);
+
+        expect(successes.length).toBe(1);
+        expect(failures.length).toBe(1);
+        expect(tokenState.usedAt).not.toBeNull();
+      });
     });
   });
 });

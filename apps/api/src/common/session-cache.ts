@@ -7,13 +7,34 @@
  */
 const TTL_MS = 30_000;
 const MAX_ENTRIES = 5_000;
-const liveUntil = new Map<string, number>();
 
-export const sessionKnownLive = (sessionId: string) => (liveUntil.get(sessionId) ?? 0) > Date.now();
+interface CachedSession {
+  until: number;
+  userId: string;
+}
 
-export function rememberLiveSession(sessionId: string) {
+const liveUntil = new Map<string, CachedSession>();
+
+export const sessionKnownLive = (sessionId: string, userId?: string) => {
+  const cached = liveUntil.get(sessionId);
+  if (!cached) return false;
+  if (cached.until <= Date.now()) {
+    liveUntil.delete(sessionId);
+    return false;
+  }
+  if (userId && cached.userId !== userId) {
+    return false;
+  }
+  return true;
+};
+
+export function rememberLiveSession(sessionId: string, userId: string = '', expiresAt?: Date | null) {
   if (liveUntil.size >= MAX_ENTRIES) liveUntil.clear();
-  liveUntil.set(sessionId, Date.now() + TTL_MS);
+  const maxUntil = Date.now() + TTL_MS;
+  const until = expiresAt ? Math.min(maxUntil, expiresAt.getTime()) : maxUntil;
+  if (until > Date.now()) {
+    liveUntil.set(sessionId, { until, userId });
+  }
 }
 
 /** Call after revoking any session. Clearing everything is cheap and cannot miss one. */

@@ -16,18 +16,27 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    if (payload.sessionId && !sessionKnownLive(payload.sessionId)) {
+    // Every authenticated API request using an access JWT must verify that the JWT's bound UserSession is still valid.
+    if (!payload || !payload.sub || !payload.sessionId) {
+      throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
+    }
+
+    if (!sessionKnownLive(payload.sessionId, payload.sub)) {
       const session = await this.prisma.userSession.findUnique({
-        where: { id: payload.sessionId }
+        where: { id: payload.sessionId },
       });
-      // A revoked row still exists, so checking for the row alone let an
-      // ended session keep working until its access token expired.
-      if (!session || session.revokedAt) {
+
+      // Verify session exists, belongs to JWT subject/user, and is neither revoked nor expired
+      if (
+        !session ||
+        session.userId !== payload.sub ||
+        session.revokedAt !== null ||
+        (session.expiresAt && session.expiresAt <= new Date())
+      ) {
         throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
       }
-      rememberLiveSession(payload.sessionId);
-      
-      // Optionally update lastActive here (may cause many DB writes, usually skipped or debounced)
+
+      rememberLiveSession(payload.sessionId, session.userId, session.expiresAt);
     }
 
     // This decoded payload is attached to req.user

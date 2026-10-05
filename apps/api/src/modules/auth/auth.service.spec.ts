@@ -74,6 +74,11 @@ describe('AuthService - Authentication Tests', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       logAction: vi.fn().mockResolvedValue({}),
+      loginAudit: {
+        create: vi.fn().mockResolvedValue({}),
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       $transaction: vi.fn().mockImplementation(async (fns) => {
         if (typeof fns === 'function') return fns(prismaMock);
         if (Array.isArray(fns)) return Promise.all(fns);
@@ -2858,6 +2863,399 @@ describe('AuthService - Authentication Tests', () => {
 
         await expect(strategy.validate(jwtPayload)).rejects.toThrow(UnauthorizedException);
       });
+    });
+  });
+
+  describe('D1-024: Login Audit Security Logging', () => {
+    const testUserId = 'audit-user-123';
+    const testPassword = 'SecurePassword123!';
+    let testPasswordHash: string;
+
+    beforeEach(async () => {
+      testPasswordHash = await bcrypt.hash(testPassword, 10);
+    });
+
+    it('records LoginAudit on successful learner login with metadata and isSuspicious: false', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'learner@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: new Date(),
+        role: Role.USER,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      const metadata = {
+        ipAddress: '192.168.1.100',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+        deviceFingerprint: 'fp-mac-123',
+        country: 'AE',
+      };
+
+      const result = await authService.login('learner@example.com', testPassword, metadata);
+
+      expect(result).toHaveProperty('access_token');
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: testUserId,
+          ipAddress: '192.168.1.100',
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+          deviceFingerprint: 'fp-mac-123',
+          country: 'AE',
+          isSuspicious: false,
+          reason: 'SUCCESS',
+        },
+      });
+    });
+
+    it('records LoginAudit with INVALID_PASSWORD and isSuspicious: true on wrong password for known user', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'learner@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: new Date(),
+        role: Role.USER,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      const metadata = {
+        ipAddress: '203.0.113.5',
+        userAgent: 'curl/7.68.0',
+        deviceFingerprint: 'fp-attacker',
+        country: 'AE',
+      };
+
+      await expect(
+        authService.login('learner@example.com', 'WrongPassword!', metadata),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: testUserId,
+          ipAddress: '203.0.113.5',
+          userAgent: 'curl/7.68.0',
+          deviceFingerprint: 'fp-attacker',
+          country: 'AE',
+          isSuspicious: true,
+          reason: 'INVALID_PASSWORD',
+        },
+      });
+    });
+
+    it('records LoginAudit with UNVERIFIED_EMAIL and isSuspicious: true when learner email is unverified', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'unverified@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: null,
+        role: Role.USER,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      await expect(
+        authService.login('unverified@example.com', testPassword, {
+          ipAddress: '1.2.3.4',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: testUserId,
+          ipAddress: '1.2.3.4',
+          userAgent: null,
+          deviceFingerprint: null,
+          country: null,
+          isSuspicious: true,
+          reason: 'UNVERIFIED_EMAIL',
+        },
+      });
+    });
+
+    it('does NOT create LoginAudit and throws generic UnauthorizedException on non-existent user', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        authService.login('nonexistent@example.com', testPassword, {
+          ipAddress: '1.2.3.4',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prismaMock.loginAudit.create).not.toHaveBeenCalled();
+    });
+
+    it('flags isSuspicious: true when login country does not match user registered country', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'learner@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: new Date(),
+        role: Role.USER,
+        country: 'AE', // Registered in AE
+        deletedAt: null,
+      });
+
+      const metadata = {
+        ipAddress: '198.51.100.1',
+        userAgent: 'Firefox/120.0',
+        deviceFingerprint: 'fp-vpn',
+        country: 'RU', // Logging in from RU
+      };
+
+      await authService.login('learner@example.com', testPassword, metadata);
+
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: testUserId,
+          ipAddress: '198.51.100.1',
+          userAgent: 'Firefox/120.0',
+          deviceFingerprint: 'fp-vpn',
+          country: 'RU',
+          isSuspicious: true,
+          reason: 'SUCCESS',
+        },
+      });
+    });
+
+    it('flags isSuspicious: true on country-hopping when login country differs from last login country', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'nomad@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: new Date(),
+        role: Role.USER,
+        country: null, // No fixed home country registered
+        deletedAt: null,
+      });
+
+      // Last recorded audit was from 'AE'
+      prismaMock.loginAudit.findFirst.mockResolvedValue({
+        country: 'AE',
+      });
+
+      const metadata = {
+        ipAddress: '203.0.113.99',
+        userAgent: 'Chrome/120.0',
+        deviceFingerprint: 'fp-laptop',
+        country: 'US', // New request from US
+      };
+
+      await authService.login('nomad@example.com', testPassword, metadata);
+
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: testUserId,
+          ipAddress: '203.0.113.99',
+          userAgent: 'Chrome/120.0',
+          deviceFingerprint: 'fp-laptop',
+          country: 'US',
+          isSuspicious: true,
+          reason: 'SUCCESS',
+        },
+      });
+    });
+
+    it('records LoginAudit on adminLogin: SUCCESS_SETUP_REQUIRED for admin without 2FA', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'admin-audit-id',
+        email: 'admin@example.com',
+        passwordHash: testPasswordHash,
+        role: Role.ADMIN,
+        twoFactorEnabled: false,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      const res = await authService.adminLogin('admin@example.com', testPassword, {
+        ipAddress: '10.0.0.1',
+        country: 'AE',
+      });
+
+      expect(res.requires2faSetup).toBe(true);
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'admin-audit-id',
+          ipAddress: '10.0.0.1',
+          userAgent: null,
+          deviceFingerprint: null,
+          country: 'AE',
+          isSuspicious: false,
+          reason: 'SUCCESS_SETUP_REQUIRED',
+        },
+      });
+    });
+
+    it('records LoginAudit with INSUFFICIENT_PERMISSIONS and isSuspicious: true when non-admin calls adminLogin', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'user-trying-admin',
+        email: 'user@example.com',
+        passwordHash: testPasswordHash,
+        role: Role.USER,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      await expect(
+        authService.adminLogin('user@example.com', testPassword, {
+          ipAddress: '10.0.0.2',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-trying-admin',
+          ipAddress: '10.0.0.2',
+          userAgent: null,
+          deviceFingerprint: null,
+          country: null,
+          isSuspicious: true,
+          reason: 'INSUFFICIENT_PERMISSIONS',
+        },
+      });
+    });
+
+    it('records LoginAudit with 2FA_CHALLENGED when 2FA-enabled admin logs in', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'super-admin-id',
+        email: 'super@example.com',
+        passwordHash: testPasswordHash,
+        role: Role.SUPER_ADMIN,
+        twoFactorEnabled: true,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      const res = await authService.adminLogin('super@example.com', testPassword, {
+        ipAddress: '10.0.0.3',
+        country: 'AE',
+      });
+
+      expect(res.requires2fa).toBe(true);
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'super-admin-id',
+          ipAddress: '10.0.0.3',
+          userAgent: null,
+          deviceFingerprint: null,
+          country: 'AE',
+          isSuspicious: false,
+          reason: '2FA_CHALLENGED',
+        },
+      });
+    });
+
+    it('records LoginAudit on 2FA verification: 2FA_SUCCESS on valid code and INVALID_2FA_CODE on failure', async () => {
+      const secret = 'JBSWY3DPEHPK3PXP';
+      const encSecret = encryptTotpSecret(secret);
+      const tempToken = jwtServiceMock.sign({ sub: 'admin-2fa-user', purpose: '2fa_login' });
+
+      jwtServiceMock.verify.mockReturnValue({
+        sub: 'admin-2fa-user',
+        purpose: '2fa_login',
+      });
+
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'admin-2fa-user',
+        email: 'admin2fa@example.com',
+        role: Role.ADMIN,
+        twoFactorEnabled: true,
+        twoFactorSecret: encSecret,
+        twoFactorBackupCodes: [],
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      // 1. Invalid TOTP verification attempt
+      await expect(
+        authService.verify2fa(tempToken, '000000', {
+          ipAddress: '127.0.0.1',
+          country: 'AE',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'admin-2fa-user',
+          ipAddress: '127.0.0.1',
+          userAgent: null,
+          deviceFingerprint: null,
+          country: 'AE',
+          isSuspicious: true,
+          reason: 'INVALID_2FA_CODE',
+        },
+      });
+
+      // 2. Valid TOTP verification attempt
+      const validCode = generateTotp(secret);
+      const res = await authService.verify2fa(tempToken, validCode, {
+        ipAddress: '127.0.0.1',
+        country: 'AE',
+      });
+
+      expect(res).toHaveProperty('access_token');
+      expect(prismaMock.loginAudit.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'admin-2fa-user',
+          ipAddress: '127.0.0.1',
+          userAgent: null,
+          deviceFingerprint: null,
+          country: 'AE',
+          isSuspicious: false,
+          reason: '2FA_SUCCESS',
+        },
+      });
+    });
+
+    it('never persists passwords, tokens, secrets, or codes in LoginAudit table', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'learner@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: new Date(),
+        role: Role.USER,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      await authService.login('learner@example.com', testPassword, {
+        ipAddress: '1.2.3.4',
+        country: 'AE',
+      });
+
+      const createCall = prismaMock.loginAudit.create.mock.calls[0][0];
+      const dataKeys = Object.keys(createCall.data);
+
+      expect(dataKeys).not.toContain('password');
+      expect(dataKeys).not.toContain('passwordHash');
+      expect(dataKeys).not.toContain('token');
+      expect(dataKeys).not.toContain('secret');
+      expect(dataKeys).not.toContain('code');
+      expect(dataKeys).not.toContain('refreshToken');
+      expect(dataKeys).not.toContain('accessToken');
+    });
+
+    it('does not fail authentication if LoginAudit persistence throws an error (non-blocking)', async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: testUserId,
+        email: 'learner@example.com',
+        passwordHash: testPasswordHash,
+        emailVerifiedAt: new Date(),
+        role: Role.USER,
+        country: 'AE',
+        deletedAt: null,
+      });
+
+      // Simulate unexpected database failure in LoginAudit table
+      prismaMock.loginAudit.create.mockRejectedValue(new Error('DB Connection Timeout'));
+
+      const result = await authService.login('learner@example.com', testPassword);
+
+      // Login must still succeed
+      expect(result).toHaveProperty('access_token');
+      expect(result).toHaveProperty('refresh_token');
+      expect((result as any).user?.id).toBe(testUserId);
     });
   });
 });

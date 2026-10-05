@@ -46,10 +46,12 @@ export class AuthController {
     const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
     const userAgent = req?.headers?.['user-agent'] || null;
     const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
+    const country = (req?.headers?.['cf-ipcountry'] as string) || (req?.headers?.['x-country-code'] as string) || null;
     return this.authService.login(identifier, body.password, {
       ipAddress,
       userAgent,
       deviceFingerprint,
+      country,
     });
   }
 
@@ -113,10 +115,12 @@ export class AuthController {
     const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
     const userAgent = req?.headers?.['user-agent'] || null;
     const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
+    const country = (req?.headers?.['cf-ipcountry'] as string) || (req?.headers?.['x-country-code'] as string) || null;
     return this.authService.adminLogin(body.email ?? '', body.password, {
       ipAddress,
       userAgent,
       deviceFingerprint,
+      country,
     });
   }
 
@@ -159,10 +163,12 @@ export class AuthController {
     const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
     const userAgent = req?.headers?.['user-agent'] || null;
     const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
+    const country = (req?.headers?.['cf-ipcountry'] as string) || (req?.headers?.['x-country-code'] as string) || null;
     return this.authService.verify2fa(tempToken, code, {
       ipAddress,
       userAgent,
       deviceFingerprint,
+      country,
     });
   }
 

@@ -28,6 +28,7 @@ export interface DeviceSessionMetadata {
   deviceFingerprint?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
+  country?: string | null;
   expiresAt?: Date | null;
 }
 
@@ -45,6 +46,62 @@ export class AuthService {
   private normalizePhone(phone: string) {
     const trimmed = phone.trim();
     return (trimmed.startsWith('+') ? '+' : '') + trimmed.replace(/\D/g, '');
+  }
+
+  /**
+   * Helper: Record login audit entry in a non-blocking safe manner (D1-024).
+   * Flags suspicious login activity on failed attempts, country mismatch, or country-hopping.
+   */
+  private async recordLoginAudit(params: {
+    userId: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+    country?: string | null;
+    deviceFingerprint?: string | null;
+    isSuspicious?: boolean;
+    reason?: string | null;
+    userCountry?: string | null;
+  }): Promise<void> {
+    if (!params.userId || !this.prisma?.loginAudit) return;
+
+    try {
+      let isSuspicious = params.isSuspicious ?? false;
+
+      // Country-hopping / anomaly detection
+      if (!isSuspicious && params.country) {
+        const reqCountry = params.country.trim().toUpperCase();
+
+        if (params.userCountry && params.userCountry.trim().toUpperCase() !== reqCountry) {
+          isSuspicious = true;
+        } else if (typeof this.prisma.loginAudit.findFirst === 'function') {
+          const lastAudit = await this.prisma.loginAudit.findFirst({
+            where: { userId: params.userId, country: { not: null } },
+            orderBy: { createdAt: 'desc' },
+            select: { country: true },
+          }).catch(() => null);
+
+          if (lastAudit?.country && lastAudit.country.trim().toUpperCase() !== reqCountry) {
+            isSuspicious = true;
+          }
+        }
+      }
+
+      if (typeof this.prisma.loginAudit.create === 'function') {
+        await this.prisma.loginAudit.create({
+          data: {
+            userId: params.userId,
+            ipAddress: params.ipAddress ?? null,
+            userAgent: params.userAgent ?? null,
+            country: params.country ?? null,
+            deviceFingerprint: params.deviceFingerprint ?? null,
+            isSuspicious,
+            reason: params.reason ?? null,
+          },
+        });
+      }
+    } catch {
+      // Non-blocking: audit write failure must not break the authentication flow
+    }
   }
 
   /** `identifier` is the account email, or its mobile number. */
@@ -92,15 +149,45 @@ export class AuthService {
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_PASSWORD',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Invalid email or password');
     }
 
     if (!user.emailVerifiedAt) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'UNVERIFIED_EMAIL',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Please verify your email before logging in');
     }
 
     // Security check (D1-022): prevent 2FA bypass by calling /auth/login instead of /auth/admin-login
     if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: false,
+        reason: '2FA_CHALLENGED',
+        userCountry: user.country,
+      });
       const tempToken = this.jwtService.sign(
         { sub: user.id, purpose: '2fa_login' },
         {
@@ -147,6 +234,17 @@ export class AuthService {
     // signing in counts as attending today
     // not awaited: it must not hold up the sign-in (it never throws)
     if (user.role === Role.USER) void markDailyAttendance(this.prisma, user.id, 'visited');
+
+    await this.recordLoginAudit({
+      userId: user.id,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      country: metadata?.country,
+      deviceFingerprint: metadata?.deviceFingerprint,
+      isSuspicious: false,
+      reason: 'SUCCESS',
+      userCountry: user.country,
+    });
 
     // Return user data with enrolled programs for tenant separation
     const enrolledPrograms = user.enrolments?.map((e) => ({
@@ -359,16 +457,46 @@ export class AuthService {
     // Enforce role-based access: only admin roles can use admin login
     const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER];
     if (!adminRoles.includes(user.role)) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INSUFFICIENT_PERMISSIONS',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Insufficient permissions for admin access');
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_PASSWORD',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Invalid email or password');
     }
 
     // If SUPER_ADMIN or ADMIN and 2FA is enabled: DO NOT create a session yet!
     if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: false,
+        reason: '2FA_CHALLENGED',
+        userCountry: user.country,
+      });
       const tempToken = this.jwtService.sign(
         { sub: user.id, purpose: '2fa_login' },
         {
@@ -402,6 +530,22 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
+    const auditReason =
+      user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN
+        ? 'SUCCESS_SETUP_REQUIRED'
+        : 'SUCCESS';
+
+    await this.recordLoginAudit({
+      userId: user.id,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      country: metadata?.country,
+      deviceFingerprint: metadata?.deviceFingerprint,
+      isSuspicious: false,
+      reason: auditReason,
+      userCountry: user.country,
+    });
 
     const response: any = {
       access_token: accessToken,
@@ -1131,10 +1275,32 @@ export class AuthService {
     });
 
     if (!user || user.deletedAt || !user.twoFactorEnabled || !user.twoFactorSecret) {
+      if (user) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: '2FA_NOT_ACTIVE',
+          userCountry: user.country,
+        });
+      }
       throw new UnauthorizedException('Two-factor authentication is not active for this account');
     }
 
     if (user.role !== Role.SUPER_ADMIN && user.role !== Role.ADMIN) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INSUFFICIENT_PERMISSIONS',
+        userCountry: user.country,
+      });
       throw new ForbiddenException('Two-factor authentication is only available for admin roles');
     }
 
@@ -1149,6 +1315,16 @@ export class AuthService {
         verified = true;
       }
     } catch {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_2FA_CODE',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Two-factor authentication verification failed');
     }
 
@@ -1156,42 +1332,56 @@ export class AuthService {
     if (!verified) {
       const candidateHash = hashBackupCode(trimmedCode);
 
-      await this.prisma.$transaction(async (tx: any) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
+      try {
+        await this.prisma.$transaction(async (tx: any) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
 
-        const freshUser = await tx.user.findUnique({
-          where: { id: user.id },
+          const freshUser = await tx.user.findUnique({
+            where: { id: user.id },
+          });
+
+          if (
+            !freshUser ||
+            freshUser.deletedAt ||
+            !freshUser.twoFactorEnabled ||
+            !freshUser.twoFactorBackupCodes ||
+            freshUser.twoFactorBackupCodes.length === 0
+          ) {
+            return;
+          }
+
+          const usedIdx = freshUser.twoFactorBackupCodes.indexOf(candidateHash);
+          if (usedIdx === -1) {
+            return;
+          }
+
+          const remainingBackupCodes = freshUser.twoFactorBackupCodes.filter(
+            (_: string, idx: number) => idx !== usedIdx,
+          );
+
+          await tx.user.update({
+            where: { id: freshUser.id },
+            data: { twoFactorBackupCodes: remainingBackupCodes },
+          });
+
+          verified = true;
         });
-
-        if (
-          !freshUser ||
-          freshUser.deletedAt ||
-          !freshUser.twoFactorEnabled ||
-          !freshUser.twoFactorBackupCodes ||
-          freshUser.twoFactorBackupCodes.length === 0
-        ) {
-          throw new UnauthorizedException('Invalid two-factor authentication code');
-        }
-
-        const usedIdx = freshUser.twoFactorBackupCodes.indexOf(candidateHash);
-        if (usedIdx === -1) {
-          throw new UnauthorizedException('Invalid two-factor authentication code');
-        }
-
-        const remainingBackupCodes = freshUser.twoFactorBackupCodes.filter(
-          (_: string, idx: number) => idx !== usedIdx,
-        );
-
-        await tx.user.update({
-          where: { id: freshUser.id },
-          data: { twoFactorBackupCodes: remainingBackupCodes },
-        });
-
-        verified = true;
-      });
+      } catch {
+        // Any transaction failure leaves verified as false
+      }
     }
 
     if (!verified) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'INVALID_2FA_CODE',
+        userCountry: user.country,
+      });
       throw new UnauthorizedException('Invalid two-factor authentication code');
     }
 
@@ -1215,6 +1405,17 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
+    await this.recordLoginAudit({
+      userId: user.id,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      country: metadata?.country,
+      deviceFingerprint: metadata?.deviceFingerprint,
+      isSuspicious: false,
+      reason: '2FA_SUCCESS',
+      userCountry: user.country,
+    });
 
     return {
       access_token: accessToken,

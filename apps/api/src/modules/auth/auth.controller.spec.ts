@@ -78,26 +78,40 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         ipAddress: null,
         userAgent: null,
         deviceFingerprint: null,
+        country: null,
       });
       expect(res).toHaveProperty('access_token');
     });
 
-    it('calls authService.login with phone when email is omitted', async () => {
+    it('calls authService.login with phone when email is omitted and extracts cf-ipcountry', async () => {
       authServiceMock.login.mockResolvedValue({
         access_token: 'access-2',
         refresh_token: 'refresh-2',
         user: { id: 'u2', phone: '+15551234567' },
       });
 
-      const res = await controller.login({
-        phone: '+15551234567',
-        password: 'Password123!',
-      });
+      const req = {
+        ip: '1.2.3.4',
+        headers: {
+          'user-agent': 'Mobile-Safari',
+          'x-device-fingerprint': 'fp-phone-1',
+          'cf-ipcountry': 'AE',
+        },
+      };
+
+      const res = await controller.login(
+        {
+          phone: '+15551234567',
+          password: 'Password123!',
+        },
+        req,
+      );
 
       expect(authServiceMock.login).toHaveBeenCalledWith('+15551234567', 'Password123!', {
-        ipAddress: null,
-        userAgent: null,
-        deviceFingerprint: null,
+        ipAddress: '1.2.3.4',
+        userAgent: 'Mobile-Safari',
+        deviceFingerprint: 'fp-phone-1',
+        country: 'AE',
       });
       expect(res).toHaveProperty('access_token');
     });
@@ -161,7 +175,7 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
   });
 
   describe('AuthController - 2FA Endpoints (D1-022)', () => {
-    it('POST /auth/admin-login extracts IP, User-Agent, and device fingerprint', async () => {
+    it('POST /auth/admin-login extracts IP, User-Agent, device fingerprint, and country', async () => {
       authServiceMock.adminLogin.mockResolvedValue({
         requires2fa: true,
         tempToken: 'temp-jwt-token',
@@ -172,6 +186,7 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         headers: {
           'user-agent': 'Vitest-Admin-Browser',
           'x-device-fingerprint': 'fp-admin-123',
+          'x-country-code': 'US',
         },
       };
 
@@ -187,6 +202,7 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
           ipAddress: '192.168.1.50',
           userAgent: 'Vitest-Admin-Browser',
           deviceFingerprint: 'fp-admin-123',
+          country: 'US',
         },
       );
       expect(res).toEqual({
@@ -250,6 +266,7 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         ipAddress: '10.0.0.1',
         userAgent: 'Chrome/120',
         deviceFingerprint: 'fp-test',
+        country: null,
       });
       expect(res).toHaveProperty('access_token');
     });
@@ -273,6 +290,7 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         ipAddress: null,
         userAgent: null,
         deviceFingerprint: null,
+        country: null,
       });
       expect(res).toHaveProperty('access_token');
     });
@@ -295,6 +313,7 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         ipAddress: null,
         userAgent: null,
         deviceFingerprint: null,
+        country: null,
       });
       expect(res).toHaveProperty('access_token');
     });

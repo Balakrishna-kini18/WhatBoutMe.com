@@ -1,3 +1,4 @@
+import './instrument.js'; // Must be first!
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { ValidationPipe } from '@nestjs/common';
@@ -5,6 +6,9 @@ import helmet from 'helmet';
 import express from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { UPLOAD_DIR } from './modules/website/storage.js';
+import { RedisIoAdapter } from './common/adapters/redis-io.adapter.js';
+import { SentryGlobalFilter } from '@sentry/nestjs/setup';
+import { Logger } from 'nestjs-pino';
 
 async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_MODE === 'mock') {
@@ -12,7 +16,8 @@ async function bootstrap() {
     process.exit(1);
   }
 
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });
+  app.useLogger(app.get(Logger));
   
   // Security
   app.use(helmet());
@@ -69,7 +74,15 @@ async function bootstrap() {
   );
 
   // Exception Filter
-  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalFilters(
+    new SentryGlobalFilter(),
+    new HttpExceptionFilter()
+  );
+
+  // Realtime Socket.IO Redis Adapter
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   await app.listen(process.env.PORT ?? 4000);
 }

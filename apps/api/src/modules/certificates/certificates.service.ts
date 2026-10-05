@@ -1,9 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class CertificatesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @InjectQueue('certificates') private certificatesQueue: Queue,
+  ) {}
 
   // 1. Get all certificates (for Admin queue)
   async findAll() {
@@ -82,7 +87,7 @@ export class CertificatesService {
       throw new BadRequestException('The learner has not finished the course yet');
     }
 
-    return this.prisma.certificate.update({
+    const updatedCert = await this.prisma.certificate.update({
       where: { id },
       data: {
         status: 'APPROVED',
@@ -91,6 +96,12 @@ export class CertificatesService {
         issuedAt: new Date(),
       }
     });
+
+    await this.certificatesQueue.add('generate-certificate', {
+      certificateId: updatedCert.id,
+    });
+
+    return updatedCert;
   }
 
   /**
@@ -122,7 +133,7 @@ export class CertificatesService {
         continue;
       }
       // also turns a pending or rejected request into an issued certificate
-      await this.prisma.certificate.upsert({
+      const cert = await this.prisma.certificate.upsert({
         where: { enrolmentId: enrolment.id },
         update: { status: 'APPROVED', issuedAt: new Date() },
         create: {
@@ -132,6 +143,11 @@ export class CertificatesService {
           issuedAt: new Date(),
         },
       });
+
+      await this.certificatesQueue.add('generate-certificate', {
+        certificateId: cert.id,
+      });
+
       issued++;
     }
 

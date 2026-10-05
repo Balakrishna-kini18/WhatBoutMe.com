@@ -280,18 +280,18 @@
 
 
 ### H. Realtime Infrastructure (Socket.IO — Phase 6 Deferred)
-- [ ] **D2-041:** Install `@nestjs/websockets`, `@nestjs/platform-socket.io`, and `@socket.io/redis-adapter`. Configure adapter with Redis TCP.
-- [ ] **D2-042:** Implement WebSocket JWT connection guard validating handshake tokens against session store.
-- [ ] **D2-043:** Implement room routing (`conversation:${id}`, `batch:${id}`), message broadcasting, typing indicators, and read receipts.
+- [x] **D2-041:** Install `@nestjs/websockets`, `@nestjs/platform-socket.io`, and `@socket.io/redis-adapter`. Configure adapter with Redis TCP.
+- [x] **D2-042:** Implement WebSocket JWT connection guard validating handshake tokens against session store.
+- [x] **D2-043:** Implement room routing (`conversation:${id}`, `batch:${id}`), message broadcasting, typing indicators, and read receipts.
 
 
 
 
 
 ### I. Observability & Health
-- [ ] **D2-044:** Install and configure `@sentry/nestjs` in `main.ts` and `worker.ts`. Filter sensitive auth data and capture unhandled exceptions.
-- [ ] **D2-045:** Implement `GET /api/health` using `@nestjs/terminus` checking PostgreSQL and Redis TCP ping.
-- [ ] **D2-046:** Implement structured JSON logger with correlation IDs and timestamps.
+- [x] **D2-044:** Install and configure `@sentry/nestjs` in `main.ts` and `worker.ts`. Filter sensitive auth data and capture unhandled exceptions.
+- [x] **D2-045:** Implement `GET /api/health` using `@nestjs/terminus` checking PostgreSQL and Redis TCP ping.
+- [x] **D2-046:** Implement structured JSON logger with correlation IDs and timestamps.
 
 
 
@@ -306,8 +306,8 @@
 
 
 ### K. Certificate PDF Generation Infrastructure (Phase 5)
-- [ ] **D2-051:** Implement `CertificateGenProcessor` in BullMQ using `pdf-lib` to render certificate visual template, recipient name, course name, date, and QR code.
-- [ ] **D2-052:** Upload rendered certificate PDF to private object storage via `IObjectStorageProvider.uploadBuffer()` (`certificates/${certificateCode}.pdf`) and return object key to certificate service.
+- [x] **D2-051:** Implement `CertificateGenProcessor` in BullMQ using `pdf-lib` to render certificate visual template, recipient name, course name, date, and QR code.
+- [x] **D2-052:** Upload rendered certificate PDF to private object storage via `IObjectStorageProvider.uploadBuffer()` (`certificates/${certificateCode}.pdf`) and return object key to certificate service.
 
 
 

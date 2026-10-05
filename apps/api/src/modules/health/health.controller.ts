@@ -1,0 +1,40 @@
+import { Controller, Get } from '@nestjs/common';
+import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { Public } from '../../common/decorators/public.decorator.js';
+import { RedisService } from '../../common/redis/redis.service.js';
+
+@Controller('health')
+export class HealthController {
+  constructor(
+    private health: HealthCheckService,
+    private prisma: PrismaService,
+    private redisService: RedisService,
+  ) {}
+
+  @Public()
+  @Get()
+  @HealthCheck()
+  check() {
+    return this.health.check([
+      // Database health check
+      async () => {
+        try {
+          await this.prisma.$queryRaw`SELECT 1`;
+          return { database: { status: 'up' } };
+        } catch (error: any) {
+          return { database: { status: 'down', error: error.message } };
+        }
+      },
+      // Redis health check
+      async () => {
+        try {
+          await this.redisService.getClient().ping();
+          return { redis: { status: 'up' } };
+        } catch (error: any) {
+          return { redis: { status: 'down', error: error.message } };
+        }
+      },
+    ]);
+  }
+}

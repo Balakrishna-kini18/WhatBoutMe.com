@@ -1,7 +1,8 @@
 import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Role } from '@prisma/client';
+import { Role, EnrolmentStatus } from '@prisma/client';
+import { SignupDto } from './dto/index.js';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
@@ -115,19 +116,23 @@ export class AuthService {
   /**
    * Production-level signup: hashes password, creates user, enrolls in programs, returns JWT.
    */
-  async signup(data: { name: string; email: string; phone?: string; password: string; programIds?: string[] }) {
+  async signup(data: SignupDto) {
+    const normalizedEmail = data.email.trim().toLowerCase();
+
     // Check if user already exists
     const existing = await this.prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email: normalizedEmail },
     });
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
 
     // A mobile number may belong to one account only, so it can be used to sign in
-    const phone = data.phone ? this.normalizePhone(data.phone) : undefined;
+    const phone = data.phone?.trim() ? this.normalizePhone(data.phone) : null;
     if (phone) {
-      const phoneTaken = await this.prisma.user.findFirst({ where: { phone } });
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone, deletedAt: null },
+      });
       if (phoneTaken) {
         throw new ConflictException('An account with this mobile number already exists');
       }
@@ -136,91 +141,94 @@ export class AuthService {
     // Hash password with bcrypt (12 rounds)
     const passwordHash = await bcrypt.hash(data.password, 12);
 
-    const user = await this.prisma.user.create({
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          name: data.name.trim(),
+          phone,
+          country: data.country?.trim() || null,
+          timezone: data.timezone?.trim() || null,
+          passwordHash,
+          role: Role.USER,
+          emailVerifiedAt: null,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw err;
+    }
+
+    // Create verification token for D1-015
+    const verificationToken = randomUUID();
+    await this.prisma.emailVerificationToken.create({
       data: {
-        email: data.email,
-        name: data.name,
-        phone,
-        passwordHash,
-        role: Role.USER,
+        userId: user.id,
+        token: verificationToken,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours expiry
       },
     });
 
-    // Enrol user in default batches for the selected programs
+    // Enrol user in default batches for the selected programs with payment/agreement gating
     const enrolledPrograms = [];
     if (data.programIds && data.programIds.length > 0) {
-      for (const pId of data.programIds) {
-        let batch = await this.prisma.batch.findFirst({
-          where: { programId: pId }
+      const uniqueProgramIds = Array.from(new Set(data.programIds));
+      for (const pId of uniqueProgramIds) {
+        const program = await this.prisma.program.findUnique({
+          where: { id: pId },
         });
-        
-        // Create a default batch if none exists
-        if (!batch) {
-          batch = await this.prisma.batch.create({
-            data: {
-              name: 'Default Cohort',
-              programId: pId,
-              capacity: 100,
-              startDate: new Date()
-            }
-          });
-        }
+        if (!program) continue;
+
+        const batch = await this.prisma.batch.findFirst({
+          where: { programId: pId },
+        });
+        if (!batch) continue;
+
+        // Canonical initial status: PENDING_PAYMENT for paid programs, PENDING_AGREEMENT for free programs
+        const initialStatus: EnrolmentStatus =
+          program.price > 0
+            ? EnrolmentStatus.PENDING_PAYMENT
+            : EnrolmentStatus.PENDING_AGREEMENT;
 
         const enrolment = await this.prisma.enrolment.create({
           data: {
             userId: user.id,
             batchId: batch.id,
             programId: pId,
-            status: 'ACTIVE'
+            status: initialStatus,
           },
           include: {
             batch: {
-              include: { program: true }
-            }
-          }
+              include: { program: true },
+            },
+          },
         });
 
-        // Add to enrolled programs array to be returned in JWT payload
+        // Add to enrolled programs array to be returned in response
         enrolledPrograms.push({
           enrolmentId: enrolment.id,
           batchId: batch.id,
           batchName: batch.name,
           programId: pId,
-          programTitle: enrolment.batch?.program?.title || 'Unknown',
+          programTitle: enrolment.batch?.program?.title || program.title,
           status: enrolment.status,
           progress: 0,
         });
       }
     }
 
-    const refreshPayload = { sub: user.id };
-    const refreshToken = this.jwtService.sign(refreshPayload, {
-      secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: '7d',
-    });
-    const tokenHash = await bcrypt.hash(refreshToken, 10);
-
-    // Enforce device limits
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash);
-
-    const accessPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      companyId: user.companyId,
-      sessionId,
-    };
-
-    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
-
     return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
+        phone: user.phone,
         role: user.role,
+        country: user.country,
+        timezone: user.timezone,
         enrolledPrograms,
       },
     };

@@ -1,14 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { ZoomService } from './zoom.service.js';
+import { ZoomMeetingProvider } from '../zoom/zoom.service.js';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 
 @Injectable()
 export class SessionsService {
   constructor(
     private prisma: PrismaService,
-    private zoomService: ZoomService
+    private zoomService: ZoomMeetingProvider
   ) {}
 
   // 1. Get all sessions for a specific batch
@@ -69,7 +69,13 @@ export class SessionsService {
       const end = new Date(data.endTime);
       const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
       
-      finalJoinUrl = await this.zoomService.createMeeting(data.title, start, durationMin);
+      const meetingDetails = await this.zoomService.createMeeting({
+        topic: data.title,
+        startTime: start,
+        durationMinutes: durationMin,
+        timezone: 'UTC'
+      });
+      finalJoinUrl = meetingDetails.joinUrl;
     }
 
     const session = await this.prisma.session.create({

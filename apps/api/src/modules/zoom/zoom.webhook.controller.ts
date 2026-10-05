@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, HttpException, HttpStatus, Logger, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, HttpException, HttpStatus, Logger, Req } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator.js';
 import * as crypto from 'crypto';
 import { Queue } from 'bullmq';

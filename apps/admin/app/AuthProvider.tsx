@@ -64,7 +64,7 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
     const isSignedInRequest =
       Boolean(token) &&
       typeof input === 'string' &&
-      !/\/auth\/(login|signup|admin-login|refresh)/.test(input);
+      !/\/auth\/(login|signup|admin-login|refresh|2fa)/.test(input);
 
     if (response.status === 401 && isSignedInRequest) {
       const clone = response.clone();

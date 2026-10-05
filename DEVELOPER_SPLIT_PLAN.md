@@ -178,21 +178,21 @@
 - [x] **D2-007:** Implement video thumbnail extraction at specified offsets with signed delivery URLs.
 - [x] **D2-008:** Implement backend endpoint `POST /media/upload-signature` generating signed parameters for secure direct-from-client uploads.
 - [x] **D2-009:** Implement webhook listener `POST /webhooks/cloudinary` with HMAC-SHA256 signature verification to process video encoding completion and metadata.
-- [ ] **D2-010:** Implement exponential backoff and rate-limit handling for Cloudinary API requests.
-- [ ] **D2-011:** Implement shared `IMediaProvider` interface using Cloudinary.
-- [ ] **D2-012:** Author automated test suite verifying signed URL generation, expiration parameter enforcement, and signature validity without leaking API secrets.
+- [x] **D2-010:** Implement exponential backoff and rate-limit handling for Cloudinary API requests.
+- [x] **D2-011:** Implement shared `IMediaProvider` interface using Cloudinary.
+- [x] **D2-012:** Author automated test suite verifying signed URL generation, expiration parameter enforcement, and signature validity without leaking API secrets.
 
 
 
 
 
 ### B. Private Object Storage (Development: Cloudinary)
-- [ ] **D2-013: Development Object Storage Architecture**
+- [x] **D2-013: Development Object Storage Architecture**
   Implement `CloudinaryObjectStorageProvider` for development adhering to `IObjectStorageProvider`, using authenticated uploads (`type: 'authenticated'`, `resource_type: 'raw' | 'image' | 'video'`). Configure `STORAGE_PROVIDER=cloudinary` for local development. Ensure zero AWS/R2 account or paid cloud storage requirements during development.
-- [ ] **D2-014: Signed Delivery URLs with Resource-Specific TTLs**
+- [x] **D2-014: Signed Delivery URLs with Resource-Specific TTLs**
   Implement `IObjectStorageProvider.getPresignedGetUrl(key, expiresInSeconds)`. Enforce appropriate TTL defaults: 60 seconds for downloadable documents (PDFs, worksheets, signed agreements, certificates), and 300 seconds (5 minutes) for streaming audio lessons to support audio seek/buffer range requests without premature expiration.
-- [ ] **D2-015:** Implement `IObjectStorageProvider.getPresignedPutUrl(key, contentType, expiresInSeconds)` for authorized admin uploads.
-- [ ] **D2-015b: In-Memory Worker Buffer Upload**
+- [x] **D2-015:** Implement `IObjectStorageProvider.getPresignedPutUrl(key, contentType, expiresInSeconds)` for authorized admin uploads.
+- [x] **D2-015b: In-Memory Worker Buffer Upload**
   Implement `IObjectStorageProvider.uploadBuffer(key, buffer, contentType)` enabling backend services and workers (e.g., certificate generation) to directly persist in-memory rendered files without circular HTTP roundtrips.
 - [ ] **D2-016:** Implement secure streaming fallback proxy with security headers (`Content-Disposition: inline`, `X-Content-Type-Options: nosniff`).
 

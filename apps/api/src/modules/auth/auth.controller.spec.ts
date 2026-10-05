@@ -92,4 +92,23 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
       expect(res).toHaveProperty('access_token');
     });
   });
+
+  describe('AuthController - Refresh Endpoint (D1-018)', () => {
+    it('calls authService.refreshToken with body.refresh_token', async () => {
+      authServiceMock.refreshToken.mockResolvedValue({
+        access_token: 'new-access-token',
+        refresh_token: 'new-refresh-token',
+      });
+
+      const res = await controller.refreshToken({
+        refresh_token: 'valid-refresh-token',
+      });
+
+      expect(authServiceMock.refreshToken).toHaveBeenCalledWith('valid-refresh-token');
+      expect(res).toEqual({
+        access_token: 'new-access-token',
+        refresh_token: 'new-refresh-token',
+      });
+    });
+  });
 });

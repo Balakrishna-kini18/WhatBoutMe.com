@@ -83,13 +83,16 @@ export class AuthService {
       throw new UnauthorizedException('Please verify your email before logging in');
     }
 
-    // Build basic payload for refresh token (sessionId is added later for access token)
+    const sessionId = randomUUID();
+
+    // Build payload for refresh token bound to the created session
     const refreshPayload = {
       sub: user.id,
+      sessionId,
     };
 
     const refreshToken = this.jwtService.sign(refreshPayload, {
-      secret: process.env.JWT_REFRESH_SECRET,
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
       expiresIn: '7d',
     });
 
@@ -97,7 +100,7 @@ export class AuthService {
     const tokenHash = await bcrypt.hash(refreshToken, 10);
 
     // Enforce device limits and store session
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash, metadata);
+    await this.createDeviceSession(user.id, user.role, tokenHash, metadata, sessionId);
 
     // Build JWT payload with user role and tenant context (enrolled programs)
     const accessPayload = {
@@ -333,15 +336,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const refreshPayload = { sub: user.id };
+    const sessionId = randomUUID();
+    const refreshPayload = { sub: user.id, sessionId };
     const refreshToken = this.jwtService.sign(refreshPayload, {
-      secret: process.env.JWT_REFRESH_SECRET,
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
       expiresIn: '7d',
     });
     const tokenHash = await bcrypt.hash(refreshToken, 10);
 
     // Enforce device limits
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash);
+    await this.createDeviceSession(user.id, user.role, tokenHash, undefined, sessionId);
 
     const accessPayload = {
       sub: user.id,
@@ -366,87 +370,129 @@ export class AuthService {
   }
 
   /**
-   * Refresh token endpoint
+   * Refresh token endpoint (D1-018: JWT Access/Refresh Token Rotation)
    */
   async refreshToken(refreshTokenStr: string) {
+    if (!refreshTokenStr || typeof refreshTokenStr !== 'string') {
+      throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
+    }
+
     try {
       const payload = this.jwtService.verify(refreshTokenStr, {
-        secret: process.env.JWT_REFRESH_SECRET,
+        secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
       });
+
+      if (!payload || !payload.sub) {
+        throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
+      }
 
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
       });
 
-      if (!user) {
-        throw new UnauthorizedException({ message: 'User not found', error: 'INVALID_CREDENTIALS' });
+      if (!user || user.deletedAt) {
+        throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
       }
 
-      // Refresh tokens issued at login and signup carry no session id (the
-      // session is created after the token is signed), so the first renewal
-      // was always rejected and the learner was signed out. Find the session
-      // by its stored token hash in that case.
-      let sessionId: string | undefined = payload.sessionId;
-      if (!sessionId) {
+      let targetSessionId = payload.sessionId;
+
+      if (!targetSessionId) {
+        // Fallback for legacy tokens without embedded sessionId
         const active = await this.prisma.userSession.findMany({
-          where: { userId: user.id, revokedAt: null },
+          where: {
+            userId: user.id,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
           orderBy: { createdAt: 'desc' },
         });
+
         for (const candidate of active) {
           if (await bcrypt.compare(refreshTokenStr, candidate.token)) {
-            sessionId = candidate.id;
+            targetSessionId = candidate.id;
             break;
           }
         }
-        if (!sessionId) {
-          throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
+
+        if (!targetSessionId) {
+          throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
         }
       }
 
-      const session = await this.checkSession(sessionId);
+      // Execute serialized rotation inside a PostgreSQL transaction with an advisory lock on the session ID.
+      // This prevents race conditions where simultaneous requests with the same token both validate before either rotates.
+      const result = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${targetSessionId}))`;
 
-      // Verify token hash
-      const isValid = await bcrypt.compare(refreshTokenStr, session.token);
-      if (!isValid) {
-        // Reuse detected! Revoke the session
-        await this.prisma.userSession.update({
-          where: { id: session.id },
-          data: { revokedAt: new Date(), revokedReason: 'TOKEN_REUSED' }
+        // Fetch fresh session state under lock
+        const session = await tx.userSession.findUnique({
+          where: { id: targetSessionId },
         });
-        forgetSessions();
-        throw new UnauthorizedException({ message: 'Session revoked due to token reuse', error: 'SESSION_REVOKED' });
-      }
 
-      // Generate new tokens
-      const newPayload = {
-        sub: user.id,
-        email: user.email,
-        role: user.role,
-        companyId: user.companyId,
-        sessionId,
-      };
+        if (
+          !session ||
+          session.userId !== user.id ||
+          session.revokedAt !== null ||
+          (session.expiresAt && session.expiresAt <= new Date())
+        ) {
+          throw new UnauthorizedException({
+            message: 'Session has expired or been revoked',
+            error: 'SESSION_REVOKED',
+          });
+        }
 
-      const newRefreshToken = this.jwtService.sign(newPayload, {
-        secret: process.env.JWT_REFRESH_SECRET,
-        expiresIn: '7d',
+        // Verify token hash against the current, locked session token
+        const isValid = await bcrypt.compare(refreshTokenStr, session.token);
+        if (!isValid) {
+          // Reuse detected! Revoke the session immediately to protect against token theft
+          await tx.userSession.update({
+            where: { id: session.id },
+            data: { revokedAt: new Date(), revokedReason: 'TOKEN_REUSED' },
+          });
+          forgetSessions();
+          throw new UnauthorizedException({
+            message: 'Session revoked due to token reuse',
+            error: 'SESSION_REVOKED',
+          });
+        }
+
+        // Generate rotated tokens
+        const newPayload = {
+          sub: user.id,
+          email: user.email,
+          role: user.role,
+          companyId: user.companyId,
+          sessionId: session.id,
+        };
+
+        const newRefreshToken = this.jwtService.sign(newPayload, {
+          secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
+          expiresIn: '7d',
+        });
+        const newHash = await bcrypt.hash(newRefreshToken, 10);
+        const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+        // Rotate token hash in database, update lastActive and extend expiresAt
+        await tx.userSession.update({
+          where: { id: session.id },
+          data: {
+            token: newHash,
+            lastActive: new Date(),
+            expiresAt: newExpiresAt,
+          },
+        });
+
+        const accessToken = this.jwtService.sign(newPayload, { expiresIn: '15m' });
+
+        return { access_token: accessToken, refresh_token: newRefreshToken };
       });
-      const newHash = await bcrypt.hash(newRefreshToken, 10);
 
-      // Rotate hash in db
-      await this.prisma.userSession.update({
-        where: { id: session.id },
-        data: { token: newHash }
-      });
-
-      const accessToken = this.jwtService.sign(newPayload, { expiresIn: '15m' });
-
-      return { access_token: accessToken, refresh_token: newRefreshToken };
+      return result;
     } catch (e: any) {
       if (e instanceof UnauthorizedException) {
         throw e;
       }
-      // Only a bad or expired token is a 401. A database timeout used to be
-      // reported as "expired" too, which signed the learner out.
+      // Only a bad or expired token is a 401
       if (e?.name === 'TokenExpiredError' || e?.name === 'JsonWebTokenError' || e?.name === 'NotBeforeError') {
         throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
       }
@@ -558,11 +604,12 @@ export class AuthService {
     role: string,
     tokenHash: string,
     metadata?: DeviceSessionMetadata,
+    sessionId?: string,
   ): Promise<string> {
     const parsedMax = parseInt(process.env.MAX_ACTIVE_SESSIONS ?? '', 10);
     const maxSessions = Number.isInteger(parsedMax) && parsedMax > 0 ? parsedMax : 2;
 
-    const id = randomUUID();
+    const id = sessionId ?? randomUUID();
     const expiresAt = metadata?.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7d TTL
     const ipAddress = metadata?.ipAddress ?? null;
     const userAgent = metadata?.userAgent ?? null;
@@ -589,11 +636,9 @@ export class AuthService {
         INSERT INTO "UserSession" (id, "userId", token, "deviceFingerprint", "ipAddress", "userAgent", "lastActive", "expiresAt", "createdAt")
         VALUES (${id}, ${userId}, ${tokenHash}, ${deviceFingerprint}, ${ipAddress}, ${userAgent}, now(), ${expiresAt}, now())`,
     ]);
-    const sessionId = id;
-
     // older sessions may just have been revoked
     forgetSessions();
-    return sessionId;
+    return id;
   }
 
   /**
@@ -625,8 +670,8 @@ export class AuthService {
       where: { id: sessionId },
     });
 
-    if (!session || session.revokedAt) {
-      throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
+    if (!session || session.revokedAt || (session.expiresAt && session.expiresAt <= new Date())) {
+      throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
     }
 
     return session;

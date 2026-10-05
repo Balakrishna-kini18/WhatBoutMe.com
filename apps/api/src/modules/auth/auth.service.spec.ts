@@ -55,6 +55,7 @@ describe('AuthService - Authentication Tests', () => {
 
     jwtServiceMock = {
       sign: vi.fn().mockImplementation((payload) => `mock-token-for-${payload.sub}`),
+      verify: vi.fn(),
     };
 
     authService = new AuthService(
@@ -1277,6 +1278,376 @@ describe('AuthService - Authentication Tests', () => {
         expect(getActive(u1).map((s) => s.id)).toEqual([a2, a3]);
         expect(getActive(u2).map((s) => s.id)).toEqual([b1]); // User B unaffected
       });
+    });
+  });
+
+  describe('JWT Access/Refresh Token Rotation (D1-018)', () => {
+    const userId = 'user-rot-1';
+    const mockUser = {
+      id: userId,
+      email: 'user-rot@example.com',
+      name: 'Rotation User',
+      role: Role.USER,
+      companyId: 'comp-1',
+      deletedAt: null,
+      passwordHash: '$2b$10$hashed',
+      emailVerifiedAt: new Date(),
+    };
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('1. Login returns valid access + refresh tokens with embedded sessionId in refresh token', async () => {
+      const plainPassword = 'ValidPassword123!';
+      const passwordHash = await bcrypt.hash(plainPassword, 10);
+      prismaMock.user.findUnique.mockResolvedValue({
+        ...mockUser,
+        passwordHash,
+      });
+      prismaMock.userSession.findMany.mockResolvedValue([]);
+      prismaMock.$executeRaw.mockResolvedValue(1);
+
+      jwtServiceMock.sign.mockImplementation((payload: any, options?: any) => {
+        if (options?.expiresIn === '7d') return 'signed-refresh-token';
+        if (options?.expiresIn === '15m') return 'signed-access-token';
+        return 'signed-token';
+      });
+
+      const res = await authService.login('user-rot@example.com', plainPassword);
+
+      expect(res.access_token).toBe('signed-access-token');
+      expect(res.refresh_token).toBe('signed-refresh-token');
+
+      // Verify sign was called for refresh token with 7d and sessionId
+      const refreshSignCall = jwtServiceMock.sign.mock.calls.find(
+        (call: any[]) => call[1]?.expiresIn === '7d',
+      );
+      expect(refreshSignCall).toBeDefined();
+      expect(refreshSignCall[0]).toMatchObject({ sub: userId, sessionId: expect.any(String) });
+
+      // Verify sign was called for access token with 15m and sessionId
+      const accessSignCall = jwtServiceMock.sign.mock.calls.find(
+        (call: any[]) => call[1]?.expiresIn === '15m',
+      );
+      expect(accessSignCall).toBeDefined();
+      expect(accessSignCall[0]).toMatchObject({ sub: userId, sessionId: expect.any(String) });
+    });
+
+    it('2. Refresh with valid token returns new access + refresh token and updates session token with bcrypt hash', async () => {
+      const sessionId = 'sess-rot-123';
+      const oldRefreshToken = 'valid-old-refresh-token';
+      const oldHash = await bcrypt.hash(oldRefreshToken, 10);
+
+      jwtServiceMock.verify.mockReturnValue({ sub: userId, sessionId });
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+      prismaMock.userSession.findUnique.mockResolvedValue({
+        id: sessionId,
+        userId,
+        token: oldHash,
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 1000000),
+      });
+
+      jwtServiceMock.sign.mockImplementation((payload: any, options?: any) => {
+        if (options?.expiresIn === '7d') return 'new-rotated-refresh-token';
+        if (options?.expiresIn === '15m') return 'new-rotated-access-token';
+        return 'rotated-token';
+      });
+
+      prismaMock.userSession.update.mockResolvedValue({ id: sessionId });
+
+      const res = await authService.refreshToken(oldRefreshToken);
+
+      expect(res).toEqual({
+        access_token: 'new-rotated-access-token',
+        refresh_token: 'new-rotated-refresh-token',
+      });
+
+      // Verify update rotated the token hash and updated expiresAt & lastActive
+      expect(prismaMock.userSession.update).toHaveBeenCalledWith({
+        where: { id: sessionId },
+        data: {
+          token: expect.any(String),
+          lastActive: expect.any(Date),
+          expiresAt: expect.any(Date),
+        },
+      });
+
+      // The new stored token must be a bcrypt hash (starts with $2)
+      const updateData = prismaMock.userSession.update.mock.calls[0][0].data;
+      expect(updateData.token).not.toBe('new-rotated-refresh-token');
+      expect(updateData.token.startsWith('$2')).toBe(true);
+    });
+
+    it('3. Previous refresh token cannot be reused after rotation and triggers session revocation', async () => {
+      const sessionId = 'sess-rot-reuse';
+      const reusedToken = 'old-stale-refresh-token';
+      // The session currently holds the hash of a NEW token (not reusedToken)
+      const currentTokenHash = await bcrypt.hash('new-active-refresh-token', 10);
+
+      jwtServiceMock.verify.mockReturnValue({ sub: userId, sessionId });
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+      prismaMock.userSession.findUnique.mockResolvedValue({
+        id: sessionId,
+        userId,
+        token: currentTokenHash, // Mismatch with reusedToken!
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 1000000),
+      });
+
+      await expect(authService.refreshToken(reusedToken)).rejects.toThrow(UnauthorizedException);
+
+      // Session must be marked revoked with TOKEN_REUSED
+      expect(prismaMock.userSession.update).toHaveBeenCalledWith({
+        where: { id: sessionId },
+        data: {
+          revokedAt: expect.any(Date),
+          revokedReason: 'TOKEN_REUSED',
+        },
+      });
+    });
+
+    it('4. Expired refresh token is rejected (both JWT expiration and session expiration)', async () => {
+      // 4a. JWT verification throws TokenExpiredError
+      const tokenExpiredErr = new Error('jwt expired');
+      tokenExpiredErr.name = 'TokenExpiredError';
+      jwtServiceMock.verify.mockImplementation(() => {
+        throw tokenExpiredErr;
+      });
+
+      await expect(authService.refreshToken('expired-jwt-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      // 4b. Session itself is expired (session.expiresAt <= now)
+      jwtServiceMock.verify.mockReturnValue({ sub: userId, sessionId: 'sess-exp' });
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+      prismaMock.userSession.findUnique.mockResolvedValue({
+        id: 'sess-exp',
+        userId,
+        token: 'hash',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() - 10000), // in the past
+      });
+
+      await expect(authService.refreshToken('token-with-expired-session')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('5. Invalid / malformed refresh token is rejected', async () => {
+      // 5a. Empty or non-string
+      await expect(authService.refreshToken('')).rejects.toThrow(UnauthorizedException);
+      await expect(authService.refreshToken(null as any)).rejects.toThrow(UnauthorizedException);
+
+      // 5b. JsonWebTokenError (signature mismatch / malformed)
+      const jwtErr = new Error('invalid signature');
+      jwtErr.name = 'JsonWebTokenError';
+      jwtServiceMock.verify.mockImplementation(() => {
+        throw jwtErr;
+      });
+
+      await expect(authService.refreshToken('malformed-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('6. Refreshing does not create a third device session or call createDeviceSession', async () => {
+      const sessionId = 'sess-existing';
+      const rawToken = 'my-refresh-token';
+      const hash = await bcrypt.hash(rawToken, 10);
+
+      jwtServiceMock.verify.mockReturnValue({ sub: userId, sessionId });
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+      prismaMock.userSession.findUnique.mockResolvedValue({
+        id: sessionId,
+        userId,
+        token: hash,
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 100000),
+      });
+
+      jwtServiceMock.sign.mockReturnValue('new-token');
+      prismaMock.userSession.update.mockResolvedValue({ id: sessionId });
+
+      const createSpy = vi.spyOn(authService, 'createDeviceSession');
+
+      await authService.refreshToken(rawToken);
+
+      // Must not create a new device session
+      expect(createSpy).not.toHaveBeenCalled();
+      // Must update existing session by its exact id
+      expect(prismaMock.userSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: sessionId } }),
+      );
+    });
+
+    it('7. User not found or soft-deleted throws generic unauthorized without leaking info', async () => {
+      jwtServiceMock.verify.mockReturnValue({ sub: 'missing-user', sessionId: 's1' });
+
+      // User not found
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      await expect(authService.refreshToken('valid-sig-missing-user')).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      // User soft deleted
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'deleted-user',
+        deletedAt: new Date(),
+      });
+      await expect(authService.refreshToken('valid-sig-deleted-user')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('8. Session belonging to another user is rejected', async () => {
+      const sessionId = 'sess-other-user';
+      jwtServiceMock.verify.mockReturnValue({ sub: userId, sessionId });
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      // Session belongs to 'user-victim', not 'user-rot-1'
+      prismaMock.userSession.findUnique.mockResolvedValue({
+        id: sessionId,
+        userId: 'user-victim',
+        token: 'hash',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 100000),
+      });
+
+      await expect(authService.refreshToken('token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('9. Concurrent refresh requests for the same session serialize via pg_advisory_xact_lock, preventing duplicate token issuance and triggering reuse revocation', async () => {
+      const sessionId1 = 'sess-concurrent-1';
+      const sessionId2 = 'sess-concurrent-2';
+      const rawToken1 = 'refresh-token-session-1';
+      const rawToken2 = 'refresh-token-session-2';
+
+      const initialHash1 = await bcrypt.hash(rawToken1, 10);
+      const initialHash2 = await bcrypt.hash(rawToken2, 10);
+
+      const dbSessions = new Map<string, any>([
+        [
+          sessionId1,
+          {
+            id: sessionId1,
+            userId,
+            token: initialHash1,
+            revokedAt: null,
+            revokedReason: null,
+            expiresAt: new Date(Date.now() + 1000000),
+          },
+        ],
+        [
+          sessionId2,
+          {
+            id: sessionId2,
+            userId,
+            token: initialHash2,
+            revokedAt: null,
+            revokedReason: null,
+            expiresAt: new Date(Date.now() + 1000000),
+          },
+        ],
+      ]);
+
+      jwtServiceMock.verify.mockImplementation((token: string) => {
+        if (token === rawToken1) return { sub: userId, sessionId: sessionId1 };
+        if (token === rawToken2) return { sub: userId, sessionId: sessionId2 };
+        throw new Error('unknown token');
+      });
+
+      let tokenCounter = 0;
+      jwtServiceMock.sign.mockImplementation((payload: any, options?: any) => {
+        if (options?.expiresIn === '7d') return `rotated-refresh-${++tokenCounter}`;
+        return `rotated-access-${tokenCounter}`;
+      });
+
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      // Mutex lock simulation to accurately reflect pg_advisory_xact_lock per session ID
+      const sessionLocks = new Map<string, Promise<void>>();
+      const sessionLockResolvers = new Map<string, () => void>();
+
+      const mockTx = {
+        $executeRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray, ...values: any[]) => {
+          const sql = Array.isArray(strings) ? strings.join('') : (strings as any).strings.join('');
+          expect(sql).toContain('SELECT pg_advisory_xact_lock(hashtext(');
+          const lockKey = values[0];
+
+          // Wait if another transaction holds the lock on this key
+          while (sessionLocks.has(lockKey)) {
+            await sessionLocks.get(lockKey);
+          }
+
+          let resolveLock!: () => void;
+          const lockPromise = new Promise<void>((resolve) => {
+            resolveLock = resolve;
+          });
+          sessionLocks.set(lockKey, lockPromise);
+          sessionLockResolvers.set(lockKey, resolveLock);
+          return 1;
+        }),
+        userSession: {
+          findUnique: vi.fn().mockImplementation(async ({ where: { id } }: any) => {
+            const s = dbSessions.get(id);
+            return s ? { ...s } : null;
+          }),
+          update: vi.fn().mockImplementation(async ({ where: { id }, data }: any) => {
+            const s = dbSessions.get(id);
+            if (s) {
+              Object.assign(s, data);
+            }
+            return { ...s };
+          }),
+        },
+      };
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        try {
+          return await callback(mockTx);
+        } finally {
+          // Release lock for all sessions held by this tx
+          for (const [key, resolve] of sessionLockResolvers.entries()) {
+            sessionLocks.delete(key);
+            resolve();
+          }
+          sessionLockResolvers.clear();
+        }
+      });
+
+      // 1. Launch two simultaneous refresh requests using the exact same refresh token for session 1
+      const req1Promise = authService.refreshToken(rawToken1);
+      const req2Promise = authService.refreshToken(rawToken1);
+
+      // Also launch a third request for session 2 concurrently (proves different sessions are not blocked)
+      const req3Promise = authService.refreshToken(rawToken2);
+
+      const [res1, res2Result, res3] = await Promise.all([
+        req1Promise.catch((e) => e),
+        req2Promise.catch((e) => e),
+        req3Promise.catch((e) => e),
+      ]);
+
+      // Exactly one of req1 / req2 succeeds, and the other is rejected with UnauthorizedException
+      const successCount = [res1, res2Result].filter((r) => r && r.access_token).length;
+      const errorCount = [res1, res2Result].filter((r) => r instanceof UnauthorizedException).length;
+
+      expect(successCount).toBe(1);
+      expect(errorCount).toBe(1);
+
+      // Session 1 must end up revoked due to token reuse detection from the second concurrent request
+      const session1 = dbSessions.get(sessionId1);
+      expect(session1.revokedAt).not.toBeNull();
+      expect(session1.revokedReason).toBe('TOKEN_REUSED');
+
+      // Request 3 on Session 2 succeeded independently without being blocked or revoked
+      expect(res3).toHaveProperty('access_token');
+      expect(res3).toHaveProperty('refresh_token');
+      const session2 = dbSessions.get(sessionId2);
+      expect(session2.revokedAt).toBeNull();
     });
   });
 });

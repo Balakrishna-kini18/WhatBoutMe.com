@@ -280,18 +280,18 @@
 
 
 ### H. Realtime Infrastructure (Socket.IO — Phase 6 Deferred)
-- [ ] **D2-041:** Install `@nestjs/websockets`, `@nestjs/platform-socket.io`, and `@socket.io/redis-adapter`. Configure adapter with Redis TCP.
-- [ ] **D2-042:** Implement WebSocket JWT connection guard validating handshake tokens against session store.
-- [ ] **D2-043:** Implement room routing (`conversation:${id}`, `batch:${id}`), message broadcasting, typing indicators, and read receipts.
+- [x] **D2-041:** Install `@nestjs/websockets`, `@nestjs/platform-socket.io`, and `@socket.io/redis-adapter`. Configure adapter with Redis TCP.
+- [x] **D2-042:** Implement WebSocket JWT connection guard validating handshake tokens against session store.
+- [x] **D2-043:** Implement room routing (`conversation:${id}`, `batch:${id}`), message broadcasting, typing indicators, and read receipts.
 
 
 
 
 
 ### I. Observability & Health
-- [ ] **D2-044:** Install and configure `@sentry/nestjs` in `main.ts` and `worker.ts`. Filter sensitive auth data and capture unhandled exceptions.
-- [ ] **D2-045:** Implement `GET /api/health` using `@nestjs/terminus` checking PostgreSQL and Redis TCP ping.
-- [ ] **D2-046:** Implement structured JSON logger with correlation IDs and timestamps.
+- [x] **D2-044:** Install and configure `@sentry/nestjs` in `main.ts` and `worker.ts`. Filter sensitive auth data and capture unhandled exceptions.
+- [x] **D2-045:** Implement `GET /api/health` using `@nestjs/terminus` checking PostgreSQL and Redis TCP ping.
+- [x] **D2-046:** Implement structured JSON logger with correlation IDs and timestamps.
 
 
 

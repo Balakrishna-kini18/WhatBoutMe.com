@@ -13,7 +13,13 @@ export class UsersService {
 
   async findAll(params: { page: number; limit: number; search?: string; role?: Role }) {
     const { page, limit, search, role } = params;
-    const skip = (page - 1) * limit;
+    
+    // Hash parameters to create a unique cache key for this exact list request
+    const paramsHash = Buffer.from(JSON.stringify({ page, limit, search, role })).toString('base64');
+    const cacheKey = await this.cacheHelper.getVersionedKey('users', `list:${paramsHash}`);
+
+    return this.cacheHelper.getOrSet(cacheKey, async () => {
+      const skip = (page - 1) * limit;
 
     const where: any = {};
     if (role) where.role = role;
@@ -119,6 +125,7 @@ export class UsersService {
       limit,
       totalPages: Math.ceil(total / limit)
     };
+    });
   }
 
   async create(data: any) {
@@ -167,7 +174,6 @@ export class UsersService {
         data: { revokedAt: new Date(), revokedReason: revokeReason }
       });
       forgetSessions();
-      await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
     }
 
     const updatedUser = await this.prisma.user.update({
@@ -175,6 +181,7 @@ export class UsersService {
       data: userData,
     });
     
+    await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
     await this.cacheHelper.invalidateNamespace('users');
     return updatedUser;
   }

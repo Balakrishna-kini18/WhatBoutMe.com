@@ -23,6 +23,16 @@ export class CacheHelperService {
     } else {
       this.logger.warn('Upstash Redis credentials missing. Caching is disabled.');
     }
+
+    // Prevent Map from growing infinitely and causing OOM
+    setInterval(() => {
+      const now = Date.now();
+      for (const [k, v] of this.nsVersionCache.entries()) {
+        if (v.expiresAt <= now) {
+          this.nsVersionCache.delete(k);
+        }
+      }
+    }, 60000).unref();
   }
 
   // Fail-open execution wrapper
@@ -44,7 +54,7 @@ export class CacheHelperService {
         if (cached) {
           return cached as T;
         }
-      } catch (e) {
+      } catch (e: any) {
         this.logger.error(`Redis GET error for key ${key}: ${e.message}`);
       }
 
@@ -53,10 +63,10 @@ export class CacheHelperService {
       if (data !== null && data !== undefined) {
         try {
           // Run set asynchronously so we don't block the response.
-          this.redis!.set(key, data, { ex: ttlSeconds }).catch(e => {
+          this.redis!.set(key, data, { ex: ttlSeconds }).catch((e: any) => {
             this.logger.error(`Redis SET error for key ${key}: ${e.message}`);
           });
-        } catch (e) {
+        } catch (e: any) {
           this.logger.error(`Redis SET init error for key ${key}: ${e.message}`);
         }
       }
@@ -74,7 +84,7 @@ export class CacheHelperService {
     if (!this.redis) return;
     try {
       await this.redis.del(key);
-    } catch (e) {
+    } catch (e: any) {
       this.logger.error(`Redis DEL error for key ${key}: ${e.message}`);
     }
   }
@@ -108,7 +118,7 @@ export class CacheHelperService {
       this.nsVersionCache.set(namespace, { value: version, expiresAt: now + 5000 });
       
       return `${namespace}:v${version}:${keySuffix}`;
-    } catch (e) {
+    } catch (e: any) {
       this.logger.error(`Redis version fetch error for ${namespace}: ${e.message}`);
       return `${namespace}:v0:${keySuffix}`;
     }
@@ -124,7 +134,7 @@ export class CacheHelperService {
       const newVersion = await this.redis.incr(`ns_version:${namespace}`);
       this.nsVersionCache.set(namespace, { value: newVersion, expiresAt: Date.now() + 5000 });
       this.logger.log(`Invalidated namespace: ${namespace} (v${newVersion})`);
-    } catch (e) {
+    } catch (e: any) {
       this.logger.error(`Redis namespace invalidate error for ${namespace}: ${e.message}`);
     }
   }

@@ -3,7 +3,6 @@
 import { useEffect, useState, use } from "react";
 import styles from "../../../../page.module.css";
 import Link from "next/link";
-import MuxUploader from "@mux/mux-uploader-react";
 import { API_URL, errorMessage, uploadFile } from "../../../../lib/api";
 
 interface Lesson {
@@ -26,8 +25,6 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
   const [step, setStep] = useState<StepDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [uploadUrl, setUploadUrl] = useState("");
-  const [uploadId, setUploadId] = useState("");
   const [title, setTitle] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState("");
@@ -92,42 +89,70 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
 
   const openUploadModal = async () => {
     setTitle("");
-    setUploadUrl("");
     setUploadProgress(null);
     setUploadError("");
     setIsModalOpen(true);
-    
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/mux/upload-url`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setUploadUrl(data.url);
-        setUploadId(data.uploadId);
-      }
-    } catch (e) {
-      console.error("Failed to get upload URL", e);
-      setUploadError("We couldn't prepare a secure upload. Please close this window and try again.");
-    }
   };
 
-  const handleUploadSuccess = async () => {
+  const handleVideoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadProgress(0);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs/steps/${stepId}/lessons`, {
+      const sigRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/media/upload-signature`, { method: "POST" });
+      if (!sigRes.ok) throw new Error("Failed to prepare secure upload");
+      const sigData = await sigRes.json();
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("type", "authenticated");
+      formData.append("signature", sigData.signature);
+      formData.append("api_key", sigData.apiKey);
+      formData.append("timestamp", sigData.timestamp);
+
+      const xhr = new XMLHttpRequest();
+      
+      const uploadRes = await new Promise((resolve, reject) => {
+        xhr.open("POST", sigData.uploadUrl);
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            let errorMsg = "Video upload failed";
+            try {
+              const errData = JSON.parse(xhr.responseText);
+              if (errData.error?.message) errorMsg = errData.error.message;
+            } catch (e) {}
+            reject(new Error(errorMsg));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.send(formData);
+      });
+
+      const publicId = (uploadRes as any).public_id;
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs/steps/${stepId}/lessons`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: title || "New Video Lesson",
+          title: title || file.name.replace(/\.[^/.]+$/, ""),
           type: "VIDEO",
-          mediaUrl: `upload:${uploadId}`, // Save as uploadId with a prefix
+          mediaUrl: `upload:${publicId}`,
         }),
       });
-      if (res.ok) {
-        setIsModalOpen(false);
-        fetchLessons();
-      }
-    } catch (e) {
-      console.error("Failed to save lesson", e);
-      setUploadError("Your video uploaded, but we couldn't add it to this module. Please try again.");
+      if (!res.ok) throw new Error("Failed to link video to module");
+      setIsModalOpen(false);
+      fetchLessons();
+    } catch (err: any) {
+      console.error(err);
+      setUploadError(err.message || "An error occurred");
+      setUploadProgress(null);
     }
   };
 
@@ -250,33 +275,24 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
 
               <div className={styles.formGroup} style={{marginTop: '20px'}}>
                 <label>Select video file</label>
-                {uploadUrl ? (
-                  <>
-                    <MuxUploader
-                      endpoint={uploadUrl}
-                      onSuccess={handleUploadSuccess}
-                      onProgress={(e: any) => setUploadProgress(e.detail)}
-                    />
-                    {uploadProgress !== null && (
-                      <div style={{ marginTop: '15px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem', fontWeight: '500', color: 'var(--textSecondary)' }}>
-                          <span>Uploading...</span>
-                          <span>{Math.round(uploadProgress)}%</span>
-                        </div>
-                        <div style={{ width: '100%', backgroundColor: '#eaeaea', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
-                          <div style={{ 
-                            width: `${uploadProgress}%`, 
-                            backgroundColor: 'var(--primary)', 
-                            height: '100%', 
-                            borderRadius: '8px',
-                            transition: 'width 0.2s ease-in-out'
-                          }} />
-                        </div>
-                      </div>
-                    )}
-                  </>
+                {uploadProgress !== null ? (
+                  <div style={{ marginTop: '15px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem', fontWeight: '500', color: 'var(--textSecondary)' }}>
+                      <span>Uploading...</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div style={{ width: '100%', backgroundColor: '#eaeaea', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
+                      <div style={{ 
+                        width: `${uploadProgress}%`, 
+                        backgroundColor: 'var(--primary)', 
+                        height: '100%', 
+                        borderRadius: '8px',
+                        transition: 'width 0.2s ease-in-out'
+                      }} />
+                    </div>
+                  </div>
                 ) : (
-                  <p className={styles.cellTextMuted}>Preparing a secure upload…</p>
+                  <input type="file" accept="video/*" onChange={handleVideoSelected} style={{ marginTop: '10px' }} />
                 )}
               </div>
               {uploadError && <p className={styles.formError} role="alert">{uploadError}</p>}

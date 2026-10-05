@@ -52,7 +52,7 @@ function CheckoutContent() {
 
     try {
       const token = localStorage.getItem("token");
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/checkout/mock`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/checkout/mock`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -60,10 +60,12 @@ function CheckoutContent() {
         },
         body: JSON.stringify({ programId }),
       });
+      if (!res.ok) throw new Error(await res.text());
       // straight to My Courses, where the course just bought now appears
       router.push("/courses");
-    } catch (e) {
+    } catch (e: any) {
       console.error("Payment failed", e);
+      alert("Checkout failed: " + e.message);
       setProcessing(false);
     }
   }

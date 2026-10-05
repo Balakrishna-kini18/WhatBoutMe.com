@@ -1,12 +1,23 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, Inject } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class BatchesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache
+  ) {}
 
   async findAll(user: any) {
+    const cacheKey = `batches_all_${user.sub}_${user.role}`;
+    const cachedBatches = await this.cacheManager.get(cacheKey);
+    if (cachedBatches) {
+      return cachedBatches;
+    }
+
     const where = user.role === Role.MANAGER ? { managerId: user.sub } : {};
     const batches = await this.prisma.batch.findMany({
       where,
@@ -17,7 +28,7 @@ export class BatchesService {
       }
     });
 
-    return batches.map(batch => ({
+    const mappedBatches = batches.map(batch => ({
       id: batch.id,
       name: batch.name,
       program: batch.program?.title || 'Unknown Program',
@@ -26,6 +37,9 @@ export class BatchesService {
       students: batch.enrolments.length,
       status: 'Active',
     }));
+
+    await this.cacheManager.set(cacheKey, mappedBatches, 60000); // 60 seconds cache
+    return mappedBatches;
   }
 
   async findOne(id: string, user: any) {

@@ -2,16 +2,18 @@ import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/commo
 import { QuizzesService } from './quizzes.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
-import { IsString, IsNotEmpty, IsInt, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsInt, IsOptional, IsObject } from 'class-validator';
 
 export class CreateQuizDto {
   @IsString() @IsNotEmpty() stepId: string;
   @IsOptional() @IsInt() passMark?: number;
+  @IsOptional() @IsObject() questions?: any;
 }
 
 export class UpdateQuizDto {
   @IsOptional() @IsString() @IsNotEmpty() stepId?: string;
   @IsOptional() @IsInt() passMark?: number;
+  @IsOptional() @IsObject() questions?: any;
 }
 
 @Controller('quizzes')

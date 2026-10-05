@@ -15,18 +15,6 @@ datasource db {
 // ENUMS
 // -----------------------------------------------------------------------------
 
-enum OrderStatus {
-  PENDING
-  PAID
-  FAILED
-  REFUNDED
-}
-
-enum OrderProvider {
-  MOCK
-  STRIPE
-}
-
 enum Role {
   SUPER_ADMIN
   ADMIN
@@ -49,10 +37,47 @@ enum AttemptStatus {
   FAILED
 }
 
+enum QuestionType {
+  MULTIPLE_CHOICE
+  MULTI_SELECT
+  SHORT_ANSWER
+}
+
+enum OralAssessmentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  PASSED
+  FAILED
+  CANCELLED
+}
+
 enum ContentType {
   VIDEO
   PDF
   AUDIO
+  TEXT
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ReleaseSchedule {
+  IMMEDIATE
+  BATCH_SCHEDULED
+}
+
+enum ResourceType {
+  VIEW_ONLY_PDF
+  DOWNLOADABLE_WORKSHEET
+  STREAMABLE_AUDIO
+}
+
+enum ResourceScope {
+  STEP_SPECIFIC
+  PROGRAM_LIBRARY
 }
 
 enum InvoiceStatus {
@@ -71,6 +96,48 @@ enum CouponType {
 enum AgreementStatus {
   PENDING
   SIGNED
+  EXPIRED
+  REVOKED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+enum SessionType {
+  GROUP_COHORT
+  ONE_ON_ONE
+}
+
+enum MeetingProvider {
+  ZOOM
+  GOOGLE_MEET
+  MANUAL
+}
+
+enum BookingStatus {
+  BOOKED
+  CONFIRMED
+  CANCELLED
+  RESCHEDULED
+  ATTENDED
+  NO_SHOW
+}
+
+enum AttendanceStatus {
+  ABSENT
+  PRESENT_AUTO
+  PRESENT_MANUAL
+  CORRECTED
+}
+
+enum CertificateType {
+  PROFESSIONAL
+  CORPORATE_PARTICIPATION
 }
 
 enum NotificationChannel {
@@ -115,16 +182,38 @@ model User {
   passwordHash String?
   role         Role    @default(USER)
 
+  // Authentication & Security (D1-004)
+  country              String?
+  timezone             String?
+  emailVerifiedAt      DateTime?
+  twoFactorSecret      String?
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorBackupCodes String[]  @default([])
+
   // Relations
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
 
-  managedBatches Batch[]        @relation("ManagerBatches")
-  enrolments     Enrolment[]
-  messagesSent   Message[]
-  sessions       UserSession[]
-  notifications  Notification[]
-  dailyAttendance DailyAttendance[]
+  managedBatches          Batch[]                  @relation("ManagerBatches")
+  batchTrainers           BatchTrainer[]           @relation("BatchTrainers")
+  oralAssessmentsAssessed OralAssessment[]         @relation("AssessorOralAssessments")
+  signedAgreements        SignedAgreement[]
+  sessionBookings         SessionBooking[]         @relation("UserSessionBookings")
+  attendedSessions        Attendance[]             @relation("UserAttendances")
+  correctedAttendances    Attendance[]             @relation("CorrectedAttendances")
+  learnerSessions         Session[]                @relation("Learner1on1Sessions")
+  hostedSessions          Session[]                @relation("HostTrainerSessions")
+  certificates            Certificate[]            @relation("UserCertificates")
+  approvedCertificates    Certificate[]            @relation("ApprovedCertificates")
+  enrolments              Enrolment[]
+  messagesSent            Message[]
+  sessions                UserSession[]
+  notifications           Notification[]
+  dailyAttendance         DailyAttendance[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  otpCodes                OtpCode[]
+  loginAudits             LoginAudit[]
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -137,10 +226,12 @@ model UserSession {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  token      String   @unique // Store the JWT or a session hash
-  ipAddress  String?
-  userAgent  String?
-  lastActive DateTime @default(now())
+  token             String    @unique // Store the JWT or a session hash
+  deviceFingerprint String?
+  ipAddress         String?
+  userAgent         String?
+  lastActive        DateTime  @default(now())
+  expiresAt         DateTime?
 
   revokedAt     DateTime?
   revokedReason String?
@@ -150,27 +241,87 @@ model UserSession {
   @@index([userId, revokedAt])
 }
 
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model LoginAudit {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress         String?
+  userAgent         String?
+  country           String?
+  deviceFingerprint String?
+  isSuspicious      Boolean  @default(false)
+  reason            String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
 // -----------------------------------------------------------------------------
 // CURRICULUM (PROGRAMS, STEPS, LESSONS, QUIZZES)
 // -----------------------------------------------------------------------------
 
 model Program {
-  id          String  @id @default(uuid())
+  id          String        @id @default(uuid())
   title       String
-  slug        String  @unique
+  slug        String        @unique
   description String?
   price       Float
-  isActive    Boolean @default(true)
+  isActive    Boolean       @default(true)
+  status      ContentStatus @default(DRAFT)
 
   hasCertificate      Boolean @default(false)
   certificateTemplate String?
 
-  steps   Step[]
-  batches Batch[]
+  steps               Step[]
+  batches             Batch[]
+  resources           Resource[]
+  enrolments          Enrolment[]
+  questionBanks       QuestionBank[]
+  exams               Exam[]
+  oralAssessments     OralAssessment[]
+  agreementTemplates  AgreementTemplate[]
+  signedAgreements    SignedAgreement[]
+  certificates        Certificate[]
 
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  Enrolment Enrolment[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Step {
@@ -181,15 +332,24 @@ model Step {
   sequence    Int // 1 to 11
   title       String
   description String?
+  status      ContentStatus @default(DRAFT)
 
-  lessons   Lesson[]
-  quiz      Quiz?
-  overrides BatchStepOverride[]
+  releaseSchedule ReleaseSchedule @default(IMMEDIATE)
+  unlockDelayDays Int?
+
+  lessons       Lesson[]
+  resources     Resource[]
+  quiz          Quiz?
+  questionBanks QuestionBank[]
+  questions     Question[]
+  overrides     BatchStepOverride[]
+  progress      StepProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([programId, sequence])
+  @@index([programId, sequence])
 }
 
 model Lesson {
@@ -201,33 +361,95 @@ model Lesson {
   type        ContentType
   mediaUrl    String // AWS S3 / Mux Asset ID
   durationSec Int?
+  content     String? // For TEXT content or lesson notes
+  order       Int           @default(1)
+  status      ContentStatus @default(DRAFT)
 
   progress UserLessonProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([stepId, order])
 }
 
-model Quiz {
-  id     String @id @default(uuid())
-  stepId String @unique
-  step   Step   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+model Resource {
+  id          String        @id @default(uuid())
+  title       String
+  description String?
+  type        ResourceType
+  scope       ResourceScope @default(STEP_SPECIFIC)
+  mediaUrl    String        // Cloudinary / Object Storage URL
+  fileSize    Int?          // File size in bytes
+  mimeType    String?       // MIME type e.g. application/pdf, audio/mpeg
+  status      ContentStatus @default(PUBLISHED)
 
-  passMark  Int        @default(75) // Percentage required to pass
-  questions Question[]
-  attempts  Attempt[]
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  stepId String?
+  step   Step?   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  batchId String?
+  batch   Batch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([programId])
+  @@index([stepId])
+  @@index([batchId])
+}
+
+// -----------------------------------------------------------------------------
+// ASSESSMENTS (QUESTION BANKS, QUIZZES, EXAMS, ORAL ASSESSMENTS)
+// -----------------------------------------------------------------------------
+
+model QuestionBank {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  stepId String?
+  step   Step?   @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  questions Question[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+  @@index([stepId])
 }
 
 model Question {
-  id     String @id @default(uuid())
-  quizId String
-  quiz   Quiz   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  id          String       @id @default(uuid())
+  type        QuestionType @default(MULTIPLE_CHOICE)
+  text        String
+  explanation String?
+  points      Int          @default(1)
 
-  text    String
+  questionBankId String?
+  questionBank   QuestionBank? @relation(fields: [questionBankId], references: [id], onDelete: SetNull)
+
+  quizId String?
+  quiz   Quiz?   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  stepId String?
+  step   Step?   @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
   options Option[]
+  answers QuizAnswer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([questionBankId])
+  @@index([quizId])
+  @@index([stepId])
 }
 
 model Option {
@@ -237,6 +459,122 @@ model Option {
 
   text      String
   isCorrect Boolean @default(false)
+  order     Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([questionId])
+}
+
+model Quiz {
+  id     String @id @default(uuid())
+  stepId String @unique
+  step   Step   @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  title         String?
+  passMark      Int        @default(75) // Percentage required to pass
+  maxAttempts   Int        @default(3)  // Throttling / retry limit
+  cooldownHours Int        @default(24) // Wait between retries
+  questionCount Int        @default(10) // 10-question step quiz requirement
+  timeLimitMin  Int?
+  retryGuidance String?
+
+  questions Question[]
+  attempts  Attempt[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Exam {
+  id          String        @id @default(uuid())
+  title       String
+  description String?
+  programId   String
+  program     Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  questionCount    Int           @default(50) // 50 questions pooled from question bank
+  passMark         Int           @default(75) // Percentage required to pass
+  timeLimitMin     Int           @default(90) // Configurable default: 90 minutes
+  shuffleQuestions Boolean       @default(true)
+  maxAttempts      Int           @default(3)
+  cooldownHours    Int           @default(24)
+  retryGuidance    String?
+  status           ContentStatus @default(DRAFT)
+
+  attempts ExamAttempt[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+}
+
+model ExamAttempt {
+  id          String    @id @default(uuid())
+  enrolmentId String
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  examId      String
+  exam        Exam      @relation(fields: [examId], references: [id], onDelete: Restrict)
+
+  attemptNumber Int           @default(1)
+  score         Int?
+  passed        Boolean?
+  status        AttemptStatus @default(IN_PROGRESS)
+  startedAt     DateTime      @default(now())
+  completedAt   DateTime?
+  answers       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([enrolmentId, examId, attemptNumber])
+  @@index([enrolmentId, examId])
+  @@index([examId, status])
+}
+
+model OralAssessment {
+  id          String    @id @default(uuid())
+  enrolmentId String
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  programId   String
+  program     Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  sessionId     String?
+  assessorId    String?
+  assessor      User?                @relation("AssessorOralAssessments", fields: [assessorId], references: [id], onDelete: SetNull)
+  status        OralAssessmentStatus @default(SCHEDULED)
+  overallScore  Int?
+  passed        Boolean?
+  scheduledDate DateTime?
+  completedAt   DateTime?
+  trainerNotes  String?
+  retryGuidance String?
+
+  scores OralAssessmentScore[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enrolmentId])
+  @@index([programId])
+  @@index([assessorId])
+}
+
+model OralAssessmentScore {
+  id             String         @id @default(uuid())
+  assessmentId   String
+  assessment     OralAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  rubricCategory String
+  score          Int
+  maxScore       Int            @default(10)
+  feedback       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assessmentId])
 }
 
 // -----------------------------------------------------------------------------
@@ -258,9 +596,27 @@ model Batch {
   enrolments Enrolment[]
   sessions   Session[]
   overrides  BatchStepOverride[]
+  trainers   BatchTrainer[]
+  resources  Resource[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model BatchTrainer {
+  id        String   @id @default(uuid())
+  batchId   String
+  batch     Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  trainerId String
+  trainer   User     @relation("BatchTrainers", fields: [trainerId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([batchId, trainerId])
+  @@index([trainerId])
+  @@index([batchId])
 }
 
 model Enrolment {
@@ -276,19 +632,24 @@ model Enrolment {
 
   status EnrolmentStatus @default(PENDING_PAYMENT)
 
-  agreement Agreement?
+  signedAgreement SignedAgreement?
 
-  attempts       Attempt[]
-  lessonProgress UserLessonProgress[]
-  attendance     Attendance[]
-  certificate    Certificate?
-  payments       Payment[]
+  attempts        Attempt[]
+  examAttempts    ExamAttempt[]
+  oralAssessments OralAssessment[]
+  lessonProgress  UserLessonProgress[]
+  attendance      Attendance[]
+  sessionBookings SessionBooking[]
+  certificate     Certificate?
+  payments        Payment[]
+  stepProgress    StepProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, programId])
   @@unique([userId, batchId])
+  @@index([userId, status])
 }
 
 // -----------------------------------------------------------------------------
@@ -315,16 +676,44 @@ model Attempt {
   enrolmentId String
   enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
   quizId      String
-  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Restrict)
 
-  score  Int?
-  status AttemptStatus @default(IN_PROGRESS)
+  attemptNumber Int           @default(1)
+  score         Int?
+  passed        Boolean?
+  status        AttemptStatus @default(IN_PROGRESS)
+  startedAt     DateTime      @default(now())
+  completedAt   DateTime?
+
+  answers QuizAnswer[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // TRD Concurrency rule: User can only have one IN_PROGRESS attempt at a time per quiz
-  // However, Prisma doesn't support partial unique indexes easily, so uniqueness handled in NestJS code.
+  @@unique([enrolmentId, quizId, attemptNumber])
+  @@index([enrolmentId, quizId])
+  @@index([quizId, status])
+}
+
+model QuizAnswer {
+  id         String   @id @default(uuid())
+  attemptId  String
+  attempt    Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  selectedOptionId  String?
+  selectedOptionIds String[] @default([])
+  textAnswer        String?
+  isCorrect         Boolean  @default(false)
+  pointsAwarded     Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
 }
 
 // TRD 2.2: Admin override logic for locking/unlocking steps manually
@@ -341,42 +730,151 @@ model BatchStepOverride {
   @@unique([batchId, stepId])
 }
 
+// Step-level progression tracking
+model StepProgress {
+  id          String    @id @default(uuid())
+  enrolmentId String
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  stepId      String
+  step        Step      @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+
+  isUnlocked  Boolean   @default(false)
+  unlockedAt  DateTime?
+
+  score       Int?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([enrolmentId, stepId])
+  @@index([enrolmentId])
+  @@index([stepId])
+}
+
 // -----------------------------------------------------------------------------
-// SYNCHRONOUS OPERATIONS (ZOOM SESSIONS)
+// SYNCHRONOUS OPERATIONS (SESSIONS, BOOKINGS & ATTENDANCE)
 // -----------------------------------------------------------------------------
 
 model Session {
-  id      String @id @default(uuid())
+  id String @id @default(uuid())
+
+  // Scoping & Relations
   batchId String
   batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
-  title         String
-  startTime     DateTime
-  endTime       DateTime
-  zoomMeetingId String?
-  joinUrl       String?
-  recordingUrl  String?
-  quizId        String?
+  learnerId String? // For dedicated 1:1 sessions
+  learner   User?   @relation("Learner1on1Sessions", fields: [learnerId], references: [id], onDelete: SetNull)
 
-  attendancePulled Boolean      @default(false)
+  hostTrainerId String?
+  hostTrainer   User?   @relation("HostTrainerSessions", fields: [hostTrainerId], references: [id], onDelete: SetNull)
+
+  // Scheduling & Timing
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  timezone    String? @default("UTC") // Timezone-aware scheduling
+
+  // Lifecycle & Capacity
+  sessionType SessionType   @default(GROUP_COHORT)
+  status      SessionStatus @default(SCHEDULED)
+  capacity    Int?          // Maximum booking capacity (e.g. 1 for 1:1, or cohort size)
+
+  // Meeting Provider Metadata (Provider-Neutral)
+  meetingProvider      MeetingProvider @default(ZOOM)
+  providerMeetingId    String?         // Provider-neutral meeting ID
+  zoomMeetingId        String?         // Preserved for backward compatibility
+  joinUrl              String?         // Learner/attendee join URL
+  hostUrl              String?         // Host start/join URL
+  recordingUrl         String?         // Final recording URL
+  providerRecordingUrl String?         // Raw provider cloud recording URL
+
+  // Agenda & Assessment References
+  agenda String?
+  quizId String?
+
+  // Rescheduling & Cancellation Audit
+  cancelledAt     DateTime?
+  cancelReason    String?
+  rescheduledToId String?
+  rescheduledTo   Session?  @relation("RescheduledSessions", fields: [rescheduledToId], references: [id], onDelete: SetNull)
+  rescheduledFrom Session[] @relation("RescheduledSessions")
+
+  // Attendance & Booking Relations (Historical records protected via Restrict)
+  attendancePulled Boolean          @default(false)
   attendances      Attendance[]
+  bookings         SessionBooking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([batchId, startTime])
+  @@index([startTime])
+  @@index([status])
+  @@index([hostTrainerId])
+  @@index([learnerId])
+}
+
+model SessionBooking {
+  id String @id @default(uuid())
+
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  userId String
+  user   User   @relation("UserSessionBookings", fields: [userId], references: [id], onDelete: Cascade)
+
+  enrolmentId String?
+  enrolment   Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  status BookingStatus @default(BOOKED)
+
+  // Rescheduling & Cancellation Audit
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([status])
+  @@index([enrolmentId])
 }
 
 model Attendance {
-  id          String    @id @default(uuid())
-  sessionId   String
-  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
   enrolmentId String
   enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
+
+  status AttendanceStatus @default(ABSENT)
 
   joinTime    DateTime?
   leaveTime   DateTime?
   durationMin Int?
 
+  correctionReason String?
+  correctedById    String?
+  correctedBy      User?   @relation("CorrectedAttendances", fields: [correctedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([sessionId, enrolmentId])
+  @@index([sessionId, userId])
+  @@index([status])
+  @@index([enrolmentId])
 }
 
 // -----------------------------------------------------------------------------
@@ -417,17 +915,40 @@ model Payment {
 }
 
 model Certificate {
-  id          String    @id @default(uuid())
-  enrolmentId String    @unique
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
 
-  certificateNumber String            @unique
-  status            CertificateStatus @default(PENDING)
-  pdfUrl            String? // AWS S3 permanent URL for cert
-  issuedAt          DateTime?
+  enrolmentId String    @unique
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Restrict)
+
+  userId String?
+  user   User?   @relation("UserCertificates", fields: [userId], references: [id], onDelete: Restrict)
+
+  programId String?
+  program   Program? @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  certificateCode   String  @unique @default(uuid())
+  certificateNumber String? @unique // Legacy compatibility with existing services
+  verificationHash  String?
+
+  issueDate DateTime?
+  issuedAt  DateTime? // Legacy compatibility with existing services
+
+  approvedById String?
+  approvedBy   User?     @relation("ApprovedCertificates", fields: [approvedById], references: [id], onDelete: SetNull)
+  revokedAt    DateTime?
+  cpdHours     Int?
+
+  certificateType CertificateType   @default(PROFESSIONAL)
+  status          CertificateStatus @default(PENDING)
+  pdfUrl          String? // Storage key/URL for generated certificate PDF
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([programId])
+  @@index([status])
+  @@index([certificateCode])
 }
 
 // -----------------------------------------------------------------------------
@@ -490,19 +1011,60 @@ model Coupon {
   createdAt DateTime @default(now())
 }
 
-model Agreement {
+// -----------------------------------------------------------------------------
+// AGREEMENTS (TEMPLATES & SIGNED AGREEMENTS)
+// -----------------------------------------------------------------------------
+
+model AgreementTemplate {
+  id        String  @id @default(uuid())
+  title     String
+  version   String  // e.g. "v1.0", "v2.0"
+  content   String  // Agreement body/terms for rendering and PDF generation
+  isActive  Boolean @default(true) // Distinguishes usable/current version
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  signedAgreements SignedAgreement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([programId, version])
+  @@index([programId, isActive])
+}
+
+model SignedAgreement {
   id          String    @id @default(uuid())
   enrolmentId String    @unique
   enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
 
-  templateVersion String
-  signedPdfUrl    String?
-  signedAt        DateTime?
-  signerIp        String?
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Restrict)
+
+  templateId String
+  template   AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  templateVersion String  // Immutable snapshot of version string at signing
+  consentGiven    Boolean @default(false) // Explicit read & consent tick
+  typedName       String? // Typed full name signature
+  drawnSignature  String? // Drawn signature data URL or storage pointer
+  signerIp        String? // Signer IP address
+  userAgent       String? // Signer User-Agent
+  signedPdfUrl    String? // Provider-neutral storage reference/URL to generated signed PDF
   status          AgreementStatus @default(PENDING)
+  signedAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([programId])
+  @@index([templateId])
+  @@index([status])
 }
 
 model Notification {
@@ -545,29 +1107,9 @@ model Lead {
 }
 
 enum CertificateStatus {
+  ELIGIBLE
   PENDING
   APPROVED
+  ISSUED
   REJECTED
-  REVOKED
-}
-
-// -----------------------------------------------------------------------------
-// ORDERS & PAYMENTS
-// -----------------------------------------------------------------------------
-
-model Order {
-  id          String        @id @default(uuid())
-  userId      String
-  programId   String
-  amount      Float
-  currency    String        @default("usd")
-  status      OrderStatus   @default(PENDING)
-  provider    OrderProvider @default(MOCK)
-  providerRef String?
-  couponId    String?
-
-  createdAt DateTime  @default(now())
-  paidAt    DateTime?
-
-  @@index([userId, status])
 }

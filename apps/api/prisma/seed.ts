@@ -1,285 +1,377 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Role, ContentStatus, ReleaseSchedule, ContentType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding database with dummy data...');
+  console.log('Seeding canonical Sprint 0 development database...');
 
-  // Create Users
-  const passwordHash = await bcrypt.hash('Learner@2026', 12);
+  // 1. Password Hash for Development Users
+  const passwordHash = await bcrypt.hash('Learner@2026', 10);
 
+  // 2. Canonical Users
   const superAdmin = await prisma.user.upsert({
     where: { email: 'super@whatboutme.com' },
-    update: {},
+    update: {
+      name: 'Super Admin Roweena',
+      role: Role.SUPER_ADMIN,
+    },
     create: {
       email: 'super@whatboutme.com',
-      name: 'Super Admin',
+      name: 'Super Admin Roweena',
       passwordHash,
-      role: 'SUPER_ADMIN',
+      role: Role.SUPER_ADMIN,
+      country: 'AU',
+      timezone: 'Australia/Sydney',
+      emailVerifiedAt: new Date('2026-01-01T00:00:00.000Z'),
     },
   });
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@whatboutme.com' },
-    update: {},
+    update: {
+      name: 'System Admin',
+      role: Role.ADMIN,
+    },
     create: {
       email: 'admin@whatboutme.com',
       name: 'System Admin',
       passwordHash,
-      role: 'ADMIN',
+      role: Role.ADMIN,
+      country: 'AU',
+      timezone: 'Australia/Sydney',
+      emailVerifiedAt: new Date('2026-01-01T00:00:00.000Z'),
     },
   });
 
+  // Corporate Batch Manager (Role: MANAGER)
   const manager = await prisma.user.upsert({
     where: { email: 'manager@whatboutme.com' },
-    update: {},
+    update: {
+      name: 'Corporate Batch Manager',
+      role: Role.MANAGER,
+    },
     create: {
       email: 'manager@whatboutme.com',
-      name: 'Batch Manager',
+      name: 'Corporate Batch Manager',
       passwordHash,
-      role: 'MANAGER',
+      role: Role.MANAGER,
+      country: 'AU',
+      timezone: 'Australia/Sydney',
+      emailVerifiedAt: new Date('2026-01-01T00:00:00.000Z'),
     },
   });
 
+  // Cohort Trainer (Role: MANAGER)
+  const trainer = await prisma.user.upsert({
+    where: { email: 'trainer@whatboutme.com' },
+    update: {
+      name: 'Lead Cohort Trainer',
+      role: Role.MANAGER,
+    },
+    create: {
+      email: 'trainer@whatboutme.com',
+      name: 'Lead Cohort Trainer',
+      passwordHash,
+      role: Role.MANAGER,
+      country: 'AU',
+      timezone: 'Australia/Sydney',
+      emailVerifiedAt: new Date('2026-01-01T00:00:00.000Z'),
+    },
+  });
+
+  // Test Learners (Role: USER)
   const learner1 = await prisma.user.upsert({
     where: { email: 'learner1@whatboutme.com' },
-    update: {},
+    update: {
+      name: 'Alice Learner',
+      role: Role.USER,
+    },
     create: {
       email: 'learner1@whatboutme.com',
       name: 'Alice Learner',
       passwordHash,
-      role: 'USER',
+      role: Role.USER,
+      country: 'US',
+      timezone: 'America/New_York',
+      emailVerifiedAt: new Date('2026-02-01T00:00:00.000Z'),
     },
   });
 
   const learner2 = await prisma.user.upsert({
     where: { email: 'learner2@whatboutme.com' },
-    update: {},
+    update: {
+      name: 'Bob Learner',
+      role: Role.USER,
+    },
     create: {
       email: 'learner2@whatboutme.com',
       name: 'Bob Learner',
       passwordHash,
-      role: 'USER',
+      role: Role.USER,
+      country: 'GB',
+      timezone: 'Europe/London',
+      emailVerifiedAt: new Date('2026-02-01T00:00:00.000Z'),
     },
   });
 
-  // Create Programs
-  const program1 = await prisma.program.upsert({
-    where: { slug: 'resilience-masterclass' },
-    update: {},
+  console.log(`Seeded users: ${superAdmin.email}, ${admin.email}, ${manager.email}, ${trainer.email}, ${learner1.email}, ${learner2.email}`);
+
+  // 3. Canonical Program: "11 Steps to U"
+  const program = await prisma.program.upsert({
+    where: { slug: '11-steps-to-u' },
+    update: {
+      title: '11 Steps to U',
+      description: 'A transformative 11-step personal and professional development journey.',
+      price: 995.0,
+      status: ContentStatus.PUBLISHED,
+      hasCertificate: true,
+    },
     create: {
-      title: 'Resilience Masterclass',
-      slug: 'resilience-masterclass',
-      description: 'Learn how to bounce back from adversity and build inner strength.',
-      price: 299.99,
-      steps: {
-        create: [
-          {
-            title: 'Week 1: Foundations of Resilience',
-            sequence: 1,
-            lessons: {
-              create: [
-                { title: 'Understanding Stress', type: 'VIDEO', mediaUrl: 'https://stream.mux.com/test1.m3u8', durationSec: 900 },
-                { title: 'Mindfulness Basics', type: 'VIDEO', mediaUrl: 'https://stream.mux.com/test2.m3u8', durationSec: 1200 },
-              ]
-            }
-          }
-        ]
-      }
+      title: '11 Steps to U',
+      slug: '11-steps-to-u',
+      description: 'A transformative 11-step personal and professional development journey.',
+      price: 995.0,
+      status: ContentStatus.PUBLISHED,
+      hasCertificate: true,
+      certificateTemplate: 'CERT_TEMPLATE_STANDARD_V1',
     },
   });
 
-  const program2 = await prisma.program.upsert({
-    where: { slug: 'leadership-skills' },
-    update: {},
+  console.log(`Seeded program: ${program.title} (${program.slug})`);
+
+  // 4. Agreement Template for "11 Steps to U"
+  const agreementTemplate = await prisma.agreementTemplate.upsert({
+    where: {
+      programId_version: {
+        programId: program.id,
+        version: 'v1.0',
+      },
+    },
+    update: {
+      title: '11 Steps to U Enrollment & Code of Conduct Agreement',
+      content:
+        'By signing this agreement, you commit to actively participating in all scheduled cohort sessions, completing weekly reflective coursework, and adhering to strict cohort confidentiality standards.',
+      isActive: true,
+    },
     create: {
-      title: 'Leadership Skills for the Future',
-      slug: 'leadership-skills',
-      description: 'Master the soft skills required for modern leadership roles.',
-      price: 499.99,
+      programId: program.id,
+      version: 'v1.0',
+      title: '11 Steps to U Enrollment & Code of Conduct Agreement',
+      content:
+        'By signing this agreement, you commit to actively participating in all scheduled cohort sessions, completing weekly reflective coursework, and adhering to strict cohort confidentiality standards.',
+      isActive: true,
     },
   });
 
-  // Create Batches
-  const batch1 = await prisma.batch.create({
-    data: {
-      name: 'Resilience Cohort Alpha',
-      programId: program1.id,
-      managerId: manager.id,
-      startDate: new Date(),
-      capacity: 50,
-      sessions: {
-        create: [
-          {
-            title: 'Kickoff Call',
-            startTime: new Date(Date.now() + 86400000), // Tomorrow
-            endTime: new Date(Date.now() + 86400000 + 3600000), // +1 hour
-            joinUrl: 'https://zoom.us/j/123456789',
-          },
-          {
-            title: 'Q&A Session',
-            startTime: new Date(Date.now() + 86400000 * 3), // +3 days
-            endTime: new Date(Date.now() + 86400000 * 3 + 3600000),
-          }
-        ]
+  console.log(`Seeded agreement template: ${agreementTemplate.title} (${agreementTemplate.version})`);
+
+  // 5. 11 Ordered Program Steps with Sample Lessons
+  const stepTitles = [
+    'Awakening Self-Awareness',
+    'Unpacking Core Values',
+    'Emotional Resilience',
+    'Personal Boundary Architecture',
+    'Relational Dynamics & Communication',
+    'Cultivating Empathy & Active Listening',
+    'Overcoming Limiting Beliefs',
+    'Constructive Conflict Navigation',
+    'Aligning Purpose & Career Vision',
+    'Sustainable Habit Loops',
+    'Integration & The Future Self',
+  ];
+
+  for (let i = 0; i < stepTitles.length; i++) {
+    const sequence = i + 1;
+    const title = `Step ${sequence}: ${stepTitles[i]}`;
+
+    const step = await prisma.step.upsert({
+      where: {
+        programId_sequence: {
+          programId: program.id,
+          sequence,
+        },
+      },
+      update: {
+        title,
+        status: ContentStatus.PUBLISHED,
+        releaseSchedule: ReleaseSchedule.IMMEDIATE,
+      },
+      create: {
+        programId: program.id,
+        sequence,
+        title,
+        description: `Core curriculum and reflection exercises for ${title}.`,
+        status: ContentStatus.PUBLISHED,
+        releaseSchedule: ReleaseSchedule.IMMEDIATE,
+      },
+    });
+
+    // Seed sample lessons for Step 1
+    if (sequence === 1) {
+      const existingLessons = await prisma.lesson.findMany({ where: { stepId: step.id } });
+      if (existingLessons.length === 0) {
+        await prisma.lesson.createMany({
+          data: [
+            {
+              stepId: step.id,
+              title: 'Introduction to Self-Awareness',
+              type: ContentType.VIDEO,
+              mediaUrl: 'cloudinary:sample-video-step-1',
+              durationSec: 720,
+              order: 1,
+              status: ContentStatus.PUBLISHED,
+            },
+            {
+              stepId: step.id,
+              title: 'The Self-Reflection Framework',
+              type: ContentType.TEXT,
+              content: 'Read through the self-reflection framework notes and complete your daily check-in.',
+              mediaUrl: 'internal://lesson-content',
+              order: 2,
+              status: ContentStatus.PUBLISHED,
+            },
+          ],
+        });
       }
     }
+  }
+
+  console.log(`Seeded 11 ordered steps for program: ${program.title}`);
+
+  // 6. Active Batch: "Cohort Alpha 2026"
+  let batch = await prisma.batch.findFirst({
+    where: {
+      programId: program.id,
+      name: 'Cohort Alpha 2026',
+    },
   });
 
-  const batch2 = await prisma.batch.create({
-    data: {
-      name: 'Leadership Cohort Beta',
-      programId: program2.id,
-      managerId: admin.id,
-      startDate: new Date(Date.now() + 86400000 * 14), // +14 days
-      capacity: 30,
-    }
+  if (!batch) {
+    batch = await prisma.batch.create({
+      data: {
+        programId: program.id,
+        name: 'Cohort Alpha 2026',
+        startDate: new Date('2026-10-01T09:00:00.000Z'),
+        capacity: 30,
+        managerId: manager.id,
+      },
+    });
+  }
+
+  // Assign Lead Trainer to the Batch
+  await prisma.batchTrainer.upsert({
+    where: {
+      batchId_trainerId: {
+        batchId: batch.id,
+        trainerId: trainer.id,
+      },
+    },
+    update: {},
+    create: {
+      batchId: batch.id,
+      trainerId: trainer.id,
+    },
   });
 
+  console.log(`Seeded active batch: ${batch.name} with manager ${manager.name} and trainer ${trainer.name}`);
+
+  // 7. Seed Initial Cohort Session
+  const existingSession = await prisma.session.findFirst({
+    where: {
+      batchId: batch.id,
+      title: 'Cohort Kickoff & Orientation',
+    },
+  });
+
+  if (!existingSession) {
+    await prisma.session.create({
+      data: {
+        batchId: batch.id,
+        title: 'Cohort Kickoff & Orientation',
+        description: 'Welcome and program orientation live video call.',
+        startTime: new Date('2026-10-08T18:00:00.000Z'),
+        endTime: new Date('2026-10-08T19:30:00.000Z'),
+        timezone: 'Australia/Sydney',
+        hostTrainerId: trainer.id,
+        meetingProvider: 'ZOOM',
+        joinUrl: 'https://zoom.us/j/sample-orientation-meeting',
+      },
+    });
+  }
+
+  // 8. Test Learner Enrolments
+  // Learner 1: Active enrolment with completed signed agreement
   const enrolment1 = await prisma.enrolment.upsert({
     where: {
       userId_programId: {
         userId: learner1.id,
-        programId: program1.id,
-      }
+        programId: program.id,
+      },
     },
-    update: {},
+    update: {
+      batchId: batch.id,
+      status: 'ACTIVE',
+    },
     create: {
       userId: learner1.id,
-      programId: program1.id,
-      batchId: batch1.id,
+      programId: program.id,
+      batchId: batch.id,
       status: 'ACTIVE',
-    }
+    },
   });
 
+  await prisma.signedAgreement.upsert({
+    where: {
+      enrolmentId: enrolment1.id,
+    },
+    update: {
+      status: 'SIGNED',
+      consentGiven: true,
+      typedName: 'Alice Learner',
+    },
+    create: {
+      enrolmentId: enrolment1.id,
+      userId: learner1.id,
+      programId: program.id,
+      templateId: agreementTemplate.id,
+      templateVersion: agreementTemplate.version,
+      consentGiven: true,
+      typedName: 'Alice Learner',
+      signerIp: '127.0.0.1',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TestClient',
+      status: 'SIGNED',
+      signedAt: new Date('2026-10-02T10:00:00.000Z'),
+    },
+  });
+
+  // Learner 2: Pending Agreement state
   const enrolment2 = await prisma.enrolment.upsert({
     where: {
       userId_programId: {
         userId: learner2.id,
-        programId: program1.id,
-      }
+        programId: program.id,
+      },
     },
-    update: {},
+    update: {
+      batchId: batch.id,
+      status: 'PENDING_AGREEMENT',
+    },
     create: {
       userId: learner2.id,
-      programId: program1.id,
-      batchId: batch1.id,
-      status: 'ACTIVE',
-    }
+      programId: program.id,
+      batchId: batch.id,
+      status: 'PENDING_AGREEMENT',
+    },
   });
 
-  // Create Orders
-  await prisma.order.create({
-    data: {
-      userId: learner1.id,
-      programId: program1.id,
-      amount: 299.99,
-      status: 'PAID',
-    }
-  });
-
-  await prisma.order.create({
-    data: {
-      userId: learner2.id,
-      programId: program1.id,
-      amount: 299.99,
-      status: 'PAID',
-    }
-  });
-
-  // Create Payments & Invoices
-  const payment1 = await prisma.payment.create({
-    data: {
-      enrolmentId: enrolment1.id,
-      stripeSessionId: 'cs_test_dummy_1',
-      amount: 299.99,
-      status: 'succeeded',
-      invoice: {
-        create: {
-          invoiceNumber: 'INV-0001',
-          amount: 299.99,
-          status: 'PAID',
-          pdfUrl: 'https://whatboutme.com/invoices/INV-0001.pdf',
-        }
-      }
-    }
-  });
-
-  const payment2 = await prisma.payment.create({
-    data: {
-      enrolmentId: enrolment2.id,
-      stripeSessionId: 'cs_test_dummy_2',
-      amount: 299.99,
-      status: 'succeeded',
-      invoice: {
-        create: {
-          invoiceNumber: 'INV-0002',
-          amount: 299.99,
-          status: 'PAID',
-          pdfUrl: 'https://whatboutme.com/invoices/INV-0002.pdf',
-        }
-      }
-    }
-  });
-
-  // Create Quiz
-  // First, find a step to attach the quiz to
-  const stepToQuiz = await prisma.step.findFirst({
-    where: { programId: program1.id, sequence: 1 }
-  });
-
-  if (stepToQuiz) {
-    const quizExists = await prisma.quiz.findUnique({
-      where: { stepId: stepToQuiz.id }
-    });
-    
-    if (!quizExists) {
-      await prisma.quiz.create({
-        data: {
-          stepId: stepToQuiz.id,
-          passMark: 75,
-          questions: {
-            create: [
-              {
-                text: 'What is the main cause of stress?',
-                options: {
-                  create: [
-                    { text: 'Lack of sleep', isCorrect: false },
-                    { text: 'Work pressure', isCorrect: false },
-                    { text: 'Perception of a threat', isCorrect: true },
-                  ]
-                }
-              },
-              {
-                text: 'Which of the following is a mindfulness technique?',
-                options: {
-                  create: [
-                    { text: 'Deep breathing', isCorrect: true },
-                    { text: 'Multitasking', isCorrect: false },
-                    { text: 'Ignoring emotions', isCorrect: false },
-                  ]
-                }
-              }
-            ]
-          }
-        }
-      });
-    }
-  }
-
-  console.log('Seeding complete! You can now log in with the following users:');
-  console.log('- super@whatboutme.com (SUPER_ADMIN)');
-  console.log('- admin@whatboutme.com (ADMIN)');
-  console.log('- manager@whatboutme.com (MANAGER)');
-  console.log('- learner1@whatboutme.com (USER)');
-  console.log('- learner2@whatboutme.com (USER)');
-  console.log('All passwords are: Learner@2026');
+  console.log(`Seeded enrolments: Learner1 (ACTIVE + SIGNED), Learner2 (PENDING_AGREEMENT)`);
+  console.log('Canonical development seed completed successfully.');
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('Seed failed:', e);
     process.exit(1);
   })
   .finally(async () => {

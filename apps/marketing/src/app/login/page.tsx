@@ -140,9 +140,17 @@ export default function LoginPage() {
         )}
 
         <div>
-          <label htmlFor="password" className="mb-2 block text-sm font-medium">
-            Password
-          </label>
+          <div className="mb-2 flex items-center justify-between">
+            <label htmlFor="password" className="block text-sm font-medium">
+              Password
+            </label>
+            <Link
+              href="/forgot-password"
+              className="text-xs font-semibold text-gold-deep hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <PasswordField
             value={password}
             onChange={setPassword}

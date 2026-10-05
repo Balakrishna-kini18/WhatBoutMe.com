@@ -306,8 +306,8 @@
 
 
 ### K. Certificate PDF Generation Infrastructure (Phase 5)
-- [ ] **D2-051:** Implement `CertificateGenProcessor` in BullMQ using `pdf-lib` to render certificate visual template, recipient name, course name, date, and QR code.
-- [ ] **D2-052:** Upload rendered certificate PDF to private object storage via `IObjectStorageProvider.uploadBuffer()` (`certificates/${certificateCode}.pdf`) and return object key to certificate service.
+- [x] **D2-051:** Implement `CertificateGenProcessor` in BullMQ using `pdf-lib` to render certificate visual template, recipient name, course name, date, and QR code.
+- [x] **D2-052:** Upload rendered certificate PDF to private object storage via `IObjectStorageProvider.uploadBuffer()` (`certificates/${certificateCode}.pdf`) and return object key to certificate service.
 
 
 

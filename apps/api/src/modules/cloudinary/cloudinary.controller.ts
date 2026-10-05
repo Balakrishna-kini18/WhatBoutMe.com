@@ -1,10 +1,10 @@
-import { Controller, Post, Get, Param, Res, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Param, Res } from '@nestjs/common';
 import { CloudinaryMediaProvider } from './cloudinary.service.js';
 import { CloudinaryObjectStorageProvider } from './cloudinary-object-storage.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
 import type { Response } from 'express';
-import { Readable } from 'stream';
+import { Public } from '../../common/decorators/public.decorator.js';
 
 @Controller('media')
 export class CloudinaryController {
@@ -21,40 +21,23 @@ export class CloudinaryController {
     return this.cloudinaryService.createDirectUpload();
   }
 
-  // D2-016: Implement secure streaming fallback proxy with security headers
+  // D2-016: Redirect to secure streaming CDN URL
+  @Public()
   @Get('stream/*key')
   async streamMedia(@Param('key') key: string, @Res() res: Response) {
     try {
       // 1. Get the securely signed Cloudinary URL with a 5-minute TTL
       const signedUrl = await this.objectStorage.getPresignedGetUrl(key, 300);
       
-      // 2. Fetch the file via the backend to hide the real URL from the client
-      const response = await fetch(signedUrl);
-      if (!response.ok) {
-        throw new HttpException('Media not found or inaccessible', HttpStatus.NOT_FOUND);
-      }
+      // 2. helmet() sends CORP: same-origin, which makes the browser block a
+      // <video> on the LMS origin from loading this route. Allow it here only.
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      // 3. Set strict security headers
-      res.setHeader('Content-Disposition', 'inline'); // Force inline viewing, not download
-      res.setHeader('X-Content-Type-Options', 'nosniff'); // Prevent MIME-sniffing
-      
-      // 4. Pass through standard headers
-      const contentType = response.headers.get('content-type');
-      if (contentType) res.setHeader('Content-Type', contentType);
-      
-      const contentLength = response.headers.get('content-length');
-      if (contentLength) res.setHeader('Content-Length', contentLength);
-
-      // 5. Pipe the stream directly to the Express response
-      if (response.body) {
-        const readable = Readable.fromWeb(response.body as any);
-        readable.pipe(res);
-      } else {
-        res.end();
-      }
+      // 3. Redirect the client to the CDN URL to properly support Range requests and seeking
+      res.redirect(302, signedUrl);
     } catch (error: any) {
-      if (error instanceof HttpException) throw error;
-      throw new HttpException('Error streaming media', HttpStatus.INTERNAL_SERVER_ERROR);
+      console.error('Error generating signed URL:', error);
+      res.status(500).send('Internal Server Error');
     }
   }
 }

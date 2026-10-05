@@ -3,15 +3,12 @@
 import { useEffect, useState, use } from "react";
 import styles from "./step.module.css";
 import Link from "next/link";
-import MuxPlayer from "@mux/mux-player-react";
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
   const unwrappedParams = use(params);
   const stepId = unwrappedParams.stepId;
   const [step, setStep] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [playbackId, setPlaybackId] = useState<string | null>(null);
-  const [playbackToken, setPlaybackToken] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [quizResult, setQuizResult] = useState<{ passed: boolean; score: number; message: string } | null>(null);
 
@@ -25,29 +22,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       .then(res => res.json())
       .then(data => {
         setStep(data);
-        
-        const lesson = data.lessons?.find((l: any) => l.type !== "PDF");
-        
-        if (lesson && lesson.id) {
-          // Fetch the secure playback token from the API
-          fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/mux/secure-playback/${lesson.id}`, { headers })
-            .then(r => r.json())
-            .then(muxData => {
-              if (muxData.token) {
-                setPlaybackToken(muxData.token);
-                setPlaybackId(muxData.playbackId);
-              } else {
-                setPlaybackId("DS00Spx1CV902MCtPj5WknGlR102V5HFkDe");
-              }
-              setLoading(false);
-            })
-            .catch(() => {
-              setPlaybackId("DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"); // Fallback
-              setLoading(false);
-            });
-        } else {
-          setLoading(false);
-        }
+        setLoading(false);
       })
       .catch(err => {
         console.error(err);
@@ -133,16 +108,30 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         <div className={styles.mainColumn}>
           {lesson ? (
             <div className={styles.videoContainer}>
-              <MuxPlayer
-                playbackId={playbackId || "DS00Spx1CV902MCtPj5WknGlR102V5HFkDe"}
-                tokens={playbackToken ? { playback: playbackToken } : undefined}
-                metadata={{ video_title: lesson.title }}
-                // a step with no quiz is finished when its video ends
-                onEnded={() => {
-                  if (!quiz) recordCompletion();
-                }}
-                style={{ width: "100%", aspectRatio: "16/9" }}
-              />
+              {(() => {
+                const isUpload = lesson.mediaUrl?.startsWith('upload:');
+                let videoSrc = lesson.mediaUrl;
+                if (isUpload) {
+                  const publicId = lesson.mediaUrl.replace('upload:', '');
+                  // Append .mp4 if it lacks an extension so backend treats it as 'video'
+                  const streamingKey = publicId.includes('.') ? publicId : `${publicId}.mp4`;
+                  videoSrc = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/media/stream/${streamingKey}`;
+                }
+                
+                return (
+                  <video
+                    controls
+                    controlsList="nodownload"
+                    onEnded={() => {
+                      if (!quiz) recordCompletion();
+                    }}
+                    style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px" }}
+                    src={videoSrc}
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                );
+              })()}
               <div style={{ marginTop: "10px", fontWeight: "bold" }}>{lesson.title}</div>
             </div>
           ) : (

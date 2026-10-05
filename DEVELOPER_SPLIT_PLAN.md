@@ -170,10 +170,10 @@
 ### A. Cloudinary Media Infrastructure (100% Owned by Dev 2)
 - [x] **D2-001:** Configure Cloudinary account and SDK in `apps/api`. Set up `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
 - [x] **D2-002:** Configure video upload pipeline to store LMS videos strictly as `type: 'authenticated'`. Verify public unsigned URLs return 404/401.
-- [ ] **D2-003:** Implement `CloudinaryMediaProvider.generateSignedPlaybackUrl()` with `sign_url: true` and short TTL (300 seconds / 5 minutes).
+- [x] **D2-003:** Implement `CloudinaryMediaProvider.generateSignedPlaybackUrl()` with `sign_url: true` and short TTL (300 seconds / 5 minutes).
 - [ ] **D2-004:** Configure Cloudinary Allowed Strict Referral Domains (`whatboutme.com` and authorized frontend origins) to block hotlinking.
-- [ ] **D2-005:** Configure adaptive bitrate streaming delivery (HLS/DASH profiles `sp_auto`, 1080p, 720p, 480p).
-- [ ] **D2-006: Server-Side Static Watermark Transformation**
+- [x] **D2-005:** Configure adaptive bitrate streaming delivery (HLS/DASH profiles `sp_auto`, 1080p, 720p, 480p).
+- [x] **D2-006: Server-Side Static Watermark Transformation**
   Implement Cloudinary text overlay transformation utility pinning the learner’s email/ID onto the video stream at fixed coordinates (e.g., bottom-right) per signed playback URL. *Note: Truly animated/moving watermarks are handled client-side by the custom video player wrapper overlay (Frontend responsibility), while server-side animated watermarking remains a deferred spike (Spike U1).*
 - [ ] **D2-007:** Implement video thumbnail extraction at specified offsets with signed delivery URLs.
 - [ ] **D2-008:** Implement backend endpoint `POST /media/upload-signature` generating signed parameters for secure direct-from-client uploads.
@@ -181,6 +181,10 @@
 - [ ] **D2-010:** Implement exponential backoff and rate-limit handling for Cloudinary API requests.
 - [ ] **D2-011:** Implement shared `IMediaProvider` interface using Cloudinary.
 - [ ] **D2-012:** Author automated test suite verifying signed URL generation, expiration parameter enforcement, and signature validity without leaking API secrets.
+
+
+
+
 
 ### B. Private Object Storage (Development: Cloudinary)
 - [ ] **D2-013: Development Object Storage Architecture**

@@ -17,6 +17,7 @@ import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
 import { QueueModule } from './modules/queue/queue.module.js';
 import { RedisGlobalModule } from './common/redis/redis.module.js';
 import { EmailModule } from './modules/email/email.module.js';
+import { ZoomModule } from './modules/zoom/zoom.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 import { APP_GUARD, Reflector } from '@nestjs/core';
@@ -59,6 +60,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     RedisGlobalModule,
     QueueModule,
     EmailModule,
+    ZoomModule,
   ],
   controllers: [AppController],
   providers: [

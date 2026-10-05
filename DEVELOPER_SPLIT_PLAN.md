@@ -242,11 +242,11 @@
 
 
 ### E. Zoom Integration
-- [ ] **D2-029:** Implement Zoom Server-to-Server (S2S) OAuth 2.0 service with automated in-memory token refresh.
-- [ ] **D2-030:** Implement `ZoomMeetingProvider` adhering to `IMeetingProvider` (`createMeeting()`, `updateMeeting()`, `cancelMeeting()`).
-- [ ] **D2-031:** Implement `getRecordingUrl()` querying Zoom Cloud Recording API for completed sessions.
-- [ ] **D2-032:** Implement `getParticipantReport()` querying Zoom Reports API to return normalized participant attendance records.
-- [ ] **D2-033:** Implement webhook listener `POST /webhooks/zoom` with challenge validation and HMAC-SHA256 signature verification. Dispatch events to BullMQ.
+- [x] **D2-029:** Implement Zoom Server-to-Server (S2S) OAuth 2.0 service with automated in-memory token refresh.
+- [x] **D2-030:** Implement `ZoomMeetingProvider` adhering to `IMeetingProvider` (`createMeeting()`, `updateMeeting()`, `cancelMeeting()`).
+- [x] **D2-031:** Implement `getRecordingUrl()` querying Zoom Cloud Recording API for completed sessions.
+- [x] **D2-032:** Implement `getParticipantReport()` querying Zoom Reports API to return normalized participant attendance records.
+- [x] **D2-033:** Implement webhook listener `POST /webhooks/zoom` with challenge validation and HMAC-SHA256 signature verification. Dispatch events to BullMQ.
 
 
 

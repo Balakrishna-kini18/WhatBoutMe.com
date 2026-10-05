@@ -1,13 +1,16 @@
-import { Controller, Post, Body, Headers, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Headers, HttpException, HttpStatus, Req, RawBodyRequest } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
+import { Public } from '../../common/decorators/public.decorator.js';
+import { Request } from 'express';
 
 @Controller('webhooks/cloudinary')
 export class CloudinaryWebhookController {
   
   // D2-009: Implement webhook listener POST /webhooks/cloudinary with signature verification
+  @Public()
   @Post()
   async handleCloudinaryWebhook(
-    @Body() body: any,
+    @Req() req: RawBodyRequest<Request>,
     @Headers('x-cld-signature') signature: string,
     @Headers('x-cld-timestamp') timestamp: string
   ) {
@@ -16,10 +19,9 @@ export class CloudinaryWebhookController {
     }
 
     try {
-      // For Cloudinary webhook verification, the stringified body must match exactly.
-      // NestJS might have parsed it, so we stringify it back. For production, it's 
-      // better to use raw body parsing for webhooks to avoid JSON key reordering issues.
-      const payloadString = JSON.stringify(body);
+      // Use the raw body buffer from express to guarantee exact string match for HMAC verification
+      const body = req.body;
+      const payloadString = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(body);
       
       const isValid = cloudinary.utils.verifyNotificationSignature(
         payloadString,

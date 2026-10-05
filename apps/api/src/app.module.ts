@@ -70,7 +70,12 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
-    }
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+    Reflector
   ],
 })
 export class AppModule {}

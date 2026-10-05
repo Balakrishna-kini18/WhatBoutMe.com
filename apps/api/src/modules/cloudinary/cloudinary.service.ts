@@ -23,7 +23,6 @@ export class CloudinaryMediaProvider implements IMediaProvider {
       {
         timestamp,
         type: 'authenticated',
-        resource_type: 'video',
       },
       process.env.CLOUDINARY_API_SECRET || ''
     );

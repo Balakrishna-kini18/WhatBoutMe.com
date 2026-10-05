@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor, CacheKey, CacheTTL } from '@nestjs/cache-manager';
 import { UsersService } from './users.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
@@ -25,6 +26,9 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
+  @UseInterceptors(CacheInterceptor)
+  @CacheKey('all_users')
+  @CacheTTL(60000) // Cache for 60 seconds
   findAll() {
     return this.usersService.findAll();
   }

@@ -5,7 +5,6 @@ import PromoBanner from "@/components/site/PromoBanner";
 import Offerings from "@/components/site/Offerings";
 import Programme from "@/components/site/Programme";
 import AboutTeaser from "@/components/site/AboutTeaser";
-import LivedIt from "@/components/site/LivedIt";
 import LogoStrip from "@/components/site/LogoStrip";
 import Testimonials from "@/components/site/Testimonials";
 import Faq from "@/components/site/Faq";
@@ -24,7 +23,6 @@ export default async function Home() {
       <LogoStrip />
       <Offerings />
       <Programme />
-      <LivedIt />
       <AboutTeaser image={content.about.image} />
       <Testimonials testimonials={content.testimonials} />
       <Faq faqs={content.faqs} />

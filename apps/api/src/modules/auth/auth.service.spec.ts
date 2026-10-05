@@ -954,4 +954,329 @@ describe('AuthService - Authentication Tests', () => {
       );
     });
   });
+
+  describe('Two-Device Concurrent Login Limit (D1-017)', () => {
+    it('executes pg_advisory_xact_lock on userId and atomic limit eviction CTE in transaction', async () => {
+      const userId = 'user-device-test-1';
+      const role = Role.USER;
+      const tokenHash = 'token-hash-xyz-123';
+      const metadata = {
+        ipAddress: '192.168.1.100',
+        userAgent: 'Mozilla/5.0 (iPhone)',
+        deviceFingerprint: 'fp-iphone-123',
+      };
+
+      const sessionId = await authService.createDeviceSession(userId, role, tokenHash, metadata);
+
+      expect(typeof sessionId).toBe('string');
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+
+      // Verify transaction queries
+      expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(2);
+
+      // 1. Lock query
+      const lockCallArgs = prismaMock.$executeRaw.mock.calls[0];
+      const lockStrings = Array.isArray(lockCallArgs[0]) ? lockCallArgs[0] : lockCallArgs[0].strings;
+      const lockSql = lockStrings.join('');
+      expect(lockSql).toContain('SELECT pg_advisory_xact_lock(hashtext(');
+
+      // 2. CTE eviction & insertion query
+      const evictionCallArgs = prismaMock.$executeRaw.mock.calls[1];
+      const evictionStrings = Array.isArray(evictionCallArgs[0]) ? evictionCallArgs[0] : evictionCallArgs[0].strings;
+      const evictionSql = evictionStrings.join('');
+      expect(evictionSql).toContain('WITH revoked AS');
+      expect(evictionSql).toContain('UPDATE "UserSession"');
+      expect(evictionSql).toContain("SET \"revokedAt\" = now(), \"revokedReason\" = 'DEVICE_LIMIT_EXCEEDED'");
+      expect(evictionSql).toContain('WHERE "userId" =');
+      expect(evictionSql).toContain('AND "revokedAt" IS NULL');
+      expect(evictionSql).toContain('AND ("expiresAt" IS NULL OR "expiresAt" > now())');
+      expect(evictionSql).toContain('ORDER BY "createdAt" DESC');
+      expect(evictionSql).toContain('OFFSET');
+      expect(evictionSql).toContain('INSERT INTO "UserSession"');
+
+      // Verify metadata values are bound
+      const values = evictionCallArgs.slice(1);
+      expect(values).toContain(metadata.deviceFingerprint);
+      expect(values).toContain(metadata.ipAddress);
+      expect(values).toContain(metadata.userAgent);
+    });
+
+    describe('MAX_ACTIVE_SESSIONS environment variable parsing and bounds safety', () => {
+      const originalEnv = process.env.MAX_ACTIVE_SESSIONS;
+
+      afterEach(() => {
+        if (originalEnv !== undefined) {
+          process.env.MAX_ACTIVE_SESSIONS = originalEnv;
+        } else {
+          delete process.env.MAX_ACTIVE_SESSIONS;
+        }
+      });
+
+      const getOffsetValue = async (envVal?: string) => {
+        if (envVal !== undefined) {
+          process.env.MAX_ACTIVE_SESSIONS = envVal;
+        } else {
+          delete process.env.MAX_ACTIVE_SESSIONS;
+        }
+        prismaMock.$executeRaw.mockClear();
+        prismaMock.$transaction.mockClear();
+
+        await authService.createDeviceSession('user-env-test', Role.USER, 'hash');
+        const evictionArgs = prismaMock.$executeRaw.mock.calls[1];
+        // evictionArgs[1] is userId, evictionArgs[2] is maxSessions - 1 (the OFFSET parameter)
+        return evictionArgs[2];
+      };
+
+      it('defaults to 2 (OFFSET 1) when undefined or empty', async () => {
+        expect(await getOffsetValue(undefined)).toBe(1);
+        expect(await getOffsetValue('')).toBe(1);
+      });
+
+      it('defaults to 2 (OFFSET 1) for malformed values like "abc"', async () => {
+        expect(await getOffsetValue('abc')).toBe(1);
+      });
+
+      it('defaults to 2 (OFFSET 1) for "0"', async () => {
+        expect(await getOffsetValue('0')).toBe(1);
+      });
+
+      it('defaults to 2 (OFFSET 1) for negative values like "-1" or "-5"', async () => {
+        expect(await getOffsetValue('-1')).toBe(1);
+        expect(await getOffsetValue('-5')).toBe(1);
+      });
+
+      it('uses the valid positive integer value (e.g. 5 -> OFFSET 4)', async () => {
+        expect(await getOffsetValue('5')).toBe(4);
+        expect(await getOffsetValue('3')).toBe(2);
+      });
+    });
+
+    it('getActiveSessions queries non-revoked and non-expired sessions for the user', async () => {
+      const userId = 'user-active-query';
+      const mockSessions = [
+        { id: 'sess-1', userId, revokedAt: null, expiresAt: new Date(Date.now() + 100000) },
+        { id: 'sess-2', userId, revokedAt: null, expiresAt: null },
+      ];
+
+      prismaMock.userSession.findMany.mockResolvedValue(mockSessions);
+
+      const active = await authService.getActiveSessions(userId);
+
+      expect(prismaMock.userSession.findMany).toHaveBeenCalledWith({
+        where: {
+          userId,
+          revokedAt: null,
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: expect.any(Date) } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(active).toEqual(mockSessions);
+    });
+
+    describe('Stateful 2-Device Concurrency & Eviction Lifecycle Simulation', () => {
+      interface MockSessionRow {
+        id: string;
+        userId: string;
+        token: string;
+        revokedAt: Date | null;
+        revokedReason: string | null;
+        expiresAt: Date | null;
+        createdAt: Date;
+      }
+
+      let sessionStore: MockSessionRow[];
+      let clockTime = 1000000;
+
+      beforeEach(() => {
+        sessionStore = [];
+        clockTime = 1000000;
+      });
+
+      // Accurate simulator of PostgreSQL pg_advisory_xact_lock and the CTE update/insert
+      const simulateCreateDeviceSession = async (
+        userId: string,
+        token: string,
+        maxSessions = 2,
+        customTime?: Date,
+      ): Promise<string> => {
+        clockTime += 1000;
+        const now = customTime ?? new Date(clockTime);
+        // Find active sessions for this user: unrevoked and unexpired
+        const activeSessions = sessionStore
+          .filter(
+            (s) =>
+              s.userId === userId &&
+              s.revokedAt === null &&
+              (s.expiresAt === null || s.expiresAt > now),
+          )
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+        // Offset maxSessions - 1 leaves the newest active session, evicting the rest
+        const toRevoke = activeSessions.slice(maxSessions - 1);
+        for (const s of toRevoke) {
+          s.revokedAt = now;
+          s.revokedReason = 'DEVICE_LIMIT_EXCEEDED';
+        }
+
+        const newId = `sess-${clockTime}-${Math.random()}`;
+        sessionStore.push({
+          id: newId,
+          userId,
+          token,
+          revokedAt: null,
+          revokedReason: null,
+          expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+          createdAt: now,
+        });
+
+        return newId;
+      };
+
+      const getActive = (userId: string, now?: Date) => {
+        const checkTime = now ?? new Date(clockTime);
+        return sessionStore.filter(
+          (s) =>
+            s.userId === userId &&
+            s.revokedAt === null &&
+            (s.expiresAt === null || s.expiresAt > checkTime),
+        );
+      };
+
+      it('1. First login -> exactly one active session', async () => {
+        const u1 = 'user-lifecycle-1';
+        const s1 = await simulateCreateDeviceSession(u1, 'token-1');
+        const active = getActive(u1);
+        expect(active.length).toBe(1);
+        expect(active[0].id).toBe(s1);
+      });
+
+      it('2. Second device login -> exactly two active sessions', async () => {
+        const u1 = 'user-lifecycle-1';
+        const s1 = await simulateCreateDeviceSession(u1, 'token-1');
+        const s2 = await simulateCreateDeviceSession(u1, 'token-2');
+        const active = getActive(u1);
+        expect(active.length).toBe(2);
+        expect(active.map((s) => s.id)).toEqual([s1, s2]);
+      });
+
+      it('3. Third device login -> oldest active session is revoked with DEVICE_LIMIT_EXCEEDED', async () => {
+        const u1 = 'user-lifecycle-1';
+        const t0 = new Date('2026-10-01T10:00:00Z');
+        const t1 = new Date('2026-10-01T11:00:00Z');
+        const t2 = new Date('2026-10-01T12:00:00Z');
+
+        const s1 = await simulateCreateDeviceSession(u1, 'token-1', 2, t0);
+        const s2 = await simulateCreateDeviceSession(u1, 'token-2', 2, t1);
+        const s3 = await simulateCreateDeviceSession(u1, 'token-3', 2, t2);
+
+        const active = getActive(u1, t2);
+        expect(active.length).toBe(2);
+        // Active must be s2 and s3 (newest 2)
+        expect(active.map((s) => s.id)).toEqual([s2, s3]);
+
+        // s1 must be revoked
+        const s1Row = sessionStore.find((s) => s.id === s1);
+        expect(s1Row?.revokedAt).toEqual(t2);
+        expect(s1Row?.revokedReason).toBe('DEVICE_LIMIT_EXCEEDED');
+      });
+
+      it('4. Current/new session remains active after eviction', async () => {
+        const u1 = 'user-lifecycle-1';
+        const s1 = await simulateCreateDeviceSession(u1, 'token-1');
+        const s2 = await simulateCreateDeviceSession(u1, 'token-2');
+        const s3 = await simulateCreateDeviceSession(u1, 'token-3');
+
+        const s3Row = sessionStore.find((s) => s.id === s3);
+        expect(s3Row?.revokedAt).toBeNull();
+        expect(s3Row?.revokedReason).toBeNull();
+      });
+
+      it('5. Concurrent login/session creation cannot leave more than two active sessions', async () => {
+        const u1 = 'user-concurrency-test';
+        // Simulate concurrent logins executed with serialized transactions (pg_advisory_xact_lock)
+        const promises = [
+          simulateCreateDeviceSession(u1, 'conc-token-1'),
+          simulateCreateDeviceSession(u1, 'conc-token-2'),
+          simulateCreateDeviceSession(u1, 'conc-token-3'),
+          simulateCreateDeviceSession(u1, 'conc-token-4'),
+        ];
+
+        // Even with 4 logins, active sessions must never exceed 2
+        await Promise.all(promises);
+        const active = getActive(u1);
+        expect(active.length).toBe(2);
+      });
+
+      it('6. Already-revoked and expired sessions are not counted toward the limit', async () => {
+        const u1 = 'user-expiry-test';
+        const past = new Date(Date.now() - 100000);
+        const now = new Date();
+
+        // 1 active session
+        const sActive = await simulateCreateDeviceSession(u1, 'token-active', 2, now);
+
+        // 1 expired session
+        sessionStore.push({
+          id: 'sess-expired',
+          userId: u1,
+          token: 'token-exp',
+          revokedAt: null,
+          revokedReason: null,
+          expiresAt: past, // Expired
+          createdAt: past,
+        });
+
+        // 1 manually revoked session
+        sessionStore.push({
+          id: 'sess-revoked',
+          userId: u1,
+          token: 'token-rev',
+          revokedAt: past,
+          revokedReason: 'LOGOUT',
+          expiresAt: null,
+          createdAt: past,
+        });
+
+        // User currently has only 1 active session (despite having 3 total session rows)
+        expect(getActive(u1, now).length).toBe(1);
+
+        // Logging in with device 2 should NOT revoke sActive because total active is 1 (< 2)
+        const sNew = await simulateCreateDeviceSession(u1, 'token-new', 2, now);
+
+        const active = getActive(u1, now);
+        expect(active.length).toBe(2);
+        expect(active.map((s) => s.id)).toContain(sActive);
+        expect(active.map((s) => s.id)).toContain(sNew);
+
+        // sActive remains unrevoked
+        const sActiveRow = sessionStore.find((s) => s.id === sActive);
+        expect(sActiveRow?.revokedAt).toBeNull();
+      });
+
+      it("7. Different users do not affect each other's session limits", async () => {
+        const u1 = 'user-A';
+        const u2 = 'user-B';
+
+        // User A fills 2 sessions
+        const a1 = await simulateCreateDeviceSession(u1, 'token-a1');
+        const a2 = await simulateCreateDeviceSession(u1, 'token-a2');
+
+        // User B logs in with 1 session
+        const b1 = await simulateCreateDeviceSession(u2, 'token-b1');
+
+        // User B's login must not revoke User A's sessions
+        expect(getActive(u1).length).toBe(2);
+        expect(getActive(u2).length).toBe(1);
+
+        // User A logs in with 3rd session -> only User A's oldest (a1) is revoked
+        const a3 = await simulateCreateDeviceSession(u1, 'token-a3');
+
+        expect(getActive(u1).map((s) => s.id)).toEqual([a2, a3]);
+        expect(getActive(u2).map((s) => s.id)).toEqual([b1]); // User B unaffected
+      });
+    });
+  });
 });

@@ -21,9 +21,16 @@ export class AuthController {
   @Public()
   @Throttle(CREDENTIAL_LIMIT)
   @Post('login')
-  login(@Body() body: LoginDto) {
+  login(@Body() body: LoginDto, @Request() req?: any) {
     const identifier = body.email?.trim() || body.phone?.trim() || '';
-    return this.authService.login(identifier, body.password);
+    const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
+    const userAgent = req?.headers?.['user-agent'] || null;
+    const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
+    return this.authService.login(identifier, body.password, {
+      ipAddress,
+      userAgent,
+      deviceFingerprint,
+    });
   }
 
   /**

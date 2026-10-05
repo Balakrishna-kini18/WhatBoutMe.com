@@ -64,7 +64,11 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         password: 'Password123!',
       });
 
-      expect(authServiceMock.login).toHaveBeenCalledWith('test@example.com', 'Password123!');
+      expect(authServiceMock.login).toHaveBeenCalledWith('test@example.com', 'Password123!', {
+        ipAddress: null,
+        userAgent: null,
+        deviceFingerprint: null,
+      });
       expect(res).toHaveProperty('access_token');
     });
 
@@ -80,7 +84,11 @@ describe('AuthController - Email Verification Endpoints (D1-015)', () => {
         password: 'Password123!',
       });
 
-      expect(authServiceMock.login).toHaveBeenCalledWith('+15551234567', 'Password123!');
+      expect(authServiceMock.login).toHaveBeenCalledWith('+15551234567', 'Password123!', {
+        ipAddress: null,
+        userAgent: null,
+        deviceFingerprint: null,
+      });
       expect(res).toHaveProperty('access_token');
     });
   });

@@ -8,6 +8,13 @@ import { randomUUID } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 
+export interface DeviceSessionMetadata {
+  deviceFingerprint?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  expiresAt?: Date | null;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -25,7 +32,11 @@ export class AuthService {
   }
 
   /** `identifier` is the account email, or its mobile number. */
-  async login(identifier: string, password: string) {
+  async login(
+    identifier: string,
+    password: string,
+    metadata?: DeviceSessionMetadata,
+  ) {
     const trimmedIdentifier = identifier?.trim() || '';
     if (!trimmedIdentifier || !password) {
       throw new UnauthorizedException('Invalid email or password');
@@ -86,7 +97,7 @@ export class AuthService {
     const tokenHash = await bcrypt.hash(refreshToken, 10);
 
     // Enforce device limits and store session
-    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash);
+    const sessionId = await this.createDeviceSession(user.id, user.role, tokenHash, metadata);
 
     // Build JWT payload with user role and tenant context (enrolled programs)
     const accessPayload = {
@@ -540,37 +551,66 @@ export class AuthService {
   }
 
   /**
-   * Helper: Create a device session and enforce limits
+   * Helper: Create a device session and enforce limits (D1-017: 2 active devices max)
    */
-  async createDeviceSession(userId: string, role: string, tokenHash: string): Promise<string> {
-    const maxSessions = role === Role.USER ? 1 : 3;
+  async createDeviceSession(
+    userId: string,
+    role: string,
+    tokenHash: string,
+    metadata?: DeviceSessionMetadata,
+  ): Promise<string> {
+    const parsedMax = parseInt(process.env.MAX_ACTIVE_SESSIONS ?? '', 10);
+    const maxSessions = Number.isInteger(parsedMax) && parsedMax > 0 ? parsedMax : 2;
 
-    // Two statements in one transaction, instead of four: each statement is a
-    // round trip to the database. The lock makes two sign-ins at the same
-    // moment take turns; the second statement then revokes whatever exceeds
-    // the limit (keeping the newest maxSessions - 1) and adds the new session.
     const id = randomUUID();
+    const expiresAt = metadata?.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7d TTL
+    const ipAddress = metadata?.ipAddress ?? null;
+    const userAgent = metadata?.userAgent ?? null;
+    const deviceFingerprint = metadata?.deviceFingerprint ?? null;
+
+    // pg_advisory_xact_lock on userId serializes concurrent logins for the same user.
+    // The subquery targets active sessions: revokedAt IS NULL AND (expiresAt IS NULL OR expiresAt > now()).
+    // Ordering by createdAt DESC and skipping maxSessions - 1 selects the oldest active sessions beyond the limit.
     await this.prisma.$transaction([
       this.prisma.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`,
       this.prisma.$executeRaw`
         WITH revoked AS (
           UPDATE "UserSession"
-          SET "revokedAt" = now(), "revokedReason" = 'NEW_LOGIN'
+          SET "revokedAt" = now(), "revokedReason" = 'DEVICE_LIMIT_EXCEEDED'
           WHERE id IN (
             SELECT id FROM "UserSession"
-            WHERE "userId" = ${userId} AND "revokedAt" IS NULL
+            WHERE "userId" = ${userId}
+              AND "revokedAt" IS NULL
+              AND ("expiresAt" IS NULL OR "expiresAt" > now())
             ORDER BY "createdAt" DESC
             OFFSET ${maxSessions - 1}
           )
         )
-        INSERT INTO "UserSession" (id, "userId", token, "lastActive", "createdAt")
-        VALUES (${id}, ${userId}, ${tokenHash}, now(), now())`,
+        INSERT INTO "UserSession" (id, "userId", token, "deviceFingerprint", "ipAddress", "userAgent", "lastActive", "expiresAt", "createdAt")
+        VALUES (${id}, ${userId}, ${tokenHash}, ${deviceFingerprint}, ${ipAddress}, ${userAgent}, now(), ${expiresAt}, now())`,
     ]);
     const sessionId = id;
 
     // older sessions may just have been revoked
     forgetSessions();
     return sessionId;
+  }
+
+  /**
+   * Get all currently active sessions for a user (unrevoked, non-expired)
+   */
+  async getActiveSessions(userId: string) {
+    return this.prisma.userSession.findMany({
+      where: {
+        userId,
+        revokedAt: null,
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   /**

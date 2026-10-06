@@ -1,42 +1,38 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Request,
+} from '@nestjs/common';
 import { ProgramsService } from './programs.service.js';
-import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
-import { Role, ContentType } from '@prisma/client';
-import { IsString, IsNotEmpty, IsNumber, IsBoolean, IsOptional, IsInt, IsEnum } from 'class-validator';
-
-export class CreateProgramDto {
-  @IsString() @IsNotEmpty() title: string;
-  @IsString() @IsNotEmpty() slug: string;
-  @IsOptional() @IsString() description?: string;
-  @IsNumber() price: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
-}
-
-export class UpdateProgramDto {
-  @IsOptional() @IsString() @IsNotEmpty() title?: string;
-  @IsOptional() @IsString() @IsNotEmpty() slug?: string;
-  @IsOptional() @IsString() description?: string;
-  @IsOptional() @IsNumber() price?: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
-}
-
-export class CreateStepDto {
-  @IsString() @IsNotEmpty() title: string;
-  @IsOptional() @IsString() description?: string;
-  @IsInt() sequence: number;
-}
-
-export class CreateLessonDto {
-  @IsString() @IsNotEmpty() title: string;
-  @IsEnum(ContentType) type: ContentType;
-  @IsString() @IsNotEmpty() mediaUrl: string;
-  @IsOptional() @IsInt() durationSec?: number;
-}
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { Permission } from '../../config/permissions.config.js';
+import {
+  CreateProgramDto,
+  UpdateProgramDto,
+  PublishProgramDto,
+  CreateStepDto,
+  UpdateStepDto,
+  ReorderStepsDto,
+  PublishStepDto,
+  CreateLessonDto,
+  UpdateLessonDto,
+  ReorderLessonsDto,
+  PublishLessonDto,
+} from './dto/index.js';
 
 @Controller('programs')
 export class ProgramsController {
   constructor(private readonly programsService: ProgramsService) {}
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1. PROGRAM COLLECTION
+  // ─────────────────────────────────────────────────────────────────────────────
 
   @Public()
   @Get()
@@ -44,49 +40,56 @@ export class ProgramsController {
     return this.programsService.findAll(req?.user?.role);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Permission.PROGRAMS_CREATE)
   @Post()
   create(@Body() createDto: CreateProgramDto) {
     return this.programsService.create(createDto);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateProgramDto) {
-    return this.programsService.update(id, updateDto);
-  }
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 2. STEP ROUTES (Literal 'steps/...' prefixes placed before ':id' routes)
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.programsService.remove(id);
-  }
-
-  @Public()
-  @Get(':id/steps')
-  getSteps(@Param('id') id: string, @Request() req: any) {
-    return this.programsService.getSteps(id, req?.user?.role);
-  }
-
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  @Post(':id/steps')
-  createStep(@Param('id') id: string, @Body() data: CreateStepDto) {
-    return this.programsService.createStep(id, data);
-  }
-
-  // Learner: finished this step (video watched, quiz passed)
+  // Learner: complete step
   @Post('steps/:stepId/complete')
-  completeStep(@Param('stepId') stepId: string, @Body('score') score: unknown, @Request() req: any) {
-    const value = typeof score === 'number' && score >= 0 && score <= 100 ? Math.round(score) : undefined;
+  completeStep(
+    @Param('stepId') stepId: string,
+    @Body('score') score: unknown,
+    @Request() req: any,
+  ) {
+    const value =
+      typeof score === 'number' && score >= 0 && score <= 100
+        ? Math.round(score)
+        : undefined;
     return this.programsService.completeStep(stepId, req.user.sub, value);
   }
 
-  @Get('steps/:stepId')
-  getStep(@Param('stepId') stepId: string, @Request() req: any) {
-    return this.programsService.getStep(stepId, req?.user?.role);
+  // Preview step with draft lessons and quiz content (requires authoring permission)
+  @RequirePermission(Permission.STEPS_UPDATE)
+  @Get('steps/:stepId/preview')
+  previewStep(@Param('stepId') stepId: string) {
+    return this.programsService.previewStep(stepId);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Permission.STEPS_UPDATE)
+  @Patch('steps/:stepId/publish')
+  publishStep(
+    @Param('stepId') stepId: string,
+    @Body() publishDto: PublishStepDto,
+  ) {
+    return this.programsService.publishStep(stepId, publishDto);
+  }
+
+  @RequirePermission(Permission.STEPS_UPDATE)
+  @Patch('steps/:stepId')
+  updateStep(
+    @Param('stepId') stepId: string,
+    @Body() updateDto: UpdateStepDto,
+  ) {
+    return this.programsService.updateStep(stepId, updateDto);
+  }
+
+  @RequirePermission(Permission.STEPS_DELETE)
   @Delete('steps/:stepId')
   removeStep(@Param('stepId') stepId: string) {
     return this.programsService.removeStep(stepId);
@@ -97,15 +100,110 @@ export class ProgramsController {
     return this.programsService.getLessons(stepId, req?.user?.role);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Permission.CONTENT_CREATE)
   @Post('steps/:stepId/lessons')
-  createLesson(@Param('stepId') stepId: string, @Body() data: CreateLessonDto) {
+  createLesson(
+    @Param('stepId') stepId: string,
+    @Body() data: CreateLessonDto,
+  ) {
     return this.programsService.createLesson(stepId, data);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Permission.CONTENT_UPDATE)
+  @Post('steps/:stepId/lessons/reorder')
+  reorderLessons(
+    @Param('stepId') stepId: string,
+    @Body() dto: ReorderLessonsDto,
+  ) {
+    return this.programsService.reorderLessons(stepId, dto);
+  }
+
+  @Get('steps/:stepId')
+  getStep(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.programsService.getStep(stepId, req?.user?.role);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. LESSON ROUTES (Literal 'lessons/...' prefixes placed before ':id' routes)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // Preview lesson with draft content and mediaUrl (requires authoring permission)
+  @RequirePermission(Permission.CONTENT_UPDATE)
+  @Get('lessons/:lessonId/preview')
+  previewLesson(@Param('lessonId') lessonId: string) {
+    return this.programsService.previewLesson(lessonId);
+  }
+
+  @RequirePermission(Permission.CONTENT_UPDATE)
+  @Patch('lessons/:lessonId/publish')
+  publishLesson(
+    @Param('lessonId') lessonId: string,
+    @Body() publishDto: PublishLessonDto,
+  ) {
+    return this.programsService.publishLesson(lessonId, publishDto);
+  }
+
+  @RequirePermission(Permission.CONTENT_UPDATE)
+  @Patch('lessons/:lessonId')
+  updateLesson(
+    @Param('lessonId') lessonId: string,
+    @Body() updateDto: UpdateLessonDto,
+  ) {
+    return this.programsService.updateLesson(lessonId, updateDto);
+  }
+
+  @RequirePermission(Permission.CONTENT_DELETE)
   @Delete('lessons/:lessonId')
   removeLesson(@Param('lessonId') lessonId: string) {
     return this.programsService.removeLesson(lessonId);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. PROGRAM INSTANCE ROUTES (Parameterized ':id' routes)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @Public()
+  @Get(':id/steps')
+  getSteps(@Param('id') id: string, @Request() req: any) {
+    return this.programsService.getSteps(id, req?.user?.role);
+  }
+
+  @RequirePermission(Permission.STEPS_CREATE)
+  @Post(':id/steps')
+  createStep(@Param('id') id: string, @Body() data: CreateStepDto) {
+    return this.programsService.createStep(id, data);
+  }
+
+  @RequirePermission(Permission.STEPS_UPDATE)
+  @Post(':id/steps/reorder')
+  reorderSteps(@Param('id') id: string, @Body() dto: ReorderStepsDto) {
+    return this.programsService.reorderSteps(id, dto);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_PUBLISH)
+  @Patch(':id/publish')
+  publishProgram(
+    @Param('id') id: string,
+    @Body() publishDto: PublishProgramDto,
+  ) {
+    return this.programsService.publishProgram(id, publishDto);
+  }
+
+  @Public()
+  @Get(':id')
+  findOne(@Param('id') id: string, @Request() req: any) {
+    return this.programsService.findOne(id, req?.user?.role);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateDto: UpdateProgramDto) {
+    return this.programsService.update(id, updateDto);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_DELETE)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.programsService.remove(id);
   }
 }

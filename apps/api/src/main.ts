@@ -83,12 +83,15 @@ async function bootstrap() {
   app.useGlobalInterceptors(new QueryCountInterceptor());
 
   // Realtime Socket.IO Redis Adapter
-  const redisIoAdapter = new RedisIoAdapter(app);
-  await redisIoAdapter.connectToRedis();
-  app.useWebSocketAdapter(redisIoAdapter);
+  try {
+    const redisIoAdapter = new RedisIoAdapter(app);
+    await redisIoAdapter.connectToRedis();
+    app.useWebSocketAdapter(redisIoAdapter);
+  } catch (err: any) {
+    console.warn('[main] Redis WebSocket adapter initialization warning:', err?.message);
+  }
 
-  await app.listen(process.env.PORT ?? 4000);
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
+  await app.listen(port, '0.0.0.0');
 }
 await bootstrap();
-
-// trigger restart

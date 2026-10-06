@@ -13,16 +13,30 @@ export class RedisIoAdapter extends IoAdapter {
 
   async connectToRedis(): Promise<void> {
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    const isRediss = redisUrl.startsWith('rediss://');
     
-    const pubClient = new Redis(redisUrl);
+    const redisOptions = {
+      tls: isRediss ? { rejectUnauthorized: false } : undefined,
+      maxRetriesPerRequest: null,
+      retryStrategy: (times: number) => Math.min(times * 100, 3000),
+    };
+
+    const pubClient = new Redis(redisUrl, redisOptions);
     const subClient = pubClient.duplicate();
 
-    await Promise.all([pubClient.connect().catch(() => {}), subClient.connect().catch(() => {})]);
+    pubClient.on('error', (err) => {
+      console.warn('[RedisIoAdapter] pubClient Redis error:', err.message);
+    });
 
-    // Note: If using ioredis, .connect() may not be required if autoConnect is true (the default), 
-    // but waiting for 'ready' event is safer, though we'll just initialize it here.
+    subClient.on('error', (err) => {
+      console.warn('[RedisIoAdapter] subClient Redis error:', err.message);
+    });
 
-    this.adapterConstructor = createAdapter(pubClient, subClient);
+    try {
+      this.adapterConstructor = createAdapter(pubClient, subClient);
+    } catch (err: any) {
+      console.warn('[RedisIoAdapter] Failed to initialize Redis adapter:', err.message);
+    }
   }
 
   createIOServer(port: number, options?: any): any {

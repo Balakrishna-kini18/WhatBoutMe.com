@@ -4,19 +4,19 @@ import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
 
 @Controller('admin')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
 export class AdminDashboardController {
   constructor(private prisma: PrismaService) {}
 
   @Get('dashboard')
   async getDashboard() {
     const [totalLearners, totalBatches, recentUsers] = await Promise.all([
-      this.prisma.user.count({ where: { role: { in: ['LEARNER', 'USER'] as any } } }),
+      this.prisma.user.count({ where: { role: Role.USER } }),
       this.prisma.batch.count(),
       this.prisma.user.findMany({
         take: 5,
         orderBy: { createdAt: 'desc' },
-        where: { role: { in: ['LEARNER', 'USER'] as any } },
+        where: { role: Role.USER },
         select: {
           id: true,
           name: true,

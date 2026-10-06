@@ -92,9 +92,17 @@ describe('AuthService - Authentication Tests', () => {
       verify: vi.fn(),
     };
 
+    const cacheHelperMock = {
+      invalidateNamespace: vi.fn().mockResolvedValue(undefined),
+      getGuardKey: vi.fn().mockImplementation((userId, role) => `guard:${userId}:${role}`),
+      getVersionedKey: vi.fn().mockImplementation((ns, suffix) => `${ns}:${suffix}`),
+      getOrSet: vi.fn().mockImplementation(async (_key, fetcher) => fetcher()),
+    };
+
     authService = new AuthService(
       prismaMock as unknown as PrismaService,
       jwtServiceMock as unknown as JwtService,
+      cacheHelperMock as any,
     );
   });
 
@@ -448,10 +456,19 @@ describe('AuthService - Authentication Tests', () => {
           programId: 'paid-prog-1',
           status: EnrolmentStatus.PENDING_PAYMENT,
         },
-        include: {
+        select: {
+          id: true,
+          status: true,
+          batchId: true,
           batch: {
-            include: { program: true },
-          },
+            select: {
+              name: true,
+              programId: true,
+              program: {
+                select: { title: true }
+              }
+            }
+          }
         },
       });
 
@@ -512,10 +529,19 @@ describe('AuthService - Authentication Tests', () => {
           programId: 'free-prog-1',
           status: EnrolmentStatus.PENDING_AGREEMENT,
         },
-        include: {
+        select: {
+          id: true,
+          status: true,
+          batchId: true,
           batch: {
-            include: { program: true },
-          },
+            select: {
+              name: true,
+              programId: true,
+              program: {
+                select: { title: true }
+              }
+            }
+          }
         },
       });
 
@@ -1950,7 +1976,7 @@ describe('AuthService - Authentication Tests', () => {
         };
         prismaMock.userSession.findUnique.mockResolvedValue(revokedSessionInDb);
 
-        const jwtStrategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+        const jwtStrategy = new JwtStrategy(prismaMock as unknown as PrismaService, cacheHelperMock as any);
         await expect(
           jwtStrategy.validate({ sub: userId, sessionId }),
         ).rejects.toThrow(UnauthorizedException);
@@ -2845,7 +2871,7 @@ describe('AuthService - Authentication Tests', () => {
       });
 
       it('revoked session immediately fails JwtStrategy validation with SESSION_REVOKED', async () => {
-        const strategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+        const strategy = new JwtStrategy(prismaMock as unknown as PrismaService, cacheHelperMock as any);
 
         prismaMock.userSession.findUnique.mockResolvedValue({
           id: otherSessionId,

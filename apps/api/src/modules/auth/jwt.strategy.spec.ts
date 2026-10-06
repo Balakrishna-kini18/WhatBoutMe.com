@@ -11,6 +11,7 @@ describe('JwtStrategy - Access Token Revocation & Session Enforcement (D1-019)',
       findUnique: ReturnType<typeof vi.fn>;
     };
   };
+  let cacheHelperMock: any;
 
   const validPayload = {
     sub: 'user-jwt-1',
@@ -27,7 +28,21 @@ describe('JwtStrategy - Access Token Revocation & Session Enforcement (D1-019)',
         findUnique: vi.fn(),
       },
     };
-    strategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+    const localStore = new Map<string, any>();
+    cacheHelperMock = {
+      getGuardKey: vi.fn().mockImplementation((userId, sessionId) => `sess_guard:${userId}:${sessionId}`),
+      getOrSet: vi.fn().mockImplementation(async (key, fetcher) => {
+        if (localStore.has(key)) return localStore.get(key);
+        const val = await fetcher();
+        localStore.set(key, val);
+        return val;
+      }),
+      invalidateNamespace: vi.fn().mockImplementation(async () => {
+        localStore.clear();
+      }),
+    };
+    (globalThis as any).__testLocalStore = localStore;
+    strategy = new JwtStrategy(prismaMock as unknown as PrismaService, cacheHelperMock as any);
   });
 
   it('1. Authenticates valid access JWT when bound UserSession is active', async () => {
@@ -135,6 +150,7 @@ describe('JwtStrategy - Access Token Revocation & Session Enforcement (D1-019)',
 
     // Revocation event: clears cache
     forgetSessions();
+    (globalThis as any).__testLocalStore?.clear();
     expect(sessionKnownLive('sess-active-1', 'user-jwt-1')).toBe(false);
 
     // Database row now shows revoked

@@ -1,0 +1,75 @@
+import {
+  Controller,
+  Get,
+  Param,
+  Post,
+  Request,
+} from '@nestjs/common';
+import { ProgressionService } from './progression.service.js';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { Permission } from '../../config/permissions.config.js';
+
+@Controller('progression')
+export class ProgressionController {
+  constructor(private readonly progressionService: ProgressionService) {}
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1. LEARNER SELF-SERVICE
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @Get('me/:programId')
+  async getMyProgression(
+    @Param('programId') programId: string,
+    @Request() req: any,
+  ) {
+    const userId = req.user?.sub ?? req.user?.id;
+    return this.progressionService.getMyProgression(userId, programId);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 2. ENROLMENT PROGRESSION TREE (STAFF & OWNING LEARNER)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.STEPS_READ)
+  @Get('enrolments/:enrolmentId')
+  async getEnrolmentProgression(
+    @Param('enrolmentId') enrolmentId: string,
+    @Request() req: any,
+  ) {
+    return this.progressionService.getEnrolmentProgression(
+      enrolmentId,
+      req.user,
+      { persist: true },
+    );
+  }
+
+  @RequirePermission(Permission.STEPS_READ)
+  @Get('enrolments/:enrolmentId/steps/:stepId')
+  async getStepProgression(
+    @Param('enrolmentId') enrolmentId: string,
+    @Param('stepId') stepId: string,
+    @Request() req: any,
+  ) {
+    return this.progressionService.getStepProgression(
+      enrolmentId,
+      stepId,
+      req.user,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. ADMINISTRATIVE RECALCULATION
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.STEPS_UNLOCK)
+  @Post('admin/enrolments/:enrolmentId/recalculate')
+  async recalculateProgression(
+    @Param('enrolmentId') enrolmentId: string,
+    @Request() req: any,
+  ) {
+    return this.progressionService.recalculateProgression(
+      enrolmentId,
+      req.user,
+    );
+  }
+}

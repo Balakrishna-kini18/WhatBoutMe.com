@@ -10,6 +10,7 @@ import {
   EnrolmentStatus,
   ReleaseSchedule,
   Role,
+  StepOverrideState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -17,7 +18,8 @@ export type LockReason =
   | 'ENROLMENT_NOT_ACTIVE'
   | 'PREVIOUS_STEP_INCOMPLETE'
   | 'QUIZ_NOT_PASSED'
-  | 'SCHEDULED_DATE_NOT_REACHED';
+  | 'SCHEDULED_DATE_NOT_REACHED'
+  | 'MANUAL_LOCKED';
 
 export interface LessonProgressItem {
   lessonId: string;
@@ -46,11 +48,26 @@ export interface StepProgressionItem {
   scheduledUnlockDate: Date | null;
   isUnlocked: boolean;
   unlockedAt: Date | null;
+  overrideState: StepOverrideState;
+  overrideReason: string | null;
+  overriddenAt: Date | null;
+  overriddenById: string | null;
   isCompleted: boolean;
   completedAt: Date | null;
   lockReason: LockReason | null;
   lessons: LessonProgressItem[];
   quiz: QuizProgressItem | null;
+}
+
+export interface StepOverrideResult {
+  enrolmentId: string;
+  stepId: string;
+  overrideState: StepOverrideState;
+  isUnlocked: boolean;
+  lockReason?: LockReason | null;
+  overrideReason: string | null;
+  overriddenAt: Date | null;
+  overriddenById: string | null;
 }
 
 export interface EnrolmentProgressionResponse {
@@ -287,6 +304,251 @@ export class ProgressionService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // 5b. ADMINISTRATIVE STEP OVERRIDES (D1-034)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Manually unlocks Step N for a specific learner, unconditionally granting access.
+   */
+  async manualUnlockStep(
+    enrolmentId: string,
+    stepId: string,
+    actor: any,
+    reason: string,
+    ip?: string,
+  ): Promise<StepOverrideResult> {
+    return this.applyStepOverride(
+      enrolmentId,
+      stepId,
+      actor,
+      StepOverrideState.MANUAL_UNLOCKED,
+      reason,
+      ip,
+    );
+  }
+
+  /**
+   * Manually re-locks Step N for a specific learner, unconditionally denying access.
+   */
+  async manualRelockStep(
+    enrolmentId: string,
+    stepId: string,
+    actor: any,
+    reason: string,
+    ip?: string,
+  ): Promise<StepOverrideResult> {
+    return this.applyStepOverride(
+      enrolmentId,
+      stepId,
+      actor,
+      StepOverrideState.MANUAL_LOCKED,
+      reason,
+      ip,
+    );
+  }
+
+  /**
+   * Resets manual override for Step N, restoring standard automatic progression.
+   */
+  async resetStepOverride(
+    enrolmentId: string,
+    stepId: string,
+    actor: any,
+    reason: string,
+    ip?: string,
+  ): Promise<StepOverrideResult> {
+    return this.applyStepOverride(
+      enrolmentId,
+      stepId,
+      actor,
+      StepOverrideState.AUTOMATIC,
+      reason,
+      ip,
+    );
+  }
+
+  private async applyStepOverride(
+    enrolmentId: string,
+    stepId: string,
+    actor: any,
+    targetState: StepOverrideState,
+    reason: string,
+    ip?: string,
+  ): Promise<StepOverrideResult> {
+    const role = actor?.role;
+    const actorId = actor?.sub ?? actor?.id;
+
+    if (!actorId) {
+      throw new ForbiddenException('Access denied: Authentication required');
+    }
+
+    if (role === Role.USER) {
+      throw new ForbiddenException(
+        'Access denied: Learners cannot modify progression overrides',
+      );
+    }
+
+    const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+    if (!trimmedReason || trimmedReason.length < 5) {
+      throw new BadRequestException(
+        'Reason must be at least 5 non-whitespace characters long',
+      );
+    }
+    if (trimmedReason.length > 500) {
+      throw new BadRequestException('Reason must not exceed 500 characters');
+    }
+
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id: enrolmentId },
+      include: {
+        program: {
+          select: { id: true, title: true, status: true },
+        },
+        batch: {
+          include: {
+            trainers: { select: { trainerId: true } },
+            overrides: true,
+          },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new NotFoundException('Enrolment not found');
+    }
+
+    if (enrolment.status !== EnrolmentStatus.ACTIVE) {
+      throw new BadRequestException(
+        'Progression overrides can only be applied to ACTIVE enrolments',
+      );
+    }
+
+    // Manager batch scoping and authorization check
+    this.assertUserAuthorizedForEnrolment(actor, enrolment);
+
+    const step = await this.prisma.step.findUnique({
+      where: { id: stepId },
+      select: {
+        id: true,
+        programId: true,
+        sequence: true,
+        title: true,
+        status: true,
+      },
+    });
+
+    if (!step) {
+      throw new NotFoundException('Step not found');
+    }
+
+    if (step.programId !== enrolment.programId) {
+      throw new BadRequestException(
+        'Step does not belong to the enrolled program',
+      );
+    }
+
+    const existingProgress = await this.prisma.stepProgress.findUnique({
+      where: {
+        enrolmentId_stepId: {
+          enrolmentId,
+          stepId,
+        },
+      },
+    });
+
+    const previousOverrideState =
+      existingProgress?.overrideState ?? StepOverrideState.AUTOMATIC;
+    const previousIsUnlocked = existingProgress?.isUnlocked ?? false;
+
+    let actionName: string;
+    let initialIsUnlocked: boolean;
+
+    if (targetState === StepOverrideState.MANUAL_UNLOCKED) {
+      actionName = 'STEP_MANUAL_UNLOCKED';
+      initialIsUnlocked = true;
+    } else if (targetState === StepOverrideState.MANUAL_LOCKED) {
+      actionName = 'STEP_MANUAL_LOCKED';
+      initialIsUnlocked = false;
+    } else {
+      actionName = 'STEP_OVERRIDE_RESET';
+      initialIsUnlocked = false;
+    }
+
+    const now = new Date();
+
+    const [progress] = await this.prisma.$transaction(async (tx) => {
+      const p = await tx.stepProgress.upsert({
+        where: {
+          enrolmentId_stepId: {
+            enrolmentId,
+            stepId,
+          },
+        },
+        create: {
+          enrolmentId,
+          stepId,
+          isUnlocked: initialIsUnlocked,
+          unlockedAt: initialIsUnlocked ? now : null,
+          overrideState: targetState,
+          overrideReason: trimmedReason,
+          overriddenById: actorId,
+          overriddenAt: now,
+        },
+        update: {
+          isUnlocked: initialIsUnlocked,
+          unlockedAt: initialIsUnlocked
+            ? (existingProgress?.unlockedAt ?? now)
+            : (targetState === StepOverrideState.MANUAL_LOCKED ? null : existingProgress?.unlockedAt),
+          overrideState: targetState,
+          overrideReason: trimmedReason,
+          overriddenById: actorId,
+          overriddenAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: actionName,
+          entity: 'StepProgress',
+          entityId: p.id,
+          meta: {
+            enrolmentId,
+            stepId,
+            stepSequence: step.sequence,
+            stepTitle: step.title,
+            programId: enrolment.programId,
+            batchId: enrolment.batchId,
+            previousOverrideState,
+            newOverrideState: targetState,
+            previousIsUnlocked,
+            newIsUnlocked: initialIsUnlocked,
+            reason: trimmedReason,
+          },
+          ip: ip ?? null,
+        },
+      });
+
+      return [p];
+    });
+
+    // Re-evaluate entire progression tree to propagate changes and persist downstream step states
+    const tree = await this.evaluateProgression(enrolment, { persist: true });
+    const targetStep = tree.steps.find((s) => s.stepId === stepId);
+
+    return {
+      enrolmentId,
+      stepId,
+      overrideState: targetState,
+      isUnlocked: targetStep ? targetStep.isUnlocked : initialIsUnlocked,
+      lockReason: targetStep?.lockReason ?? null,
+      overrideReason: trimmedReason,
+      overriddenAt: progress.overriddenAt,
+      overriddenById: progress.overriddenById,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // 6. CORE PROGRESSION EVALUATOR (DETERMINISTIC ENGINE)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -459,6 +721,11 @@ export class ProgressionService {
       let isUnlocked = false;
       let lockReason: LockReason | null = null;
       let unlockedAt = stepProgress?.unlockedAt ?? null;
+      const overrideState: StepOverrideState =
+        stepProgress?.overrideState ?? StepOverrideState.AUTOMATIC;
+      const overrideReason: string | null = stepProgress?.overrideReason ?? null;
+      const overriddenAt: Date | null = stepProgress?.overriddenAt ?? null;
+      const overriddenById: string | null = stepProgress?.overriddenById ?? null;
 
       if (!isEligibleForProgress) {
         // Enrolment not active/completed fails closed
@@ -468,17 +735,26 @@ export class ProgressionService {
         // Completed enrollment preserves full historical access
         isUnlocked = true;
         lockReason = null;
-      } else if (stepProgress?.isUnlocked === true) {
-        // Already unlocked in StepProgress
-        isUnlocked = true;
-        lockReason = null;
-      } else if (batchOverride?.isUnlocked === true) {
-        // Batch override explicitly forces unlock
+      } else if (overrideState === StepOverrideState.MANUAL_LOCKED) {
+        // D1-034: Explicit manual re-lock strictly overrides all automatic and batch unlocks
+        isUnlocked = false;
+        lockReason = 'MANUAL_LOCKED';
+      } else if (overrideState === StepOverrideState.MANUAL_UNLOCKED) {
+        // D1-034: Explicit manual unlock strictly overrides prerequisites and scheduled release dates
         isUnlocked = true;
         lockReason = null;
         unlockedAt = unlockedAt ?? now;
+      } else if (batchOverride?.isUnlocked === true) {
+        // Cohort-level batch override forces unlock for cohort
+        isUnlocked = true;
+        lockReason = null;
+        unlockedAt = unlockedAt ?? now;
+      } else if (isStepCompleted) {
+        // Completed step retains review access
+        isUnlocked = true;
+        lockReason = null;
       } else {
-        // Normal sequential rule evaluation
+        // Normal sequential rule evaluation (AUTOMATIC)
         const isFirstStep = step.sequence === 1 || i === 0;
 
         if (!isFirstStep && !previousStepComplete) {
@@ -512,10 +788,10 @@ export class ProgressionService {
       ) {
         updatesToPersist.push({
           stepId: step.id,
-          isUnlocked: isUnlocked || (stepProgress?.isUnlocked ?? false),
+          isUnlocked,
           unlockedAt: isUnlocked
             ? unlockedAt ?? now
-            : stepProgress?.unlockedAt ?? null,
+            : (overrideState === StepOverrideState.MANUAL_LOCKED ? null : stepProgress?.unlockedAt ?? null),
           isCompleted: isStepCompleted || (stepProgress?.isCompleted ?? false),
           completedAt: isStepCompleted
             ? completedAt ?? now
@@ -532,6 +808,10 @@ export class ProgressionService {
         scheduledUnlockDate,
         isUnlocked,
         unlockedAt,
+        overrideState,
+        overrideReason,
+        overriddenAt,
+        overriddenById,
         isCompleted: isStepCompleted,
         completedAt,
         lockReason,

@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -6,6 +7,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { ProgressionService } from './progression.service.js';
+import { StepOverrideDto } from './dto/index.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
 
@@ -70,6 +72,67 @@ export class ProgressionController {
     return this.progressionService.recalculateProgression(
       enrolmentId,
       req.user,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. ADMINISTRATIVE STEP OVERRIDES (D1-034)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.STEPS_UNLOCK)
+  @Post('admin/enrolments/:enrolmentId/steps/:stepId/unlock')
+  async manualUnlockStep(
+    @Param('enrolmentId') enrolmentId: string,
+    @Param('stepId') stepId: string,
+    @Body() dto: StepOverrideDto,
+    @Request() req: any,
+  ) {
+    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    return this.progressionService.manualUnlockStep(
+      enrolmentId,
+      stepId,
+      req.user,
+      dto.reason,
+      ip,
+    );
+  }
+
+  @RequirePermission(Permission.STEPS_LOCK)
+  @Post([
+    'admin/enrolments/:enrolmentId/steps/:stepId/relock',
+    'admin/enrolments/:enrolmentId/steps/:stepId/re-lock',
+  ])
+  async manualRelockStep(
+    @Param('enrolmentId') enrolmentId: string,
+    @Param('stepId') stepId: string,
+    @Body() dto: StepOverrideDto,
+    @Request() req: any,
+  ) {
+    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    return this.progressionService.manualRelockStep(
+      enrolmentId,
+      stepId,
+      req.user,
+      dto.reason,
+      ip,
+    );
+  }
+
+  @RequirePermission(Permission.STEPS_UNLOCK)
+  @Post('admin/enrolments/:enrolmentId/steps/:stepId/reset-override')
+  async resetStepOverride(
+    @Param('enrolmentId') enrolmentId: string,
+    @Param('stepId') stepId: string,
+    @Body() dto: StepOverrideDto,
+    @Request() req: any,
+  ) {
+    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    return this.progressionService.resetStepOverride(
+      enrolmentId,
+      stepId,
+      req.user,
+      dto.reason,
+      ip,
     );
   }
 }

@@ -76,6 +76,12 @@ enum ReleaseSchedule {
   BATCH_SCHEDULED
 }
 
+enum StepOverrideState {
+  AUTOMATIC
+  MANUAL_UNLOCKED
+  MANUAL_LOCKED
+}
+
 enum ResourceType {
   VIEW_ONLY_PDF
   DOWNLOADABLE_WORKSHEET
@@ -760,6 +766,11 @@ model StepProgress {
   isUnlocked  Boolean   @default(false)
   unlockedAt  DateTime?
 
+  overrideState  StepOverrideState @default(AUTOMATIC)
+  overrideReason String?
+  overriddenById String?
+  overriddenAt   DateTime?
+
   score       Int?
 
   createdAt   DateTime  @default(now())
@@ -769,6 +780,7 @@ model StepProgress {
   @@index([enrolmentId])
   @@index([stepId])
   @@index([enrolmentId, isCompleted])
+  @@index([enrolmentId, overrideState])
 }
 
 // -----------------------------------------------------------------------------

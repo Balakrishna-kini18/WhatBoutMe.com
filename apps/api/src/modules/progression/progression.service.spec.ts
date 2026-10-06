@@ -11,6 +11,7 @@ import {
   EnrolmentStatus,
   ReleaseSchedule,
   Role,
+  StepOverrideState,
 } from '@prisma/client';
 import { ProgressionService } from './progression.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -18,6 +19,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engine', () => {
   let service: ProgressionService;
   let prismaMock: any;
+  let mockStepProgressStore: any[] = [];
 
   const mockBatch = {
     id: 'batch-1',
@@ -68,6 +70,7 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
   });
 
   beforeEach(() => {
+    mockStepProgressStore = [];
     prismaMock = {
       enrolment: {
         findUnique: vi.fn(),
@@ -84,8 +87,36 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         findMany: vi.fn().mockResolvedValue([]),
       },
       stepProgress: {
-        findMany: vi.fn().mockResolvedValue([]),
-        upsert: vi.fn().mockImplementation(({ create }) => create),
+        findUnique: vi.fn().mockImplementation(({ where }: any) => {
+          const stepId = where?.enrolmentId_stepId?.stepId ?? where?.id;
+          return Promise.resolve(
+            mockStepProgressStore.find((p) => p.stepId === stepId) ?? null,
+          );
+        }),
+        findMany: vi.fn().mockImplementation(() => Promise.resolve([...mockStepProgressStore])),
+        upsert: vi.fn().mockImplementation(({ where, create, update }: any) => {
+          const stepId = where?.enrolmentId_stepId?.stepId;
+          const existingIdx = mockStepProgressStore.findIndex(
+            (p) => p.stepId === stepId,
+          );
+          const item = {
+            id: 'sp-1',
+            enrolmentId: where?.enrolmentId_stepId?.enrolmentId,
+            stepId,
+            ...(existingIdx >= 0
+              ? { ...mockStepProgressStore[existingIdx], ...update }
+              : create),
+          };
+          if (existingIdx >= 0) {
+            mockStepProgressStore[existingIdx] = item;
+          } else {
+            mockStepProgressStore.push(item);
+          }
+          return Promise.resolve(item);
+        }),
+      },
+      auditLog: {
+        create: vi.fn().mockResolvedValue({ id: 'audit-1' }),
       },
       $transaction: vi.fn().mockImplementation(async (callback) => {
         if (typeof callback === 'function') {
@@ -738,6 +769,405 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
       expect(res.steps[1].scheduledUnlockDate).toEqual(
         new Date(newBatch.startDate.getTime() + 3 * 86400000),
       );
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 9. D1-034: ADMINISTRATIVE MANUAL STEP OVERRIDES
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('D1-034: Manual Step Override Engine', () => {
+    const adminUser = { sub: 'admin-1', id: 'admin-1', role: Role.ADMIN };
+    const superAdminUser = { sub: 'super-1', id: 'super-1', role: Role.SUPER_ADMIN };
+    const assignedManager = { sub: 'mgr-1', id: 'mgr-1', role: Role.MANAGER };
+    const trainerManager = { sub: 'tr-1', id: 'tr-1', role: Role.MANAGER };
+    const unassignedManager = { sub: 'other-mgr', id: 'other-mgr', role: Role.MANAGER };
+    const learnerUser = { sub: 'learner-1', id: 'learner-1', role: Role.USER };
+
+    const mockEnrolmentWithBatch = {
+      id: 'enrol-1',
+      userId: 'learner-1',
+      programId: 'prog-1',
+      batchId: 'batch-1',
+      status: EnrolmentStatus.ACTIVE,
+      program: mockProgram,
+      batch: mockBatch,
+    };
+
+    const s1 = createMockStep('s1', 1);
+    const s2 = createMockStep('s2', 2, ReleaseSchedule.BATCH_SCHEDULED, 7);
+
+    beforeEach(() => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockEnrolmentWithBatch);
+      prismaMock.step.findUnique.mockImplementation(({ where }: any) => {
+        if (where.id === 's1') return Promise.resolve(s1);
+        if (where.id === 's2') return Promise.resolve(s2);
+        return Promise.resolve(null);
+      });
+      prismaMock.step.findMany.mockResolvedValue([s1, s2]);
+    });
+
+    describe('manualUnlockStep', () => {
+      it('successfully unlocks step, records audit log, and sets MANUAL_UNLOCKED override state', async () => {
+        const res = await service.manualUnlockStep(
+          'enrol-1',
+          's2',
+          adminUser,
+          'Learner granted special fast-track permission',
+          '127.0.0.1',
+        );
+
+        expect(res.overrideState).toBe(StepOverrideState.MANUAL_UNLOCKED);
+        expect(res.isUnlocked).toBe(true);
+        expect(res.overrideReason).toBe('Learner granted special fast-track permission');
+        expect(res.overriddenById).toBe('admin-1');
+
+        // Audit log created with full metadata
+        expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            actorId: 'admin-1',
+            action: 'STEP_MANUAL_UNLOCKED',
+            entity: 'StepProgress',
+            ip: '127.0.0.1',
+            meta: expect.objectContaining({
+              enrolmentId: 'enrol-1',
+              stepId: 's2',
+              newOverrideState: StepOverrideState.MANUAL_UNLOCKED,
+              newIsUnlocked: true,
+              reason: 'Learner granted special fast-track permission',
+            }),
+          }),
+        });
+      });
+
+      it('bypasses incomplete previous-step prerequisites and future schedule dates', async () => {
+        // Step 1 is NOT completed (no viewed lessons, no passed quizzes)
+        prismaMock.userLessonProgress.findMany.mockResolvedValue([]);
+        prismaMock.attempt.findMany.mockResolvedValue([]);
+
+        // Existing StepProgress for s2 has MANUAL_UNLOCKED
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's2',
+            overrideState: StepOverrideState.MANUAL_UNLOCKED,
+            isUnlocked: true,
+            isCompleted: false,
+          },
+        ]);
+
+        const res = await service.getEnrolmentProgression('enrol-1', null, { persist: false });
+
+        // s1 is immediate => unlocked
+        expect(res.steps[0].isUnlocked).toBe(true);
+        expect(res.steps[0].isCompleted).toBe(false);
+
+        // s2 is MANUAL_UNLOCKED => unlocked even though s1 incomplete and release date in future
+        expect(res.steps[1].isUnlocked).toBe(true);
+        expect(res.steps[1].lockReason).toBeNull();
+        expect(res.steps[1].overrideState).toBe(StepOverrideState.MANUAL_UNLOCKED);
+      });
+
+      it('does NOT mark lessons viewed, quizzes passed, or step completed', async () => {
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's2',
+            overrideState: StepOverrideState.MANUAL_UNLOCKED,
+            isUnlocked: true,
+            isCompleted: false,
+          },
+        ]);
+
+        const res = await service.getEnrolmentProgression('enrol-1', null, { persist: false });
+
+        expect(res.steps[1].isUnlocked).toBe(true);
+        expect(res.steps[1].isCompleted).toBe(false);
+        expect(res.steps[1].lessons.every((l) => !l.isCompleted)).toBe(true);
+        expect(res.steps[1].quiz?.isPassed).toBe(false);
+      });
+    });
+
+    describe('manualRelockStep', () => {
+      it('successfully re-locks step, records audit log, and sets MANUAL_LOCKED state', async () => {
+        const res = await service.manualRelockStep(
+          'enrol-1',
+          's1',
+          adminUser,
+          'Learner paused pending live session review',
+          '192.168.1.5',
+        );
+
+        expect(res.overrideState).toBe(StepOverrideState.MANUAL_LOCKED);
+        expect(res.isUnlocked).toBe(false);
+        expect(res.lockReason).toBe('MANUAL_LOCKED');
+
+        expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            actorId: 'admin-1',
+            action: 'STEP_MANUAL_LOCKED',
+            entity: 'StepProgress',
+            ip: '192.168.1.5',
+            meta: expect.objectContaining({
+              newOverrideState: StepOverrideState.MANUAL_LOCKED,
+              newIsUnlocked: false,
+            }),
+          }),
+        });
+      });
+
+      it('strictly overrides satisfied prerequisites and immediate release schedule', async () => {
+        // Step 1 is in MANUAL_LOCKED override
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's1',
+            overrideState: StepOverrideState.MANUAL_LOCKED,
+            isUnlocked: false,
+            isCompleted: false,
+          },
+        ]);
+
+        const res = await service.getEnrolmentProgression('enrol-1', null, { persist: false });
+
+        expect(res.steps[0].isUnlocked).toBe(false);
+        expect(res.steps[0].lockReason).toBe('MANUAL_LOCKED');
+      });
+
+      it('strictly overrides BatchStepOverride.isUnlocked = true', async () => {
+        const batchWithUnlockedOverride = {
+          ...mockBatch,
+          overrides: [{ batchId: 'batch-1', stepId: 's1', isUnlocked: true, unlockDate: null }],
+        };
+        prismaMock.enrolment.findUnique.mockResolvedValue({
+          ...mockEnrolmentWithBatch,
+          batch: batchWithUnlockedOverride,
+        });
+
+        // Learner has individual MANUAL_LOCKED on s1
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's1',
+            overrideState: StepOverrideState.MANUAL_LOCKED,
+            isUnlocked: false,
+            isCompleted: false,
+          },
+        ]);
+
+        const res = await service.getEnrolmentProgression('enrol-1', null, { persist: false });
+
+        // Individual learner override takes precedence over batch override
+        expect(res.steps[0].isUnlocked).toBe(false);
+        expect(res.steps[0].lockReason).toBe('MANUAL_LOCKED');
+      });
+
+      it('does NOT erase existing academic progress (isCompleted remains true)', async () => {
+        prismaMock.userLessonProgress.findMany.mockResolvedValue([
+          { lessonId: 'lesson-s1-1', viewed: true },
+          { lessonId: 'lesson-s1-2', viewed: true },
+        ]);
+        prismaMock.attempt.findMany.mockResolvedValue([
+          { quizId: 'quiz-s1', status: AttemptStatus.PASSED, passed: true },
+        ]);
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's1',
+            overrideState: StepOverrideState.MANUAL_LOCKED,
+            isUnlocked: false,
+            isCompleted: true,
+          },
+        ]);
+
+        const res = await service.getEnrolmentProgression('enrol-1', null, { persist: false });
+
+        // Content access is locked, but completion state remains intact
+        expect(res.steps[0].isUnlocked).toBe(false);
+        expect(res.steps[0].lockReason).toBe('MANUAL_LOCKED');
+        expect(res.steps[0].isCompleted).toBe(true);
+      });
+    });
+
+    describe('resetStepOverride', () => {
+      it('restores AUTOMATIC progression evaluation and re-locks when prerequisites are incomplete', async () => {
+        prismaMock.userLessonProgress.findMany.mockResolvedValue([]);
+        prismaMock.attempt.findMany.mockResolvedValue([]);
+
+        const res = await service.resetStepOverride(
+          'enrol-1',
+          's2',
+          adminUser,
+          'Reverting temporary fast-track unlock',
+        );
+
+        expect(res.overrideState).toBe(StepOverrideState.AUTOMATIC);
+        expect(res.isUnlocked).toBe(false);
+        expect(res.lockReason).toBe('PREVIOUS_STEP_INCOMPLETE');
+
+        expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            actorId: 'admin-1',
+            action: 'STEP_OVERRIDE_RESET',
+            meta: expect.objectContaining({
+              newOverrideState: StepOverrideState.AUTOMATIC,
+            }),
+          }),
+        });
+      });
+
+      it('restores AUTOMATIC progression and unlocks when prerequisites are satisfied', async () => {
+        const res = await service.resetStepOverride(
+          'enrol-1',
+          's1',
+          adminUser,
+          'Reverting manual lock to resume standard progression',
+        );
+
+        expect(res.overrideState).toBe(StepOverrideState.AUTOMATIC);
+        // Step 1 has immediate release and no previous step => automatically unlocked
+        expect(res.isUnlocked).toBe(true);
+        expect(res.lockReason).toBeNull();
+      });
+    });
+
+    describe('Authorization & Scoping', () => {
+      it('allows SUPER_ADMIN across any batch', async () => {
+        const res = await service.manualUnlockStep(
+          'enrol-1',
+          's1',
+          superAdminUser,
+          'Super admin override granted',
+        );
+        expect(res.isUnlocked).toBe(true);
+      });
+
+      it('allows MANAGER assigned as batch.managerId', async () => {
+        const res = await service.manualUnlockStep(
+          'enrol-1',
+          's1',
+          assignedManager,
+          'Batch manager unlock granted',
+        );
+        expect(res.isUnlocked).toBe(true);
+      });
+
+      it('allows MANAGER assigned in BatchTrainer', async () => {
+        const res = await service.manualUnlockStep(
+          'enrol-1',
+          's1',
+          trainerManager,
+          'Batch trainer unlock granted',
+        );
+        expect(res.isUnlocked).toBe(true);
+      });
+
+      it('throws ForbiddenException when MANAGER is not assigned to the batch', async () => {
+        await expect(
+          service.manualUnlockStep(
+            'enrol-1',
+            's1',
+            unassignedManager,
+            'Attempted unassigned manager override',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('throws ForbiddenException when USER attempts manual override', async () => {
+        await expect(
+          service.manualUnlockStep(
+            'enrol-1',
+            's1',
+            learnerUser,
+            'Learner self-unlock attempt',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+      });
+    });
+
+    describe('Validation & Error Handling', () => {
+      it('throws NotFoundException when enrolment does not exist', async () => {
+        prismaMock.enrolment.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.manualUnlockStep('nonexistent', 's1', adminUser, 'Valid reason here'),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('throws BadRequestException when enrolment is not ACTIVE', async () => {
+        prismaMock.enrolment.findUnique.mockResolvedValue({
+          ...mockEnrolmentWithBatch,
+          status: EnrolmentStatus.PENDING_PAYMENT,
+        });
+
+        await expect(
+          service.manualUnlockStep('enrol-1', 's1', adminUser, 'Valid reason here'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('throws NotFoundException when step does not exist', async () => {
+        prismaMock.step.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.manualUnlockStep('enrol-1', 'unknown-step', adminUser, 'Valid reason here'),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('throws BadRequestException when step belongs to another program', async () => {
+        prismaMock.step.findUnique.mockResolvedValue({
+          ...s1,
+          programId: 'other-program',
+        });
+
+        await expect(
+          service.manualUnlockStep('enrol-1', 's1', adminUser, 'Valid reason here'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects blank or whitespace-only reason', async () => {
+        await expect(
+          service.manualUnlockStep('enrol-1', 's1', adminUser, '     '),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects reason shorter than 5 characters', async () => {
+        await expect(
+          service.manualUnlockStep('enrol-1', 's1', adminUser, 'abc'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects reason longer than 500 characters', async () => {
+        const longReason = 'a'.repeat(501);
+        await expect(
+          service.manualUnlockStep('enrol-1', 's1', adminUser, longReason),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('assertStepUnlocked integration', () => {
+      it('throws ForbiddenException with MANUAL_LOCKED reason when step is manually locked', async () => {
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's1',
+            overrideState: StepOverrideState.MANUAL_LOCKED,
+            isUnlocked: false,
+            isCompleted: false,
+          },
+        ]);
+
+        await expect(
+          service.assertStepUnlocked('enrol-1', 's1', adminUser),
+        ).rejects.toThrow('Step is locked: MANUAL_LOCKED');
+      });
+
+      it('allows step access when step is MANUAL_UNLOCKED even if prerequisites are missing', async () => {
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's2',
+            overrideState: StepOverrideState.MANUAL_UNLOCKED,
+            isUnlocked: true,
+            isCompleted: false,
+          },
+        ]);
+
+        await expect(
+          service.assertStepUnlocked('enrol-1', 's2', adminUser),
+        ).resolves.toBe(true);
+      });
     });
   });
 });

@@ -12,10 +12,12 @@ import { QuizzesService } from './quizzes.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
 import {
+  CreateQuestionDto,
   CreateQuizDto,
   ResetAttemptsDto,
   StartQuizDto,
   SubmitQuizDto,
+  UpdateQuestionDto,
   UpdateQuizDto,
 } from './dto/index.js';
 
@@ -109,4 +111,36 @@ export class QuizzesController {
   ) {
     return this.quizzesService.getEnrolmentQuizAttempts(id, enrolmentId, req.user);
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. ADMINISTRATIVE: QUESTION BANK MANAGEMENT
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.QUIZZES_READ)
+  @Get(':id/questions')
+  getQuestions(@Param('id') id: string) {
+    return this.quizzesService.getQuestionsForQuiz(id);
+  }
+
+  @RequirePermission(Permission.QUIZZES_CREATE)
+  @Post(':id/questions')
+  createQuestion(@Param('id') id: string, @Body() dto: CreateQuestionDto) {
+    return this.quizzesService.createQuestionForQuiz(id, dto);
+  }
+
+  @RequirePermission(Permission.QUIZZES_UPDATE)
+  @Patch('questions/:questionId')
+  updateQuestion(
+    @Param('questionId') questionId: string,
+    @Body() dto: UpdateQuestionDto,
+  ) {
+    return this.quizzesService.updateQuestion(questionId, dto);
+  }
+
+  @RequirePermission(Permission.QUIZZES_DELETE)
+  @Delete('questions/:questionId')
+  deleteQuestion(@Param('questionId') questionId: string) {
+    return this.quizzesService.deleteQuestion(questionId);
+  }
 }
+

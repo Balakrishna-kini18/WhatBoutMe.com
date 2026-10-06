@@ -8,6 +8,7 @@ import {
   AttemptStatus,
   ContentStatus,
   EnrolmentStatus,
+  QuestionType,
   Role,
   StepOverrideState,
 } from '@prisma/client';
@@ -15,10 +16,12 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { ProgressionService } from '../progression/progression.service.js';
 import {
+  CreateQuestionDto,
   CreateQuizDto,
   ResetAttemptsDto,
   StartQuizDto,
   SubmitQuizDto,
+  UpdateQuestionDto,
   UpdateQuizDto,
 } from './dto/index.js';
 
@@ -70,6 +73,7 @@ export class QuizzesService {
               select: {
                 id: true,
                 text: true,
+                isCorrect: true,
                 order: true,
               },
             },
@@ -283,29 +287,31 @@ export class QuizzesService {
       ? previousAttempts.filter((a) => a.createdAt > lastReset.createdAt)
       : previousAttempts;
 
-    // Verify Max Attempts
-    const maxAttempts = quiz.maxAttempts ?? 3;
-    if (relevantAttempts.length >= maxAttempts) {
-      throw new ForbiddenException(
-        `Maximum attempts (${maxAttempts}) exceeded for this quiz. Contact support or your instructor.`,
-      );
+    // Verify Max Attempts & Cooldown via computeRetryMetadata
+    const retryMeta = this.computeRetryMetadata(quiz, relevantAttempts, quiz.step);
+
+    if (retryMeta.attemptsRemaining <= 0) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: `Maximum attempts (${retryMeta.maxAttempts}) exceeded for this quiz. Contact support or your instructor.`,
+        error: 'Forbidden',
+        attemptsUsed: retryMeta.attemptsUsed,
+        maxAttempts: retryMeta.maxAttempts,
+        attemptsRemaining: 0,
+      });
     }
 
-    // Verify Cooldown Hours on failed attempts
-    const latestAttempt = relevantAttempts[0];
-    if (
-      latestAttempt &&
-      latestAttempt.status === AttemptStatus.FAILED &&
-      latestAttempt.completedAt
-    ) {
-      const cooldownHours = quiz.cooldownHours ?? 24;
-      const cooldownMs = cooldownHours * 60 * 60 * 1000;
-      const nextAllowedAt = new Date(latestAttempt.completedAt.getTime() + cooldownMs);
-      if (new Date() < nextAllowedAt) {
-        throw new ForbiddenException(
-          `Cooldown period active. You may retry after ${nextAllowedAt.toISOString()}`,
-        );
-      }
+    if (retryMeta.isCooldownActive) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: `Cooldown period active. You may retry after ${retryMeta.cooldownUntil}`,
+        error: 'Forbidden',
+        cooldownUntil: retryMeta.cooldownUntil,
+        cooldownSecondsRemaining: retryMeta.cooldownSecondsRemaining,
+        attemptsRemaining: retryMeta.attemptsRemaining,
+        maxAttempts: retryMeta.maxAttempts,
+        attemptsUsed: retryMeta.attemptsUsed,
+      });
     }
 
     // Question Selection: Sample from question bank or step-tagged questions
@@ -314,6 +320,7 @@ export class QuizzesService {
         OR: [
           { quizId: quiz.id },
           { stepId: quiz.stepId },
+          { questionBank: { stepId: quiz.stepId } },
         ],
       },
       include: {
@@ -323,16 +330,25 @@ export class QuizzesService {
       },
     });
 
-    const eligibleQuestions = candidateQuestions.filter(
+    const uniqueMap = new Map<string, (typeof candidateQuestions)[0]>();
+    for (const q of candidateQuestions) {
+      if (!uniqueMap.has(q.id)) {
+        uniqueMap.set(q.id, q);
+      }
+    }
+
+    const eligibleQuestions = Array.from(uniqueMap.values()).filter(
       (q) => Array.isArray(q.options) && q.options.length >= 2,
     );
 
-    if (eligibleQuestions.length === 0) {
-      throw new BadRequestException('No questions available in the question bank for this quiz');
+    const requiredCount = quiz.questionCount ?? 10;
+    if (eligibleQuestions.length < requiredCount) {
+      throw new BadRequestException(
+        `Insufficient questions in pool: Step quiz requires at least ${requiredCount} questions, found ${eligibleQuestions.length}`,
+      );
     }
 
-    const targetCount = Math.min(quiz.questionCount ?? 10, eligibleQuestions.length);
-    const selectedQuestions = this.shuffleArray([...eligibleQuestions]).slice(0, targetCount);
+    const selectedQuestions = this.shuffleArray([...eligibleQuestions]).slice(0, requiredCount);
 
     const nextAttemptNumber = (previousAttempts[0]?.attemptNumber ?? 0) + 1;
 
@@ -394,7 +410,17 @@ export class QuizzesService {
     const attempt = await this.prisma.attempt.findUnique({
       where: { id: dto.attemptId },
       include: {
-        quiz: true,
+        quiz: {
+          include: {
+            step: {
+              select: {
+                id: true,
+                sequence: true,
+                title: true,
+              },
+            },
+          },
+        },
         enrolment: {
           include: {
             batch: {
@@ -552,6 +578,33 @@ export class QuizzesService {
       });
     }
 
+    const allAttempts = await this.prisma.attempt.findMany({
+      where: {
+        enrolmentId: attempt.enrolmentId,
+        quizId: attempt.quizId,
+      },
+      orderBy: { attemptNumber: 'desc' },
+    });
+
+    const lastReset = await this.prisma.auditLog.findFirst({
+      where: {
+        action: 'QUIZ_ATTEMPTS_RESET',
+        entity: 'QuizAttempt',
+        entityId: `${attempt.enrolmentId}_${attempt.quizId}`,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const currentRelevantAttempts = lastReset
+      ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)
+      : allAttempts;
+
+    const retryMeta = this.computeRetryMetadata(
+      attempt.quiz,
+      currentRelevantAttempts,
+      attempt.quiz.step,
+    );
+
     return {
       attemptId: finalized.id,
       attemptNumber: finalized.attemptNumber,
@@ -564,6 +617,15 @@ export class QuizzesService {
       correctCount,
       completedAt: finalized.completedAt,
       retryGuidance: !passed ? attempt.quiz.retryGuidance : null,
+      attemptsUsed: retryMeta.attemptsUsed,
+      maxAttempts: retryMeta.maxAttempts,
+      attemptsRemaining: retryMeta.attemptsRemaining,
+      isCooldownActive: retryMeta.isCooldownActive,
+      cooldownHours: retryMeta.cooldownHours,
+      cooldownUntil: retryMeta.cooldownUntil,
+      cooldownSecondsRemaining: retryMeta.cooldownSecondsRemaining,
+      canRetry: retryMeta.canRetry,
+      stepToRevisit: retryMeta.stepToRevisit,
     };
   }
 
@@ -580,7 +642,7 @@ export class QuizzesService {
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
       include: {
-        step: { select: { programId: true } },
+        step: { select: { id: true, programId: true, sequence: true, title: true } },
       },
     });
 
@@ -639,6 +701,33 @@ export class QuizzesService {
       return null;
     }
 
+    const allAttempts = await this.prisma.attempt.findMany({
+      where: {
+        enrolmentId: enrolment.id,
+        quizId,
+      },
+      orderBy: { attemptNumber: 'desc' },
+    });
+
+    const lastReset = await this.prisma.auditLog.findFirst({
+      where: {
+        action: 'QUIZ_ATTEMPTS_RESET',
+        entity: 'QuizAttempt',
+        entityId: `${enrolment.id}_${quizId}`,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const relevantAttempts = lastReset
+      ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)
+      : allAttempts;
+
+    const retryMeta = this.computeRetryMetadata(
+      quiz,
+      relevantAttempts,
+      quiz.step,
+    );
+
     return {
       attemptId: latestAttempt.id,
       attemptNumber: latestAttempt.attemptNumber,
@@ -648,6 +737,16 @@ export class QuizzesService {
       passed: latestAttempt.passed,
       startedAt: latestAttempt.startedAt,
       completedAt: latestAttempt.completedAt,
+      attemptsUsed: retryMeta.attemptsUsed,
+      maxAttempts: retryMeta.maxAttempts,
+      attemptsRemaining: retryMeta.attemptsRemaining,
+      isCooldownActive: retryMeta.isCooldownActive,
+      cooldownHours: retryMeta.cooldownHours,
+      cooldownUntil: retryMeta.cooldownUntil,
+      cooldownSecondsRemaining: retryMeta.cooldownSecondsRemaining,
+      canRetry: retryMeta.canRetry,
+      retryGuidance: !latestAttempt.passed ? quiz.retryGuidance : null,
+      stepToRevisit: retryMeta.stepToRevisit,
     };
   }
 
@@ -769,8 +868,294 @@ export class QuizzesService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 7. PRIVATE HELPERS
+  // 7. ADMINISTRATIVE: QUESTION BANK MANAGEMENT
   // ─────────────────────────────────────────────────────────────────────────────
+
+  async getQuestionsForQuiz(quizId: string) {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { id: quizId },
+      include: { step: true },
+    });
+
+    if (!quiz) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    const candidateQuestions = await this.prisma.question.findMany({
+      where: {
+        OR: [
+          { quizId: quiz.id },
+          { stepId: quiz.stepId },
+          { questionBank: { stepId: quiz.stepId } },
+        ],
+      },
+      include: {
+        options: {
+          orderBy: { order: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const uniqueMap = new Map<string, (typeof candidateQuestions)[0]>();
+    for (const q of candidateQuestions) {
+      if (!uniqueMap.has(q.id)) {
+        uniqueMap.set(q.id, q);
+      }
+    }
+
+    return Array.from(uniqueMap.values()).map((q) => ({
+      id: q.id,
+      quizId: q.quizId,
+      stepId: q.stepId,
+      type: q.type,
+      text: q.text,
+      explanation: q.explanation,
+      points: q.points,
+      options: q.options.map((opt) => ({
+        id: opt.id,
+        text: opt.text,
+        isCorrect: opt.isCorrect,
+        order: opt.order,
+      })),
+      createdAt: q.createdAt,
+      updatedAt: q.updatedAt,
+    }));
+  }
+
+  async createQuestionForQuiz(quizId: string, dto: CreateQuestionDto) {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { id: quizId },
+      include: { step: true },
+    });
+
+    if (!quiz) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    if (!Array.isArray(dto.options) || dto.options.length < 2) {
+      throw new BadRequestException('A question must have at least 2 options');
+    }
+
+    const hasCorrect = dto.options.some((o) => o.isCorrect === true);
+    if (!hasCorrect) {
+      throw new BadRequestException('At least one option must be marked as correct');
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const question = await tx.question.create({
+        data: {
+          quizId: quiz.id,
+          stepId: quiz.stepId,
+          type: dto.type ?? QuestionType.MULTIPLE_CHOICE,
+          text: dto.text.trim(),
+          explanation: dto.explanation?.trim() || null,
+          points: dto.points ?? 1,
+        },
+      });
+
+      const optionsData = dto.options.map((opt, idx) => ({
+        questionId: question.id,
+        text: opt.text.trim(),
+        isCorrect: Boolean(opt.isCorrect),
+        order: opt.order ?? idx + 1,
+      }));
+
+      await tx.option.createMany({
+        data: optionsData,
+      });
+
+      return tx.question.findUniqueOrThrow({
+        where: { id: question.id },
+        include: {
+          options: {
+            orderBy: { order: 'asc' },
+          },
+        },
+      });
+    });
+
+    await this.cacheHelper.invalidateNamespace('programs');
+    return created;
+  }
+
+  async updateQuestion(questionId: string, dto: UpdateQuestionDto) {
+    const existing = await this.prisma.question.findUnique({
+      where: { id: questionId },
+      include: { options: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Question not found');
+    }
+
+    if (dto.options) {
+      if (dto.options.length < 2) {
+        throw new BadRequestException('A question must have at least 2 options');
+      }
+      const hasCorrect = dto.options.some((o) => o.isCorrect === true);
+      if (!hasCorrect) {
+        throw new BadRequestException('At least one option must be marked as correct');
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const questionUpdateData: any = {};
+      if (dto.text !== undefined) questionUpdateData.text = dto.text.trim();
+      if (dto.type !== undefined) questionUpdateData.type = dto.type;
+      if (dto.explanation !== undefined) questionUpdateData.explanation = dto.explanation?.trim() || null;
+      if (dto.points !== undefined) questionUpdateData.points = dto.points;
+
+      await tx.question.update({
+        where: { id: questionId },
+        data: questionUpdateData,
+      });
+
+      if (dto.options) {
+        await tx.option.deleteMany({
+          where: { questionId },
+        });
+
+        await tx.option.createMany({
+          data: dto.options.map((opt, idx) => ({
+            questionId,
+            text: opt.text.trim(),
+            isCorrect: Boolean(opt.isCorrect),
+            order: opt.order ?? idx + 1,
+          })),
+        });
+      }
+
+      return tx.question.findUniqueOrThrow({
+        where: { id: questionId },
+        include: {
+          options: {
+            orderBy: { order: 'asc' },
+          },
+        },
+      });
+    });
+
+    await this.cacheHelper.invalidateNamespace('programs');
+    return updated;
+  }
+
+  async deleteQuestion(questionId: string) {
+    const existing = await this.prisma.question.findUnique({
+      where: { id: questionId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Question not found');
+    }
+
+    const answersCount = await this.prisma.quizAnswer.count({
+      where: { questionId },
+    });
+
+    if (answersCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete question because it is referenced in recorded quiz attempts',
+      );
+    }
+
+    await this.prisma.question.delete({
+      where: { id: questionId },
+    });
+
+    await this.cacheHelper.invalidateNamespace('programs');
+    return {
+      success: true,
+      message: 'Question deleted successfully',
+      questionId,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 8. PRIVATE HELPERS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  private computeRetryMetadata(quiz: any, relevantAttempts: any[], step?: any) {
+    const maxAttempts = quiz.maxAttempts ?? 3;
+    const cooldownHours = quiz.cooldownHours ?? 24;
+    const attemptsUsed = relevantAttempts.length;
+    const attemptsRemaining = Math.max(0, maxAttempts - attemptsUsed);
+
+    const isPassed = relevantAttempts.some(
+      (a) => a.status === AttemptStatus.PASSED || a.passed === true,
+    );
+
+    let isCooldownActive = false;
+    let cooldownUntil: string | null = null;
+    let cooldownSecondsRemaining: number | null = null;
+
+    const latestAttempt = relevantAttempts[0];
+    if (
+      !isPassed &&
+      latestAttempt &&
+      latestAttempt.status === AttemptStatus.FAILED &&
+      latestAttempt.completedAt
+    ) {
+      const cooldownMs = cooldownHours * 60 * 60 * 1000;
+      const cooldownEndDate = new Date(latestAttempt.completedAt.getTime() + cooldownMs);
+      const now = new Date();
+      if (now < cooldownEndDate) {
+        isCooldownActive = true;
+        cooldownUntil = cooldownEndDate.toISOString();
+        cooldownSecondsRemaining = Math.max(
+          0,
+          Math.ceil((cooldownEndDate.getTime() - now.getTime()) / 1000),
+        );
+      }
+    }
+
+    const canRetry = !isPassed && !isCooldownActive && attemptsRemaining > 0;
+
+    const stepInfo = step || quiz.step;
+    const stepToRevisit =
+      !isPassed && stepInfo
+        ? {
+            id: stepInfo.id,
+            sequence: stepInfo.sequence,
+            title: stepInfo.title,
+          }
+        : null;
+
+    return {
+      attemptsUsed,
+      maxAttempts,
+      attemptsRemaining,
+      isCooldownActive,
+      cooldownHours,
+      cooldownUntil,
+      cooldownSecondsRemaining,
+      canRetry,
+      stepToRevisit,
+    };
+  }
+
+  private deterministicShuffle<T>(array: T[], seedStr: string): T[] {
+    const result = [...array];
+    let seed = 0;
+    for (let i = 0; i < seedStr.length; i++) {
+      seed = (seed << 5) - seed + seedStr.charCodeAt(i);
+      seed |= 0;
+    }
+    seed = seed >>> 0;
+
+    const rand = () => {
+      let t = (seed += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  }
 
   private assertStaffBatchAccess(actor: any, enrolment: any) {
     const role = actor?.role;
@@ -813,13 +1198,14 @@ export class QuizzesService {
         text: ans.question.text,
         type: ans.question.type,
         points: ans.question.points,
-        // Strip isCorrect and present shuffled options
-        options: this.shuffleArray(
+        // Deterministically shuffled options based on attemptId + questionId, stripping isCorrect
+        options: this.deterministicShuffle(
           (ans.question.options || []).map((opt: any) => ({
             id: opt.id,
             text: opt.text,
             order: opt.order,
           })),
+          `${attempt.id}_${ans.question.id}`,
         ),
       })),
     };
@@ -833,3 +1219,4 @@ export class QuizzesService {
     return array;
   }
 }
+

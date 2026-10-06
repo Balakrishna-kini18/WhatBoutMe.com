@@ -122,7 +122,45 @@ describe('D1-036: QuizzesController - Endpoints & Permissions', () => {
     });
   });
 
-  describe('4. Metadata & Permissions Verification', () => {
+  describe('4. Question Bank Administration Delegation', () => {
+    it('getQuestions delegates to service.getQuestionsForQuiz', async () => {
+      serviceMock.getQuestionsForQuiz = vi.fn().mockResolvedValue([{ id: 'question-1' }]);
+      const res = await controller.getQuestions('q1');
+      expect(res).toEqual([{ id: 'question-1' }]);
+      expect(serviceMock.getQuestionsForQuiz).toHaveBeenCalledWith('q1');
+    });
+
+    it('createQuestion delegates to service.createQuestionForQuiz', async () => {
+      serviceMock.createQuestionForQuiz = vi.fn().mockResolvedValue({ id: 'question-created' });
+      const dto = {
+        text: 'What is step 1?',
+        options: [
+          { text: 'A', isCorrect: true },
+          { text: 'B', isCorrect: false },
+        ],
+      };
+      const res = await controller.createQuestion('q1', dto as any);
+      expect(res).toEqual({ id: 'question-created' });
+      expect(serviceMock.createQuestionForQuiz).toHaveBeenCalledWith('q1', dto);
+    });
+
+    it('updateQuestion delegates to service.updateQuestion', async () => {
+      serviceMock.updateQuestion = vi.fn().mockResolvedValue({ id: 'question-updated' });
+      const dto = { text: 'Updated question text?' };
+      const res = await controller.updateQuestion('question-1', dto as any);
+      expect(res).toEqual({ id: 'question-updated' });
+      expect(serviceMock.updateQuestion).toHaveBeenCalledWith('question-1', dto);
+    });
+
+    it('deleteQuestion delegates to service.deleteQuestion', async () => {
+      serviceMock.deleteQuestion = vi.fn().mockResolvedValue({ success: true, questionId: 'question-1' });
+      const res = await controller.deleteQuestion('question-1');
+      expect(res).toEqual({ success: true, questionId: 'question-1' });
+      expect(serviceMock.deleteQuestion).toHaveBeenCalledWith('question-1');
+    });
+  });
+
+  describe('5. Metadata & Permissions Verification', () => {
     it('decorates findAll and findOne with QUIZZES_READ permission', () => {
       const permAll = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.findAll);
       const permOne = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.findOne);
@@ -154,5 +192,26 @@ describe('D1-036: QuizzesController - Endpoints & Permissions', () => {
       const perm = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.getEnrolmentAttempts);
       expect(perm).toEqual([Permission.QUIZZES_READ]);
     });
+
+    it('decorates getQuestions with QUIZZES_READ permission', () => {
+      const perm = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.getQuestions);
+      expect(perm).toEqual([Permission.QUIZZES_READ]);
+    });
+
+    it('decorates createQuestion with QUIZZES_CREATE permission', () => {
+      const perm = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.createQuestion);
+      expect(perm).toEqual([Permission.QUIZZES_CREATE]);
+    });
+
+    it('decorates updateQuestion with QUIZZES_UPDATE permission', () => {
+      const perm = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.updateQuestion);
+      expect(perm).toEqual([Permission.QUIZZES_UPDATE]);
+    });
+
+    it('decorates deleteQuestion with QUIZZES_DELETE permission', () => {
+      const perm = reflector.get(PERMISSIONS_KEY, QuizzesController.prototype.deleteQuestion);
+      expect(perm).toEqual([Permission.QUIZZES_DELETE]);
+    });
   });
 });
+

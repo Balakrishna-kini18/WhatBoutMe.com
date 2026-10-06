@@ -7,12 +7,15 @@ import {
 import {
   AttemptStatus,
   ContentStatus,
+  ContentType,
   EnrolmentStatus,
   ReleaseSchedule,
   Role,
   StepOverrideState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
+
+export const DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT = 90.0;
 
 export type LockReason =
   | 'ENROLMENT_NOT_ACTIVE'
@@ -28,6 +31,40 @@ export interface LessonProgressItem {
   type: string;
   durationSec: number | null;
   isCompleted: boolean;
+  progressPercent?: number;
+  lastPositionSec?: number | null;
+  completedAt?: Date | null;
+}
+
+export interface LessonProgressResult {
+  lessonId: string;
+  enrolmentId: string;
+  viewed: boolean;
+  progressPercent: number;
+  lastPositionSec: number | null;
+  completedAt: Date | null;
+  durationSec?: number | null;
+}
+
+export interface EnrolmentLessonsOverviewResponse {
+  enrolmentId: string;
+  programId: string;
+  batchId: string;
+  totalLessons: number;
+  completedLessons: number;
+  lessons: Array<{
+    lessonId: string;
+    stepId: string;
+    stepSequence: number;
+    order: number;
+    title: string;
+    type: string;
+    durationSec: number | null;
+    viewed: boolean;
+    progressPercent: number;
+    lastPositionSec: number | null;
+    completedAt: Date | null;
+  }>;
 }
 
 export interface QuizProgressItem {
@@ -593,7 +630,13 @@ export class ProgressionService {
       await Promise.all([
         this.prisma.userLessonProgress.findMany({
           where: { enrolmentId: enrolment.id },
-          select: { lessonId: true, viewed: true },
+          select: {
+            lessonId: true,
+            viewed: true,
+            progressPercent: true,
+            lastPositionSec: true,
+            completedAt: true,
+          },
         }),
         this.prisma.attempt.findMany({
           where: { enrolmentId: enrolment.id },
@@ -605,6 +648,10 @@ export class ProgressionService {
       ]);
 
     // 3. Fast lookup indices
+    const lessonProgressMap = new Map<string, any>(
+      lessonProgressList.map((lp) => [lp.lessonId, lp]),
+    );
+
     const viewedLessonIds = new Set<string>(
       lessonProgressList.filter((lp) => lp.viewed).map((lp) => lp.lessonId),
     );
@@ -667,14 +714,20 @@ export class ProgressionService {
       const batchOverride = batchOverridesMap.get(step.id);
 
       // Map lesson items with completion state
-      const lessons: LessonProgressItem[] = step.lessons.map((lesson) => ({
-        lessonId: lesson.id,
-        order: lesson.order,
-        title: lesson.title,
-        type: lesson.type,
-        durationSec: lesson.durationSec,
-        isCompleted: viewedLessonIds.has(lesson.id),
-      }));
+      const lessons: LessonProgressItem[] = step.lessons.map((lesson) => {
+        const lp = lessonProgressMap.get(lesson.id);
+        return {
+          lessonId: lesson.id,
+          order: lesson.order,
+          title: lesson.title,
+          type: lesson.type,
+          durationSec: lesson.durationSec,
+          isCompleted: viewedLessonIds.has(lesson.id),
+          progressPercent: lp?.progressPercent ?? 0,
+          lastPositionSec: lp?.lastPositionSec ?? null,
+          completedAt: lp?.completedAt ?? null,
+        };
+      });
 
       // Map quiz stats
       let quizItem: QuizProgressItem | null = null;
@@ -954,4 +1007,468 @@ export class ProgressionService {
 
     throw new ForbiddenException('Access denied: Unauthorized role');
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 9. D1-035: LESSON PROGRESSION TRACKING
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Records media playback progress (heartbeat) for VIDEO or AUDIO lessons.
+   * Calculates progressPercent server-side from authoritative Lesson.durationSec.
+   * Progress percent is monotonic (never decreases).
+   * viewed is irreversible once true.
+   * completedAt is immutable after first completion.
+   */
+  async recordMediaProgress(
+    lessonId: string,
+    actor: any,
+    positionSec: number,
+  ): Promise<LessonProgressResult> {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) {
+      throw new ForbiddenException('Access denied: Authentication required');
+    }
+
+    if (
+      typeof positionSec !== 'number' ||
+      !Number.isFinite(positionSec) ||
+      positionSec < 0
+    ) {
+      throw new BadRequestException(
+        'positionSec must be a non-negative finite number',
+      );
+    }
+
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      include: {
+        step: {
+          select: {
+            id: true,
+            programId: true,
+            sequence: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    if (
+      lesson.type !== ContentType.VIDEO &&
+      lesson.type !== ContentType.AUDIO
+    ) {
+      throw new BadRequestException(
+        'Lesson is not a media type (VIDEO or AUDIO). Heartbeat tracking is only supported for video/audio',
+      );
+    }
+
+    const enrolment = await this.prisma.enrolment.findFirst({
+      where: {
+        userId: actorId,
+        programId: lesson.step.programId,
+      },
+      include: {
+        batch: {
+          include: {
+            trainers: { select: { trainerId: true } },
+            overrides: true,
+          },
+        },
+        program: {
+          select: { id: true, title: true, status: true },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new ForbiddenException(
+        'Access denied: No enrolment found for this lesson program',
+      );
+    }
+
+    if (enrolment.status !== EnrolmentStatus.ACTIVE) {
+      throw new ForbiddenException('Access denied: Enrolment is not ACTIVE');
+    }
+
+    // Call D1-033/D1-034 step access gate
+    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
+
+    // Calculate percentage server-side from authoritative Lesson.durationSec
+    let clampedPosition = positionSec;
+    let calculatedPercent = 0;
+
+    if (lesson.durationSec && lesson.durationSec > 0) {
+      clampedPosition = Math.min(positionSec, lesson.durationSec);
+      calculatedPercent = (clampedPosition / lesson.durationSec) * 100;
+    }
+
+    const existingProgress = await this.prisma.userLessonProgress.findUnique({
+      where: {
+        enrolmentId_lessonId: {
+          enrolmentId: enrolment.id,
+          lessonId: lesson.id,
+        },
+      },
+    });
+
+    const prevPercent = existingProgress?.progressPercent ?? 0;
+    const newProgressPercent = Math.max(prevPercent, calculatedPercent);
+
+    // lastPositionSec represents latest accepted playback position and may move backward (e.g. rewind)
+    const lastPositionSec = clampedPosition;
+
+    // Authoritative completion rule:
+    // If lesson.durationSec is null or <= 0: do NOT award completion.
+    // Otherwise, completion awarded when newProgressPercent >= DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT.
+    // viewed is irreversible once true.
+    const earnedCompletion =
+      lesson.durationSec != null &&
+      lesson.durationSec > 0 &&
+      newProgressPercent >= DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT;
+
+    const viewed = (existingProgress?.viewed ?? false) || earnedCompletion;
+
+    // completedAt is immutable after first completion
+    const completedAt =
+      existingProgress?.completedAt ??
+      (viewed ? new Date() : null);
+
+    const updatedProgress = await this.prisma.userLessonProgress.upsert({
+      where: {
+        enrolmentId_lessonId: {
+          enrolmentId: enrolment.id,
+          lessonId: lesson.id,
+        },
+      },
+      create: {
+        enrolmentId: enrolment.id,
+        lessonId: lesson.id,
+        viewed,
+        progressPercent: newProgressPercent,
+        lastPositionSec,
+        completedAt,
+      },
+      update: {
+        viewed,
+        progressPercent: newProgressPercent,
+        lastPositionSec,
+        completedAt,
+      },
+    });
+
+    // Progression evaluation trigger if lesson newly transitioned to viewed
+    const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
+    if (transitionToCompleted) {
+      await this.evaluateProgression(enrolment, { persist: true });
+    }
+
+    return {
+      lessonId: lesson.id,
+      enrolmentId: enrolment.id,
+      viewed: updatedProgress.viewed,
+      progressPercent: updatedProgress.progressPercent,
+      lastPositionSec: updatedProgress.lastPositionSec,
+      completedAt: updatedProgress.completedAt,
+      durationSec: lesson.durationSec,
+    };
+  }
+
+  /**
+   * Records completion for document (PDF) or reading confirmation (TEXT) lessons.
+   * Rejects VIDEO and AUDIO.
+   */
+  async completeDocumentOrTextLesson(
+    lessonId: string,
+    actor: any,
+  ): Promise<LessonProgressResult> {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) {
+      throw new ForbiddenException('Access denied: Authentication required');
+    }
+
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      include: {
+        step: {
+          select: {
+            id: true,
+            programId: true,
+            sequence: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    if (
+      lesson.type === ContentType.VIDEO ||
+      lesson.type === ContentType.AUDIO
+    ) {
+      throw new BadRequestException(
+        'Video and audio lessons cannot be completed via this endpoint. Use /heartbeat',
+      );
+    }
+
+    if (
+      lesson.type !== ContentType.PDF &&
+      lesson.type !== ContentType.TEXT
+    ) {
+      throw new BadRequestException(
+        'Unsupported lesson type for manual completion',
+      );
+    }
+
+    const enrolment = await this.prisma.enrolment.findFirst({
+      where: {
+        userId: actorId,
+        programId: lesson.step.programId,
+      },
+      include: {
+        batch: {
+          include: {
+            trainers: { select: { trainerId: true } },
+            overrides: true,
+          },
+        },
+        program: {
+          select: { id: true, title: true, status: true },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new ForbiddenException(
+        'Access denied: No enrolment found for this lesson program',
+      );
+    }
+
+    if (enrolment.status !== EnrolmentStatus.ACTIVE) {
+      throw new ForbiddenException('Access denied: Enrolment is not ACTIVE');
+    }
+
+    // Call D1-033/D1-034 step access gate
+    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
+
+    const existingProgress = await this.prisma.userLessonProgress.findUnique({
+      where: {
+        enrolmentId_lessonId: {
+          enrolmentId: enrolment.id,
+          lessonId: lesson.id,
+        },
+      },
+    });
+
+    const viewed = true;
+    const progressPercent = 100.0;
+    const completedAt = existingProgress?.completedAt ?? new Date();
+    const lastPositionSec = existingProgress?.lastPositionSec ?? null;
+
+    const updatedProgress = await this.prisma.userLessonProgress.upsert({
+      where: {
+        enrolmentId_lessonId: {
+          enrolmentId: enrolment.id,
+          lessonId: lesson.id,
+        },
+      },
+      create: {
+        enrolmentId: enrolment.id,
+        lessonId: lesson.id,
+        viewed,
+        progressPercent,
+        lastPositionSec,
+        completedAt,
+      },
+      update: {
+        viewed,
+        progressPercent,
+        completedAt,
+      },
+    });
+
+    const transitionToCompleted = !(existingProgress?.viewed ?? false);
+    if (transitionToCompleted) {
+      await this.evaluateProgression(enrolment, { persist: true });
+    }
+
+    return {
+      lessonId: lesson.id,
+      enrolmentId: enrolment.id,
+      viewed: updatedProgress.viewed,
+      progressPercent: updatedProgress.progressPercent,
+      lastPositionSec: updatedProgress.lastPositionSec,
+      completedAt: updatedProgress.completedAt,
+      durationSec: lesson.durationSec,
+    };
+  }
+
+  /**
+   * Retrieves learner progress for a specific lesson.
+   * Derives enrolment from authenticated user to prevent IDOR.
+   */
+  async getLearnerLessonProgress(
+    lessonId: string,
+    actor: any,
+  ): Promise<LessonProgressResult> {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) {
+      throw new ForbiddenException('Access denied: Authentication required');
+    }
+
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      include: {
+        step: {
+          select: {
+            id: true,
+            programId: true,
+            sequence: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    const enrolment = await this.prisma.enrolment.findFirst({
+      where: {
+        userId: actorId,
+        programId: lesson.step.programId,
+      },
+      include: {
+        batch: {
+          include: {
+            trainers: { select: { trainerId: true } },
+            overrides: true,
+          },
+        },
+        program: {
+          select: { id: true, title: true, status: true },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new ForbiddenException(
+        'Access denied: No enrolment found for this lesson program',
+      );
+    }
+
+    if (
+      enrolment.status !== EnrolmentStatus.ACTIVE &&
+      enrolment.status !== EnrolmentStatus.COMPLETED
+    ) {
+      throw new ForbiddenException(
+        'Access denied: Enrolment is not ACTIVE or COMPLETED',
+      );
+    }
+
+    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
+
+    const progress = await this.prisma.userLessonProgress.findUnique({
+      where: {
+        enrolmentId_lessonId: {
+          enrolmentId: enrolment.id,
+          lessonId: lesson.id,
+        },
+      },
+    });
+
+    return {
+      lessonId: lesson.id,
+      enrolmentId: enrolment.id,
+      viewed: progress?.viewed ?? false,
+      progressPercent: progress?.progressPercent ?? 0,
+      lastPositionSec: progress?.lastPositionSec ?? null,
+      completedAt: progress?.completedAt ?? null,
+      durationSec: lesson.durationSec,
+    };
+  }
+
+  /**
+   * Administrative/Staff overview of all lessons for an enrolment.
+   * Enforces manager batch scoping and Permission.STEPS_READ.
+   */
+  async getEnrolmentLessonsProgress(
+    enrolmentId: string,
+    actor: any,
+  ): Promise<EnrolmentLessonsOverviewResponse> {
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id: enrolmentId },
+      include: {
+        program: { select: { id: true, title: true, status: true } },
+        batch: {
+          include: {
+            trainers: { select: { trainerId: true } },
+            overrides: true,
+          },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new NotFoundException('Enrolment not found');
+    }
+
+    this.assertUserAuthorizedForEnrolment(actor, enrolment);
+
+    const steps = await this.prisma.step.findMany({
+      where: {
+        programId: enrolment.programId,
+        status: ContentStatus.PUBLISHED,
+      },
+      orderBy: { sequence: 'asc' },
+      include: {
+        lessons: {
+          where: { status: ContentStatus.PUBLISHED },
+          orderBy: { order: 'asc' },
+        },
+      },
+    });
+
+    const progressRecords = await this.prisma.userLessonProgress.findMany({
+      where: { enrolmentId },
+    });
+
+    const progressMap = new Map(progressRecords.map((p) => [p.lessonId, p]));
+
+    const lessons = steps.flatMap((step) =>
+      step.lessons.map((lesson) => {
+        const p = progressMap.get(lesson.id);
+        return {
+          lessonId: lesson.id,
+          stepId: step.id,
+          stepSequence: step.sequence,
+          order: lesson.order,
+          title: lesson.title,
+          type: lesson.type,
+          durationSec: lesson.durationSec,
+          viewed: p?.viewed ?? false,
+          progressPercent: p?.progressPercent ?? 0,
+          lastPositionSec: p?.lastPositionSec ?? null,
+          completedAt: p?.completedAt ?? null,
+        };
+      }),
+    );
+
+    return {
+      enrolmentId: enrolment.id,
+      programId: enrolment.programId,
+      batchId: enrolment.batchId,
+      totalLessons: lessons.length,
+      completedLessons: lessons.filter((l) => l.viewed).length,
+      lessons,
+    };
+  }
 }
+

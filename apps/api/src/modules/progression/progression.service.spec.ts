@@ -80,8 +80,15 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         findUnique: vi.fn(),
         findMany: vi.fn(),
       },
+      lesson: {
+        findUnique: vi.fn(),
+      },
       userLessonProgress: {
         findMany: vi.fn().mockResolvedValue([]),
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockImplementation(({ create, update }: any) =>
+          Promise.resolve({ ...create, ...update, id: 'ulp-1' }),
+        ),
       },
       attempt: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -1170,4 +1177,552 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
       });
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 6. D1-035: LESSON PROGRESSION TRACKING TESTS
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('D1-035: Lesson Progress Tracking Engine', () => {
+    const learnerUser = { id: 'u1', sub: 'u1', role: Role.USER };
+    const otherLearner = { id: 'u2', sub: 'u2', role: Role.USER };
+    const managerUser = { id: 'mgr-1', sub: 'mgr-1', role: Role.MANAGER };
+    const unassignedManager = { id: 'mgr-other', sub: 'mgr-other', role: Role.MANAGER };
+
+    const mockActiveEnrolment = {
+      id: 'enrol-1',
+      userId: 'u1',
+      programId: 'prog-1',
+      batchId: 'batch-1',
+      status: EnrolmentStatus.ACTIVE,
+      batch: mockBatch,
+      program: mockProgram,
+    };
+
+    const mockVideoLesson = {
+      id: 'lesson-video-1',
+      stepId: 's1',
+      title: 'Intro Video',
+      type: ContentType.VIDEO,
+      mediaUrl: 'https://s3.example.com/video1.mp4',
+      durationSec: 300,
+      order: 1,
+      status: ContentStatus.PUBLISHED,
+      step: {
+        id: 's1',
+        programId: 'prog-1',
+        sequence: 1,
+        status: ContentStatus.PUBLISHED,
+      },
+    };
+
+    const mockAudioLesson = {
+      id: 'lesson-audio-1',
+      stepId: 's1',
+      title: 'Podcast Lesson',
+      type: ContentType.AUDIO,
+      mediaUrl: 'https://s3.example.com/audio1.mp3',
+      durationSec: 200,
+      order: 2,
+      status: ContentStatus.PUBLISHED,
+      step: {
+        id: 's1',
+        programId: 'prog-1',
+        sequence: 1,
+        status: ContentStatus.PUBLISHED,
+      },
+    };
+
+    const mockPdfLesson = {
+      id: 'lesson-pdf-1',
+      stepId: 's1',
+      title: 'Reading Guide',
+      type: ContentType.PDF,
+      mediaUrl: 'https://s3.example.com/guide.pdf',
+      durationSec: null,
+      order: 3,
+      status: ContentStatus.PUBLISHED,
+      step: {
+        id: 's1',
+        programId: 'prog-1',
+        sequence: 1,
+        status: ContentStatus.PUBLISHED,
+      },
+    };
+
+    const mockTextLesson = {
+      id: 'lesson-text-1',
+      stepId: 's1',
+      title: 'Written Reflection',
+      type: ContentType.TEXT,
+      mediaUrl: '',
+      content: 'Reflect on your leadership journey.',
+      durationSec: null,
+      order: 4,
+      status: ContentStatus.PUBLISHED,
+      step: {
+        id: 's1',
+        programId: 'prog-1',
+        sequence: 1,
+        status: ContentStatus.PUBLISHED,
+      },
+    };
+
+    beforeEach(() => {
+      // Step 1 published, immediate release
+      prismaMock.step.findUnique.mockImplementation(({ where }: any) => {
+        if (where?.id === 's1') {
+          return Promise.resolve({
+            id: 's1',
+            programId: 'prog-1',
+            sequence: 1,
+            title: 'Step 1',
+            status: ContentStatus.PUBLISHED,
+          });
+        }
+        if (where?.id === 's2') {
+          return Promise.resolve({
+            id: 's2',
+            programId: 'prog-1',
+            sequence: 2,
+            title: 'Step 2',
+            status: ContentStatus.PUBLISHED,
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      prismaMock.step.findMany.mockResolvedValue([
+        createMockStep('s1', 1, ReleaseSchedule.IMMEDIATE),
+        createMockStep('s2', 2, ReleaseSchedule.IMMEDIATE),
+      ]);
+
+      prismaMock.enrolment.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.userId === 'u1' && where?.programId === 'prog-1') {
+          return Promise.resolve(mockActiveEnrolment);
+        }
+        return Promise.resolve(null);
+      });
+
+      prismaMock.enrolment.findUnique.mockImplementation(({ where }: any) => {
+        if (where?.id === 'enrol-1') {
+          return Promise.resolve(mockActiveEnrolment);
+        }
+        return Promise.resolve(null);
+      });
+
+      prismaMock.stepProgress.findMany.mockResolvedValue([]);
+      prismaMock.userLessonProgress.findMany.mockResolvedValue([]);
+      prismaMock.attempt.findMany.mockResolvedValue([]);
+    });
+
+    describe('Video and Audio Heartbeat Tracking (POST /progress/lessons/:lessonId/heartbeat)', () => {
+      it('calculates 50% watch progress and stores viewed=false for video halfway watched', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 150);
+
+        expect(res.lessonId).toBe('lesson-video-1');
+        expect(res.enrolmentId).toBe('enrol-1');
+        expect(res.progressPercent).toBe(50.0);
+        expect(res.lastPositionSec).toBe(150);
+        expect(res.viewed).toBe(false);
+        expect(res.completedAt).toBeNull();
+
+        expect(prismaMock.userLessonProgress.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              enrolmentId_lessonId: {
+                enrolmentId: 'enrol-1',
+                lessonId: 'lesson-video-1',
+              },
+            },
+            create: expect.objectContaining({
+              viewed: false,
+              progressPercent: 50.0,
+              lastPositionSec: 150,
+              completedAt: null,
+            }),
+          }),
+        );
+      });
+
+      it('awards completion (viewed=true) and sets completedAt when video reaches 90% threshold', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 270);
+
+        expect(res.progressPercent).toBe(90.0);
+        expect(res.viewed).toBe(true);
+        expect(res.completedAt).toBeInstanceOf(Date);
+      });
+
+      it('awards completion for audio when reaching 90% threshold', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockAudioLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        // 180s / 200s = 90%
+        const res = await service.recordMediaProgress('lesson-audio-1', learnerUser, 180);
+
+        expect(res.progressPercent).toBe(90.0);
+        expect(res.viewed).toBe(true);
+        expect(res.completedAt).toBeInstanceOf(Date);
+      });
+
+      it('safely handles missing duration: saves lastPositionSec for resume, does not award completion', async () => {
+        const lessonNoDuration = { ...mockVideoLesson, durationSec: null };
+        prismaMock.lesson.findUnique.mockResolvedValue(lessonNoDuration);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 60);
+
+        expect(res.lastPositionSec).toBe(60);
+        expect(res.progressPercent).toBe(0);
+        expect(res.viewed).toBe(false);
+        expect(res.completedAt).toBeNull();
+      });
+
+      it('safely handles zero duration: saves lastPositionSec, does not award completion', async () => {
+        const lessonZeroDuration = { ...mockVideoLesson, durationSec: 0 };
+        prismaMock.lesson.findUnique.mockResolvedValue(lessonZeroDuration);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 45);
+
+        expect(res.lastPositionSec).toBe(45);
+        expect(res.progressPercent).toBe(0);
+        expect(res.viewed).toBe(false);
+      });
+
+      it('clamps impossible position beyond lesson duration to durationSec', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        // Client reports 9999s on 300s video
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 9999);
+
+        expect(res.lastPositionSec).toBe(300);
+        expect(res.progressPercent).toBe(100.0);
+        expect(res.viewed).toBe(true);
+      });
+
+      it('enforces monotonic progress percent during rewinds while updating lastPositionSec', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        // Learner already watched to 210s (70%)
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 70.0,
+          lastPositionSec: 210,
+          viewed: false,
+          completedAt: null,
+        });
+
+        // Learner rewinds to 60s (20%)
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 60);
+
+        // progressPercent must remain 70.0 (monotonic)
+        expect(res.progressPercent).toBe(70.0);
+        // lastPositionSec allows resume from rewind position
+        expect(res.lastPositionSec).toBe(60);
+        expect(res.viewed).toBe(false);
+      });
+
+      it('ignores delayed out-of-order heartbeat with lower percentage', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        // Stored progress is 95%
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 95.0,
+          lastPositionSec: 285,
+          viewed: true,
+          completedAt: new Date('2026-10-06T10:00:00Z'),
+        });
+
+        // Delayed heartbeat with 30s arrives
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 30);
+
+        expect(res.progressPercent).toBe(95.0);
+        expect(res.viewed).toBe(true);
+      });
+
+      it('preserves completion permanence and does not alter completedAt on subsequent heartbeats', async () => {
+        const firstCompletedAt = new Date('2026-10-05T12:00:00Z');
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 100.0,
+          lastPositionSec: 300,
+          viewed: true,
+          completedAt: firstCompletedAt,
+        });
+
+        // Subsequent heartbeat at 0s
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 0);
+
+        expect(res.viewed).toBe(true);
+        expect(res.completedAt).toEqual(firstCompletedAt);
+      });
+
+      it('does NOT create AuditLog entries on ordinary learner playback heartbeats', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        await service.recordMediaProgress('lesson-video-1', learnerUser, 150);
+
+        expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+      });
+
+      it('rejects invalid positionSec (negative, NaN, non-number)', async () => {
+        await expect(
+          service.recordMediaProgress('lesson-video-1', learnerUser, -10),
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.recordMediaProgress('lesson-video-1', learnerUser, NaN),
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.recordMediaProgress('lesson-video-1', learnerUser, Infinity),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('PDF and Text Completion (POST /progress/lessons/:lessonId/complete)', () => {
+      it('marks PDF lesson as completed (viewed=true, progressPercent=100)', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockPdfLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.completeDocumentOrTextLesson('lesson-pdf-1', learnerUser);
+
+        expect(res.lessonId).toBe('lesson-pdf-1');
+        expect(res.viewed).toBe(true);
+        expect(res.progressPercent).toBe(100.0);
+        expect(res.completedAt).toBeInstanceOf(Date);
+      });
+
+      it('marks TEXT reading confirmation lesson as completed', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockTextLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.completeDocumentOrTextLesson('lesson-text-1', learnerUser);
+
+        expect(res.lessonId).toBe('lesson-text-1');
+        expect(res.viewed).toBe(true);
+        expect(res.progressPercent).toBe(100.0);
+      });
+
+      it('rejects VIDEO lesson completion via /complete endpoint', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+
+        await expect(
+          service.completeDocumentOrTextLesson('lesson-video-1', learnerUser),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects AUDIO lesson completion via /complete endpoint', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockAudioLesson);
+
+        await expect(
+          service.completeDocumentOrTextLesson('lesson-audio-1', learnerUser),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('rejects PDF/TEXT heartbeat via /heartbeat endpoint', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockPdfLesson);
+
+        await expect(
+          service.recordMediaProgress('lesson-pdf-1', learnerUser, 50),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('Step Access Gating & Manual Override Integration', () => {
+      it('blocks lesson progress if parent step is locked by prerequisites', async () => {
+        // Lesson belongs to Step 2
+        const step2Lesson = {
+          ...mockVideoLesson,
+          stepId: 's2',
+          step: {
+            id: 's2',
+            programId: 'prog-1',
+            sequence: 2,
+            status: ContentStatus.PUBLISHED,
+          },
+        };
+        prismaMock.lesson.findUnique.mockResolvedValue(step2Lesson);
+
+        // Step 1 is not completed, so Step 2 is locked
+        prismaMock.stepProgress.findMany.mockResolvedValue([]);
+        prismaMock.userLessonProgress.findMany.mockResolvedValue([]);
+
+        await expect(
+          service.recordMediaProgress('lesson-video-1', learnerUser, 100),
+        ).rejects.toThrow('Step is locked: PREVIOUS_STEP_INCOMPLETE');
+      });
+
+      it('blocks lesson progress if parent step is MANUAL_LOCKED', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+
+        // Step 1 is manually locked
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's1',
+            overrideState: StepOverrideState.MANUAL_LOCKED,
+            isUnlocked: false,
+            isCompleted: false,
+          },
+        ]);
+
+        await expect(
+          service.recordMediaProgress('lesson-video-1', learnerUser, 100),
+        ).rejects.toThrow('Step is locked: MANUAL_LOCKED');
+      });
+
+      it('allows lesson progress when step is MANUAL_UNLOCKED even if prerequisites are missing', async () => {
+        const step2Lesson = {
+          ...mockVideoLesson,
+          stepId: 's2',
+          step: {
+            id: 's2',
+            programId: 'prog-1',
+            sequence: 2,
+            status: ContentStatus.PUBLISHED,
+          },
+        };
+        prismaMock.lesson.findUnique.mockResolvedValue(step2Lesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        // Step 2 is MANUAL_UNLOCKED
+        prismaMock.stepProgress.findMany.mockResolvedValue([
+          {
+            stepId: 's2',
+            overrideState: StepOverrideState.MANUAL_UNLOCKED,
+            isUnlocked: true,
+            isCompleted: false,
+          },
+        ]);
+
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 150);
+        expect(res.progressPercent).toBe(50.0);
+      });
+    });
+
+    describe('Security, IDOR & Multi-tenancy Bounds', () => {
+      it('blocks progress for inactive enrolment (e.g. PENDING_PAYMENT)', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.enrolment.findFirst.mockResolvedValue({
+          ...mockActiveEnrolment,
+          status: EnrolmentStatus.PENDING_PAYMENT,
+        });
+
+        await expect(
+          service.recordMediaProgress('lesson-video-1', learnerUser, 150),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('blocks learner from progressing lesson when they have no enrolment for that program (IDOR protection)', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        // Learner has no enrolment in prog-1
+        prismaMock.enrolment.findFirst.mockResolvedValue(null);
+
+        await expect(
+          service.recordMediaProgress('lesson-video-1', otherLearner, 150),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('rejects cross-program lesson when lesson does not belong to learner enrolled program', async () => {
+        const otherProgLesson = {
+          ...mockVideoLesson,
+          step: {
+            id: 's-other',
+            programId: 'prog-other',
+            sequence: 1,
+            status: ContentStatus.PUBLISHED,
+          },
+        };
+        prismaMock.lesson.findUnique.mockResolvedValue(otherProgLesson);
+        prismaMock.enrolment.findFirst.mockResolvedValue(null);
+
+        await expect(
+          service.recordMediaProgress('lesson-other', learnerUser, 100),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('throws NotFoundException when lesson does not exist', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.recordMediaProgress('non-existent', learnerUser, 100),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('Learner Progress Retrieval (GET /progress/lessons/:lessonId)', () => {
+      it('returns existing learner progress for enrolled lesson', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 75.0,
+          lastPositionSec: 225,
+          viewed: false,
+          completedAt: null,
+        });
+
+        const res = await service.getLearnerLessonProgress('lesson-video-1', learnerUser);
+
+        expect(res.lessonId).toBe('lesson-video-1');
+        expect(res.progressPercent).toBe(75.0);
+        expect(res.lastPositionSec).toBe(225);
+        expect(res.viewed).toBe(false);
+        expect(res.durationSec).toBe(300);
+      });
+
+      it('returns unviewed defaults when no progress record exists yet', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        const res = await service.getLearnerLessonProgress('lesson-video-1', learnerUser);
+
+        expect(res.viewed).toBe(false);
+        expect(res.progressPercent).toBe(0);
+        expect(res.lastPositionSec).toBeNull();
+      });
+    });
+
+    describe('Staff Lessons Overview (GET /progression/admin/enrolments/:enrolmentId/lessons)', () => {
+      it('returns full lesson overview for assigned manager', async () => {
+        prismaMock.userLessonProgress.findMany.mockResolvedValue([
+          {
+            lessonId: 'lesson-s1-1',
+            viewed: true,
+            progressPercent: 100,
+            lastPositionSec: 300,
+            completedAt: new Date(),
+          },
+        ]);
+
+        const res = await service.getEnrolmentLessonsProgress('enrol-1', managerUser);
+
+        expect(res.enrolmentId).toBe('enrol-1');
+        expect(res.totalLessons).toBeGreaterThan(0);
+        expect(res.completedLessons).toBe(1);
+        expect(res.lessons[0].viewed).toBe(true);
+      });
+
+      it('rejects unassigned manager with ForbiddenException', async () => {
+        await expect(
+          service.getEnrolmentLessonsProgress('enrol-1', unassignedManager),
+        ).rejects.toThrow('Access denied: You are not assigned to the batch for this enrolment');
+      });
+    });
+  });
 });
+

@@ -21,6 +21,7 @@ describe('D1-033: ProgressionController & Authorization Tests', () => {
       getEnrolmentProgression: vi.fn().mockResolvedValue({ enrolmentId: 'enrol-1', steps: [] }),
       getStepProgression: vi.fn().mockResolvedValue({ stepId: 'step-1', isUnlocked: true }),
       recalculateProgression: vi.fn().mockResolvedValue({ enrolmentId: 'enrol-1', steps: [] }),
+      getEnrolmentLessonsProgress: vi.fn().mockResolvedValue({ enrolmentId: 'enrol-1', totalLessons: 5, lessons: [] }),
     };
 
     reflector = new Reflector();
@@ -203,6 +204,28 @@ describe('D1-033: ProgressionController & Authorization Tests', () => {
 
       const userCtx = createMockContext(controller.resetStepOverride, { role: Role.USER, sub: 'user-1' });
       expect(() => permissionsGuard.canActivate(userCtx)).toThrow(ForbiddenException);
+    });
+  });
+
+  describe('D1-035: Staff Overview Endpoints', () => {
+    it('delegates getEnrolmentLessonsProgress and validates STEPS_READ permission', async () => {
+      const req = { user: { sub: 'mgr-1', role: Role.MANAGER } };
+      const res = await controller.getEnrolmentLessonsProgress('enrol-1', req);
+
+      expect(serviceMock.getEnrolmentLessonsProgress).toHaveBeenCalledWith('enrol-1', req.user);
+      expect(res.totalLessons).toBe(5);
+
+      // Admin has STEPS_READ
+      const adminCtx = createMockContext(controller.getEnrolmentLessonsProgress, { role: Role.ADMIN, sub: 'admin-1' });
+      expect(permissionsGuard.canActivate(adminCtx)).toBe(true);
+
+      // Manager has STEPS_READ
+      const mgrCtx = createMockContext(controller.getEnrolmentLessonsProgress, { role: Role.MANAGER, sub: 'mgr-1' });
+      expect(permissionsGuard.canActivate(mgrCtx)).toBe(true);
+
+      // Learner (USER) has STEPS_READ
+      const userCtx = createMockContext(controller.getEnrolmentLessonsProgress, { role: Role.USER, sub: 'user-1' });
+      expect(permissionsGuard.canActivate(userCtx)).toBe(true);
     });
   });
 

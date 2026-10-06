@@ -135,4 +135,24 @@ export class ProgressionController {
       ip,
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 5. STAFF OVERVIEW OF LESSONS PROGRESS (D1-035)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.STEPS_READ)
+  @Get([
+    'admin/enrolments/:enrolmentId/lessons',
+    'enrolments/:enrolmentId/lessons',
+  ])
+  async getEnrolmentLessonsProgress(
+    @Param('enrolmentId') enrolmentId: string,
+    @Request() req: any,
+  ) {
+    return this.progressionService.getEnrolmentLessonsProgress(
+      enrolmentId,
+      req.user,
+    );
+  }
 }
+

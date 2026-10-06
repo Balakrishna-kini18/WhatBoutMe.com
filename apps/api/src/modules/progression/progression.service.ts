@@ -589,7 +589,7 @@ export class ProgressionService {
   // 6. CORE PROGRESSION EVALUATOR (DETERMINISTIC ENGINE)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  private async evaluateProgression(
+  async evaluateProgression(
     enrolment: any,
     options?: { persist?: boolean },
   ): Promise<EnrolmentProgressionResponse> {

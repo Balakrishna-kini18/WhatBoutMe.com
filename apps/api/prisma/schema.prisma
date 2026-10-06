@@ -722,6 +722,7 @@ model Attempt {
   @@unique([enrolmentId, quizId, attemptNumber])
   @@index([enrolmentId, quizId])
   @@index([quizId, status])
+  @@index([enrolmentId, status])
 }
 
 model QuizAnswer {

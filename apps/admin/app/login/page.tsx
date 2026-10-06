@@ -14,7 +14,7 @@ const QUICK = [
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-type ViewMode = "login" | "verify_2fa" | "setup_2fa" | "backup_codes";
+type ViewMode = "login" | "verify_2fa" | "setup_2fa";
 
 interface PendingSession {
   access_token: string;
@@ -47,15 +47,11 @@ export default function AdminLogin() {
   const [viewMode, setViewMode] = useState<ViewMode>("login");
   const [tempToken, setTempToken] = useState("");
   const [code, setCode] = useState("");
-  const [useBackupCode, setUseBackupCode] = useState(false);
 
   // Setup state
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
   const [setupData, setSetupData] = useState<SetupData | null>(null);
-  const [backupCodes, setBackupCodes] = useState<string[]>([]);
-  const [backupAcknowledged, setBackupAcknowledged] = useState(false);
   const [copiedSecret, setCopiedSecret] = useState(false);
-  const [copiedBackupCodes, setCopiedBackupCodes] = useState(false);
 
   useEffect(() => {
     // Hide sidebar for login page
@@ -96,7 +92,6 @@ export default function AdminLogin() {
           setTempToken(data.tempToken);
           setViewMode("verify_2fa");
           setCode("");
-          setUseBackupCode(false);
           return;
         }
 
@@ -177,22 +172,19 @@ export default function AdminLogin() {
       setViewMode("login");
       return;
     }
-    const cleanCode = code.trim();
-    if (!cleanCode) {
-      setError(useBackupCode ? "Please enter a backup code" : "Please enter a 6-digit code");
+    const cleanCode = code.trim().replace(/\D/g, "");
+    if (cleanCode.length !== 6) {
+      setError("Please enter the 6-digit code from your authenticator app.");
       return;
     }
 
     setError("");
     setLoading(true);
     try {
-      const payload: { tempToken: string; code: string; backupCode?: string } = {
+      const payload = {
         tempToken,
         code: cleanCode,
       };
-      if (useBackupCode) {
-        payload.backupCode = cleanCode;
-      }
 
       const res = await fetch(`${API_URL}/auth/2fa/verify`, {
         method: "POST",
@@ -226,7 +218,7 @@ export default function AdminLogin() {
       setViewMode("login");
       return;
     }
-    const cleanCode = code.trim();
+    const cleanCode = code.trim().replace(/\D/g, "");
     if (cleanCode.length !== 6) {
       setError("Authenticator code must be exactly 6 digits");
       return;
@@ -261,22 +253,7 @@ export default function AdminLogin() {
     }
   };
 
-  // Step 4: Handle completion of backup codes review
-  const handleFinishSetup = () => {
-    if (!backupAcknowledged) {
-      setError("Please confirm that you have saved your backup codes.");
-      return;
-    }
-    if (!pendingSession) {
-      setViewMode("login");
-      return;
-    }
-    // Commit authenticated session now that 2FA is fully configured and acknowledged
-    commitSession(pendingSession);
-    router.push("/");
-  };
-
-  // Clipboard copy helpers
+  // Clipboard copy helper
   const handleCopySecret = async () => {
     if (!setupData?.secret) return;
     try {
@@ -286,38 +263,13 @@ export default function AdminLogin() {
     } catch {}
   };
 
-  const handleCopyBackupCodes = async () => {
-    if (!backupCodes.length) return;
-    try {
-      await navigator.clipboard.writeText(backupCodes.join("\n"));
-      setCopiedBackupCodes(true);
-      setTimeout(() => setCopiedBackupCodes(false), 2000);
-    } catch {}
-  };
-
-  const handleDownloadBackupCodes = () => {
-    if (!backupCodes.length) return;
-    const content = `WhatBoutMe Admin Backup Codes\nGenerated: ${new Date().toISOString()}\n\nKeep these codes in a safe place. Each code can be used only once.\n\n` + backupCodes.join("\n");
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "whatboutme-admin-backup-codes.txt";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   const handleCancelToLogin = () => {
     setViewMode("login");
     setTempToken("");
     setPendingSession(null);
     setSetupData(null);
-    setBackupCodes([]);
     setCode("");
     setError("");
-    setUseBackupCode(false);
   };
 
   return (
@@ -442,44 +394,28 @@ export default function AdminLogin() {
               <>
                 <h1 className={styles.title}>Two-Step Verification</h1>
                 <p className={styles.lead}>
-                  {useBackupCode
-                    ? "Enter one of your emergency recovery backup codes."
-                    : "Enter the 6-digit verification code from your authenticator app."}
+                  Enter the 6-digit verification code from your authenticator app.
                 </p>
 
                 <form className={styles.form} onSubmit={handleVerify2fa}>
                   <div>
                     <label htmlFor="totpCode" className={styles.label}>
-                      {useBackupCode ? "Backup Code" : "Authenticator Code"}
+                      Authenticator Code
                     </label>
                     <input
                       id="totpCode"
                       type="text"
-                      inputMode={useBackupCode ? "text" : "numeric"}
-                      pattern={useBackupCode ? undefined : "[0-9]*"}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       autoComplete="one-time-code"
                       autoFocus
                       required
-                      placeholder={useBackupCode ? "e.g. 1A2B3C4D" : "123456"}
-                      maxLength={useBackupCode ? 16 : 8}
+                      placeholder="123456"
+                      maxLength={6}
                       value={code}
-                      onChange={(e) => setCode(e.target.value)}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                       className={styles.field}
                     />
-                  </div>
-
-                  <div className={styles.actionRow}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUseBackupCode(!useBackupCode);
-                        setCode("");
-                        setError("");
-                      }}
-                      className={styles.textLink}
-                    >
-                      {useBackupCode ? "Use authenticator app instead" : "Use backup code instead"}
-                    </button>
                   </div>
 
                   {error && (
@@ -577,74 +513,6 @@ export default function AdminLogin() {
                     Cancel
                   </button>
                 </form>
-              </>
-            )}
-
-            {/* Mode 4: Backup Codes Display */}
-            {viewMode === "backup_codes" && (
-              <>
-                <h1 className={styles.title}>Save Backup Codes</h1>
-                <p className={styles.lead}>
-                  These 10 one-time recovery codes allow you to sign in if you lose access to your authenticator app.
-                </p>
-
-                <div className={styles.warningBanner}>
-                  <strong>Important:</strong> These codes are shown only once and will never be displayed again. Save them securely.
-                </div>
-
-                <div className={styles.backupGrid}>
-                  {backupCodes.map((c, i) => (
-                    <div key={i} className={styles.backupCodeItem}>
-                      {c}
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: "flex", gap: "0.5rem", margin: "1rem 0" }}>
-                  <button
-                    type="button"
-                    onClick={handleCopyBackupCodes}
-                    className={styles.secondaryBtn}
-                  >
-                    {copiedBackupCodes ? "Copied All!" : "Copy All Codes"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadBackupCodes}
-                    className={styles.secondaryBtn}
-                  >
-                    Download .txt
-                  </button>
-                </div>
-
-                <label className={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={backupAcknowledged}
-                    onChange={(e) => setBackupAcknowledged(e.target.checked)}
-                    className={styles.checkbox}
-                  />
-                  <span>I have securely copied or downloaded my backup recovery codes.</span>
-                </label>
-
-                {error && (
-                  <p role="alert" className={styles.error}>
-                    {error}
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleFinishSetup}
-                  disabled={!backupAcknowledged}
-                  className={styles.submit}
-                >
-                  Continue to Dashboard
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M5 12h14" />
-                    <path d="m12 5 7 7-7 7" />
-                  </svg>
-                </button>
               </>
             )}
           </div>

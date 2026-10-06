@@ -5,11 +5,11 @@ import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 
-// demo logins come from the environment, never from the source
+// demo logins come from the environment or default to canonical seeded development accounts
 const QUICK = [
-  { label: "Super Admin", email: process.env.NEXT_PUBLIC_DEMO_SUPER_EMAIL || "" },
-  { label: "Admin", email: process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || "" },
-  { label: "Manager", email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL || "" },
+  { label: "Super Admin", email: process.env.NEXT_PUBLIC_DEMO_SUPER_EMAIL || "super@whatboutme.com" },
+  { label: "Admin", email: process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || "admin@whatboutme.com" },
+  { label: "Manager", email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL || "manager@whatboutme.com" },
 ];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -248,10 +248,9 @@ export default function AdminLogin() {
       });
       const data = await res.json().catch(() => null);
 
-      if (res.ok && data?.backupCodes && Array.isArray(data.backupCodes)) {
-        setBackupCodes(data.backupCodes);
-        setViewMode("backup_codes");
-        setBackupAcknowledged(false);
+      if (res.ok) {
+        commitSession(pendingSession);
+        router.push("/");
       } else {
         setError(data?.error?.message || data?.message || "Invalid verification code. Please check your authenticator app.");
       }
@@ -427,7 +426,7 @@ export default function AdminLogin() {
                       type="button"
                       onClick={() => {
                         setEmail(q.email);
-                        setPassword(process.env.NEXT_PUBLIC_DEMO_PASSWORD || "");
+                        setPassword(process.env.NEXT_PUBLIC_DEMO_PASSWORD || "Learner@2026");
                       }}
                       className={styles.quickBtn}
                     >
@@ -513,37 +512,30 @@ export default function AdminLogin() {
             {viewMode === "setup_2fa" && setupData && (
               <>
                 <h1 className={styles.title}>Set Up Authenticator</h1>
-                <p className={styles.lead}>
-                  Two-factor authentication is required for admin accounts.
+                <p className={styles.lead} style={{ fontSize: '0.875rem', margin: '0.25rem 0' }}>
+                  Scan with Google or Microsoft Authenticator
                 </p>
-
-                <div className={styles.infoBanner}>
-                  Scan the QR code using Google Authenticator, Microsoft Authenticator, or another compatible TOTP app.
-                </div>
 
                 <div className={styles.qrWrapper}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={setupData.qrDataUrl} alt="2FA QR Code" className={styles.qrImage} />
                 </div>
 
-                <div>
-                  <label className={styles.label}>Can&apos;t scan? Enter this secret manually:</label>
-                  <div className={styles.secretBox}>
-                    <span>{setupData.secret}</span>
-                    <button
-                      type="button"
-                      onClick={handleCopySecret}
-                      className={styles.copyBtn}
-                      aria-label="Copy secret key"
-                    >
-                      {copiedSecret ? "Copied!" : "Copy"}
-                    </button>
-                  </div>
+                <div className={styles.secretBox}>
+                  <span>Key: {setupData.secret}</span>
+                  <button
+                    type="button"
+                    onClick={handleCopySecret}
+                    className={styles.copyBtn}
+                    aria-label="Copy secret key"
+                  >
+                    {copiedSecret ? "Copied!" : "Copy"}
+                  </button>
                 </div>
 
-                <form className={styles.form} onSubmit={handleEnable2fa}>
+                <form className={styles.form} onSubmit={handleEnable2fa} style={{ marginTop: '0.5rem', gap: '0.625rem' }}>
                   <div>
-                    <label htmlFor="setupCode" className={styles.label}>
+                    <label htmlFor="setupCode" className={styles.label} style={{ marginBottom: '0.25rem', fontSize: '0.8125rem' }}>
                       Enter 6-digit code from your app
                     </label>
                     <input
@@ -558,6 +550,7 @@ export default function AdminLogin() {
                       value={code}
                       onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                       className={styles.field}
+                      style={{ padding: '0.625rem 0.875rem' }}
                     />
                   </div>
 

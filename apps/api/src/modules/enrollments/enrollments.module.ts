@@ -1,11 +1,20 @@
 import { Module } from '@nestjs/common';
-import { EnrollmentsController, AdminEnrollmentsController } from './enrollments.controller.js';
+import {
+  AdminEnrolmentsController,
+  BatchWaitlistController,
+  LearnerEnrolmentsController,
+} from './enrollments.controller.js';
 import { EnrollmentsService } from './enrollments.service.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
+import { CacheHelperModule } from '../../common/cache/cache-helper.module.js';
 
 @Module({
-  imports: [PrismaModule],
-  controllers: [EnrollmentsController, AdminEnrollmentsController],
+  imports: [PrismaModule, CacheHelperModule],
+  controllers: [
+    AdminEnrolmentsController,
+    BatchWaitlistController,
+    LearnerEnrolmentsController,
+  ],
   providers: [EnrollmentsService],
   exports: [EnrollmentsService],
 })

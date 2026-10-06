@@ -7,6 +7,8 @@ import { ProgramsModule } from './modules/programs/programs.module.js';
 import { BatchesModule } from './modules/batches/batches.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { QuizzesModule } from './modules/quizzes/quizzes.module.js';
+import { ExamsModule } from './modules/exams/exams.module.js';
+import { OralAssessmentsModule } from './modules/oral-assessments/oral-assessments.module.js';
 import { InvoicesModule } from './modules/invoices/invoices.module.js';
 import { RevenueModule } from './modules/revenue/revenue.module.js';
 import { SessionsModule } from './modules/sessions/sessions.module.js';
@@ -67,6 +69,8 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     BatchesModule,
     AuthModule,
     QuizzesModule,
+    ExamsModule,
+    OralAssessmentsModule,
     InvoicesModule,
     RevenueModule,
     SessionsModule,

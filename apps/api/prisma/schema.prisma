@@ -64,6 +64,13 @@ enum ContentStatus {
   ARCHIVED
 }
 
+enum BatchStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
 enum ReleaseSchedule {
   IMMEDIATE
   BATCH_SCHEDULED
@@ -594,7 +601,9 @@ model Batch {
   manager   User?   @relation("ManagerBatches", fields: [managerId], references: [id])
 
   startDate DateTime
+  endDate   DateTime?
   capacity  Int
+  status    BatchStatus @default(UPCOMING)
 
   enrolments Enrolment[]
   sessions   Session[]
@@ -604,6 +613,9 @@ model Batch {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([programId, status])
+  @@index([managerId, status])
 }
 
 model BatchTrainer {

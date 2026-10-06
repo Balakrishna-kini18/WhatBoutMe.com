@@ -1,53 +1,111 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Request,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { BatchesService } from './batches.service.js';
-import { Roles } from '../../common/decorators/roles.decorator.js';
-import { Role } from '@prisma/client';
-import { IsString, IsNotEmpty, IsInt, IsDateString, IsOptional } from 'class-validator';
-
-export class CreateBatchDto {
-  @IsString() @IsNotEmpty() name: string;
-  @IsString() @IsNotEmpty() programId: string;
-  @IsOptional() @IsString() managerId?: string;
-  @IsDateString() startDate: string;
-  @IsInt() capacity: number;
-}
-
-export class UpdateBatchDto {
-  @IsOptional() @IsString() @IsNotEmpty() name?: string;
-  @IsOptional() @IsString() @IsNotEmpty() programId?: string;
-  @IsOptional() @IsString() managerId?: string;
-  @IsOptional() @IsDateString() startDate?: string;
-  @IsOptional() @IsInt() capacity?: number;
-}
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import {
+  RequireBatchAccess,
+  BatchAccessGuard,
+} from '../../common/guards/batch-access.guard.js';
+import { Permission } from '../../config/permissions.config.js';
+import {
+  CreateBatchDto,
+  UpdateBatchDto,
+  TransitionBatchStatusDto,
+  AssignTrainerDto,
+  QueryBatchesDto,
+} from './dto/index.js';
 
 @Controller('batches')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
 export class BatchesController {
   constructor(private readonly batchesService: BatchesService) {}
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1. QUERY
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.BATCHES_READ)
   @Get()
-  findAll(@Request() req: any) {
-    return this.batchesService.findAll(req.user);
+  findAll(@Request() req: any, @Query() query: QueryBatchesDto) {
+    return this.batchesService.findAll(req.user, query);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string, @Request() req: any) {
-    return this.batchesService.findOne(id, req.user);
-  }
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 2. CREATION
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Permission.BATCHES_CREATE)
   @Post()
   create(@Body() createDto: CreateBatchDto) {
     return this.batchesService.create(createDto);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. TRAINER ASSIGNMENT (Declared before parameterized ':id' routes)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.BATCHES_ASSIGN_TRAINER)
+  @Delete(':id/trainers/:trainerId')
+  removeTrainer(
+    @Param('id') id: string,
+    @Param('trainerId') trainerId: string,
+  ) {
+    return this.batchesService.removeTrainer(id, trainerId);
+  }
+
+  @RequirePermission(Permission.BATCHES_ASSIGN_TRAINER)
+  @Post(':id/trainers')
+  assignTrainer(
+    @Param('id') id: string,
+    @Body() dto: AssignTrainerDto,
+  ) {
+    return this.batchesService.assignTrainer(id, dto);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. LIFECYCLE TRANSITION
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.BATCHES_UPDATE)
+  @Patch(':id/status')
+  transitionStatus(
+    @Param('id') id: string,
+    @Body() statusDto: TransitionBatchStatusDto,
+  ) {
+    return this.batchesService.transitionStatus(id, statusDto);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 5. BATCH INSTANCE CRUD
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.BATCHES_READ)
+  @UseGuards(BatchAccessGuard)
+  @RequireBatchAccess('id')
+  @Get(':id')
+  findOne(@Param('id') id: string, @Request() req: any) {
+    return this.batchesService.findOne(id, req.user);
+  }
+
+  @RequirePermission(Permission.BATCHES_UPDATE)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateBatchDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateBatchDto,
+  ) {
     return this.batchesService.update(id, updateDto);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Permission.BATCHES_DELETE)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.batchesService.remove(id);

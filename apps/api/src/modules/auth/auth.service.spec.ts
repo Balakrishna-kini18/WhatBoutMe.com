@@ -28,6 +28,7 @@ describe('AuthService - Authentication Tests', () => {
   let authService: AuthService;
   let prismaMock: any;
   let jwtServiceMock: any;
+  let cacheHelperMock: any;
 
   beforeEach(() => {
     prismaMock = {
@@ -92,7 +93,7 @@ describe('AuthService - Authentication Tests', () => {
       verify: vi.fn(),
     };
 
-    const cacheHelperMock = {
+    cacheHelperMock = {
       invalidateNamespace: vi.fn().mockResolvedValue(undefined),
       getGuardKey: vi.fn().mockImplementation((userId, role) => `guard:${userId}:${role}`),
       getVersionedKey: vi.fn().mockImplementation((ns, suffix) => `${ns}:${suffix}`),
@@ -2563,7 +2564,7 @@ describe('AuthService - Authentication Tests', () => {
 
     describe('6. Security Guarantees & Token Invalidation', () => {
       it('tempToken cannot be used to authenticate normal protected routes via JwtStrategy', async () => {
-        const strategy = new JwtStrategy(prismaMock as unknown as PrismaService);
+        const strategy = new JwtStrategy(prismaMock as unknown as PrismaService, cacheHelperMock as any);
 
         // The tempToken payload has sub and purpose: '2fa_login', but NO sessionId
         const tempTokenPayload = {

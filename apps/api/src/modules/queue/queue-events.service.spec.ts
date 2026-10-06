@@ -5,7 +5,7 @@ import { QueueEvents } from 'bullmq';
 vi.mock('bullmq', () => {
   const QueueEventsMock = vi.fn();
   
-  QueueEventsMock.prototype.on = vi.fn(function(event, callback) {
+  QueueEventsMock.prototype.on = vi.fn(function(this: any, event: string, callback: any) {
     if (!this.listeners) this.listeners = {};
     if (!this.listeners[event]) this.listeners[event] = [];
     this.listeners[event].push(callback);

@@ -54,9 +54,17 @@ export default function BatchesPage() {
     }
   };
 
+  // Filters
+  const [search, setSearch] = useState("");
+  const [selectedProgramFilter, setSelectedProgramFilter] = useState("");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("");
+
   const fetchPrograms = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs`);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -68,7 +76,10 @@ export default function BatchesPage() {
 
   const fetchBatches = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/batches`);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         const data = await res.json();
         setBatches(data);
@@ -214,8 +225,40 @@ export default function BatchesPage() {
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
           <h2>All Batches</h2>
-          <div className={styles.searchContainer}>
-            <input type="text" placeholder="Search batches..." className={styles.searchInput} />
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              placeholder="Search batches..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className={styles.searchInput}
+              style={{ minWidth: "160px" }}
+            />
+            <select
+              value={selectedProgramFilter}
+              onChange={(e) => setSelectedProgramFilter(e.target.value)}
+              className={styles.searchInput}
+              style={{ minWidth: "160px", padding: "6px 10px" }}
+            >
+              <option value="">All Programs</option>
+              {programs.map((p) => (
+                <option key={p.id} value={p.title}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedStatusFilter}
+              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              className={styles.searchInput}
+              style={{ minWidth: "130px", padding: "6px 10px" }}
+            >
+              <option value="">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="DRAFT">Draft</option>
+              <option value="ARCHIVED">Archived</option>
+            </select>
           </div>
         </div>
         
@@ -237,11 +280,35 @@ export default function BatchesPage() {
                 <tr>
                   <td colSpan={7} style={{textAlign: "center", padding: "20px"}}>Loading batches from database...</td>
                 </tr>
-              ) : batches.length === 0 ? (
+              ) : batches.filter((batch) => {
+                const q = search.toLowerCase();
+                const matchesSearch =
+                  !q ||
+                  batch.name.toLowerCase().includes(q) ||
+                  (batch.manager && batch.manager.toLowerCase().includes(q)) ||
+                  (batch.program && batch.program.toLowerCase().includes(q));
+                const matchesProgram =
+                  !selectedProgramFilter || batch.program === selectedProgramFilter;
+                const matchesStatus =
+                  !selectedStatusFilter || batch.status?.toUpperCase() === selectedStatusFilter.toUpperCase();
+                return matchesSearch && matchesProgram && matchesStatus;
+              }).length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{textAlign: "center", padding: "20px"}}>No batches found. Create one!</td>
                 </tr>
-              ) : batches.map((batch) => (
+              ) : batches.filter((batch) => {
+                const q = search.toLowerCase();
+                const matchesSearch =
+                  !q ||
+                  batch.name.toLowerCase().includes(q) ||
+                  (batch.manager && batch.manager.toLowerCase().includes(q)) ||
+                  (batch.program && batch.program.toLowerCase().includes(q));
+                const matchesProgram =
+                  !selectedProgramFilter || batch.program === selectedProgramFilter;
+                const matchesStatus =
+                  !selectedStatusFilter || batch.status?.toUpperCase() === selectedStatusFilter.toUpperCase();
+                return matchesSearch && matchesProgram && matchesStatus;
+              }).map((batch) => (
                 <tr key={batch.id}>
                   <td>
                     <span className={styles.cellUserName}>{batch.name}</span>

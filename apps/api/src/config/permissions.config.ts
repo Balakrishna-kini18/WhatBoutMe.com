@@ -431,6 +431,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,
     Permission.SESSIONS_DELETE,
+    Permission.SESSIONS_CANCEL,
 
     // Attendance (Viewing, marking & correcting attendance records)
     Permission.ATTENDANCE_READ,

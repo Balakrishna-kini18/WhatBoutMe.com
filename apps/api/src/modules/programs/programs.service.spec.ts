@@ -69,9 +69,17 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       invalidateNamespace: vi.fn().mockResolvedValue(undefined),
     };
 
+    const mediaProviderMock = {
+      uploadVideo: vi.fn(),
+      uploadAudio: vi.fn(),
+      uploadDocument: vi.fn(),
+      deleteMedia: vi.fn(),
+    };
+
     service = new ProgramsService(
       prismaMock as unknown as PrismaService,
       cacheHelperMock as unknown as CacheHelperService,
+      mediaProviderMock as any,
     );
   });
 

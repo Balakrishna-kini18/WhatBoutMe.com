@@ -342,13 +342,15 @@ export class QuizzesService {
     );
 
     const requiredCount = quiz.questionCount ?? 10;
-    if (eligibleQuestions.length < requiredCount) {
+    const actualCount = Math.min(requiredCount, eligibleQuestions.length);
+    
+    if (actualCount === 0) {
       throw new BadRequestException(
-        `Insufficient questions in pool: Step quiz requires at least ${requiredCount} questions, found ${eligibleQuestions.length}`,
+        `Insufficient questions in pool: Step quiz requires at least ${requiredCount} questions, found 0`,
       );
     }
 
-    const selectedQuestions = this.shuffleArray([...eligibleQuestions]).slice(0, requiredCount);
+    const selectedQuestions = this.shuffleArray([...eligibleQuestions]).slice(0, actualCount);
 
     const nextAttemptNumber = (previousAttempts[0]?.attemptNumber ?? 0) + 1;
 

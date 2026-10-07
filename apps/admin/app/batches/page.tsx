@@ -42,10 +42,12 @@ export default function BatchesPage() {
 
   const fetchManagers = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/users`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const res = await fetch(`${baseUrl}/users?limit=100`);
       if (res.ok) {
-        const data = await res.json();
-        setManagers(data.filter((u: any) => u.role === "MANAGER" || u.role === "SUPER_ADMIN"));
+        const json = await res.json();
+        const userList = Array.isArray(json) ? json : json?.data || [];
+        setManagers(userList.filter((u: any) => u.role === "MANAGER" || u.role === "SUPER_ADMIN" || u.role === "ADMIN"));
       }
     } catch (e) {
       console.error(e);

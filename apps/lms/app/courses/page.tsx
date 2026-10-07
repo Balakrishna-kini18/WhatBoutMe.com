@@ -23,6 +23,7 @@ interface Enrolled {
   programId: string;
   programTitle: string;
   batchName: string;
+  status?: string;
   progress: number;
   totalItems?: number;
   completedItems?: number;
@@ -204,31 +205,57 @@ function Courses() {
             <p className={dash.empty}>Nothing in your courses matches that search.</p>
           ) : (
             shown.map((course) => {
-              const pending = course.pending ?? [];
+              const isActive = !course.status || course.status === "ACTIVE";
+              const pending = isActive ? (course.pending ?? []) : [];
               const done = course.progress >= 100;
               // where the learner stopped: the first item still to do. Taken
               // from the full course, not the search-filtered list.
               const next = courses.find((c) => c.enrolmentId === course.enrolmentId)?.pending?.[0];
               const steps = `/programs/${course.programId}/steps`;
-              const resume = next ? `/steps/${next.stepId}` : steps;
+              const resume = course.status === "PENDING_AGREEMENT"
+                ? "/agreement"
+                : next ? `/steps/${next.stepId}` : steps;
               const action = done ? "Review" : course.progress > 0 ? "Continue" : "Start";
               return (
                 <div key={course.enrolmentId} className={styles.block}>
                   <div className={styles.blockHead}>
-                    <Link href={resume} className={styles.cover} aria-label={`${action}: ${course.programTitle}`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/brand/session.png" alt="" />
-                      <span className={styles.play} aria-hidden="true">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                      </span>
-                    </Link>
+                    {isActive ? (
+                      <Link href={resume} className={styles.cover} aria-label={`${action}: ${course.programTitle}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/brand/session.png" alt="" />
+                        <span className={styles.play} aria-hidden="true">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                        </span>
+                      </Link>
+                    ) : course.status === "PENDING_AGREEMENT" ? (
+                      <Link href="/agreement" className={styles.cover} aria-label={`Sign Agreement: ${course.programTitle}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/brand/session.png" alt="" />
+                        <span className={styles.play} aria-hidden="true">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                        </span>
+                      </Link>
+                    ) : (
+                      <div className={styles.cover} style={{ cursor: "not-allowed", opacity: 0.7 }} aria-label={`Gated: ${course.programTitle}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/brand/session.png" alt="" />
+                      </div>
+                    )}
                     <div className={dash.rowMain}>
                       <p className={`${dash.rowTitle} ${styles.titleRow}`}>
                         <span>{course.programTitle}</span>
                         <span
                           className={`${dash.pill} ${done ? "" : dash.pillOff}`}
                         >
-                          {done
+                          {course.status === "PENDING_AGREEMENT"
+                            ? "Agreement Required"
+                            : course.status === "PENDING_PAYMENT"
+                            ? "Payment Pending"
+                            : course.status === "WAITLIST"
+                            ? "Waitlisted"
+                            : course.status === "REVOKED"
+                            ? "Revoked"
+                            : done
                             ? "Completed"
                             : `${course.completedItems ?? 0} of ${course.totalItems ?? 0} done`}
                         </span>
@@ -248,7 +275,15 @@ function Courses() {
                         <span>{course.progress}%</span>
                       </div>
                       <p className={styles.upNext}>
-                        {done ? (
+                        {course.status === "PENDING_AGREEMENT" ? (
+                          "Please review and sign the program agreement to start."
+                        ) : course.status === "PENDING_PAYMENT" ? (
+                          "Awaiting payment confirmation."
+                        ) : course.status === "WAITLIST" ? (
+                          "You are on the waitlist for this cohort."
+                        ) : course.status === "REVOKED" ? (
+                          "Access to course materials has been revoked."
+                        ) : done ? (
                           "You finished every step of this course."
                         ) : next ? (
                           <>
@@ -258,11 +293,23 @@ function Courses() {
                         ) : null}
                       </p>
                       <div className={styles.actions}>
-                        <Link href={resume} className={dash.darkBtn}>{action}</Link>
-                        {done ? (
-                          <Link href="/certificates" className={dash.secondaryBtn}>Certificate</Link>
+                        {course.status === "PENDING_AGREEMENT" ? (
+                          <Link href="/agreement" className={dash.darkBtn}>Sign Agreement</Link>
+                        ) : course.status === "PENDING_PAYMENT" ? (
+                          <span className={`${dash.pill} ${dash.pillOff}`}>Payment Pending</span>
+                        ) : course.status === "WAITLIST" ? (
+                          <span className={`${dash.pill} ${dash.pillOff}`}>On Waitlist</span>
+                        ) : course.status === "REVOKED" ? (
+                          <span className={`${dash.pill} ${dash.pillOff}`}>Access Revoked</span>
                         ) : (
-                          <Link href={steps} className={dash.secondaryBtn}>All Steps</Link>
+                          <>
+                            <Link href={resume} className={dash.darkBtn}>{action}</Link>
+                            {done ? (
+                              <Link href="/certificates" className={dash.secondaryBtn}>Certificate</Link>
+                            ) : (
+                              <Link href={steps} className={dash.secondaryBtn}>All Steps</Link>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>

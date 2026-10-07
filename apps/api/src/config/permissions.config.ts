@@ -1,17 +1,18 @@
+import { Role } from '@prisma/client';
+
 /**
- * D1-025: Granular Named Permissions Configuration
+ * D1-025 & D1-026: Granular Named Permissions and Role Matrix Configuration
  *
- * This configuration defines the central, granular named permissions for the
- * WhatBoutMe LMS platform following the `<domain>:<action>` convention.
+ * This configuration defines:
+ * 1. The central, granular named permissions for the WhatBoutMe LMS platform
+ *    following the `<domain>:<action>` convention (D1-025).
+ * 2. The canonical role-to-permission mapping dictionary (ROLE_PERMISSIONS)
+ *    mapping SUPER_ADMIN, ADMIN, MANAGER, and USER roles (D1-026).
  *
  * Architecture Reference:
- * - DEVELOPER_SPLIT_PLAN.md (§C. Authorization & Permissions, Task D1-025)
+ * - DEVELOPER_SPLIT_PLAN.md (§C. Authorization & Permissions, Tasks D1-025, D1-026)
  * - ARCHITECTURE_BASELINE_V3.md (§D.3 Named Permissions Architecture)
  * - WhatBoutMe LMS Development Plan PDF (§1.3 Roles & Permissions)
- *
- * Granular permissions allow fine-grained access control across all LMS domains
- * (programs, steps, content, quizzes, batches, enrolments, sessions, attendance,
- * oral assessments, certificates, agreements, users, payments, reports, audit, chat).
  */
 
 export const Permission = {
@@ -271,4 +272,262 @@ export function parsePermission(
  */
 export function getPermissionsByDomain(domain: string): readonly Permission[] {
   return PERMISSIONS_BY_DOMAIN[domain] ?? [];
+}
+
+// ─── D1-026: Role → Permission Mapping Matrix ─────────────────────────────────
+
+/**
+ * Canonical Role-to-Permissions Matrix (D1-026).
+ *
+ * Defines the static capability set granted to each system role:
+ * - SUPER_ADMIN: Unrestricted access to all capabilities across all domains.
+ * - ADMIN: Full management access across LMS content, batches, quizzes, attendance,
+ *   certificates, payments, and users, excluding SUPER_ADMIN-exclusive role editing.
+ * - MANAGER: Cohort trainer and corporate manager operational capabilities (progression
+ *   unlocking, quiz grading, session management, attendance marking/correction, oral assessment,
+ *   assigned learner monitoring, and chat). Batch-level isolation is enforced separately by BatchAccessGuard (D1-028).
+ * - USER: Learner capabilities (viewing programs/steps/lessons, taking step quizzes,
+ *   booking coaching sessions, signing agreements, downloading certificates/invoices, and chat).
+ */
+export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
+  SUPER_ADMIN: new Set<Permission>(ALL_PERMISSIONS),
+
+  ADMIN: new Set<Permission>([
+    // Programs (Full management)
+    Permission.PROGRAMS_CREATE,
+    Permission.PROGRAMS_READ,
+    Permission.PROGRAMS_UPDATE,
+    Permission.PROGRAMS_DELETE,
+    Permission.PROGRAMS_PUBLISH,
+
+    // Steps (Full management & override)
+    Permission.STEPS_CREATE,
+    Permission.STEPS_READ,
+    Permission.STEPS_UPDATE,
+    Permission.STEPS_DELETE,
+    Permission.STEPS_UNLOCK,
+    Permission.STEPS_LOCK,
+
+    // Content / Lessons (Full authoring & uploads)
+    Permission.CONTENT_CREATE,
+    Permission.CONTENT_READ,
+    Permission.CONTENT_UPDATE,
+    Permission.CONTENT_DELETE,
+    Permission.CONTENT_UPLOAD,
+    Permission.CONTENT_UNLOCK,
+
+    // Quizzes & Question Bank (Full authoring, grading & resets)
+    Permission.QUIZZES_CREATE,
+    Permission.QUIZZES_READ,
+    Permission.QUIZZES_UPDATE,
+    Permission.QUIZZES_DELETE,
+    Permission.QUIZZES_GRADE,
+    Permission.QUIZZES_RESET_ATTEMPTS,
+
+    // Batches (Full lifecycle, archiving, assignments & broadcasts)
+    Permission.BATCHES_CREATE,
+    Permission.BATCHES_READ,
+    Permission.BATCHES_READ_ASSIGNED,
+    Permission.BATCHES_UPDATE,
+    Permission.BATCHES_DELETE,
+    Permission.BATCHES_ARCHIVE,
+    Permission.BATCHES_ASSIGN_TRAINER,
+    Permission.BATCHES_ANNOUNCEMENT,
+
+    // Enrolments (Full state machine & overrides)
+    Permission.ENROLMENTS_CREATE,
+    Permission.ENROLMENTS_READ,
+    Permission.ENROLMENTS_READ_ASSIGNED,
+    Permission.ENROLMENTS_UPDATE,
+    Permission.ENROLMENTS_CANCEL,
+    Permission.ENROLMENTS_OVERRIDE,
+
+    // Sessions (Full scheduling, booking & cancellation)
+    Permission.SESSIONS_CREATE,
+    Permission.SESSIONS_READ,
+    Permission.SESSIONS_UPDATE,
+    Permission.SESSIONS_DELETE,
+    Permission.SESSIONS_BOOK,
+    Permission.SESSIONS_CANCEL,
+
+    // Attendance (Full attendance management & reconciliation)
+    Permission.ATTENDANCE_READ,
+    Permission.ATTENDANCE_MARK,
+    Permission.ATTENDANCE_CORRECT,
+    Permission.ATTENDANCE_RECONCILE,
+
+    // Oral Assessments (Full grading & rubric review)
+    Permission.ORAL_ASSESSMENTS_READ,
+    Permission.ORAL_ASSESSMENTS_GRADE,
+    Permission.ORAL_ASSESSMENTS_REVIEW,
+
+    // Certificates (Full approval workflow, issuance & revocations)
+    Permission.CERTIFICATES_READ,
+    Permission.CERTIFICATES_APPROVE,
+    Permission.CERTIFICATES_REJECT,
+    Permission.CERTIFICATES_ISSUE,
+    Permission.CERTIFICATES_REVOKE,
+
+    // Agreements (Template management, signing & audit)
+    Permission.AGREEMENTS_READ,
+    Permission.AGREEMENTS_CREATE_TEMPLATE,
+    Permission.AGREEMENTS_SIGN,
+    Permission.AGREEMENTS_AUDIT,
+
+    // Users (User administration; note: USERS_EDIT_ROLE is SUPER_ADMIN exclusive)
+    Permission.USERS_CREATE,
+    Permission.USERS_READ,
+    Permission.USERS_READ_ASSIGNED,
+    Permission.USERS_UPDATE,
+    Permission.USERS_DELETE,
+
+    // Payments & Invoices (Financial administration)
+    Permission.PAYMENTS_READ,
+    Permission.PAYMENTS_REFUND,
+    Permission.INVOICES_READ,
+
+    // Reports & Analytics (Full export & reporting)
+    Permission.REPORTS_READ,
+    Permission.REPORTS_EXPORT,
+
+    // Audit Logs & Security
+    Permission.AUDIT_READ,
+    Permission.AUDIT_EXPORT,
+
+    // Communications & Chat
+    Permission.CHAT_READ,
+    Permission.CHAT_SEND,
+    Permission.CHAT_REPLY,
+    Permission.CHAT_ASSIGN,
+  ]),
+
+  MANAGER: new Set<Permission>([
+    // Programs & Steps (Curriculum reference & manual progression overrides)
+    Permission.PROGRAMS_READ,
+    Permission.STEPS_READ,
+    Permission.STEPS_UNLOCK,
+    Permission.STEPS_LOCK,
+
+    // Content (Viewing lesson materials & manual unlock override)
+    Permission.CONTENT_READ,
+    Permission.CONTENT_UNLOCK,
+
+    // Quizzes (Viewing benchmarks, grading subjective questions & resetting attempts)
+    Permission.QUIZZES_READ,
+    Permission.QUIZZES_GRADE,
+    Permission.QUIZZES_RESET_ATTEMPTS,
+
+    // Batches (Viewing assigned batch and broadcasting cohort announcements)
+    Permission.BATCHES_READ,
+    Permission.BATCHES_READ_ASSIGNED,
+    Permission.BATCHES_ANNOUNCEMENT,
+
+    // Enrolments (Viewing cohort members in assigned batches)
+    Permission.ENROLMENTS_READ,
+    Permission.ENROLMENTS_READ_ASSIGNED,
+
+    // Sessions (Scheduling, managing & conducting live cohort / 1-on-1 sessions)
+    Permission.SESSIONS_CREATE,
+    Permission.SESSIONS_READ,
+    Permission.SESSIONS_UPDATE,
+    Permission.SESSIONS_DELETE,
+
+    // Attendance (Viewing, marking & correcting attendance records)
+    Permission.ATTENDANCE_READ,
+    Permission.ATTENDANCE_MARK,
+    Permission.ATTENDANCE_CORRECT,
+
+    // Oral Assessments (Conducting assessments, scoring rubrics & recording qualitative notes)
+    Permission.ORAL_ASSESSMENTS_READ,
+    Permission.ORAL_ASSESSMENTS_GRADE,
+    Permission.ORAL_ASSESSMENTS_REVIEW,
+
+    // Certificates (Viewing certificate status of batch learners)
+    Permission.CERTIFICATES_READ,
+
+    // Agreements (Verifying signed agreement status of cohort learners)
+    Permission.AGREEMENTS_READ,
+
+    // Users (Viewing assigned learners)
+    Permission.USERS_READ_ASSIGNED,
+
+    // Reports & Analytics (Cohort attendance & progression reports)
+    Permission.REPORTS_READ,
+    Permission.REPORTS_EXPORT,
+
+    // Communications & Chat (Cohort trainer Q&A and assistance)
+    Permission.CHAT_READ,
+    Permission.CHAT_SEND,
+    Permission.CHAT_REPLY,
+    Permission.CHAT_ASSIGN,
+  ]),
+
+  USER: new Set<Permission>([
+    // Programs & Steps (Browsing enroled program curriculum)
+    Permission.PROGRAMS_READ,
+    Permission.STEPS_READ,
+
+    // Content (Accessing learning materials & lessons)
+    Permission.CONTENT_READ,
+
+    // Quizzes (Taking step quizzes)
+    Permission.QUIZZES_READ,
+
+    // Sessions (Viewing schedule, booking 1-on-1 coaching & cancelling own bookings)
+    Permission.SESSIONS_READ,
+    Permission.SESSIONS_BOOK,
+    Permission.SESSIONS_CANCEL,
+
+    // Attendance (Viewing own attendance record)
+    Permission.ATTENDANCE_READ,
+
+    // Oral Assessments (Viewing own assessment booking/status)
+    Permission.ORAL_ASSESSMENTS_READ,
+
+    // Certificates (Viewing & downloading own verified certificate)
+    Permission.CERTIFICATES_READ,
+
+    // Agreements (Reading & signing required learner agreement)
+    Permission.AGREEMENTS_READ,
+    Permission.AGREEMENTS_SIGN,
+
+    // Invoices (Viewing & downloading own payment invoices)
+    Permission.INVOICES_READ,
+
+    // Communications & Chat (Asking questions in cohort chat)
+    Permission.CHAT_READ,
+    Permission.CHAT_SEND,
+  ]),
+};
+
+/**
+ * Checks whether a given role is granted the specified permission.
+ * - SUPER_ADMIN always evaluates to true (universal administrative short-circuit).
+ * - For other roles, checks O(1) membership in the ROLE_PERMISSIONS matrix.
+ * - Unknown / invalid roles evaluate to false.
+ */
+export function roleHasPermission(
+  role: Role | string | undefined | null,
+  permission: Permission,
+): boolean {
+  if (!role) return false;
+  if (role === Role.SUPER_ADMIN || role === 'SUPER_ADMIN') return true;
+  const permissions = ROLE_PERMISSIONS[role as Role];
+  if (!permissions) return false;
+  return permissions.has(permission);
+}
+
+/**
+ * Returns the immutable Set of permissions assigned to a given role.
+ * For SUPER_ADMIN, returns all 54 permissions.
+ * For unknown roles, returns an empty Set.
+ */
+export function getRolePermissions(
+  role: Role | string | undefined | null,
+): ReadonlySet<Permission> {
+  if (!role) return new Set<Permission>();
+  if (role === Role.SUPER_ADMIN || role === 'SUPER_ADMIN') {
+    return ROLE_PERMISSIONS.SUPER_ADMIN;
+  }
+  return ROLE_PERMISSIONS[role as Role] ?? new Set<Permission>();
 }

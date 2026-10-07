@@ -81,24 +81,24 @@ export class RealtimeGateway
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('join_room')
-  handleJoinRoom(
+  async handleJoinRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody('room') room: string, // e.g. "batch:123" or "conversation:456"
   ) {
     if (!room) return;
-    client.join(room);
+    await client.join(room);
     this.logger.debug(`Client ${client.id} joined room ${room}`);
     return { event: 'joined', room };
   }
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('leave_room')
-  handleLeaveRoom(
+  async handleLeaveRoom(
     @ConnectedSocket() client: Socket,
     @MessageBody('room') room: string,
   ) {
     if (!room) return;
-    client.leave(room);
+    await client.leave(room);
     this.logger.debug(`Client ${client.id} left room ${room}`);
     return { event: 'left', room };
   }

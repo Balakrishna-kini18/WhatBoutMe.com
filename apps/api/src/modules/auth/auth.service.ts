@@ -1221,7 +1221,7 @@ export class AuthService {
       throw new ForbiddenException('Two-factor authentication is only available for admin roles');
     }
 
-    const isValid = verifyTotp(code, trimmedSecret, { window: 1 });
+    const isValid = verifyTotp(code, trimmedSecret, { window: 2 });
     if (!isValid) {
       throw new BadRequestException('Invalid verification code');
     }
@@ -1318,7 +1318,7 @@ export class AuthService {
 
     try {
       const decryptedSecret = decryptTotpSecret(user.twoFactorSecret);
-      if (verifyTotp(trimmedCode, decryptedSecret, { window: 1 })) {
+      if (verifyTotp(trimmedCode, decryptedSecret, { window: 2 })) {
         verified = true;
       }
     } catch {

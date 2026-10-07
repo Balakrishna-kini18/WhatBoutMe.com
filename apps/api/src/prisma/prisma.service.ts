@@ -15,11 +15,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleInit() {
-    await this.$connect();
-    // @ts-ignore
-    this.$on('query', (e) => {
-      queryCount++;
-    });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await this.$connect();
+        break;
+      } catch (err: any) {
+        console.warn(`[PrismaService] Database connection attempt ${attempt} notice: ${err?.message || err}`);
+        if (attempt === 3) {
+          console.warn('[PrismaService] Proceeding with lazy connection on incoming requests.');
+        } else {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    }
+    try {
+      // @ts-ignore
+      this.$on('query', (e) => {
+        queryCount++;
+      });
+    } catch {}
   }
 
   async onModuleDestroy() {

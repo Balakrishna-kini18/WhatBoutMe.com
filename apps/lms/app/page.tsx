@@ -241,8 +241,26 @@ export default function LearnerDashboard() {
                         <span>{prog.progress}%</span>
                       </div>
                     </div>
-                    {prog.progress === 100 ? (
-                      <button type="button" onClick={() => requestCertificate(prog.enrolmentId)} className={styles.secondaryBtn}>Request Certificate</button>
+                    {prog.status === "PENDING_AGREEMENT" ? (
+                      <Link href="/agreement" className={styles.darkBtn}>
+                        Sign Agreement
+                      </Link>
+                    ) : prog.status === "PENDING_PAYMENT" ? (
+                      <span className={`${styles.pill} ${styles.pillOff}`}>
+                        Payment Pending
+                      </span>
+                    ) : prog.status === "WAITLIST" ? (
+                      <span className={`${styles.pill} ${styles.pillOff}`}>
+                        On Waitlist
+                      </span>
+                    ) : prog.status === "REVOKED" ? (
+                      <span className={`${styles.pill} ${styles.pillOff}`}>
+                        Access Revoked
+                      </span>
+                    ) : prog.progress === 100 ? (
+                      <button type="button" onClick={() => requestCertificate(prog.enrolmentId)} className={styles.secondaryBtn}>
+                        Request Certificate
+                      </button>
                     ) : (
                       <Link href={`/programs/${prog.programId}/steps`} className={styles.darkBtn}>
                         {prog.progress > 0 ? "Resume" : "Start"}

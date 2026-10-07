@@ -64,9 +64,22 @@ enum ContentStatus {
   ARCHIVED
 }
 
+enum BatchStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
 enum ReleaseSchedule {
   IMMEDIATE
   BATCH_SCHEDULED
+}
+
+enum StepOverrideState {
+  AUTOMATIC
+  MANUAL_UNLOCKED
+  MANUAL_LOCKED
 }
 
 enum ResourceType {
@@ -594,7 +607,9 @@ model Batch {
   manager   User?   @relation("ManagerBatches", fields: [managerId], references: [id])
 
   startDate DateTime
+  endDate   DateTime?
   capacity  Int
+  status    BatchStatus @default(UPCOMING)
 
   enrolments Enrolment[]
   sessions   Session[]
@@ -604,6 +619,9 @@ model Batch {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([programId, status])
+  @@index([managerId, status])
 }
 
 model BatchTrainer {
@@ -662,16 +680,23 @@ model Enrolment {
 
 // TRD 2.2: Tracks video view logic
 model UserLessonProgress {
-  id          String    @id @default(uuid())
-  enrolmentId String
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
-  lessonId    String
-  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  id              String    @id @default(uuid())
+  enrolmentId     String
+  enrolment       Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  lessonId        String
+  lesson          Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
-  viewed    Boolean  @default(false)
-  updatedAt DateTime @updatedAt
+  viewed          Boolean   @default(false)
+  progressPercent Float     @default(0)
+  lastPositionSec Float?
+  completedAt     DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([enrolmentId, lessonId])
+  @@index([enrolmentId, viewed])
+  @@index([lessonId])
 }
 
 // TRD 2.2: The attempt state machine for Quizzes
@@ -697,6 +722,7 @@ model Attempt {
   @@unique([enrolmentId, quizId, attemptNumber])
   @@index([enrolmentId, quizId])
   @@index([quizId, status])
+  @@index([enrolmentId, status])
 }
 
 model QuizAnswer {
@@ -748,6 +774,11 @@ model StepProgress {
   isUnlocked  Boolean   @default(false)
   unlockedAt  DateTime?
 
+  overrideState  StepOverrideState @default(AUTOMATIC)
+  overrideReason String?
+  overriddenById String?
+  overriddenAt   DateTime?
+
   score       Int?
 
   createdAt   DateTime  @default(now())
@@ -757,6 +788,7 @@ model StepProgress {
   @@index([enrolmentId])
   @@index([stepId])
   @@index([enrolmentId, isCompleted])
+  @@index([enrolmentId, overrideState])
 }
 
 // -----------------------------------------------------------------------------

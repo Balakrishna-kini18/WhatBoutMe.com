@@ -105,3 +105,71 @@
   line-height: 1.5;
   color: var(--text-secondary);
 }
+
+.statusBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.statusBannerWarning {
+  border-left: 5px solid var(--accent-primary);
+  background: var(--bg-soft);
+}
+
+.statusBannerDanger {
+  border-left: 5px solid #e53e3e;
+  background: #fff5f5;
+}
+
+.statusBannerTitle {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.statusBannerText {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.overrideBadge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  margin-left: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--accent-highlight);
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-secondary);
+}
+
+.lockMessage {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.errorCard {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+}

@@ -7,11 +7,14 @@ import { ProgramsModule } from './modules/programs/programs.module.js';
 import { BatchesModule } from './modules/batches/batches.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { QuizzesModule } from './modules/quizzes/quizzes.module.js';
+import { ExamsModule } from './modules/exams/exams.module.js';
+import { OralAssessmentsModule } from './modules/oral-assessments/oral-assessments.module.js';
 import { InvoicesModule } from './modules/invoices/invoices.module.js';
 import { RevenueModule } from './modules/revenue/revenue.module.js';
 import { SessionsModule } from './modules/sessions/sessions.module.js';
 import { CertificatesModule } from './modules/certificates/certificates.module.js';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module.js';
+import { ProgressionModule } from './modules/progression/progression.module.js';
 import { WebsiteModule } from './modules/website/website.module.js';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
 import { QueueModule } from './modules/queue/queue.module.js';
@@ -28,6 +31,7 @@ import { CacheHelperModule } from './common/cache/cache-helper.module.js';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
+import { PermissionsGuard } from './common/guards/permissions.guard.js';
 
 import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
 
@@ -65,11 +69,14 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     BatchesModule,
     AuthModule,
     QuizzesModule,
+    ExamsModule,
+    OralAssessmentsModule,
     InvoicesModule,
     RevenueModule,
     SessionsModule,
     CertificatesModule,
     EnrollmentsModule,
+    ProgressionModule,
     WebsiteModule,
     CloudinaryModule,
     CacheHelperModule,
@@ -90,6 +97,10 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_GUARD,

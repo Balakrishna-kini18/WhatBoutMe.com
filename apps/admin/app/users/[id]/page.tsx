@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, Fragment } from "react";
 import styles from "../../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../lib/api";
@@ -29,6 +29,27 @@ interface UserDetail {
   enrolments?: EnrolmentOption[];
 }
 
+interface LessonItem {
+  lessonId: string;
+  order: number;
+  title: string;
+  type: string;
+  durationSec: number | null;
+  isCompleted: boolean;
+  progressPercent: number;
+  lastPositionSec: number | null;
+  completedAt: string | null;
+}
+
+interface QuizItem {
+  quizId: string;
+  questionCount: number;
+  passMark: number;
+  isPassed: boolean;
+  bestScore: number | null;
+  attemptsCount: number;
+}
+
 interface StepProgressionItem {
   stepId: string;
   sequence: number;
@@ -45,8 +66,11 @@ interface StepProgressionItem {
   isCompleted: boolean;
   completedAt?: string | null;
   lockReason?: string | null;
-  lessons?: any[];
-  quiz?: any | null;
+  progressPercent?: number;
+  completedItems?: number;
+  totalItems?: number;
+  lessons?: LessonItem[];
+  quiz?: QuizItem | null;
 }
 
 interface EnrolmentProgression {
@@ -57,9 +81,19 @@ interface EnrolmentProgression {
   batchName: string;
   enrolmentStatus: string;
   steps: StepProgressionItem[];
-  overallPercent: number;
-  completedSteps: number;
-  totalSteps: number;
+  overallProgressPercent?: number;
+  overallPercent?: number;
+  completedItems?: number;
+  totalItems?: number;
+  completedSteps?: number;
+  totalSteps?: number;
+}
+
+function formatDuration(sec?: number | null): string {
+  if (sec == null || isNaN(sec) || sec <= 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
 export default function UserDetailPage({
@@ -84,6 +118,16 @@ export default function UserDetailPage({
   const [overrideReason, setOverrideReason] = useState("");
   const [submittingOverride, setSubmittingOverride] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  // Expanded steps for content inspection (video watch stats, PDF read, quiz attempts)
+  const [expandedStepIds, setExpandedStepIds] = useState<Record<string, boolean>>({});
+
+  const toggleStepExpand = (stepId: string) => {
+    setExpandedStepIds((prev) => ({
+      ...prev,
+      [stepId]: !prev[stepId],
+    }));
+  };
 
   // Load user profile & enrolments
   useEffect(() => {
@@ -320,58 +364,129 @@ export default function UserDetailPage({
       )}
 
       {/* Stats Grid */}
-      <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statHeader}>
-            <h3>Overall Progress</h3>
-          </div>
-          <div className={styles.statBody}>
-            <p className={styles.statValue}>
-              {progression ? `${Math.round(progression.overallPercent)}%` : "0%"}
-            </p>
-            <div className={styles.progressBar} style={{ width: "100%", marginTop: "0.5rem" }}>
-              <div
-                className={styles.progressFill}
-                style={{ width: `${progression?.overallPercent || 0}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
+      {(() => {
+        const overallPct = progression
+          ? Math.round(progression.overallProgressPercent ?? progression.overallPercent ?? 0)
+          : 0;
+        const completedSteps = progression?.steps?.filter((s) => s.isCompleted).length ?? 0;
+        const totalSteps = progression?.steps?.length ?? 0;
 
-        <div className={styles.statCard}>
-          <div className={styles.statHeader}>
-            <h3>Completed Steps</h3>
-          </div>
-          <div className={styles.statBody}>
-            <p className={styles.statValue}>
-              {progression
-                ? `${progression.completedSteps} / ${progression.totalSteps}`
-                : "0 / 0"}
-            </p>
-            <div className={styles.statTrendWrapper}>
-              <span className={styles.statTrendNeutral}>
-                {progression?.steps?.filter((s) => s.isUnlocked).length || 0} unlocked
-              </span>
-            </div>
-          </div>
-        </div>
+        const totalVideos =
+          progression?.steps?.reduce(
+            (acc, s) => acc + (s.lessons?.filter((l) => l.type === "VIDEO" || l.type === "AUDIO").length || 0),
+            0
+          ) ?? 0;
+        const completedVideos =
+          progression?.steps?.reduce(
+            (acc, s) =>
+              acc +
+              (s.lessons?.filter((l) => (l.type === "VIDEO" || l.type === "AUDIO") && l.isCompleted).length || 0),
+            0
+          ) ?? 0;
 
-        <div className={styles.statCard}>
-          <div className={styles.statHeader}>
-            <h3>Batch Enrolment</h3>
-          </div>
-          <div className={styles.statBody}>
-            <p className={styles.statValue} style={{ fontSize: "1.25rem" }}>
-              {progression?.batchName || "No batch"}
-            </p>
-            <div className={styles.statTrendWrapper}>
-              <span className={styles.statTrendPositive}>
-                {progression?.enrolmentStatus || "N/A"}
-              </span>
+        const totalDocs =
+          progression?.steps?.reduce(
+            (acc, s) => acc + (s.lessons?.filter((l) => l.type === "PDF" || l.type === "TEXT").length || 0),
+            0
+          ) ?? 0;
+        const completedDocs =
+          progression?.steps?.reduce(
+            (acc, s) =>
+              acc +
+              (s.lessons?.filter((l) => (l.type === "PDF" || l.type === "TEXT") && l.isCompleted).length || 0),
+            0
+          ) ?? 0;
+
+        const totalQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz ? 1 : 0), 0) ?? 0;
+        const passedQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz?.isPassed ? 1 : 0), 0) ?? 0;
+
+        const progressColor = overallPct === 100 ? "#16a34a" : overallPct > 0 ? "#f59e0b" : "#cbd5e1";
+
+        return (
+          <div className={styles.statsGrid}>
+            <div className={styles.statCard}>
+              <div className={styles.statHeader}>
+                <h3>Overall Progress</h3>
+              </div>
+              <div className={styles.statBody}>
+                <p className={styles.statValue} style={{ color: overallPct === 100 ? "#16a34a" : undefined }}>
+                  {overallPct}%
+                </p>
+                <div className={styles.progressBar} style={{ width: "100%", marginTop: "0.5rem" }}>
+                  <div
+                    className={styles.progressFill}
+                    style={{ width: `${overallPct}%`, backgroundColor: progressColor }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={styles.statHeader}>
+                <h3>Completed Steps</h3>
+              </div>
+              <div className={styles.statBody}>
+                <p className={styles.statValue}>
+                  {completedSteps} / {totalSteps}
+                </p>
+                <div className={styles.statTrendWrapper}>
+                  <span className={styles.statTrendNeutral}>
+                    {progression?.steps?.filter((s) => s.isUnlocked).length || 0} unlocked
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={styles.statHeader}>
+                <h3>Videos &amp; Audio</h3>
+              </div>
+              <div className={styles.statBody}>
+                <p className={styles.statValue}>
+                  {completedVideos} / {totalVideos}
+                </p>
+                <div className={styles.statTrendWrapper}>
+                  <span className={completedVideos === totalVideos && totalVideos > 0 ? styles.statTrendPositive : styles.statTrendNeutral}>
+                    {totalVideos > 0 ? `${Math.round((completedVideos / totalVideos) * 100)}% watched` : "No media"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={styles.statHeader}>
+                <h3>Documents &amp; Text</h3>
+              </div>
+              <div className={styles.statBody}>
+                <p className={styles.statValue}>
+                  {completedDocs} / {totalDocs}
+                </p>
+                <div className={styles.statTrendWrapper}>
+                  <span className={completedDocs === totalDocs && totalDocs > 0 ? styles.statTrendPositive : styles.statTrendNeutral}>
+                    {totalDocs > 0 ? `${Math.round((completedDocs / totalDocs) * 100)}% read` : "No documents"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.statCard}>
+              <div className={styles.statHeader}>
+                <h3>Quizzes Passed</h3>
+              </div>
+              <div className={styles.statBody}>
+                <p className={styles.statValue}>
+                  {passedQuizzes} / {totalQuizzes}
+                </p>
+                <div className={styles.statTrendWrapper}>
+                  <span className={passedQuizzes === totalQuizzes && totalQuizzes > 0 ? styles.statTrendPositive : styles.statTrendNeutral}>
+                    {totalQuizzes > 0 ? `${Math.round((passedQuizzes / totalQuizzes) * 100)}% passed` : "No quizzes"}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* D1-034: Step Progression & Manual Overrides Section */}
       <section className={styles.tableSection}>
@@ -412,12 +527,13 @@ export default function UserDetailPage({
                   const isManuallyLocked = step.overrideState === "MANUAL_LOCKED";
 
                   return (
-                    <tr key={step.stepId}>
-                      <td>
-                        <span style={{ fontWeight: 600, color: "#475569" }}>
-                          {step.sequence}
-                        </span>
-                      </td>
+                    <Fragment key={step.stepId}>
+                      <tr>
+                        <td>
+                          <span style={{ fontWeight: 600, color: "#475569" }}>
+                            {step.sequence}
+                          </span>
+                        </td>
                       <td>
                         <div style={{ display: "flex", flexDirection: "column" }}>
                           <span style={{ fontWeight: 600, color: "#1e293b" }}>{step.title}</span>
@@ -426,6 +542,28 @@ export default function UserDetailPage({
                               Scheduled: {new Date(step.scheduledUnlockDate).toLocaleDateString()}
                             </span>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => toggleStepExpand(step.stepId)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#0284c7",
+                              cursor: "pointer",
+                              fontSize: "0.75rem",
+                              fontWeight: 600,
+                              padding: 0,
+                              marginTop: "6px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              textAlign: "left",
+                            }}
+                          >
+                            {expandedStepIds[step.stepId]
+                              ? "▲ Hide Content"
+                              : `▼ View Content (${step.completedItems ?? 0}/${step.totalItems ?? 0} done)`}
+                          </button>
                         </div>
                       </td>
                       <td>
@@ -585,8 +723,164 @@ export default function UserDetailPage({
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
+                    {expandedStepIds[step.stepId] && (
+                      <tr key={`${step.stepId}-details`} style={{ backgroundColor: "#f8fafc" }}>
+                        <td colSpan={7} style={{ padding: "16px 24px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <h4 style={{ margin: 0, fontSize: "0.85rem", color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                Step Content Breakdown ({step.completedItems ?? 0} of {step.totalItems ?? 0} Completed)
+                              </h4>
+                              {typeof step.progressPercent === "number" && (
+                                <span style={{ fontSize: "0.8rem", fontWeight: 700, color: step.isCompleted ? "#166534" : "#0284c7" }}>
+                                  Step Progress: {step.progressPercent}%
+                                </span>
+                              )}
+                            </div>
+
+                            {(!step.lessons || step.lessons.length === 0) && !step.quiz ? (
+                              <p style={{ margin: 0, fontSize: "0.85rem", color: "#94a3b8" }}>No lessons or quiz in this step.</p>
+                            ) : (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                {step.lessons?.map((lesson) => {
+                                  const isMedia = lesson.type === "VIDEO" || lesson.type === "AUDIO";
+                                  return (
+                                    <div
+                                      key={lesson.lessonId}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        padding: "10px 14px",
+                                        backgroundColor: "#ffffff",
+                                        borderRadius: "6px",
+                                        border: "1px solid #e2e8f0",
+                                        fontSize: "0.85rem",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1 }}>
+                                        <span style={{ fontSize: "1.1rem" }}>
+                                          {lesson.type === "VIDEO" ? "🎬" : lesson.type === "AUDIO" ? "🎧" : lesson.type === "PDF" ? "📄" : "📝"}
+                                        </span>
+                                        <div style={{ display: "flex", flexDirection: "column" }}>
+                                          <span style={{ fontWeight: 600, color: "#1e293b" }}>{lesson.title}</span>
+                                          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                                            {lesson.type} {lesson.durationSec ? `• ${formatDuration(lesson.durationSec)}` : ""}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {isMedia ? (
+                                        <div style={{ display: "flex", alignItems: "center", gap: "16px", minWidth: "260px" }}>
+                                          <div style={{ flex: 1 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "4px" }}>
+                                              <span style={{ color: "#64748b" }}>
+                                                {formatDuration(lesson.lastPositionSec)} / {formatDuration(lesson.durationSec)}
+                                              </span>
+                                              <span style={{ fontWeight: 600, color: lesson.isCompleted ? "#166534" : "#0284c7" }}>
+                                                {Math.round(lesson.progressPercent)}%
+                                              </span>
+                                            </div>
+                                            <div style={{ width: "100%", height: "6px", backgroundColor: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
+                                              <div
+                                                style={{
+                                                  width: `${Math.min(100, lesson.progressPercent)}%`,
+                                                  height: "100%",
+                                                  backgroundColor: lesson.isCompleted ? "#16a34a" : "#0284c7",
+                                                }}
+                                              />
+                                            </div>
+                                          </div>
+                                          <span
+                                            style={{
+                                              padding: "2px 8px",
+                                              borderRadius: "4px",
+                                              fontSize: "0.75rem",
+                                              fontWeight: 600,
+                                              backgroundColor: lesson.isCompleted ? "#dcfce7" : "#f1f5f9",
+                                              color: lesson.isCompleted ? "#166534" : "#64748b",
+                                              whiteSpace: "nowrap",
+                                            }}
+                                          >
+                                            {lesson.isCompleted ? "✓ Viewed" : lesson.progressPercent > 0 ? "In Progress" : "Unwatched"}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                          {lesson.completedAt && (
+                                            <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                                              Completed {new Date(lesson.completedAt).toLocaleDateString()}
+                                            </span>
+                                          )}
+                                          <span
+                                            style={{
+                                              padding: "2px 8px",
+                                              borderRadius: "4px",
+                                              fontSize: "0.75rem",
+                                              fontWeight: 600,
+                                              backgroundColor: lesson.isCompleted ? "#dcfce7" : "#f1f5f9",
+                                              color: lesson.isCompleted ? "#166534" : "#64748b",
+                                            }}
+                                          >
+                                            {lesson.isCompleted ? (lesson.type === "PDF" ? "✓ Opened" : "✓ Read") : "Pending"}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+
+                                {step.quiz && (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      padding: "10px 14px",
+                                      backgroundColor: "#ffffff",
+                                      borderRadius: "6px",
+                                      border: "1px solid #e2e8f0",
+                                      fontSize: "0.85rem",
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                      <span style={{ fontSize: "1.1rem" }}>❓</span>
+                                      <div style={{ display: "flex", flexDirection: "column" }}>
+                                        <span style={{ fontWeight: 600, color: "#1e293b" }}>Step Knowledge Quiz</span>
+                                        <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                                          Pass mark: {step.quiz.passMark}% • {step.quiz.attemptsCount} attempt{step.quiz.attemptsCount === 1 ? "" : "s"}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                                      <span style={{ fontSize: "0.8rem", color: "#334155" }}>
+                                        Best Score: <strong>{step.quiz.bestScore != null ? `${step.quiz.bestScore}%` : "No attempts"}</strong>
+                                      </span>
+                                      <span
+                                        style={{
+                                          padding: "2px 8px",
+                                          borderRadius: "4px",
+                                          fontSize: "0.75rem",
+                                          fontWeight: 600,
+                                          backgroundColor: step.quiz.isPassed ? "#dcfce7" : step.quiz.attemptsCount > 0 ? "#fee2e2" : "#f1f5f9",
+                                          color: step.quiz.isPassed ? "#166534" : step.quiz.attemptsCount > 0 ? "#991b1b" : "#64748b",
+                                        }}
+                                      >
+                                        {step.quiz.isPassed ? "✓ Passed" : step.quiz.attemptsCount > 0 ? "Failed" : "Not Attempted"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
               </tbody>
             </table>
           </div>

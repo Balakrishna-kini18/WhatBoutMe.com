@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Role, EnrolmentStatus } from '@prisma/client';
+import { Role, EnrolmentStatus, ContentStatus, AttemptStatus } from '@prisma/client';
 import { SignupDto } from './dto/index.js';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
@@ -770,7 +770,89 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    const programIds = [
+      ...new Set(user.enrolments.map((e) => e.batch?.programId).filter(Boolean)),
+    ] as string[];
+    const enrolmentIds = user.enrolments.map((e) => e.id);
+
+    const programTotalItems: Record<string, number> = {};
+    const enrolmentCompletedItems: Record<string, number> = {};
+
+    if (programIds.length > 0) {
+      const publishedSteps = await this.prisma.step.findMany({
+        where: {
+          programId: { in: programIds },
+          status: ContentStatus.PUBLISHED,
+        },
+        select: {
+          programId: true,
+          lessons: {
+            where: { status: ContentStatus.PUBLISHED },
+            select: { id: true },
+          },
+          quiz: { select: { id: true } },
+        },
+      });
+
+      for (const step of publishedSteps) {
+        const count = step.lessons.length + (step.quiz ? 1 : 0);
+        programTotalItems[step.programId] =
+          (programTotalItems[step.programId] || 0) + count;
+      }
+    }
+
+    if (enrolmentIds.length > 0) {
+      const [lessonProgress, passedAttempts] = await Promise.all([
+        this.prisma.userLessonProgress.groupBy({
+          by: ['enrolmentId'],
+          where: {
+            enrolmentId: { in: enrolmentIds },
+            viewed: true,
+          },
+          _count: { lessonId: true },
+        }),
+        this.prisma.attempt.findMany({
+          where: {
+            enrolmentId: { in: enrolmentIds },
+            status: AttemptStatus.PASSED,
+          },
+          select: { enrolmentId: true, quizId: true },
+        }),
+      ]);
+
+      for (const lp of lessonProgress) {
+        enrolmentCompletedItems[lp.enrolmentId] =
+          (enrolmentCompletedItems[lp.enrolmentId] || 0) + lp._count.lessonId;
+      }
+
+      const passedQuizSetByEnrolment: Record<string, Set<string>> = {};
+      for (const a of passedAttempts) {
+        if (!passedQuizSetByEnrolment[a.enrolmentId]) {
+          passedQuizSetByEnrolment[a.enrolmentId] = new Set();
+        }
+        passedQuizSetByEnrolment[a.enrolmentId].add(a.quizId);
+      }
+
+      for (const [enrolId, quizSet] of Object.entries(passedQuizSetByEnrolment)) {
+        enrolmentCompletedItems[enrolId] =
+          (enrolmentCompletedItems[enrolId] || 0) + quizSet.size;
+      }
+    }
+
     const enrolledPrograms = user.enrolments.map((e) => {
+      const programId = e.batch?.programId;
+      const totalItems = programId ? programTotalItems[programId] || 0 : 0;
+      const completedItems = Math.min(
+        totalItems,
+        enrolmentCompletedItems[e.id] || 0,
+      );
+      const progress =
+        totalItems > 0
+          ? completedItems === totalItems
+            ? 100
+            : Math.floor((completedItems / totalItems) * 100)
+          : 0;
+
       return {
         enrolmentId: e.id,
         batchId: e.batchId,
@@ -778,9 +860,9 @@ export class AuthService {
         programId: e.batch.programId,
         programTitle: e.batch.program?.title || 'Unknown',
         status: e.status,
-        progress: 0, // Should be fetched separately by frontend
-        totalItems: 0,
-        completedItems: 0,
+        progress,
+        totalItems,
+        completedItems,
         pending: [],
       };
     });

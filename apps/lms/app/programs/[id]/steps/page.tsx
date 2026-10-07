@@ -279,6 +279,24 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             </div>
                           )}
 
+                          {!isLocked && !isDone && typeof step.progressPercent === "number" && (
+                            <div style={{ marginTop: "6px", maxWidth: "220px" }}>
+                              <div style={{ height: "5px", backgroundColor: "var(--border-light, #e2e8f0)", borderRadius: "3px", overflow: "hidden" }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${step.progressPercent}%`,
+                                    backgroundColor: "var(--accent-secondary, #f59e0b)",
+                                    transition: "width 0.3s ease",
+                                  }}
+                                />
+                              </div>
+                              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary, #64748b)" }}>
+                                {step.completedItems ?? 0} of {step.totalItems ?? 0} completed ({step.progressPercent}%)
+                              </span>
+                            </div>
+                          )}
+
                           {!isLocked && step.quiz && (
                             <p className={dash.muted} style={{ fontSize: "0.8rem", margin: "0.2rem 0 0" }}>
                               {step.quiz.isPassed

@@ -236,10 +236,12 @@ export default function UsersPage() {
               ) : users.map((user) => (
                 <tr key={user.id}>
                   <td>
-                    <div className={styles.cellUser}>
-                      <span className={styles.cellUserName}>{user.name}</span>
-                      <span className={styles.cellUserEmail}>{user.email}</span>
-                    </div>
+                    <Link href={`/users/${user.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                      <div className={styles.cellUser}>
+                        <span className={styles.cellUserName} style={{ color: "#0284c7" }}>{user.name}</span>
+                        <span className={styles.cellUserEmail}>{user.email}</span>
+                      </div>
+                    </Link>
                   </td>
                   <td><span className={styles.cellTextMuted}>{user.joined || "Just now"}</span></td>
                   <td>
@@ -251,12 +253,20 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td>
-                    <div className={styles.progressCell}>
-                      <div className={styles.progressBar}>
-                        <div className={styles.progressFill} style={{ width: user.progress || "0%" }}></div>
-                      </div>
-                      <span className={styles.progressText}>{user.progress || "0%"}</span>
-                    </div>
+                    {(() => {
+                      const percentVal = parseInt(user.progress || "0", 10) || 0;
+                      const progressFillColor = percentVal === 100 ? "#16a34a" : percentVal > 0 ? "#f59e0b" : "#cbd5e1";
+                      return (
+                        <div className={styles.progressCell}>
+                          <div className={styles.progressBar}>
+                            <div className={styles.progressFill} style={{ width: user.progress || "0%", backgroundColor: progressFillColor }}></div>
+                          </div>
+                          <span className={styles.progressText} style={{ fontWeight: 600, color: percentVal === 100 ? "#16a34a" : undefined }}>
+                            {user.progress || "0%"}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className={styles.alignRight} style={{ position: 'relative' }}>
                     <button 

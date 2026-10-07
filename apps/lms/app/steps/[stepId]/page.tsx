@@ -135,13 +135,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             headers: getAuthHeaders(),
           });
           if (quizAttemptRes.ok) {
-            const attemptData = await quizAttemptRes.json();
-            if (attemptData) {
-              if (attemptData.status === "IN_PROGRESS") {
-                setActiveAttempt(attemptData);
-                setQuestions(attemptData.questions || []);
-              } else {
-                setLastResult(attemptData);
+            const attemptText = await quizAttemptRes.text();
+            if (attemptText) {
+              const attemptData = JSON.parse(attemptText);
+              if (attemptData) {
+                if (attemptData.status === "IN_PROGRESS") {
+                  setActiveAttempt(attemptData);
+                  setQuestions(attemptData.questions || []);
+                } else {
+                  setLastResult(attemptData);
+                }
               }
             }
           }

@@ -345,7 +345,7 @@ export class ProgramsService {
           title: data.title,
           description: data.description ?? null,
           sequence: targetSeq,
-          status: data.status ?? ContentStatus.DRAFT,
+          status: data.status ?? ContentStatus.PUBLISHED,
           releaseSchedule: data.releaseSchedule ?? ReleaseSchedule.IMMEDIATE,
           unlockDelayDays: data.unlockDelayDays ?? null,
         },
@@ -614,7 +614,7 @@ export class ProgramsService {
           durationSec: data.durationSec ?? 0,
           content: data.content ?? null,
           order: targetOrder,
-          status: data.status ?? ContentStatus.DRAFT,
+          status: data.status ?? ContentStatus.PUBLISHED,
         },
       });
     });

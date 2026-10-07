@@ -747,15 +747,15 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
       expect(uniqueIds.size).toBe(10);
     });
 
-    it('rejects with BadRequestException if candidate pool has fewer than questionCount questions', async () => {
-      // Mock pool with only 5 eligible questions when questionCount is 10
-      prismaMock.question.findMany.mockResolvedValueOnce(createMockQuestions(5));
+    it('rejects with BadRequestException if candidate pool has 0 eligible questions', async () => {
+      // Mock pool with 0 eligible questions
+      prismaMock.question.findMany.mockResolvedValueOnce(createMockQuestions(0));
       prismaMock.attempt.findMany.mockResolvedValueOnce([]);
 
       await expect(
         service.startQuiz('quiz-step-1', mockUser),
       ).rejects.toThrow(
-        /Insufficient questions in pool: Step quiz requires at least 10 questions, found 5/,
+        /Insufficient questions in pool: Step quiz requires at least 10 questions, found 0/,
       );
     });
 

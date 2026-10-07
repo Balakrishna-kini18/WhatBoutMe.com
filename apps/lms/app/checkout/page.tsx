@@ -1,18 +1,19 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import styles from "../login/auth.module.css";
 import { SITE_URL } from "../lib/site";
-import { API_URL } from "../lib/api";
 
 function CheckoutContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const programId = searchParams.get("programId");
 
   const [program, setProgram] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
@@ -20,18 +21,14 @@ function CheckoutContent() {
     const token = localStorage.getItem("token");
     const userStr = localStorage.getItem("user");
     if (token && userStr) {
-      try {
-        setUser(JSON.parse(userStr));
-      } catch {
-        setUser(null);
-      }
+      setUser(JSON.parse(userStr));
     }
 
     if (programId) {
-      fetch(`${API_URL}/programs`)
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs`)
         .then((res) => res.json())
         .then((data) => {
-          const p = Array.isArray(data) ? data.find((x: any) => x.id === programId) : null;
+          const p = data.find((x: any) => x.id === programId);
           setProgram(p);
           setLoading(false);
         })
@@ -41,8 +38,40 @@ function CheckoutContent() {
     }
   }, [programId]);
 
+  const handleSimulatePayment = async () => {
+    if (!user) {
+      // If not logged in, they must log in first to pay
+      router.push(`/login?programId=${programId}`);
+      return;
+    }
+
+    setProcessing(true);
+    
+    // Simulate a 1.5 second payment gateway delay
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/checkout/mock`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ programId }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      // straight to My Courses, where the course just bought now appears
+      router.push("/courses");
+    } catch (e: any) {
+      console.error("Payment failed", e);
+      alert("Checkout failed: " + e.message);
+      setProcessing(false);
+    }
+  }
+
   if (loading) {
-    return <div style={{ textAlign: "center", padding: "4rem" }}>Loading program details...</div>;
+    return <div style={{ textAlign: "center", padding: "4rem" }}>Loading checkout...</div>;
   }
 
   if (!program) {
@@ -50,13 +79,9 @@ function CheckoutContent() {
       <div className={styles.authContainer}>
         <div className={styles.authCard}>
           <h2>Course Not Found</h2>
-          <p>We couldn't find the program you are looking for.</p>
-          <Link
-            href={`${SITE_URL}/courses`}
-            className={styles.submitBtn}
-            style={{ display: "inline-block", textDecoration: "none", marginTop: "1rem" }}
-          >
-            Browse Programs
+          <p>We couldn't find the program you are trying to enroll in.</p>
+          <Link href={`${SITE_URL}/courses`} className={styles.submitBtn} style={{ display: "inline-block", textDecoration: "none" }}>
+            Go Back
           </Link>
         </div>
       </div>
@@ -65,114 +90,45 @@ function CheckoutContent() {
 
   return (
     <div className={styles.authContainer}>
-      <div className={styles.authCard} style={{ maxWidth: "560px", textAlign: "left" }}>
-        <h1 className={styles.logo} style={{ textAlign: "center" }}>Enrolment & Checkout</h1>
-        <h2 style={{ fontSize: "1.2rem", marginBottom: "1.5rem", textAlign: "center" }}>
-          {program.title}
-        </h2>
+      <div className={styles.authCard} style={{ maxWidth: "500px" }}>
+        <h1 className={styles.logo}>Checkout</h1>
+        <h2 style={{ fontSize: "1.2rem", marginBottom: "1.5rem" }}>Order Summary</h2>
 
-        <div
-          style={{
-            background: "var(--bg-soft)",
-            padding: "1.5rem",
-            borderRadius: "12px",
-            marginBottom: "1.5rem",
-            border: "1px solid var(--border-light)",
-          }}
-        >
-          <p style={{ margin: "0 0 1rem 0", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-            {program.description || "A comprehensive personal transformation curriculum."}
-          </p>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              borderTop: "1px dashed var(--border-light)",
-              paddingTop: "1rem",
-            }}
-          >
-            <strong>Standard Tuition:</strong>
+        <div style={{ background: "var(--bg-soft)", padding: "1.5rem", borderRadius: "12px", textAlign: "left", marginBottom: "1.5rem", border: "1px solid var(--border-light)" }}>
+          <h3 style={{ margin: "0 0 0.5rem 0", color: "var(--text-primary)" }}>{program.title}</h3>
+          <p style={{ margin: "0 0 1rem 0", color: "var(--text-secondary)", fontSize: "0.9rem" }}>{program.description || "A comprehensive learning journey."}</p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px dashed var(--border-light)", paddingTop: "1rem" }}>
+            <strong>Total Due:</strong>
             <h2 style={{ margin: 0, color: "var(--accent-primary)" }}>${program.price}</h2>
           </div>
         </div>
 
-        {/* Explicit Deferred Notice - Client PDF / Development Plan Alignment */}
-        <div
-          style={{
-            background: "#eff6ff",
-            border: "1px solid #bfdbfe",
-            borderRadius: "10px",
-            padding: "1.25rem",
-            marginBottom: "1.5rem",
-          }}
-        >
-          <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
-            <span style={{ fontSize: "1.25rem" }}>ℹ️</span>
-            <div>
-              <strong style={{ color: "#1e40af", display: "block", marginBottom: "4px" }}>
-                Admissions & Enrolment Process
-              </strong>
-              <p style={{ margin: 0, fontSize: "0.875rem", color: "#1e3a8a", lineHeight: 1.5 }}>
-                Direct online self-service card processing (Stripe) is scheduled for Phase 7. Batch allocations, corporate sponsorships, and verified student enrolments are processed directly by our administration.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {user ? (
-          <div style={{ marginBottom: "1.5rem", fontSize: "0.875rem", color: "#64748b" }}>
-            Logged in as <strong>{user.email}</strong>. Once our administration registers you into a cohort, you will be invited to sign your Program Agreement and commence Step 1.
+        {!user ? (
+          <div style={{ background: "var(--accent-highlight)", padding: "1rem", borderRadius: "8px", marginBottom: "1.5rem", border: "1px solid var(--border-light)", textAlign: "left", fontSize: "0.9rem" }}>
+            <strong>Hold on!</strong> You need to be logged in to complete this purchase. 
+            <br/><br/>
+            <Link href={`/login?programId=${programId}`} style={{ fontWeight: "bold", color: "var(--accent-primary)" }}>Log in</Link> or <Link href={`/signup?programId=${programId}`} style={{ fontWeight: "bold", color: "var(--accent-primary)" }}>Sign up</Link> to continue.
           </div>
         ) : (
-          <div
-            style={{
-              background: "#fef3c7",
-              padding: "1rem",
-              borderRadius: "8px",
-              marginBottom: "1.5rem",
-              border: "1px solid #fde68a",
-              fontSize: "0.875rem",
-              color: "#92400e",
-            }}
-          >
-            <strong>Not signed in?</strong> Please{" "}
-            <Link href={`/login?programId=${programId}`} style={{ fontWeight: "bold", color: "#b45309" }}>
-              Log in
-            </Link>{" "}
-            or{" "}
-            <Link href={`/signup?programId=${programId}`} style={{ fontWeight: "bold", color: "#b45309" }}>
-              Sign up
-            </Link>{" "}
-            to establish your learner account.
-          </div>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
+            Logged in as <strong>{user.email}</strong>
+          </p>
         )}
 
-        <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-          <Link
-            href="/courses"
-            className={styles.submitBtn}
-            style={{ textDecoration: "none", textAlign: "center", display: "inline-block", padding: "12px 24px" }}
-          >
-            Go to My Courses
-          </Link>
-          <Link
-            href={`${SITE_URL}/contact`}
-            style={{
-              textDecoration: "none",
-              textAlign: "center",
-              display: "inline-block",
-              padding: "12px 20px",
-              border: "1px solid #cbd5e1",
-              borderRadius: "8px",
-              color: "#475569",
-              fontWeight: 600,
-              fontSize: "0.9rem",
-            }}
-          >
-            Contact Admissions
-          </Link>
-        </div>
+        <button 
+          className={styles.submitBtn} 
+          onClick={handleSimulatePayment} 
+          disabled={processing || !user}
+          style={{ width: "100%", opacity: processing || !user ? 0.7 : 1, display: "flex", justifyContent: "center", alignItems: "center", gap: "0.5rem" }}
+        >
+          {processing ? (
+            "Processing Payment..."
+          ) : !user ? (
+            "Log in to Pay"
+          ) : (
+            "Complete Purchase (Simulate)"
+          )}
+        </button>
       </div>
     </div>
   );
@@ -180,7 +136,7 @@ function CheckoutContent() {
 
 export default function CheckoutPage() {
   return (
-    <Suspense fallback={<div style={{ textAlign: "center", padding: "4rem" }}>Loading...</div>}>
+    <Suspense fallback={<div>Loading...</div>}>
       <CheckoutContent />
     </Suspense>
   );

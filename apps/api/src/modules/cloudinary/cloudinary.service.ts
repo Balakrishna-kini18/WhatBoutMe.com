@@ -108,4 +108,10 @@ export class CloudinaryMediaProvider implements IMediaProvider {
     }
     throw new Error('Cloudinary operation failed after maximum retries');
   }
+  async deleteMedia(publicId: string, resourceType: string = 'video'): Promise<boolean> {
+    return this.executeWithRetry(async () => {
+      const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      return result.result === 'ok' || result.result === 'not found';
+    });
+  }
 }

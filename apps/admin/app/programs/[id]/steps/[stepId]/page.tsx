@@ -97,7 +97,11 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
   const handleVideoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    // Close the modal immediately so the user can continue working
+    setIsModalOpen(false);
     setUploadProgress(0);
+    
     try {
       const sigRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/media/upload-signature`, { method: "POST" });
       if (!sigRes.ok) throw new Error("Failed to prepare secure upload");
@@ -147,11 +151,13 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
         }),
       });
       if (!res.ok) throw new Error("Failed to link video to module");
-      setIsModalOpen(false);
+      
+      setUploadProgress(null);
+      setTitle("");
       fetchLessons();
     } catch (err: any) {
       console.error(err);
-      setUploadError(err.message || "An error occurred");
+      alert(err.message || "Video upload failed");
       setUploadProgress(null);
     }
   };
@@ -228,6 +234,30 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
                   </td>
                 </tr>
               ))}
+
+              {/* Background Video Upload Progress Row */}
+              {uploadProgress !== null && (
+                <tr style={{ background: "var(--bg-main)" }}>
+                  <td>
+                    <span className={styles.cellUserName}>{title || "New Video Lesson"}</span>
+                    <br/>
+                    <small style={{color: "var(--primary)", fontWeight: 500}}>Uploading in background...</small>
+                  </td>
+                  <td><span className={styles.cellTextMuted}>VIDEO</span></td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '200px' }}>
+                      <div style={{ flex: 1, backgroundColor: '#eaeaea', borderRadius: '4px', height: '6px', overflow: 'hidden' }}>
+                        <div style={{ width: `${uploadProgress}%`, backgroundColor: 'var(--primary)', height: '100%', transition: 'width 0.2s' }} />
+                      </div>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{uploadProgress}%</span>
+                    </div>
+                  </td>
+                  <td className={styles.alignRight}>
+                    <span className={styles.statusChip} style={{ background: '#f3f4f6', color: '#6b7280' }}>Processing</span>
+                  </td>
+                </tr>
+              )}
+              
               
               {/* Render Quiz if it exists */}
               {quiz && (
@@ -275,27 +305,8 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
 
               <div className={styles.formGroup} style={{marginTop: '20px'}}>
                 <label>Select video file</label>
-                {uploadProgress !== null ? (
-                  <div style={{ marginTop: '15px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem', fontWeight: '500', color: 'var(--textSecondary)' }}>
-                      <span>Uploading...</span>
-                      <span>{uploadProgress}%</span>
-                    </div>
-                    <div style={{ width: '100%', backgroundColor: '#eaeaea', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
-                      <div style={{ 
-                        width: `${uploadProgress}%`, 
-                        backgroundColor: 'var(--primary)', 
-                        height: '100%', 
-                        borderRadius: '8px',
-                        transition: 'width 0.2s ease-in-out'
-                      }} />
-                    </div>
-                  </div>
-                ) : (
-                  <input type="file" accept="video/*" onChange={handleVideoSelected} style={{ marginTop: '10px' }} />
-                )}
+                <input type="file" accept="video/*" onChange={handleVideoSelected} style={{ marginTop: '10px' }} />
               </div>
-              {uploadError && <p className={styles.formError} role="alert">{uploadError}</p>}
             </div>
           </div>
         </div>

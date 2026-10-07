@@ -3,6 +3,7 @@ import { ContentStatus, ReleaseSchedule, Role } from '@prisma/client';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { CloudinaryMediaProvider } from '../cloudinary/cloudinary.service.js';
 import {
   CreateProgramDto,
   UpdateProgramDto,
@@ -22,6 +23,7 @@ export class ProgramsService {
   constructor(
     private prisma: PrismaService,
     private cacheHelper: CacheHelperService,
+    private mediaProvider: CloudinaryMediaProvider,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -39,6 +41,11 @@ export class ProgramsService {
     return this.cacheHelper.getOrSet(cacheKey, async () => {
       if (isStaff) {
         return this.prisma.program.findMany({
+          include: {
+            _count: {
+              select: { steps: true }
+            }
+          },
           orderBy: { createdAt: 'desc' },
         });
       }
@@ -48,6 +55,11 @@ export class ProgramsService {
         where: {
           status: ContentStatus.PUBLISHED,
           isActive: true,
+        },
+        include: {
+          _count: {
+            select: { steps: true }
+          }
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -121,6 +133,7 @@ export class ProgramsService {
     if (data.description !== undefined) updateData.description = data.description;
     if (data.price !== undefined) updateData.price = data.price;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
+    if (data.status !== undefined) updateData.status = data.status;
     if (data.hasCertificate !== undefined) updateData.hasCertificate = data.hasCertificate;
     if (data.certificateTemplate !== undefined) updateData.certificateTemplate = data.certificateTemplate;
 
@@ -725,6 +738,15 @@ export class ProgramsService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.lesson.delete({ where: { id: lessonId } });
+
+      // If the lesson had an uploaded media file, delete it from Cloudinary
+      if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
+        const publicId = lesson.mediaUrl.replace('upload:', '');
+        const resourceType = lesson.type === 'VIDEO' ? 'video' : 'raw';
+        this.mediaProvider.deleteMedia(publicId, resourceType).catch(err => {
+          console.error(`Failed to delete media ${publicId} from Cloudinary:`, err);
+        });
+      }
 
       // Renumber remaining sibling lessons
       const remaining = await tx.lesson.findMany({

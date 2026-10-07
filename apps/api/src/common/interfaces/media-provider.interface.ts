@@ -10,4 +10,5 @@ export interface IMediaProvider {
   createDirectUpload(): DirectUploadResult | Promise<DirectUploadResult>;
   generateSignedPlaybackUrl(publicId: string, learnerEmail?: string): string;
   generateSignedThumbnailUrl(publicId: string, offsetSeconds?: number): string;
+  deleteMedia(publicId: string, resourceType?: string): Promise<boolean>;
 }

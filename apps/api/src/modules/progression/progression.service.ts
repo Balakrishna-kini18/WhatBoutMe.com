@@ -144,7 +144,7 @@ export class ProgressionService {
   async getEnrolmentProgression(
     enrolmentId: string,
     user?: any,
-    options?: { persist?: boolean },
+    options?: { persist?: boolean; forceRecalculate?: boolean },
   ): Promise<EnrolmentProgressionResponse> {
     // 1. Fetch enrolment with batch, trainers, program
     const enrolment = await this.prisma.enrolment.findUnique({
@@ -365,7 +365,7 @@ export class ProgressionService {
     }
 
     this.assertUserAuthorizedForEnrolment(user, enrolment);
-    return this.evaluateProgression(enrolment, { persist: true });
+    return this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -598,7 +598,7 @@ export class ProgressionService {
     });
 
     // Re-evaluate entire progression tree to propagate changes and persist downstream step states
-    const tree = await this.evaluateProgression(enrolment, { persist: true });
+    const tree = await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
     const targetStep = tree.steps.find((s) => s.stepId === stepId);
 
     return {
@@ -618,6 +618,25 @@ export class ProgressionService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async evaluateProgression(
+    enrolment: any,
+    options?: { persist?: boolean; forceRecalculate?: boolean },
+  ): Promise<EnrolmentProgressionResponse> {
+    const force = options?.forceRecalculate === true;
+    if (this.cacheHelper) {
+      if (force) {
+        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`);
+      }
+      const cacheKey = await this.cacheHelper.getVersionedKey(`enrolment_progression:${enrolment.id}`, 'tree');
+      return this.cacheHelper.getOrSet(
+        cacheKey,
+        () => this.evaluateProgressionInternal(enrolment, options),
+        3600
+      );
+    }
+    return this.evaluateProgressionInternal(enrolment, options);
+  }
+
+  private async evaluateProgressionInternal(
     enrolment: any,
     options?: { persist?: boolean },
   ): Promise<EnrolmentProgressionResponse> {
@@ -1247,7 +1266,7 @@ export class ProgressionService {
     // Progression evaluation trigger if lesson newly transitioned to viewed
     const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
     if (transitionToCompleted) {
-      await this.evaluateProgression(enrolment, { persist: true });
+      await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
       if (this.cacheHelper) {
         await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
         await this.cacheHelper.invalidateNamespace('users');
@@ -1376,7 +1395,7 @@ export class ProgressionService {
 
     const transitionToCompleted = !(existingProgress?.viewed ?? false);
     if (transitionToCompleted) {
-      await this.evaluateProgression(enrolment, { persist: true });
+      await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
       if (this.cacheHelper) {
         await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
         await this.cacheHelper.invalidateNamespace('users');

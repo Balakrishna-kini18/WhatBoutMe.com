@@ -566,10 +566,11 @@ export class SessionsService {
   }
 
   // Helper: Sessions by batch
-  async getSessionsByBatch(batchId: string) {
+  async getSessionsByBatch(batchId: string, limit: number = 100) {
     return this.prisma.session.findMany({
       where: { batchId },
       orderBy: { startTime: 'asc' },
+      take: limit,
       include: {
         hostTrainer: { select: { id: true, name: true } },
         learner: { select: { id: true, name: true } },
@@ -579,9 +580,10 @@ export class SessionsService {
   }
 
   // Helper: All sessions for admin overview
-  async getAllSessions() {
+  async getAllSessions(limit: number = 100) {
     return this.prisma.session.findMany({
       orderBy: { startTime: 'desc' },
+      take: limit,
       include: {
         batch: { include: { program: { select: { id: true, title: true } } } },
         hostTrainer: { select: { id: true, name: true, email: true } },
@@ -851,8 +853,15 @@ export class SessionsService {
       if (enrolment && enrolment.status === EnrolmentStatus.ACTIVE) {
         enrolmentId = enrolment.id;
       }
-      // 1:1 sessions may exist for a learner without a batch enrolment (e.g.
-      // closing call), so we do not hard-reject when the enrolment is absent.
+      
+      // If it's an open 1:1 session (no dedicated learnerId), enforce batch enrolment
+      if (!session.learnerId && !enrolmentId) {
+        throw new ForbiddenException(
+          'You must have an ACTIVE enrolment in the batch to book this open 1-on-1 session.',
+        );
+      }
+      // Dedicated 1:1 sessions may exist for a learner without a batch enrolment (e.g. closing call),
+      // so we do not hard-reject when the enrolment is absent as long as the learnerId matches.
     } else {
       // Group cohort: learner must have an ACTIVE enrolment in this batch.
       const enrolment = await this.prisma.enrolment.findUnique({
@@ -983,28 +992,52 @@ export class SessionsService {
         }
       }
 
-      // Create the booking record.
-      const created = await tx.sessionBooking.create({
-        data: {
-          sessionId,
-          userId: learnerId,
-          enrolmentId: enrolmentId ?? undefined,
-          status: BookingStatus.BOOKED,
-        },
-        include: {
-          session: {
-            select: {
-              id: true,
-              title: true,
-              startTime: true,
-              endTime: true,
-              joinUrl: true,
-              hostTrainer: { select: { id: true, name: true, email: true } },
-            },
+      let created;
+      if (existing) {
+        created = await tx.sessionBooking.update({
+          where: { sessionId_userId: { sessionId, userId: learnerId } },
+          data: {
+            enrolmentId: enrolmentId ?? undefined,
+            status: BookingStatus.BOOKED,
           },
-          user: { select: { id: true, name: true, email: true } },
-        },
-      });
+          include: {
+            session: {
+              select: {
+                id: true,
+                title: true,
+                startTime: true,
+                endTime: true,
+                joinUrl: true,
+                hostTrainer: { select: { id: true, name: true, email: true } },
+              },
+            },
+            user: { select: { id: true, name: true, email: true } },
+          },
+        });
+      } else {
+        // Create the booking record.
+        created = await tx.sessionBooking.create({
+          data: {
+            sessionId,
+            userId: learnerId,
+            enrolmentId: enrolmentId ?? undefined,
+            status: BookingStatus.BOOKED,
+          },
+          include: {
+            session: {
+              select: {
+                id: true,
+                title: true,
+                startTime: true,
+                endTime: true,
+                joinUrl: true,
+                hostTrainer: { select: { id: true, name: true, email: true } },
+              },
+            },
+            user: { select: { id: true, name: true, email: true } },
+          },
+        });
+      }
 
       return created;
     });
@@ -1025,7 +1058,7 @@ export class SessionsService {
         data: {
           userId: learnerId,
           type: 'SESSION_BOOKING_CONFIRMED',
-          template: `Your booking for "${session.title}" is confirmed.`,
+          template: `Your booking for "${session.title}"${session.hostTrainer ? ` with ${session.hostTrainer.name}` : ''} is confirmed.`,
           channel: 'IN_APP',
         },
       });

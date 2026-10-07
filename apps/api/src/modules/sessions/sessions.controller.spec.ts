@@ -1,12 +1,15 @@
+/**
+ * D1-043 / D1-044: SessionsController — RBAC, Routing, and Booking Tests
+ */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Reflector } from '@nestjs/core';
 import { SessionsController } from './sessions.controller.js';
 import { SessionsService } from './sessions.service.js';
 import { PERMISSIONS_KEY } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
-import { SessionType, MeetingProvider } from '@prisma/client';
+import { SessionType, MeetingProvider, BookingStatus } from '@prisma/client';
 
-describe('D1-043: SessionsController - RBAC and Routing Tests', () => {
+describe('SessionsController — D1-043 & D1-044 RBAC and Routing Tests', () => {
   let controller: SessionsController;
   let serviceMock: any;
   const reflector = new Reflector();
@@ -22,10 +25,15 @@ describe('D1-043: SessionsController - RBAC and Routing Tests', () => {
       deleteSession: vi.fn(),
       getAttendanceForSession: vi.fn(),
       markAttendance: vi.fn(),
+      // D1-044
+      bookSession: vi.fn(),
+      getMyBookings: vi.fn(),
     };
 
     controller = new SessionsController(serviceMock as unknown as SessionsService);
   });
+
+  // ─── D1-043 RBAC Metadata ─────────────────────────────────────────────────
 
   describe('RBAC Metadata and Named Permissions', () => {
     it('requires SESSIONS_CREATE for createSession', () => {
@@ -74,7 +82,20 @@ describe('D1-043: SessionsController - RBAC and Routing Tests', () => {
         Permission.ATTENDANCE_CORRECT,
       );
     });
+
+    // D1-044 permission checks
+    it('D1-044: requires SESSIONS_BOOK for bookSession', () => {
+      const perms = reflector.get<string[]>(PERMISSIONS_KEY, controller.bookSession);
+      expect(perms).toContain(Permission.SESSIONS_BOOK);
+    });
+
+    it('D1-044: requires SESSIONS_READ for getMyBookings', () => {
+      const perms = reflector.get<string[]>(PERMISSIONS_KEY, controller.getMyBookings);
+      expect(perms).toContain(Permission.SESSIONS_READ);
+    });
   });
+
+  // ─── Route Handler Delegations ────────────────────────────────────────────
 
   describe('Route Handler Delegations', () => {
     const mockUser = { sub: 'admin-1', role: 'SUPER_ADMIN' };
@@ -165,6 +186,40 @@ describe('D1-043: SessionsController - RBAC and Routing Tests', () => {
 
       await controller.overrideAttendance('sess-1', 'learner-99');
       expect(serviceMock.markAttendance).toHaveBeenCalledWith('sess-1', 'learner-99', true);
+    });
+
+    // ─── D1-044 routing delegations ──────────────────────────────────────────
+
+    it('D1-044: delegates bookSession with sessionId and JWT-derived learnerId (req.user.sub)', async () => {
+      const bookingResult = {
+        id: 'booking-1',
+        sessionId: 'sess-1',
+        userId: mockUser.sub,
+        status: BookingStatus.BOOKED,
+      };
+      serviceMock.bookSession.mockResolvedValueOnce(bookingResult);
+
+      const res = await controller.bookSession('sess-1', mockReq);
+      expect(res).toEqual(bookingResult);
+      // Must NOT pass any body field; learnerId comes from JWT only
+      expect(serviceMock.bookSession).toHaveBeenCalledWith('sess-1', mockUser.sub);
+    });
+
+    it('D1-044: bookSession always uses req.user.sub as learnerId (no client-supplied id trusted)', async () => {
+      serviceMock.bookSession.mockResolvedValueOnce({ id: 'booking-1' });
+
+      const fakeReq = { user: { sub: 'jwt-derived-user-id', role: 'USER' } };
+      await controller.bookSession('sess-1', fakeReq);
+      expect(serviceMock.bookSession).toHaveBeenCalledWith('sess-1', 'jwt-derived-user-id');
+    });
+
+    it('D1-044: delegates getMyBookings with JWT-derived userId', async () => {
+      const bookings = [{ id: 'booking-2', status: 'BOOKED' }];
+      serviceMock.getMyBookings.mockResolvedValueOnce(bookings);
+
+      const res = await controller.getMyBookings(mockReq);
+      expect(res).toEqual(bookings);
+      expect(serviceMock.getMyBookings).toHaveBeenCalledWith(mockUser.sub);
     });
   });
 });

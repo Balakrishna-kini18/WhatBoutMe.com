@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   AttemptStatus,
@@ -15,6 +16,7 @@ import {
   StepOverrideState,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 export const DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT = 90.0;
 
@@ -97,6 +99,9 @@ export interface StepProgressionItem {
   lockReason: LockReason | null;
   lessons: LessonProgressItem[];
   quiz: QuizProgressItem | null;
+  progressPercent?: number;
+  completedItems?: number;
+  totalItems?: number;
 }
 
 export interface StepOverrideResult {
@@ -120,12 +125,17 @@ export interface EnrolmentProgressionResponse {
   enrolmentStatus: EnrolmentStatus;
   overallProgressPercent: number;
   currentStepSequence: number;
+  totalItems?: number;
+  completedItems?: number;
   steps: StepProgressionItem[];
 }
 
 @Injectable()
 export class ProgressionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly cacheHelper?: CacheHelperService,
+  ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. EVALUATE ENROLMENT PROGRESSION TREE
@@ -905,6 +915,15 @@ export class ProgressionService {
         });
       }
 
+      const stepTotalItems = step.lessons.length + (step.quiz ? 1 : 0);
+      const stepCompletedItems =
+        step.lessons.filter((l) => viewedLessonIds.has(l.id)).length +
+        (step.quiz && passedQuizIds.has(step.quiz.id) ? 1 : 0);
+      const stepProgressPercent =
+        stepTotalItems > 0
+          ? (isStepCompleted ? 100 : Math.floor((stepCompletedItems / stepTotalItems) * 100))
+          : 100;
+
       evaluatedSteps.push({
         stepId: step.id,
         sequence: step.sequence,
@@ -923,6 +942,9 @@ export class ProgressionService {
         lockReason,
         lessons,
         quiz: quizItem,
+        progressPercent: stepProgressPercent,
+        completedItems: stepCompletedItems,
+        totalItems: stepTotalItems,
       });
 
       // Update cascading prerequisites for the next step in the loop
@@ -964,7 +986,9 @@ export class ProgressionService {
     }
 
     const overallProgressPercent =
-      totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+      totalItems > 0
+        ? (completedItems === totalItems ? 100 : Math.floor((completedItems / totalItems) * 100))
+        : 0;
 
     // Current step sequence: lowest sequence among incomplete steps
     const firstIncompleteStep = evaluatedSteps.find((s) => !s.isCompleted);
@@ -982,6 +1006,8 @@ export class ProgressionService {
       enrolmentStatus: enrolment.status,
       overallProgressPercent,
       currentStepSequence,
+      totalItems,
+      completedItems,
       steps: evaluatedSteps,
     };
   }
@@ -1222,6 +1248,10 @@ export class ProgressionService {
     const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
     if (transitionToCompleted) {
       await this.evaluateProgression(enrolment, { persist: true });
+      if (this.cacheHelper) {
+        await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
+        await this.cacheHelper.invalidateNamespace('users');
+      }
     }
 
     return {
@@ -1270,18 +1300,11 @@ export class ProgressionService {
       lesson.type === ContentType.VIDEO ||
       lesson.type === ContentType.AUDIO
     ) {
-      throw new BadRequestException(
-        'Video and audio lessons cannot be completed via this endpoint. Use /heartbeat',
-      );
-    }
-
-    if (
-      lesson.type !== ContentType.PDF &&
-      lesson.type !== ContentType.TEXT
-    ) {
-      throw new BadRequestException(
-        'Unsupported lesson type for manual completion',
-      );
+      if (lesson.durationSec && lesson.durationSec > 0) {
+        throw new BadRequestException(
+          'Video and audio lessons cannot be completed manually. Use heartbeat tracking',
+        );
+      }
     }
 
     const enrolment = await this.prisma.enrolment.findFirst({
@@ -1354,6 +1377,10 @@ export class ProgressionService {
     const transitionToCompleted = !(existingProgress?.viewed ?? false);
     if (transitionToCompleted) {
       await this.evaluateProgression(enrolment, { persist: true });
+      if (this.cacheHelper) {
+        await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
+        await this.cacheHelper.invalidateNamespace('users');
+      }
     }
 
     return {

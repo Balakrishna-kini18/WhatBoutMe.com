@@ -74,43 +74,62 @@ export class UsersService {
     const enrolmentIds = enrolments.map(e => e.id);
     const programIds = [...new Set(enrolments.map(e => e.batch?.programId).filter(Boolean))];
 
-    // 1. Total items (lessons + quizzes) per program
+    // 1. Total items (published lessons + quizzes) per program
     const programTotals: Record<string, number> = {};
     if (programIds.length > 0) {
       const steps = await this.prisma.step.findMany({
-        where: { programId: { in: programIds as string[] } },
+        where: {
+          programId: { in: programIds as string[] },
+          status: 'PUBLISHED',
+        },
         select: {
           programId: true,
-          _count: { select: { lessons: true } },
-          quiz: { select: { id: true } }
-        }
+          lessons: {
+            where: { status: 'PUBLISHED' },
+            select: { id: true },
+          },
+          quiz: { select: { id: true } },
+        },
       });
       for (const step of steps) {
-        programTotals[step.programId] = (programTotals[step.programId] || 0) + step._count.lessons + (step.quiz ? 1 : 0);
+        programTotals[step.programId] =
+          (programTotals[step.programId] || 0) +
+          step.lessons.length +
+          (step.quiz ? 1 : 0);
       }
     }
 
-    // 2. Completed items per enrolment
+    // 2. Completed items per enrolment (lessons viewed + distinct quizzes passed)
     const enrolmentCompletions: Record<string, number> = {};
     if (enrolmentIds.length > 0) {
       const [lessonProgress, passedAttempts] = await Promise.all([
         this.prisma.userLessonProgress.groupBy({
           by: ['enrolmentId'],
           where: { enrolmentId: { in: enrolmentIds }, viewed: true },
-          _count: { lessonId: true }
+          _count: { lessonId: true },
         }),
-        this.prisma.attempt.groupBy({
-          by: ['enrolmentId'],
+        this.prisma.attempt.findMany({
           where: { enrolmentId: { in: enrolmentIds }, status: 'PASSED' },
-          _count: { quizId: true }
-        })
+          select: { enrolmentId: true, quizId: true },
+        }),
       ]);
 
       for (const lp of lessonProgress) {
-        enrolmentCompletions[lp.enrolmentId] = (enrolmentCompletions[lp.enrolmentId] || 0) + lp._count.lessonId;
+        enrolmentCompletions[lp.enrolmentId] =
+          (enrolmentCompletions[lp.enrolmentId] || 0) + lp._count.lessonId;
       }
-      for (const pa of passedAttempts) {
-        enrolmentCompletions[pa.enrolmentId] = (enrolmentCompletions[pa.enrolmentId] || 0) + pa._count.quizId;
+
+      const passedQuizSetByEnrolment: Record<string, Set<string>> = {};
+      for (const a of passedAttempts) {
+        if (!passedQuizSetByEnrolment[a.enrolmentId]) {
+          passedQuizSetByEnrolment[a.enrolmentId] = new Set();
+        }
+        passedQuizSetByEnrolment[a.enrolmentId].add(a.quizId);
+      }
+
+      for (const [enrolId, set] of Object.entries(passedQuizSetByEnrolment)) {
+        enrolmentCompletions[enrolId] =
+          (enrolmentCompletions[enrolId] || 0) + set.size;
       }
     }
 
@@ -120,10 +139,15 @@ export class UsersService {
 
       if (enrolment && enrolment.batch?.programId) {
         const totalItems = programTotals[enrolment.batch.programId] || 0;
-        const completedItems = enrolmentCompletions[enrolment.id] || 0;
+        const completedItems = Math.min(
+          totalItems,
+          enrolmentCompletions[enrolment.id] || 0,
+        );
         if (totalItems > 0) {
-          progressPct = Math.round((completedItems / totalItems) * 100);
-          // clamp to 100 in case of data inconsistencies
+          progressPct =
+            completedItems === totalItems
+              ? 100
+              : Math.floor((completedItems / totalItems) * 100);
           if (progressPct > 100) progressPct = 100;
         }
       }

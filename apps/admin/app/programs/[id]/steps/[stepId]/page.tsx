@@ -140,6 +140,7 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
       });
 
       const publicId = (uploadRes as any).public_id;
+      const cloudinaryDuration = (uploadRes as any).duration ? Math.round((uploadRes as any).duration) : undefined;
       
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs/steps/${stepId}/lessons`, {
         method: "POST",
@@ -148,6 +149,7 @@ export default function StepLessonsPage({ params }: { params: Promise<{ id: stri
           title: title || file.name.replace(/\.[^/.]+$/, ""),
           type: "VIDEO",
           mediaUrl: `upload:${publicId}`,
+          durationSec: cloudinaryDuration,
         }),
       });
       if (!res.ok) throw new Error("Failed to link video to module");

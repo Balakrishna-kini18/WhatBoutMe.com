@@ -50,6 +50,7 @@ baton/
 .agents/
 .claude/
 .cursor/
+.kiro/
 
 # files the API stores on disk (uploads, website content)
 apps/api/storage/

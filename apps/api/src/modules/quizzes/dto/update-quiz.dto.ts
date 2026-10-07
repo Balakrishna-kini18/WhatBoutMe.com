@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min, IsObject } from 'class-validator';
 
 export class UpdateQuizDto {
   @IsOptional()
@@ -38,4 +38,8 @@ export class UpdateQuizDto {
   @IsOptional()
   @IsString()
   retryGuidance?: string;
+
+  @IsOptional()
+  @IsObject()
+  questions?: any;
 }

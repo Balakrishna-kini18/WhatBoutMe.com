@@ -28,6 +28,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Lesson progress state (D1-035)
   const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
+  const [resumedFrom, setResumedFrom] = useState<{ lessonId: string; timeSec: number } | null>(null);
   const lastHeartbeatTimeRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -66,12 +68,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       setStep(stepData);
 
       // 2. Fetch authoritative progression for the step's program
+      let progData: EnrolmentProgressionResponse | null = null;
       if (stepData.programId) {
         const progRes = await fetch(`${API_URL}/progression/me/${stepData.programId}`, {
           headers: getAuthHeaders(),
         });
         if (progRes.ok) {
-          const progData: EnrolmentProgressionResponse = await progRes.json();
+          progData = await progRes.json();
           setProgression(progData);
         } else if (progRes.status === 403 || progRes.status === 404) {
           const err = await parseApiError(progRes);
@@ -90,10 +93,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         }
       }
 
-      // 3. Fetch progress for all lessons in the step (D1-035)
-      if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
+      // 3. Initialize lesson progress from authoritative progression response (removes N+1)
+      const stepProgItem = progData?.steps?.find((s: any) => s.stepId === stepId);
+      const lpMap: Record<string, any> = {};
+
+      if (stepProgItem?.lessons && stepProgItem.lessons.length > 0) {
+        for (const l of stepProgItem.lessons) {
+          lpMap[l.lessonId] = {
+            viewed: l.isCompleted,
+            progressPercent: l.progressPercent,
+            lastPositionSec: l.lastPositionSec,
+            completedAt: l.completedAt,
+            durationSec: l.durationSec,
+            isCompleted: l.isCompleted,
+          };
+        }
+        setLessonProgress(lpMap);
+      } else if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
         try {
-          const lpMap: Record<string, any> = {};
           await Promise.all(
             stepData.lessons.map(async (l: any) => {
               const lpRes = await fetch(`${API_URL}/progress/lessons/${l.id}`, {
@@ -248,6 +265,36 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     [lessonProgress, fetchStepAndProgression]
   );
 
+  // Send keepalive heartbeat on pagehide / tab switch (Edge Case 6)
+  useEffect(() => {
+    const handleVisibilityOrHide = () => {
+      const activeVideo = videoRef.current;
+      const mediaId = selectedMediaId || (step?.lessons?.find((l: any) => l.type === "VIDEO" || l.type === "AUDIO")?.id);
+      if (activeVideo && mediaId && (document.visibilityState === "hidden" || !document.hasFocus())) {
+        const currentSec = Math.floor(activeVideo.currentTime);
+        if (currentSec > 0) {
+          const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+          fetch(`${API_URL}/progress/lessons/${mediaId}/heartbeat`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ positionSec: currentSec }),
+            keepalive: true,
+          }).catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener("pagehide", handleVisibilityOrHide);
+    document.addEventListener("visibilitychange", handleVisibilityOrHide);
+    return () => {
+      window.removeEventListener("pagehide", handleVisibilityOrHide);
+      document.removeEventListener("visibilitychange", handleVisibilityOrHide);
+    };
+  }, [selectedMediaId, step]);
+
   // D1-035: PDF or text lesson completion
   const handleCompleteDocument = async (lessonId: string) => {
     try {
@@ -263,6 +310,17 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
     } catch (err) {
       console.warn("Document completion error:", err);
+    }
+  };
+
+  const handleCompleteLesson = async (lessonId: string) => {
+    try {
+      await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+    } catch (err) {
+      console.warn("Failed to mark lesson complete:", err);
     }
   };
 
@@ -404,10 +462,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   // STEP CONTENT (UNLOCKED & ACTIVE)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  const lesson = step.lessons?.find((l: any) => l.type !== "PDF");
+  const mediaLessons = (step.lessons || []).filter((l: any) => l.type === "VIDEO" || l.type === "AUDIO");
   const documents = (step.lessons || []).filter((l: any) => l.type === "PDF");
+  const textLessons = (step.lessons || []).filter((l: any) => l.type === "TEXT");
   const quiz = step.quiz;
-  const isStepCompleted = currentStepProg?.isCompleted || lastResult?.passed;
+
+  const currentMedia = mediaLessons.find((m: any) => m.id === selectedMediaId) || mediaLessons[0];
+
+  const allStepLessons = step.lessons || [];
+  const completedLessonsCount = allStepLessons.filter(
+    (l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed
+  ).length;
+  const isQuizPassed = currentStepProg?.quiz?.isPassed || lastResult?.passed;
+  const stepTotalItems = allStepLessons.length + (quiz ? 1 : 0);
+  const stepCompletedItems = completedLessonsCount + (quiz && isQuizPassed ? 1 : 0);
+  const isStepCompleted = currentStepProg?.isCompleted || (stepTotalItems > 0 && stepCompletedItems === stepTotalItems);
+  const calculatedStepPercent = stepTotalItems > 0
+    ? (isStepCompleted ? 100 : Math.floor((stepCompletedItems / stepTotalItems) * 100))
+    : 100;
 
   const answeredCount = Object.keys(answers).length;
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
@@ -434,15 +506,86 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         <p className={styles.subtitle}>{step.description}</p>
       </header>
 
+      {/* STEP PROGRESS BAR */}
+      <div
+        style={{
+          background: "var(--bg-card, #ffffff)",
+          border: "1px solid var(--border-light, #e2e8f0)",
+          borderRadius: "12px",
+          padding: "16px 20px",
+          marginBottom: "24px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
+          <div>
+            <span style={{ fontWeight: 700, fontSize: "1rem" }}>
+              Step Progress: {calculatedStepPercent}%
+            </span>
+            <span style={{ marginLeft: "10px", fontSize: "0.85rem", color: "var(--text-secondary, #64748b)" }}>
+              ({stepCompletedItems} of {stepTotalItems} requirements completed)
+            </span>
+          </div>
+          {isStepCompleted && (
+            <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
+              ✓ Step Requirements Met
+            </span>
+          )}
+        </div>
+        <div style={{ width: "100%", height: "10px", background: "var(--bg-soft, #f1f5f9)", borderRadius: "6px", overflow: "hidden" }}>
+          <div
+            style={{
+              width: `${calculatedStepPercent}%`,
+              height: "100%",
+              background: calculatedStepPercent === 100 ? "#16a34a" : "var(--accent-primary, #0284c7)",
+              borderRadius: "6px",
+              transition: "width 0.4s ease",
+            }}
+          />
+        </div>
+      </div>
+
       <div className={styles.contentGrid}>
         <div className={styles.mainColumn}>
-          {lesson ? (
+          {mediaLessons.length > 1 && (
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px", overflowX: "auto", paddingBottom: "4px" }}>
+              {mediaLessons.map((m: any, idx: number) => {
+                const isSelected = (currentMedia?.id === m.id);
+                const isViewed = lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedMediaId(m.id)}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: "8px",
+                      border: isSelected ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #e2e8f0)",
+                      background: isSelected ? "var(--accent-highlight, #f0f9ff)" : "var(--bg-card, #ffffff)",
+                      color: isSelected ? "var(--accent-primary, #0284c7)" : "var(--text-primary)",
+                      fontWeight: isSelected ? 700 : 500,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <span>{m.type === "AUDIO" ? "🎧" : "🎬"} Lesson {idx + 1}</span>
+                    {isViewed && <span style={{ color: "#16a34a" }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {currentMedia ? (
             <div className={styles.videoContainer}>
               {(() => {
-                const isUpload = lesson.mediaUrl?.startsWith("upload:");
-                let videoSrc = lesson.mediaUrl;
+                const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
+                let videoSrc = currentMedia.mediaUrl;
                 if (isUpload) {
-                  const publicId = lesson.mediaUrl.replace("upload:", "");
+                  const publicId = currentMedia.mediaUrl.replace("upload:", "");
                   const streamingKey = publicId.includes(".") ? publicId : `${publicId}.mp4`;
                   videoSrc = `${API_URL}/media/stream/${streamingKey}`;
                 }
@@ -450,27 +593,33 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 return (
                   <video
                     ref={videoRef}
+                    key={currentMedia.id}
                     controls
                     controlsList="nodownload"
                     onLoadedMetadata={(e) => {
-                      const resumeSec = lessonProgress[lesson.id]?.lastPositionSec;
-                      if (resumeSec && resumeSec > 0 && resumeSec < e.currentTarget.duration - 5) {
+                      const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
+                      if (resumeSec && resumeSec > 5 && resumeSec < e.currentTarget.duration - 5) {
                         e.currentTarget.currentTime = resumeSec;
+                        setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
                       }
                     }}
                     onTimeUpdate={(e) => {
                       const currentSec = Math.floor(e.currentTarget.currentTime);
                       const now = Date.now();
-                      if (now - lastHeartbeatTimeRef.current > 5000) {
+                      if (now - lastHeartbeatTimeRef.current > 15000) {
                         lastHeartbeatTimeRef.current = now;
-                        sendMediaHeartbeat(lesson.id, currentSec);
+                        sendMediaHeartbeat(currentMedia.id, currentSec);
                       }
                     }}
                     onPause={(e) => {
-                      sendMediaHeartbeat(lesson.id, Math.floor(e.currentTarget.currentTime));
+                      sendMediaHeartbeat(currentMedia.id, Math.floor(e.currentTarget.currentTime));
                     }}
                     onEnded={(e) => {
-                      sendMediaHeartbeat(lesson.id, Math.floor(e.currentTarget.duration));
+                      const duration = Math.floor(e.currentTarget.duration || 0);
+                      sendMediaHeartbeat(currentMedia.id, duration);
+                      if (!currentMedia.durationSec || currentMedia.durationSec <= 0) {
+                        handleCompleteDocument(currentMedia.id);
+                      }
                     }}
                     style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px" }}
                     src={videoSrc}
@@ -479,19 +628,109 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </video>
                 );
               })()}
-              <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: "bold" }}>{lesson.title}</span>
-                {lessonProgress[lesson.id]?.isCompleted && (
-                  <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
-                    ✓ Video Watched
+
+              {/* Resume Notice with option to start over */}
+              {resumedFrom && resumedFrom.lessonId === currentMedia.id && (
+                <div
+                  style={{
+                    marginTop: "8px",
+                    padding: "8px 14px",
+                    backgroundColor: "#f0f9ff",
+                    border: "1px solid #bae6fd",
+                    borderRadius: "8px",
+                    fontSize: "0.85rem",
+                    color: "#0369a1",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span>
+                    Resumed playback from <strong>{Math.floor(resumedFrom.timeSec / 60)}:{(resumedFrom.timeSec % 60).toString().padStart(2, "0")}</strong>
                   </span>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = 0;
+                      }
+                      setResumedFrom(null);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#0284c7",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      fontSize: "0.85rem",
+                      padding: 0,
+                    }}
+                  >
+                    Start from beginning
+                  </button>
+                </div>
+              )}
+
+              <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: "bold" }}>{currentMedia.title}</span>
+                {lessonProgress[currentMedia.id]?.isCompleted || lessonProgress[currentMedia.id]?.viewed ? (
+                  <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
+                    ✓ Watched
+                  </span>
+                ) : lessonProgress[currentMedia.id]?.progressPercent > 0 ? (
+                  <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.85rem", fontWeight: 600 }}>
+                    {lessonProgress[currentMedia.id]?.lastPositionSec && currentMedia.durationSec
+                      ? `${Math.floor(lessonProgress[currentMedia.id].lastPositionSec / 60)}:${(Math.floor(lessonProgress[currentMedia.id].lastPositionSec) % 60).toString().padStart(2, "0")} / ${Math.floor(currentMedia.durationSec / 60)}:${(currentMedia.durationSec % 60).toString().padStart(2, "0")} · `
+                      : ""}
+                    Watched {Math.round(lessonProgress[currentMedia.id].progressPercent)}%
+                  </span>
+                ) : null}
               </div>
             </div>
           ) : (
             <div className={styles.videoContainer}>
               <div className={styles.videoPlaceholder} style={{ textAlign: "center", padding: "40px", background: "var(--bg-soft)", borderRadius: "12px" }}>
                 <p>No video content uploaded for this step yet.</p>
+              </div>
+            </div>
+          )}
+
+          {textLessons.length > 0 && (
+            <div style={{ marginTop: "24px" }}>
+              <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Reading Lessons</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {textLessons.map((textLesson: any) => {
+                  const isRead = lessonProgress[textLesson.id]?.isCompleted || lessonProgress[textLesson.id]?.viewed;
+                  return (
+                    <div
+                      key={textLesson.id}
+                      style={{
+                        padding: "16px",
+                        border: "1px solid var(--border-light)",
+                        borderRadius: "12px",
+                        background: "var(--bg-card)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <h4 style={{ margin: 0, fontSize: "1rem" }}>📖 {textLesson.title}</h4>
+                        {isRead ? (
+                          <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>✓ Completed</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteDocument(textLesson.id)}
+                            className={styles.secondaryBtn}
+                            style={{ padding: "4px 12px", fontSize: "0.8rem", cursor: "pointer" }}
+                          >
+                            Mark as Read
+                          </button>
+                        )}
+                      </div>
+                      {textLesson.content && <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", margin: 0 }}>{textLesson.content}</p>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -520,6 +759,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         href={doc.mediaUrl}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={() => handleCompleteDocument(doc.id)}
                         style={{
                           display: "flex",
                           alignItems: "center",
@@ -584,7 +824,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               ) : (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
                   <p style={{ margin: 0, color: "var(--text-secondary)" }}>
-                    {lesson && !lessonProgress[lesson.id]?.isCompleted
+                    {currentMedia && !lessonProgress[currentMedia.id]?.isCompleted
                       ? "Watch the lesson video to advance your progress."
                       : documents.length > 0
                       ? "Read and mark the document materials as read to complete this step."

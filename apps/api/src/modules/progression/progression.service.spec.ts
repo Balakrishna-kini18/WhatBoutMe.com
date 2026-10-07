@@ -1392,6 +1392,44 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         expect(res.completedAt).toBeInstanceOf(Date);
       });
 
+      it('does NOT award completion when video is strictly below the 90% threshold (e.g., 89.9%)', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        // 300s * 0.899 = 269.7s
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 269.7);
+
+        expect(res.progressPercent).toBeCloseTo(89.9, 1);
+        expect(res.viewed).toBe(false);
+        expect(res.completedAt).toBeNull();
+      });
+
+      it('awards completion exactly at the 90.0% boundary', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        // 300s * 0.900 = 270s
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 270.0);
+
+        expect(res.progressPercent).toBe(90.0);
+        expect(res.viewed).toBe(true);
+        expect(res.completedAt).toBeInstanceOf(Date);
+      });
+
+      it('handles skip to the end (e.g. 100% position immediately)', async () => {
+        prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+
+        // Skipped directly to 300s without prior heartbeats
+        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 300.0);
+
+        expect(res.progressPercent).toBe(100.0);
+        expect(res.viewed).toBe(true);
+        expect(res.completedAt).toBeInstanceOf(Date);
+      });
+
+
+
       it('awards completion for audio when reaching 90% threshold', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockAudioLesson);
         prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);

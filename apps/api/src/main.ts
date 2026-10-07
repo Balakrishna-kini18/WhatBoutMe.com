@@ -24,7 +24,7 @@ async function bootstrap() {
   app.use(helmet());
   const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003'];
+    : []; // Don't rely exclusively on localhost, though we keep the regex below for local dev
 
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
@@ -34,6 +34,7 @@ async function bootstrap() {
         allowedOrigins.includes(origin) ||
         /^http:\/\/localhost:[0-9]+$/.test(origin) ||
         /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(origin) ||
+        /\.vercel\.app$/.test(origin) || // <-- Automatically allow ALL Vercel domains
         // development only: a phone on the same network opening the apps at
         // this machine's private address (10.x, 172.16-31.x, 192.168.x)
         (process.env.NODE_ENV !== 'production' &&

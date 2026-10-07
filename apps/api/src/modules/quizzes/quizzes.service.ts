@@ -577,6 +577,7 @@ export class QuizzesService {
     if (passed) {
       await this.progressionService.evaluateProgression(attempt.enrolment, {
         persist: true,
+        forceRecalculate: true,
       });
       await this.cacheHelper.invalidateNamespace(`auth_user:${attempt.enrolment.userId}`);
       await this.cacheHelper.invalidateNamespace('users');

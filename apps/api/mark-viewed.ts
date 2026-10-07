@@ -11,6 +11,7 @@ async function run() {
 
   // Get the enrolments for this program
   const step = await prisma.step.findUnique({ where: { id: stepId } });
+  if (!step) throw new Error('Step not found');
   const enrolments = await prisma.enrolment.findMany({
     where: { programId: step.programId }
   });

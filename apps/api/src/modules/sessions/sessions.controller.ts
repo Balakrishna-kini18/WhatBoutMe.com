@@ -1,69 +1,163 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
-import { Roles } from '../../common/decorators/roles.decorator.js';
-import { Role } from '@prisma/client';
-import { IsString, IsNotEmpty, IsDateString, IsOptional } from 'class-validator';
-
-export class CreateSessionDto {
-  @IsString() @IsNotEmpty() batchId: string;
-  @IsString() @IsNotEmpty() title: string;
-  @IsDateString() startTime: string;
-  @IsDateString() endTime: string;
-  @IsOptional() @IsString() joinUrl?: string;
-  @IsOptional() @IsString() recordingUrl?: string;
-  @IsOptional() @IsString() quizId?: string;
-}
+import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { Permission } from '../../config/permissions.config.js';
+import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { CreateSessionDto, UpdateSessionDto, QuerySessionsDto } from './dto/index.js';
 
 @Controller('sessions')
+@UseGuards(PermissionsGuard)
 export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
 
+  /**
+   * Filter sessions by batch, sessionType, trainer, status, or date range.
+   * Scoped to manager's assigned cohorts or learner's enrolled cohorts.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
   @Get()
-  getSessions(@Query('batchId') batchId: string) {
-    if (!batchId) return [];
-    return this.sessionsService.getSessionsByBatch(batchId);
+  getSessions(@Query() query: QuerySessionsDto, @Request() req: any) {
+    // If batchId is passed alone without DTO wrapping
+    return this.sessionsService.getSessions(query, req.user);
   }
 
-  // Learner: their own sessions with attendance
+  /**
+   * Learner-specific: live sessions across enrolled cohorts and dedicated 1:1s.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
   @Get('mine')
   getMySessions(@Request() req: any) {
     return this.sessionsService.getMySessions(req.user.sub);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  /**
+   * Overview of all sessions for administrative management.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
   @Get('all')
-  getAllSessions() {
-    return this.sessionsService.getAllSessions();
+  getAllSessions(@Request() req: any) {
+    return this.sessionsService.getSessions({}, req.user);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  /**
+   * Get single session by ID.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
+  @Get(':id')
+  getSessionById(@Param('id') id: string, @Request() req: any) {
+    return this.sessionsService.getSessionById(id, req.user);
+  }
+
+  /**
+   * Schedule a new 1-on-1 coaching or group cohort session.
+   * D1-043: Enforces UTC persistence, trainer double-booking clash checks,
+   * capacity limits, and Zoom meeting creation via IMeetingProvider.
+   */
+  @RequirePermission(Permission.SESSIONS_CREATE)
   @Post()
-  createSession(@Body() body: CreateSessionDto) {
-    return this.sessionsService.createSession(body);
+  createSession(@Body() body: CreateSessionDto, @Request() req: any) {
+    return this.sessionsService.createSession(body, req.user);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  /**
+   * Update an existing session's schedule, capacity, or details.
+   */
+  @RequirePermission(Permission.SESSIONS_UPDATE)
+  @Patch(':id')
+  updateSession(
+    @Param('id') id: string,
+    @Body() body: UpdateSessionDto,
+    @Request() req: any,
+  ) {
+    return this.sessionsService.updateSession(id, body, req.user);
+  }
+
+  /**
+   * Soft-cancel a session with reason logging and external meeting cleanup.
+   */
+  @RequirePermission(Permission.SESSIONS_CANCEL)
+  @Post(':id/cancel')
+  cancelSession(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.sessionsService.cancelSession(id, reason, req.user);
+  }
+
+  /**
+   * Hard-delete a session if no attendance records exist.
+   */
+  @RequirePermission(Permission.SESSIONS_DELETE)
   @Delete(':id')
-  deleteSession(@Param('id') id: string) {
-    return this.sessionsService.deleteSession(id);
+  deleteSession(@Param('id') id: string, @Request() req: any) {
+    return this.sessionsService.deleteSession(id, req.user);
   }
 
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  /**
+   * Attendance: retrieve attendee list for a session.
+   */
+  @RequirePermission(Permission.ATTENDANCE_READ)
   @Get(':id/attendance')
   getAttendance(@Param('id') id: string, @Request() req: any) {
     return this.sessionsService.getAttendanceForSession(id, req.user);
   }
 
-  // Learner checking themselves in
+  /**
+   * Attendance: learner self check-in.
+   */
+  @RequirePermission(Permission.ATTENDANCE_MARK)
   @Post(':id/attend')
   markSelfAttendance(@Param('id') id: string, @Request() req: any) {
-    return this.sessionsService.markAttendance(id, req.user.sub, false); // fix user id mapping
+    return this.sessionsService.markAttendance(id, req.user.sub, false);
   }
 
-  // Admin manually checking a learner in
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  /**
+   * Attendance: administrative override check-in.
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
   @Post(':id/override-attendance')
   overrideAttendance(@Param('id') id: string, @Body('userId') userId: string) {
     return this.sessionsService.markAttendance(id, userId, true);
+  }
+
+  /**
+   * D1-044: Learner self-booking for a session slot.
+   * Learner identity is derived exclusively from the authenticated JWT — the
+   * client cannot supply or forge a userId.
+   *
+   * Validates:
+   * - Session existence and bookable status
+   * - Enrolment eligibility (ACTIVE only)
+   * - Batch membership (no IDOR)
+   * - 12-hour advance notice (configurable via BOOKING_ADVANCE_NOTICE_HOURS)
+   * - Capacity quota under advisory lock
+   * - Outlook calendar clash via ICalendarProvider.getBusySlots()
+   */
+  @RequirePermission(Permission.SESSIONS_BOOK)
+  @Post(':id/book')
+  bookSession(@Param('id') sessionId: string, @Request() req: any) {
+    // Learner identity is always server-derived from the JWT; never from body/query.
+    return this.sessionsService.bookSession(sessionId, req.user.sub);
+  }
+
+  /**
+   * D1-044: Returns all active bookings for the authenticated learner.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
+  @Get('my/bookings')
+  getMyBookings(@Request() req: any) {
+    return this.sessionsService.getMyBookings(req.user.sub);
   }
 }

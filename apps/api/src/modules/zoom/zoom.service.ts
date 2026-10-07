@@ -97,12 +97,50 @@ export class ZoomMeetingProvider implements IMeetingProvider {
   async createMeeting(params: CreateMeetingParams): Promise<MeetingDetails> {
     this.logger.log(`Creating Zoom meeting for topic: ${params.topic}`);
 
+    if (params.referenceId) {
+      try {
+        let nextPageToken = '';
+        let foundMeeting: any = null;
+        
+        do {
+          const url = `/users/me/meetings?type=scheduled&page_size=300${nextPageToken ? `&next_page_token=${nextPageToken}` : ''}`;
+          const upcomingMeetings = await this.zoomApiRequest(url, 'GET');
+          
+          if (upcomingMeetings && upcomingMeetings.meetings) {
+            foundMeeting = upcomingMeetings.meetings.find((m: any) => m.agenda === params.referenceId);
+            if (foundMeeting) break;
+            
+            nextPageToken = upcomingMeetings.next_page_token || '';
+          } else {
+            break;
+          }
+        } while (nextPageToken);
+
+        if (foundMeeting) {
+          this.logger.log(`Found existing Zoom meeting for referenceId ${params.referenceId}. Reconciling.`);
+          // Note: `meetings` list doesn't include password/start_url. We need to fetch details.
+          const details = await this.zoomApiRequest(`/meetings/${foundMeeting.id}`, 'GET');
+          return {
+            id: details.id.toString(),
+            joinUrl: details.join_url,
+            startUrl: details.start_url,
+            password: details.password,
+          };
+        }
+      } catch (error: any) {
+        this.logger.warn(`Failed to check existing Zoom meetings during idempotency check: ${error.message}`);
+        // We can swallow this warning and proceed to create, or throw. Throwing is safer to avoid duplicates if API is down.
+        throw error;
+      }
+    }
+
     const payload = {
       topic: params.topic,
       type: 2, // Scheduled meeting
       start_time: params.startTime.toISOString(),
       duration: params.durationMinutes,
       timezone: params.timezone || 'UTC',
+      agenda: params.referenceId || undefined,
       settings: {
         host_video: true,
         participant_video: true,

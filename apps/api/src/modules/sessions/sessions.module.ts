@@ -8,6 +8,8 @@ import { ZoomMeetingProvider } from '../zoom/zoom.service.js';
 import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.interface.js';
 import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.interface.js';
 
+import { MeetingSyncProcessor } from './meeting-sync.processor.js';
+
 /**
  * D1-044: CALENDAR_PROVIDER is registered as a null factory until the
  * OutlookCalendarProvider (D2-037–D2-040) is implemented.  The SessionsService
@@ -19,6 +21,7 @@ import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.int
   controllers: [SessionsController, AttendanceController],
   providers: [
     SessionsService,
+    MeetingSyncProcessor,
     {
       provide: MEETING_PROVIDER,
       useExisting: ZoomMeetingProvider,

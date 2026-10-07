@@ -15,6 +15,7 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
   let service: SessionsService;
   let prismaMock: any;
   let meetingProviderMock: IMeetingProvider;
+  let meetingSyncQueueMock: any;
 
   const adminActor = {
     sub: 'admin-user-id',
@@ -55,6 +56,12 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
 
   beforeEach(() => {
     prismaMock = {
+      $transaction: vi.fn().mockImplementation(async (cb) => {
+        return cb(prismaMock);
+      }),
+      outboxEvent: {
+        create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'outbox-1', action: data.action, payload: data.payload })),
+      },
       batch: {
         findUnique: vi.fn().mockResolvedValue(mockBatch),
         findMany: vi.fn().mockResolvedValue([mockBatch]),
@@ -84,7 +91,7 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
         update: vi.fn().mockImplementation(({ data }: any) =>
           Promise.resolve({ id: 'sess-1', ...data }),
         ),
-        delete: vi.fn().mockResolvedValue({ id: 'sess-1' }),
+        delete: vi.fn().mockResolvedValue({ id: 'sess-1', title: 'Deleted Session' }),
       },
       auditLog: {
         create: vi.fn().mockResolvedValue({ id: 'audit-1' }),
@@ -110,9 +117,15 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
       getParticipantReport: vi.fn().mockResolvedValue([]),
     };
 
+    meetingSyncQueueMock = {
+      add: vi.fn().mockResolvedValue({ id: 'job-1' }),
+    };
+
     service = new SessionsService(
       prismaMock as unknown as PrismaService,
       meetingProviderMock,
+      undefined,
+      meetingSyncQueueMock,
     );
   });
 
@@ -149,20 +162,19 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
             capacity: 25,
             status: SessionStatus.SCHEDULED,
             hostTrainerId: mockTrainer.id,
-            joinUrl: 'https://zoom.us/j/123456789',
-            hostUrl: 'https://zoom.us/s/123456789',
-            providerMeetingId: 'zoom-123456789',
+            joinUrl: null,
+            hostUrl: null,
+            providerMeetingId: null,
             meetingProvider: MeetingProvider.ZOOM,
           }),
         }),
       );
 
-      expect(meetingProviderMock.createMeeting).toHaveBeenCalledWith({
-        topic: 'Step 1 Live Orientation',
-        startTime: new Date(startTime),
-        durationMinutes: 90,
-        timezone: 'UTC',
-      });
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
+        outboxId: 'outbox-1',
+        type: 'CREATE',
+        sessionId: 'sess-1',
+      }));
 
       expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -533,31 +545,33 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
       );
     });
 
-    it('throws BadGatewayException when Zoom API fails, without creating fake links', async () => {
-      (meetingProviderMock.createMeeting as any).mockRejectedValueOnce(
-        new Error('Zoom S2S Token Expired or Network Failure'),
+    it('creates session and enqueues sync without failing on external API', async () => {
+      // Zoom API calls are no longer inline, they are dispatched to the queue.
+      // So BadGatewayException is no longer thrown during session creation.
+      const res = await service.createSession(
+        {
+          batchId: mockBatch.id,
+          title: 'Sync Enqueue Test',
+          startTime: '2026-11-15T10:00:00.000Z',
+          endTime: '2026-11-15T11:00:00.000Z',
+        },
+        adminActor,
       );
 
-      await expect(
-        service.createSession(
-          {
-            batchId: mockBatch.id,
-            title: 'Failing Meeting Creation',
-            startTime: '2026-11-15T10:00:00.000Z',
-            endTime: '2026-11-15T11:00:00.000Z',
-          },
-          adminActor,
-        ),
-      ).rejects.toThrow(BadGatewayException);
-
-      // Session must NOT be created if Zoom call failed
-      expect(prismaMock.session.create).not.toHaveBeenCalled();
+      expect(res.id).toBe('sess-1');
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
+        outboxId: 'outbox-1',
+        type: 'CREATE',
+        sessionId: 'sess-1',
+      }));
     });
 
     it('throws BadRequestException if meeting provider is omitted and no joinUrl is provided', async () => {
       const unconfiguredService = new SessionsService(
         prismaMock as unknown as PrismaService,
         undefined, // No meeting provider injected
+        undefined,
+        undefined, // No meeting sync queue injected
       );
 
       await expect(
@@ -600,14 +614,11 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
         adminActor,
       );
 
-      expect(meetingProviderMock.updateMeeting).toHaveBeenCalledWith(
-        'zoom-123456789',
-        expect.objectContaining({
-          topic: 'New Rescheduled Title',
-          startTime: new Date('2026-11-18T12:00:00.000Z'),
-          durationMinutes: 60,
-        }),
-      );
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
+        outboxId: 'outbox-1',
+        type: 'UPDATE',
+        sessionId: 'sess-1',
+      }));
 
       expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -628,7 +639,10 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
 
       const cancelled = await service.cancelSession('sess-1', 'Trainer ill', adminActor);
 
-      expect(meetingProviderMock.cancelMeeting).toHaveBeenCalledWith('zoom-123456789');
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
+        outboxId: 'outbox-1',
+        type: 'CANCEL',
+      }));
       expect(prismaMock.session.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'sess-1' },

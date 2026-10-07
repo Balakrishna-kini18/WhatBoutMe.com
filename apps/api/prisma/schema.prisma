@@ -1212,3 +1212,29 @@ model EmailDeliveryLog {
   @@index([to])
   @@index([status])
 }
+
+// -----------------------------------------------------------------------------
+// RELIABILITY & OUTBOX
+// -----------------------------------------------------------------------------
+
+model OutboxEvent {
+  id          String       @id @default(uuid())
+  type        String       // e.g., "sync-meeting"
+  action      String       // e.g., "CREATE", "UPDATE", "CANCEL"
+  payload     Json?        // Job payload
+  status      OutboxStatus @default(PENDING)
+  providerId  String?      // Used for idempotency (e.g., storing Zoom Meeting ID temporarily)
+  error       String?
+  attempts    Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status, createdAt])
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}

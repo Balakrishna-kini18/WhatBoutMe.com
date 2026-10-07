@@ -877,7 +877,7 @@ describe('D1-046: Reschedule & Cancellation Rules', () => {
       })),
     };
     calendarProviderMock = { getBusySlots: vi.fn().mockResolvedValue([]) } as any;
-    meetingProviderMock = { createMeeting: vi.fn(), updateMeeting: vi.fn(), deleteMeeting: vi.fn(), getMeetingRecordings: vi.fn() };
+    meetingProviderMock = { createMeeting: vi.fn(), updateMeeting: vi.fn(), cancelMeeting: vi.fn(), getRecordingUrl: vi.fn(), getParticipantReport: vi.fn() } as any;
     service = new SessionsService(prismaMock as any, meetingProviderMock, calendarProviderMock);
     // Suppress warnings
     vi.spyOn(service['logger'], 'warn').mockImplementation(() => {});

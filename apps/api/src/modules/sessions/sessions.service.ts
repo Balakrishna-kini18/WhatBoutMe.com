@@ -10,7 +10,7 @@ import {
   Optional,
   Logger,
 } from '@nestjs/common';
-import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus } from '@prisma/client';
+import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus, OutboxEvent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
 import type { IMeetingProvider } from '../../common/interfaces/meeting-provider.interface.js';
@@ -32,6 +32,9 @@ import {
   resolveTimezone,
 } from '../../common/timezone/timezone.util.js';
 
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
@@ -44,6 +47,9 @@ export class SessionsService {
     @Optional()
     @Inject(CALENDAR_PROVIDER)
     private readonly calendarProvider?: ICalendarProvider,
+    @Optional()
+    @InjectQueue('meeting-sync')
+    private readonly meetingSyncQueue?: Queue,
   ) {}
 
   /**
@@ -188,86 +194,100 @@ export class SessionsService {
       }
     }
 
-    // 6. Meeting Provider Integration (Zoom via IMeetingProvider)
+    // 6. Meeting Provider Setup
     let finalJoinUrl = data.joinUrl;
-    let finalHostUrl: string | null = null;
-    let finalProviderMeetingId: string | null = null;
-    let finalZoomMeetingId: string | null = null;
     const provider = data.meetingProvider || (finalJoinUrl ? MeetingProvider.MANUAL : MeetingProvider.ZOOM);
 
     if ((!finalJoinUrl || finalJoinUrl.trim() === '') && provider === MeetingProvider.ZOOM) {
-      if (!this.meetingProvider) {
+      if (!this.meetingProvider && !this.meetingSyncQueue) {
         throw new BadRequestException(
-          'Meeting provider is not configured. Please supply a manual joinUrl or configure the meeting provider.',
-        );
-      }
-
-      const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
-      try {
-        const meetingDetails = await this.meetingProvider.createMeeting({
-          topic: data.title,
-          startTime: start,
-          durationMinutes: durationMin,
-          timezone: data.timezone || 'UTC',
-        });
-
-        finalJoinUrl = meetingDetails.joinUrl;
-        finalHostUrl = meetingDetails.startUrl || null;
-        finalProviderMeetingId = meetingDetails.id;
-        finalZoomMeetingId = meetingDetails.id;
-      } catch (err: any) {
-        this.logger.error(`Zoom meeting creation failed: ${err.message}`);
-        throw new BadGatewayException(
-          `Meeting provider scheduling failed: ${err.message || 'Unable to create meeting'}`,
+          'Meeting provider or sync queue is not configured. Please supply a manual joinUrl or configure the meeting provider.',
         );
       }
     }
 
-    // 7. UTC Persistence in Database
-    const session = await this.prisma.session.create({
-      data: {
-        batchId: data.batchId,
-        title: data.title,
-        description: data.description || null,
-        startTime: start,
-        endTime: end,
-        timezone: data.timezone || 'UTC',
-        sessionType,
-        status: SessionStatus.SCHEDULED,
-        capacity: finalCapacity,
-        hostTrainerId: hostTrainerId || null,
-        learnerId: data.learnerId || null,
-        meetingProvider: provider,
-        providerMeetingId: finalProviderMeetingId,
-        zoomMeetingId: finalZoomMeetingId,
-        joinUrl: finalJoinUrl || null,
-        hostUrl: finalHostUrl,
-        recordingUrl: data.recordingUrl || null,
-        agenda: data.agenda || null,
-        quizId: data.quizId || null,
-      },
-      include: {
-        batch: {
-          select: {
-            id: true,
-            name: true,
-            program: { select: { id: true, title: true } },
+    // 7. UTC Persistence in Database with Transactional Outbox
+    let syncOutboxEvent: OutboxEvent | null = null;
+    
+    const session = await this.prisma.$transaction(async (tx) => {
+      const createdSession = await tx.session.create({
+        data: {
+          batchId: data.batchId,
+          title: data.title,
+          description: data.description || null,
+          startTime: start,
+          endTime: end,
+          timezone: data.timezone || 'UTC',
+          sessionType,
+          status: SessionStatus.SCHEDULED,
+          capacity: finalCapacity,
+          hostTrainerId: hostTrainerId || null,
+          learnerId: data.learnerId || null,
+          meetingProvider: provider,
+          providerMeetingId: null,
+          zoomMeetingId: null,
+          joinUrl: finalJoinUrl || null,
+          hostUrl: null,
+          recordingUrl: data.recordingUrl || null,
+          agenda: data.agenda || null,
+          quizId: data.quizId || null,
+        },
+        include: {
+          batch: {
+            select: {
+              id: true,
+              name: true,
+              program: { select: { id: true, title: true } },
+            },
+          },
+          hostTrainer: { select: { id: true, name: true, email: true, role: true } },
+          learner: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actorUser.sub,
+          action: 'SESSION_CREATED',
+          entity: 'Session',
+          entityId: createdSession.id,
+          meta: {
+            batchId: createdSession.batchId,
+            sessionType: createdSession.sessionType,
+            capacity: createdSession.capacity,
+            hostTrainerId: createdSession.hostTrainerId,
+            startTime: createdSession.startTime.toISOString(),
+            endTime: createdSession.endTime.toISOString(),
           },
         },
-        hostTrainer: { select: { id: true, name: true, email: true, role: true } },
-        learner: { select: { id: true, name: true, email: true } },
-      },
+      });
+
+      if (provider === MeetingProvider.ZOOM && !finalJoinUrl && this.meetingSyncQueue) {
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'CREATE',
+            payload: { sessionId: createdSession.id },
+          }
+        });
+      }
+
+      return createdSession;
     });
 
-    // 8. Audit Logging for sensitive scheduling operations
-    await this.recordAudit(actorUser.sub, 'SESSION_CREATED', session.id, {
-      batchId: session.batchId,
-      sessionType: session.sessionType,
-      capacity: session.capacity,
-      hostTrainerId: session.hostTrainerId,
-      startTime: session.startTime.toISOString(),
-      endTime: session.endTime.toISOString(),
-    });
+    // 8. Queue Zoom Meeting Creation (Best effort - outbox handles failures)
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
+      try {
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: 'CREATE',
+          sessionId: session.id,
+        });
+      } catch (err: any) {
+        this.logger.error(`Failed to enqueue meeting sync for session ${session.id}: ${err.message}`);
+      }
+    }
 
     // 9. Queue In-App Reminders
     await this.remindLearners(session.batchId, session.title, session.startTime, session.learnerId);
@@ -444,50 +464,81 @@ export class SessionsService {
       }
     }
 
-    // External meeting update if time changed
-    if ((data.startTime || data.endTime || data.title) && session.providerMeetingId && this.meetingProvider) {
-      try {
-        const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
-        await this.meetingProvider.updateMeeting(session.providerMeetingId, {
-          topic: data.title || session.title,
+    let syncOutboxEvent: OutboxEvent | null = null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedSession = await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          title: data.title ?? undefined,
+          description: data.description ?? undefined,
           startTime: start,
-          durationMinutes: durationMin,
-          timezone: data.timezone || session.timezone || 'UTC',
+          endTime: end,
+          timezone: data.timezone ?? undefined,
+          capacity: data.capacity ?? undefined,
+          hostTrainerId: data.hostTrainerId ?? undefined,
+          learnerId: data.learnerId ?? undefined,
+          status: data.status ?? undefined,
+          joinUrl: data.joinUrl ?? undefined,
+          recordingUrl: data.recordingUrl ?? undefined,
+          agenda: data.agenda ?? undefined,
+          quizId: data.quizId ?? undefined,
+          cancelReason: data.cancelReason ?? undefined,
+        },
+        include: {
+          batch: { select: { id: true, name: true } },
+          hostTrainer: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actorUser.sub,
+          action: 'SESSION_UPDATED',
+          entity: 'Session',
+          entityId: sessionId,
+          meta: {
+            startTime: updatedSession.startTime.toISOString(),
+            endTime: updatedSession.endTime.toISOString(),
+            status: updatedSession.status,
+          },
+        },
+      });
+
+      // External meeting update if time changed
+      if ((data.startTime || data.endTime || data.title) && session.providerMeetingId && this.meetingSyncQueue) {
+        const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'UPDATE',
+            payload: {
+              sessionId: session.id,
+              payload: {
+                topic: updatedSession.title,
+                startTime: updatedSession.startTime,
+                durationMinutes: durationMin,
+                timezone: updatedSession.timezone || 'UTC',
+              }
+            }
+          }
+        });
+      }
+      return updatedSession;
+    });
+
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
+      try {
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: outboxToQueue.action,
+          ...(outboxToQueue.payload as any),
         });
       } catch (err: any) {
-        this.logger.warn(`Could not update external meeting: ${err.message}`);
+        this.logger.error(`Failed to enqueue meeting sync update for session ${sessionId}: ${err.message}`);
       }
     }
-
-    const updated = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        title: data.title ?? undefined,
-        description: data.description ?? undefined,
-        startTime: start,
-        endTime: end,
-        timezone: data.timezone ?? undefined,
-        capacity: data.capacity ?? undefined,
-        hostTrainerId: data.hostTrainerId ?? undefined,
-        learnerId: data.learnerId ?? undefined,
-        status: data.status ?? undefined,
-        joinUrl: data.joinUrl ?? undefined,
-        recordingUrl: data.recordingUrl ?? undefined,
-        agenda: data.agenda ?? undefined,
-        quizId: data.quizId ?? undefined,
-        cancelReason: data.cancelReason ?? undefined,
-      },
-      include: {
-        batch: { select: { id: true, name: true } },
-        hostTrainer: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    await this.recordAudit(actorUser.sub, 'SESSION_UPDATED', sessionId, {
-      startTime: updated.startTime.toISOString(),
-      endTime: updated.endTime.toISOString(),
-      status: updated.status,
-    });
 
     return updated;
   }
@@ -512,26 +563,57 @@ export class SessionsService {
       }
     }
 
-    if (session.providerMeetingId && this.meetingProvider) {
+    let syncOutboxEvent: OutboxEvent | null = null;
+
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const updatedSession = await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          status: SessionStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelReason: cancelReason || 'Cancelled by administrator',
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actorUser.sub,
+          action: 'SESSION_CANCELLED',
+          entity: 'Session',
+          entityId: sessionId,
+          meta: {
+            cancelReason: updatedSession.cancelReason,
+          },
+        },
+      });
+
+      if (session.providerMeetingId && this.meetingSyncQueue) {
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'CANCEL',
+            payload: {
+              providerMeetingId: session.providerMeetingId,
+            }
+          }
+        });
+      }
+
+      return updatedSession;
+    });
+
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
       try {
-        await this.meetingProvider.cancelMeeting(session.providerMeetingId);
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: outboxToQueue.action,
+          ...(outboxToQueue.payload as any),
+        });
       } catch (err: any) {
-        this.logger.warn(`Could not cancel external meeting: ${err.message}`);
+        this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
       }
     }
-
-    const cancelled = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        status: SessionStatus.CANCELLED,
-        cancelledAt: new Date(),
-        cancelReason: cancelReason || 'Cancelled by administrator',
-      },
-    });
-
-    await this.recordAudit(actorUser.sub, 'SESSION_CANCELLED', sessionId, {
-      cancelReason: cancelled.cancelReason,
-    });
 
     return cancelled;
   }
@@ -555,20 +637,51 @@ export class SessionsService {
       throw new BadRequestException('Cannot delete a session that has attendance records. Cancel it instead.');
     }
 
-    if (session.providerMeetingId && this.meetingProvider) {
-      try {
-        await this.meetingProvider.cancelMeeting(session.providerMeetingId);
-      } catch (err: any) {
-        this.logger.warn(`Could not cancel external meeting: ${err.message}`);
-      }
-    }
+    let syncOutboxEvent: OutboxEvent | null = null;
 
-    const res = await this.prisma.session.delete({
-      where: { id: sessionId },
+    const res = await this.prisma.$transaction(async (tx) => {
+      const deletedSession = await tx.session.delete({
+        where: { id: sessionId },
+      });
+
+      if (actorUser) {
+        await tx.auditLog.create({
+          data: {
+            actorId: actorUser.sub,
+            action: 'SESSION_DELETED',
+            entity: 'Session',
+            entityId: sessionId,
+            meta: { title: session.title },
+          }
+        });
+      }
+
+      if (session.providerMeetingId && this.meetingSyncQueue) {
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'CANCEL',
+            payload: {
+              providerMeetingId: session.providerMeetingId,
+            }
+          }
+        });
+      }
+
+      return deletedSession;
     });
 
-    if (actorUser) {
-      await this.recordAudit(actorUser.sub, 'SESSION_DELETED', sessionId, { title: session.title });
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
+      try {
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: outboxToQueue.action,
+          ...(outboxToQueue.payload as any),
+        });
+      } catch (err: any) {
+        this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
+      }
     }
 
     return res;

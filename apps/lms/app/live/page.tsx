@@ -178,9 +178,40 @@ function BookingButton({ session, onBooked }: BookingButtonProps) {
 
   if (isAlreadyBooked) {
     return (
-      <div className={styles.bookedBadge} role="status" aria-live="polite">
-        <span className={styles.bookedIcon}>{Icons.checkCircle}</span>
-        <span>Seat reserved</span>
+      <div className={styles.bookedBadgeContainer}>
+        <div className={styles.bookedBadge} role="status" aria-live="polite">
+          <span className={styles.bookedIcon}>{Icons.checkCircle}</span>
+          <span>Seat reserved</span>
+        </div>
+        {session.bookingId && (
+          <button
+            type="button"
+            className={styles.cancelBtn}
+            disabled={state.type === "loading"}
+            onClick={async () => {
+              if (!confirm("Are you sure you want to cancel this booking?")) return;
+              setState({ type: "loading" });
+              try {
+                const res = await fetch(`${API_URL}/sessions/bookings/${session.bookingId}/cancel`, {
+                  method: "POST",
+                  headers: getAuthHeaders(),
+                  body: JSON.stringify({ reason: "Learner cancelled via portal" }),
+                });
+                if (res.ok) {
+                  setState({ type: "success", message: "Booking cancelled successfully." });
+                  onBooked(session.id); // Trigger refresh
+                  return;
+                }
+                const { message, status } = await parseApiError(res, "Cancellation failed");
+                setState({ type: "error", message, code: String(status) });
+              } catch (err: any) {
+                setState({ type: "error", message: err.message || "Network error — please try again." });
+              }
+            }}
+          >
+            Cancel
+          </button>
+        )}
       </div>
     );
   }

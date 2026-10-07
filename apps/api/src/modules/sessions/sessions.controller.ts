@@ -34,11 +34,14 @@ export class SessionsController {
 
   /**
    * Learner-specific: live sessions across enrolled cohorts and dedicated 1:1s.
+   * D1-045: Sessions are enriched with a `displayTime` block in the learner's
+   * stored profile timezone. UTC startTime/endTime values are never altered.
    */
   @RequirePermission(Permission.SESSIONS_READ)
   @Get('mine')
-  getMySessions(@Request() req: any) {
-    return this.sessionsService.getMySessions(req.user.sub);
+  async getMySessions(@Request() req: any) {
+    const tz = await this.sessionsService.getUserTimezoneForDisplay(req.user.sub);
+    return this.sessionsService.getMySessions(req.user.sub, tz);
   }
 
   /**
@@ -159,5 +162,30 @@ export class SessionsController {
   @Get('my/bookings')
   getMyBookings(@Request() req: any) {
     return this.sessionsService.getMyBookings(req.user.sub);
+  }
+  /**
+   * D1-046: Cancel a booking
+   */
+  @RequirePermission(Permission.SESSIONS_BOOK)
+  @Post('bookings/:bookingId/cancel')
+  cancelBooking(
+    @Param('bookingId') bookingId: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.sessionsService.cancelBooking(bookingId, req.user.sub, reason);
+  }
+
+  /**
+   * D1-046: Reschedule a booking
+   */
+  @RequirePermission(Permission.SESSIONS_BOOK)
+  @Post('bookings/:bookingId/reschedule')
+  rescheduleBooking(
+    @Param('bookingId') bookingId: string,
+    @Body('newSessionId') newSessionId: string,
+    @Request() req: any,
+  ) {
+    return this.sessionsService.rescheduleBooking(bookingId, newSessionId, req.user.sub);
   }
 }

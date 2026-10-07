@@ -37,3 +37,23 @@ export function getAdvanceNoticeMs(): number {
 export function getAdvanceNoticeHours(): number {
   return getAdvanceNoticeMs() / (60 * 60 * 1000);
 }
+
+/**
+ * Returns the configured minimum cancellation notice in milliseconds.
+ * Reads BOOKING_CANCELLATION_CUTOFF_HOURS from the process environment, falling
+ * back to 24 hours (the client-mandated default).
+ */
+export function getCancellationCutoffMs(): number {
+  const raw = process.env.BOOKING_CANCELLATION_CUTOFF_HOURS;
+  if (raw !== undefined) {
+    const hours = parseFloat(raw);
+    if (!Number.isNaN(hours) && hours >= 0) {
+      return hours * 60 * 60 * 1000;
+    }
+  }
+  return 24 * 60 * 60 * 1000; // 24 hours default
+}
+
+export function getCancellationCutoffHours(): number {
+  return getCancellationCutoffMs() / (60 * 60 * 1000);
+}

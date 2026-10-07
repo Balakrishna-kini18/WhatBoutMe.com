@@ -18,6 +18,7 @@ describe('SessionsController — D1-043 & D1-044 RBAC and Routing Tests', () => 
     serviceMock = {
       getSessions: vi.fn(),
       getMySessions: vi.fn(),
+      getUserTimezoneForDisplay: vi.fn().mockResolvedValue('UTC'),
       getSessionById: vi.fn(),
       createSession: vi.fn(),
       updateSession: vi.fn(),
@@ -126,12 +127,14 @@ describe('SessionsController — D1-043 & D1-044 RBAC and Routing Tests', () => 
       expect(serviceMock.getSessions).toHaveBeenCalledWith(query, mockUser);
     });
 
-    it('delegates getMySessions with user sub ID', async () => {
+    it('delegates getMySessions with user sub ID (D1-045: also passes stored timezone)', async () => {
+      serviceMock.getUserTimezoneForDisplay.mockResolvedValueOnce('Asia/Kolkata');
       serviceMock.getMySessions.mockResolvedValueOnce([{ id: 'sess-mine-1' }]);
 
       const res = await controller.getMySessions(mockReq);
       expect(res).toEqual([{ id: 'sess-mine-1' }]);
-      expect(serviceMock.getMySessions).toHaveBeenCalledWith(mockUser.sub);
+      expect(serviceMock.getUserTimezoneForDisplay).toHaveBeenCalledWith(mockUser.sub);
+      expect(serviceMock.getMySessions).toHaveBeenCalledWith(mockUser.sub, 'Asia/Kolkata');
     });
 
     it('delegates getAllSessions to getSessions with empty query', async () => {

@@ -29,3 +29,4 @@ Baton coordinates the agent sessions in this repo via the `baton` MCP tools.
 - Near your usage/context limit, or blocked? `create_handoff` (done, pending,
   next step, decisions) — the next agent resumes with `baton resume`.
 <!-- /baton:coordination -->
+

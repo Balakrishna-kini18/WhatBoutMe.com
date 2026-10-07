@@ -59,6 +59,11 @@ export class UsersController {
     return this.usersService.getUserSessions(id);
   }
 
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.usersService.findOne(id);
+  }
+
   @Delete(':id/sessions')
   revokeUserSessions(@Param('id') id: string) {
     return this.usersService.revokeUserSessions(id);

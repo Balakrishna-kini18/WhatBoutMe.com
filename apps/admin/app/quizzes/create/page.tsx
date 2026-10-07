@@ -5,20 +5,33 @@ import styles from "../../page.module.css";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { API_URL, errorMessage } from "../../lib/api";
 
 function QuizForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialProgramId = searchParams.get("programId") || "";
   const initialStepId = searchParams.get("stepId") || "";
-  
+
   const [programs, setPrograms] = useState<any[]>([]);
   const [selectedProgramId, setSelectedProgramId] = useState(initialProgramId);
   const [steps, setSteps] = useState<any[]>([]);
   const [selectedStepId, setSelectedStepId] = useState(initialStepId);
   const [passMark, setPassMark] = useState(75);
-  const [questions, setQuestions] = useState([{ text: "", options: [{ text: "", isCorrect: true }, { text: "", isCorrect: false }] }]);
+  const [maxAttempts, setMaxAttempts] = useState(3);
+  const [cooldownHours, setCooldownHours] = useState(24);
+  const [questionPoolSize, setQuestionPoolSize] = useState<number | "">("");
+  const [questions, setQuestions] = useState([
+    {
+      text: "",
+      options: [
+        { text: "", isCorrect: true },
+        { text: "", isCorrect: false },
+      ],
+    },
+  ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPrograms();
@@ -26,7 +39,10 @@ function QuizForm() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs`);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/programs`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -44,7 +60,10 @@ function QuizForm() {
     }
     const fetchSteps = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs/${selectedProgramId}/steps`);
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/programs/${selectedProgramId}/steps`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (res.ok) {
           const data = await res.json();
           setSteps(data);
@@ -57,7 +76,16 @@ function QuizForm() {
   }, [selectedProgramId]);
 
   const addQuestion = () => {
-    setQuestions([...questions, { text: "", options: [{ text: "", isCorrect: true }, { text: "", isCorrect: false }] }]);
+    setQuestions([
+      ...questions,
+      {
+        text: "",
+        options: [
+          { text: "", isCorrect: true },
+          { text: "", isCorrect: false },
+        ],
+      },
+    ]);
   };
 
   const updateQuestionText = (index: number, text: string) => {
@@ -98,42 +126,72 @@ function QuizForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedStepId) return alert("Please select a step.");
+    if (!selectedStepId) {
+      setFormError("Please select a curriculum step.");
+      return;
+    }
     if (isSubmitting) return;
-    
+
+    setFormError(null);
     setIsSubmitting(true);
 
-    const payload = {
-      stepId: selectedStepId,
-      passMark: passMark,
-      questions: {
-        create: questions.map(q => ({
-          text: q.text,
-          options: {
-            create: q.options.map(o => ({
-              text: o.text,
-              isCorrect: o.isCorrect
-            }))
-          }
-        }))
-      }
-    };
-
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/quizzes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        router.push("/quizzes");
-      } else {
-        alert("Failed to create quiz. Step might already have a quiz.");
-        setIsSubmitting(false);
+      const token = localStorage.getItem("token");
+      const quizPayload: any = {
+        stepId: selectedStepId,
+        passMark: Number(passMark),
+        maxAttempts: Number(maxAttempts),
+        cooldownHours: Number(cooldownHours),
+      };
+      if (questionPoolSize !== "") {
+        quizPayload.questionCount = Number(questionPoolSize);
       }
-    } catch (error) {
-      console.error(error);
-      alert("Error creating quiz");
+
+      // 1. Create the Quiz entity
+      const res = await fetch(`${API_URL}/quizzes`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(quizPayload),
+      });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to create quiz for this step"));
+      }
+
+      const createdQuiz = await res.json();
+
+      // 2. Add authored questions to the quiz
+      for (const q of questions) {
+        if (!q.text.trim()) continue;
+        const validOptions = q.options.filter((o) => o.text.trim().length > 0);
+        if (validOptions.length < 2) continue;
+
+        const qPayload = {
+          text: q.text.trim(),
+          points: 1,
+          options: validOptions.map((o, idx) => ({
+            text: o.text.trim(),
+            isCorrect: o.isCorrect,
+            order: idx + 1,
+          })),
+        };
+
+        await fetch(`${API_URL}/quizzes/${createdQuiz.id}/questions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(qPayload),
+        });
+      }
+
+      router.push(`/quizzes/${createdQuiz.id}/edit`);
+    } catch (error: any) {
+      setFormError(error.message || "Error creating quiz");
       setIsSubmitting(false);
     }
   };
@@ -142,66 +200,163 @@ function QuizForm() {
     <div className={styles.dashboard}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-            <Link href="/quizzes" style={{textDecoration: 'none', color: 'var(--primary)', fontSize: '1.2rem'}}>← Back</Link>
+          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+            <Link href="/quizzes" style={{ textDecoration: "none", color: "var(--primary)", fontSize: "1.2rem" }}>
+              ← Back
+            </Link>
             <h1 className={styles.title}>Create Assessment (Quiz)</h1>
           </div>
-          <p className={styles.subtitle}>Build interactive quizzes with multiple choices.</p>
+          <p className={styles.subtitle}>
+            Build step knowledge checks with customizable passing criteria, cooldown timers, and question banks.
+          </p>
         </div>
       </header>
 
+      {formError && (
+        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1.5rem" }}>
+          ⚠️ {formError}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className={styles.quizFormCard}>
-        
         <div className={styles.formRow}>
           <div className={styles.formGroup} style={{ flex: 1.5 }}>
             <label>Select Program</label>
-            <select value={selectedProgramId} onChange={e => { setSelectedProgramId(e.target.value); setSelectedStepId(""); }} required>
+            <select
+              value={selectedProgramId}
+              onChange={(e) => {
+                setSelectedProgramId(e.target.value);
+                setSelectedStepId("");
+              }}
+              required
+            >
               <option value="">Select a program...</option>
-              {programs.map(p => (
-                <option key={p.id} value={p.id}>{p.title}</option>
+              {programs.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
               ))}
             </select>
           </div>
           <div className={styles.formGroup} style={{ flex: 1.5 }}>
             <label>Link to Step / Lesson</label>
-            <select value={selectedStepId} onChange={e => setSelectedStepId(e.target.value)} required disabled={!selectedProgramId}>
-              <option value="">{selectedProgramId ? "Select a step..." : "Select program first"}</option>
-              {steps.map(s => (
-                <option key={s.id} value={s.id}>Step {s.sequence}: {s.title}</option>
+            <select
+              value={selectedStepId}
+              onChange={(e) => setSelectedStepId(e.target.value)}
+              required
+              disabled={!selectedProgramId}
+            >
+              <option value="">
+                {selectedProgramId ? "Select a step..." : "Select program first"}
+              </option>
+              {steps.map((s) => (
+                <option key={s.id} value={s.id}>
+                  Step {s.sequence}: {s.title}
+                </option>
               ))}
             </select>
           </div>
-          <div className={styles.formGroup} style={{ maxWidth: '200px' }}>
+          <div className={styles.formGroup} style={{ maxWidth: "160px" }}>
             <label>Passing Score (%)</label>
-            <input type="number" min="0" max="100" value={passMark} onChange={e => setPassMark(parseInt(e.target.value))} required />
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={passMark}
+              onChange={(e) => setPassMark(parseInt(e.target.value, 10) || 75)}
+              required
+            />
+          </div>
+          <div className={styles.formGroup} style={{ maxWidth: "140px" }}>
+            <label>Max Retries</label>
+            <input
+              type="number"
+              min="1"
+              value={maxAttempts}
+              onChange={(e) => setMaxAttempts(parseInt(e.target.value, 10) || 3)}
+              required
+            />
+          </div>
+          <div className={styles.formGroup} style={{ maxWidth: "150px" }}>
+            <label>Cooldown (Hours)</label>
+            <input
+              type="number"
+              min="0"
+              value={cooldownHours}
+              onChange={(e) => setCooldownHours(parseInt(e.target.value, 10) || 0)}
+              required
+            />
           </div>
         </div>
 
-        <div style={{marginTop: '2.5rem'}}>
-          <h2 className={styles.quizSectionTitle}>Questions</h2>
-          
+        <div style={{ marginTop: "2.5rem" }}>
+          <h2 className={styles.quizSectionTitle}>Initial Questions</h2>
+
           {questions.map((q, qIdx) => (
             <div key={qIdx} className={styles.questionCard}>
               <div className={styles.questionHeader}>
                 <h3>Question {qIdx + 1}</h3>
                 {questions.length > 1 && (
-                  <button type="button" onClick={() => removeQuestion(qIdx)} className={styles.removeBtn}>Remove</button>
+                  <button
+                    type="button"
+                    onClick={() => removeQuestion(qIdx)}
+                    className={styles.removeBtn}
+                  >
+                    Remove
+                  </button>
                 )}
               </div>
-              
+
               <div className={styles.formGroup}>
-                <input type="text" placeholder="Enter question text here..." value={q.text} onChange={e => updateQuestionText(qIdx, e.target.value)} required />
+                <input
+                  type="text"
+                  placeholder="Enter question prompt..."
+                  value={q.text}
+                  onChange={(e) => updateQuestionText(qIdx, e.target.value)}
+                  required
+                />
               </div>
 
-              <div style={{marginTop: '1.5rem'}}>
-                <p style={{fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Options (Select the correct one)</p>
+              <div style={{ marginTop: "1.5rem" }}>
+                <p
+                  style={{
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    color: "var(--text-secondary)",
+                    marginBottom: "0.75rem",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  Options (Radio marks correct answer)
+                </p>
                 {q.options.map((opt, oIdx) => (
                   <div key={oIdx} className={styles.optionRow}>
-                    <input type="radio" name={`correct_${qIdx}`} checked={opt.isCorrect} onChange={() => setCorrectOption(qIdx, oIdx)} className={styles.optionRadio} />
-                    <input type="text" placeholder={`Option ${oIdx + 1}`} value={opt.text} onChange={e => updateOptionText(qIdx, oIdx, e.target.value)} className={styles.optionInput} required />
+                    <input
+                      type="radio"
+                      name={`correct_${qIdx}`}
+                      checked={opt.isCorrect}
+                      onChange={() => setCorrectOption(qIdx, oIdx)}
+                      className={styles.optionRadio}
+                      title="Correct option"
+                    />
+                    <input
+                      type="text"
+                      placeholder={`Option ${oIdx + 1}`}
+                      value={opt.text}
+                      onChange={(e) => updateOptionText(qIdx, oIdx, e.target.value)}
+                      className={styles.optionInput}
+                      required
+                    />
                   </div>
                 ))}
-                <button type="button" onClick={() => addOption(qIdx)} className={styles.addOptionBtn}>+ Add Option</button>
+                <button
+                  type="button"
+                  onClick={() => addOption(qIdx)}
+                  className={styles.addOptionBtn}
+                >
+                  + Add Option
+                </button>
               </div>
             </div>
           ))}
@@ -211,10 +366,16 @@ function QuizForm() {
           </button>
         </div>
 
-        <div className={styles.modalFooter} style={{marginTop: '3rem'}}>
-          <button type="button" className={styles.secondaryBtn} onClick={() => router.push('/quizzes')}>Cancel</button>
+        <div className={styles.modalFooter} style={{ marginTop: "3rem" }}>
+          <button
+            type="button"
+            className={styles.secondaryBtn}
+            onClick={() => router.push("/quizzes")}
+          >
+            Cancel
+          </button>
           <button type="submit" className={styles.primaryBtn} disabled={isSubmitting}>
-            {isSubmitting ? "Saving..." : "Save Assessment"}
+            {isSubmitting ? "Creating Quiz..." : "Save Assessment & Questions"}
           </button>
         </div>
       </form>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useCallback } from "react";
+import { useEffect, useState, use, useCallback, useRef } from "react";
 import styles from "./step.module.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,6 +26,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Lesson progress state (D1-035)
+  const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
+  const lastHeartbeatTimeRef = useRef<number>(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
   // Quiz engine state
   const [activeAttempt, setActiveAttempt] = useState<ActiveQuizAttempt | null>(null);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
@@ -34,9 +39,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [isStartingQuiz, setIsStartingQuiz] = useState(false);
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
-
-  // Non-quiz step completion state
-  const [isCompletingStep, setIsCompletingStep] = useState(false);
 
   const fetchStepAndProgression = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -88,7 +90,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         }
       }
 
-      // 3. If quiz exists on step, check active or previous attempt state
+      // 3. Fetch progress for all lessons in the step (D1-035)
+      if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
+        try {
+          const lpMap: Record<string, any> = {};
+          await Promise.all(
+            stepData.lessons.map(async (l: any) => {
+              const lpRes = await fetch(`${API_URL}/progress/lessons/${l.id}`, {
+                headers: getAuthHeaders(),
+              });
+              if (lpRes.ok) {
+                const lpData = await lpRes.json();
+                if (lpData) lpMap[l.id] = lpData;
+              }
+            })
+          );
+          setLessonProgress(lpMap);
+        } catch (lpErr) {
+          console.warn("Failed to check lesson progress:", lpErr);
+        }
+      }
+
+      // 4. If quiz exists on step, check active or previous attempt state
       if (stepData.quiz?.id) {
         try {
           const quizAttemptRes = await fetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
@@ -141,6 +164,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       if (!res.ok) {
         if (res.status === 403 && data?.isCooldownActive) {
           setLastResult(data);
+        }
+        if (res.status === 403 && (data?.error === "AGREEMENT_REQUIRED" || (typeof data?.message === "string" && data.message.includes("AGREEMENT_REQUIRED")))) {
+          throw new Error("Program agreement signature is required before taking step quizzes. Please sign the agreement first.");
         }
         throw new Error(data?.message || data?.error?.message || "Failed to start quiz attempt");
       }
@@ -199,22 +225,44 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     }
   };
 
-  // Handle completion for steps without quizzes
-  const handleCompleteStep = async () => {
-    setIsCompletingStep(true);
+  // D1-035: Video/Audio media playback heartbeat
+  const sendMediaHeartbeat = useCallback(
+    async (lessonId: string, positionSec: number) => {
+      try {
+        const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ positionSec }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
+          if (data.isCompleted && !lessonProgress[lessonId]?.isCompleted) {
+            fetchStepAndProgression();
+          }
+        }
+      } catch (err) {
+        console.warn("Heartbeat error:", err);
+      }
+    },
+    [lessonProgress, fetchStepAndProgression]
+  );
+
+  // D1-035: PDF or text lesson completion
+  const handleCompleteDocument = async (lessonId: string) => {
     try {
-      const res = await fetch(`${API_URL}/programs/steps/${stepId}/complete`, {
+      const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({}),
       });
       if (res.ok) {
+        const data = await res.json();
+        setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
         fetchStepAndProgression();
       }
     } catch (err) {
-      console.warn("Failed to complete step:", err);
-    } finally {
-      setIsCompletingStep(false);
+      console.warn("Document completion error:", err);
     }
   };
 
@@ -316,7 +364,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           <div className={styles.lockDetailBox}>
             <div>
               <strong>Prerequisite Status:</strong>{" "}
-              {currentStepProg?.lockReason === "PREVIOUS_STEP_INCOMPLETE"
+              {currentStepProg?.lockReason === "AGREEMENT_REQUIRED"
+                ? "Program agreement signature is required before accessing Step 1 content"
+                : currentStepProg?.lockReason === "PREVIOUS_STEP_INCOMPLETE"
                 ? "Previous step is incomplete"
                 : currentStepProg?.lockReason === "QUIZ_NOT_PASSED"
                 ? "Previous step quiz not yet passed"
@@ -332,9 +382,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             )}
           </div>
 
-          <Link href={`/programs/${step.programId}/steps`} className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "280px" }}>
-            ← Return to Learning Path
-          </Link>
+          {currentStepProg?.lockReason === "AGREEMENT_REQUIRED" ? (
+            <Link
+              href={`/agreement?programId=${step.programId}&enrolmentId=${progression?.enrolmentId || ""}`}
+              className={styles.submitBtn}
+              style={{ textDecoration: "none", display: "inline-block", maxWidth: "280px", background: "var(--accent-primary, #0284c7)" }}
+            >
+              Sign Program Agreement &rarr;
+            </Link>
+          ) : (
+            <Link href={`/programs/${step.programId}/steps`} className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "280px" }}>
+              ← Return to Learning Path
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -389,10 +449,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
                 return (
                   <video
+                    ref={videoRef}
                     controls
                     controlsList="nodownload"
-                    onEnded={() => {
-                      if (!quiz && !isStepCompleted) handleCompleteStep();
+                    onLoadedMetadata={(e) => {
+                      const resumeSec = lessonProgress[lesson.id]?.lastPositionSec;
+                      if (resumeSec && resumeSec > 0 && resumeSec < e.currentTarget.duration - 5) {
+                        e.currentTarget.currentTime = resumeSec;
+                      }
+                    }}
+                    onTimeUpdate={(e) => {
+                      const currentSec = Math.floor(e.currentTarget.currentTime);
+                      const now = Date.now();
+                      if (now - lastHeartbeatTimeRef.current > 5000) {
+                        lastHeartbeatTimeRef.current = now;
+                        sendMediaHeartbeat(lesson.id, currentSec);
+                      }
+                    }}
+                    onPause={(e) => {
+                      sendMediaHeartbeat(lesson.id, Math.floor(e.currentTarget.currentTime));
+                    }}
+                    onEnded={(e) => {
+                      sendMediaHeartbeat(lesson.id, Math.floor(e.currentTarget.duration));
                     }}
                     style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px" }}
                     src={videoSrc}
@@ -401,7 +479,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </video>
                 );
               })()}
-              <div style={{ marginTop: "10px", fontWeight: "bold" }}>{lesson.title}</div>
+              <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: "bold" }}>{lesson.title}</span>
+                {lessonProgress[lesson.id]?.isCompleted && (
+                  <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
+                    ✓ Video Watched
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <div className={styles.videoContainer}>
@@ -413,14 +498,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
           {documents.length > 0 && (
             <div style={{ marginTop: "24px" }}>
-              <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Documents</h2>
+              <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Documents &amp; Reading Materials</h2>
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
-                {documents.map((doc: any) => (
-                  <li key={doc.id}>
-                    <a
-                      href={doc.mediaUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                {documents.map((doc: any) => {
+                  const isDocCompleted = lessonProgress[doc.id]?.isCompleted;
+                  return (
+                    <li
+                      key={doc.id}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -430,16 +514,54 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         border: "1px solid var(--border-light)",
                         borderRadius: "12px",
                         background: "var(--bg-card)",
-                        color: "var(--text-primary)",
-                        textDecoration: "none",
-                        fontWeight: 600,
                       }}
                     >
-                      <span>{doc.title}</span>
-                      <span style={{ color: "var(--accent-primary)", fontSize: "0.85rem" }}>Open PDF &rarr;</span>
-                    </a>
-                  </li>
-                ))}
+                      <a
+                        href={doc.mediaUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          color: "var(--text-primary)",
+                          textDecoration: "none",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <span>📄</span>
+                        <span>{doc.title}</span>
+                        <span style={{ color: "var(--accent-primary)", fontSize: "0.8rem", marginLeft: "4px" }}>
+                          (Open PDF &rarr;)
+                        </span>
+                      </a>
+
+                      <div>
+                        {isDocCompleted ? (
+                          <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
+                            ✓ Marked as Read
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteDocument(doc.id)}
+                            className={styles.secondaryBtn}
+                            style={{
+                              padding: "4px 10px",
+                              fontSize: "0.8rem",
+                              cursor: "pointer",
+                              background: "#f1f5f9",
+                              border: "1px solid #cbd5e1",
+                              borderRadius: "6px"
+                            }}
+                          >
+                            Mark as Read
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -461,16 +583,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
-                  <p style={{ margin: 0, color: "var(--text-secondary)" }}>Review the material and mark this step finished to unlock what is next.</p>
-                  <button
-                    type="button"
-                    onClick={handleCompleteStep}
-                    disabled={isCompletingStep}
-                    className={styles.submitBtn}
-                    style={{ maxWidth: "200px" }}
-                  >
-                    {isCompletingStep ? "Completing..." : "Complete Step"}
-                  </button>
+                  <p style={{ margin: 0, color: "var(--text-secondary)" }}>
+                    {lesson && !lessonProgress[lesson.id]?.isCompleted
+                      ? "Watch the lesson video to advance your progress."
+                      : documents.length > 0
+                      ? "Read and mark the document materials as read to complete this step."
+                      : "Complete the step materials above to advance."}
+                  </p>
                 </div>
               )}
             </div>

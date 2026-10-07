@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   AttemptStatus,
+  AgreementStatus,
   ContentStatus,
   ContentType,
   EnrolmentStatus,
@@ -13,6 +14,7 @@ import {
   Role,
   StepOverrideState,
 } from '@prisma/client';
+
 import { ProgressionService } from './progression.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -76,7 +78,14 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         findUnique: vi.fn(),
         findFirst: vi.fn(),
       },
+      agreementTemplate: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      signedAgreement: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       step: {
+
         findUnique: vi.fn(),
         findMany: vi.fn(),
       },
@@ -142,7 +151,6 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
   describe('Enrolment Status Gating', () => {
     it.each([
       EnrolmentStatus.PENDING_PAYMENT,
-      EnrolmentStatus.PENDING_AGREEMENT,
       EnrolmentStatus.WAITLIST,
       EnrolmentStatus.REVOKED,
     ])('locks all steps with ENROLMENT_NOT_ACTIVE when status is %s', async (status) => {
@@ -170,6 +178,33 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
       expect(res.steps[1].isUnlocked).toBe(false);
       expect(res.steps[1].lockReason).toBe('ENROLMENT_NOT_ACTIVE');
     });
+
+    it('locks all steps with AGREEMENT_REQUIRED when status is PENDING_AGREEMENT', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        programId: 'prog-1',
+        batchId: 'batch-1',
+        status: EnrolmentStatus.PENDING_AGREEMENT,
+        program: mockProgram,
+        batch: mockBatch,
+      });
+
+      prismaMock.step.findMany.mockResolvedValue([
+        createMockStep('s1', 1),
+        createMockStep('s2', 2),
+      ]);
+
+      const res = await service.getEnrolmentProgression('enrol-1', null, {
+        persist: false,
+      });
+
+      expect(res.steps).toHaveLength(2);
+      expect(res.steps[0].isUnlocked).toBe(false);
+      expect(res.steps[0].lockReason).toBe('AGREEMENT_REQUIRED');
+      expect(res.steps[1].isUnlocked).toBe(false);
+      expect(res.steps[1].lockReason).toBe('AGREEMENT_REQUIRED');
+    });
+
 
     it('unlocks and completes all steps for historical review when status is COMPLETED', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
@@ -1723,6 +1758,273 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         ).rejects.toThrow('Access denied: You are not assigned to the batch for this enrolment');
       });
     });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // D1-041: STEP 1 AGREEMENT GATE & INVARIANT PROTECTION
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('D1-041: Step 1 Agreement Gate & Invariant Protection', () => {
+    const mockLearnerUser = { sub: 'learner-gate-1', role: Role.USER };
+
+    const mockPendingEnrolment = {
+      id: 'enrol-gate-1',
+      userId: 'learner-gate-1',
+      programId: 'prog-1',
+      batchId: 'batch-1',
+      status: EnrolmentStatus.PENDING_AGREEMENT,
+      program: mockProgram,
+      batch: mockBatch,
+      signedAgreement: null,
+    };
+
+    const mockActiveEnrolmentUnsigned = {
+      id: 'enrol-gate-2',
+      userId: 'learner-gate-1',
+      programId: 'prog-1',
+      batchId: 'batch-1',
+      status: EnrolmentStatus.ACTIVE,
+      program: mockProgram,
+      batch: mockBatch,
+      signedAgreement: null,
+    };
+
+    const mockActiveEnrolmentSigned = {
+      id: 'enrol-gate-3',
+      userId: 'learner-gate-1',
+      programId: 'prog-1',
+      batchId: 'batch-1',
+      status: EnrolmentStatus.ACTIVE,
+      program: mockProgram,
+      batch: mockBatch,
+      signedAgreement: {
+        id: 'signed-gate-1',
+        status: AgreementStatus.SIGNED,
+        versionId: 'ver-1',
+        signedAt: new Date(),
+      },
+    };
+
+    it('learner with PENDING_AGREEMENT has Step 1 blocked with lockReason AGREEMENT_REQUIRED', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockPendingEnrolment);
+      prismaMock.step.findMany.mockResolvedValue([
+        createMockStep('s1', 1),
+        createMockStep('s2', 2),
+      ]);
+
+      const res = await service.getEnrolmentProgression(mockPendingEnrolment.id, null, {
+        persist: false,
+      });
+
+      expect(res.steps[0].isUnlocked).toBe(false);
+      expect(res.steps[0].lockReason).toBe('AGREEMENT_REQUIRED');
+    });
+
+    it('calling assertStepUnlocked when agreement is pending throws ForbiddenException with AGREEMENT_REQUIRED error', async () => {
+      prismaMock.step.findUnique.mockResolvedValue({
+        id: 's1',
+        programId: 'prog-1',
+        status: ContentStatus.PUBLISHED,
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockPendingEnrolment);
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      try {
+        await service.assertStepUnlocked(mockPendingEnrolment.id, 's1', mockLearnerUser);
+        expect.unreachable('Should have thrown ForbiddenException');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ForbiddenException);
+        expect(err.response?.error).toBe('AGREEMENT_REQUIRED');
+        expect(err.message).toContain('AGREEMENT_REQUIRED');
+      }
+    });
+
+    it('program with agreement template blocks Step 1 when agreement is unsigned, even if enrolment is ACTIVE', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({ id: 'tpl-1' });
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      const res = await service.getEnrolmentProgression(
+        mockActiveEnrolmentUnsigned.id,
+        null,
+        { persist: false },
+      );
+
+      expect(res.steps[0].isUnlocked).toBe(false);
+      expect(res.steps[0].lockReason).toBe('AGREEMENT_REQUIRED');
+    });
+
+    it('manual step override (MANUAL_UNLOCKED) CANNOT bypass the unsigned agreement prerequisite', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockPendingEnrolment);
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      // Simulate a manual override record in the DB for Step 1
+      mockStepProgressStore.push({
+        id: 'sp-override-1',
+        enrolmentId: mockPendingEnrolment.id,
+        stepId: 's1',
+        overrideState: StepOverrideState.MANUAL_UNLOCKED,
+        overrideReason: 'Trainer tried manual unlock before contract signing',
+        isUnlocked: true,
+        isCompleted: false,
+      });
+
+      const res = await service.getEnrolmentProgression(mockPendingEnrolment.id, null, {
+        persist: false,
+      });
+
+      // Agreement gate must take absolute precedence: Step 1 remains locked!
+      expect(res.steps[0].isUnlocked).toBe(false);
+      expect(res.steps[0].lockReason).toBe('AGREEMENT_REQUIRED');
+    });
+
+    it('batch override (BatchStepOverride.isUnlocked = true) CANNOT bypass unsigned agreement prerequisite', async () => {
+      const enrolmentWithBatchOverride = {
+        ...mockPendingEnrolment,
+        batch: {
+          ...mockBatch,
+          overrides: [{ stepId: 's1', isUnlocked: true }],
+        },
+      };
+
+      prismaMock.enrolment.findUnique.mockResolvedValue(enrolmentWithBatchOverride);
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      const res = await service.getEnrolmentProgression(
+        enrolmentWithBatchOverride.id,
+        null,
+        { persist: false },
+      );
+
+      expect(res.steps[0].isUnlocked).toBe(false);
+      expect(res.steps[0].lockReason).toBe('AGREEMENT_REQUIRED');
+    });
+
+    it('subsequent steps (Step 2, Step 3) also remain locked with AGREEMENT_REQUIRED when agreement is unsigned', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockPendingEnrolment);
+      prismaMock.step.findMany.mockResolvedValue([
+        createMockStep('s1', 1),
+        createMockStep('s2', 2),
+        createMockStep('s3', 3),
+      ]);
+
+      const res = await service.getEnrolmentProgression(mockPendingEnrolment.id, null, {
+        persist: false,
+      });
+
+      expect(res.steps[0].lockReason).toBe('AGREEMENT_REQUIRED');
+      expect(res.steps[1].lockReason).toBe('AGREEMENT_REQUIRED');
+      expect(res.steps[2].lockReason).toBe('AGREEMENT_REQUIRED');
+    });
+
+    it('once valid signed agreement exists (status: SIGNED), Step 1 unlocks and assertStepUnlocked succeeds', async () => {
+      prismaMock.step.findUnique.mockResolvedValue({
+        id: 's1',
+        programId: 'prog-1',
+        status: ContentStatus.PUBLISHED,
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockActiveEnrolmentSigned);
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      const res = await service.getEnrolmentProgression(
+        mockActiveEnrolmentSigned.id,
+        null,
+        { persist: false },
+      );
+
+      expect(res.steps[0].isUnlocked).toBe(true);
+      expect(res.steps[0].lockReason).toBeNull();
+
+      const allowed = await service.assertStepUnlocked(
+        mockActiveEnrolmentSigned.id,
+        's1',
+        mockLearnerUser,
+      );
+      expect(allowed).toBe(true);
+    });
+
+    it('direct lesson heartbeat throws ForbiddenException with AGREEMENT_REQUIRED before signing', async () => {
+      prismaMock.lesson.findUnique.mockResolvedValue({
+        id: 'lesson-s1-1',
+        stepId: 's1',
+        type: ContentType.VIDEO,
+        durationSec: 300,
+        status: ContentStatus.PUBLISHED,
+        step: { id: 's1', programId: 'prog-1', sequence: 1, title: 'Step 1' },
+      });
+      prismaMock.step.findUnique.mockResolvedValue({
+        id: 's1',
+        programId: 'prog-1',
+        status: ContentStatus.PUBLISHED,
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.enrolment.findFirst.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({ id: 'tpl-1' });
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      await expect(
+        service.recordMediaProgress('lesson-s1-1', mockLearnerUser, 30),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.recordMediaProgress('lesson-s1-1', mockLearnerUser, 30),
+      ).rejects.toThrow(/AGREEMENT_REQUIRED/);
+    });
+
+    it('direct lesson completion throws ForbiddenException with AGREEMENT_REQUIRED before signing', async () => {
+      prismaMock.lesson.findUnique.mockResolvedValue({
+        id: 'lesson-s1-pdf',
+        stepId: 's1',
+        type: ContentType.PDF,
+        status: ContentStatus.PUBLISHED,
+        step: { id: 's1', programId: 'prog-1', sequence: 1, title: 'Step 1' },
+      });
+      prismaMock.step.findUnique.mockResolvedValue({
+        id: 's1',
+        programId: 'prog-1',
+        status: ContentStatus.PUBLISHED,
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.enrolment.findFirst.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({ id: 'tpl-1' });
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      await expect(
+        service.completeDocumentOrTextLesson('lesson-s1-pdf', mockLearnerUser),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.completeDocumentOrTextLesson('lesson-s1-pdf', mockLearnerUser),
+      ).rejects.toThrow(/AGREEMENT_REQUIRED/);
+    });
+
+    it('direct getLearnerLessonProgress throws ForbiddenException with AGREEMENT_REQUIRED before signing', async () => {
+      prismaMock.lesson.findUnique.mockResolvedValue({
+        id: 'lesson-s1-1',
+        stepId: 's1',
+        type: ContentType.VIDEO,
+        status: ContentStatus.PUBLISHED,
+        step: { id: 's1', programId: 'prog-1', sequence: 1, title: 'Step 1' },
+      });
+      prismaMock.step.findUnique.mockResolvedValue({
+        id: 's1',
+        programId: 'prog-1',
+        status: ContentStatus.PUBLISHED,
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.enrolment.findFirst.mockResolvedValue(mockActiveEnrolmentUnsigned);
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({ id: 'tpl-1' });
+      prismaMock.step.findMany.mockResolvedValue([createMockStep('s1', 1)]);
+
+      await expect(
+        service.getLearnerLessonProgress('lesson-s1-1', mockLearnerUser),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.getLearnerLessonProgress('lesson-s1-1', mockLearnerUser),
+      ).rejects.toThrow(/AGREEMENT_REQUIRED/);
+    });
+
+
   });
 });
 

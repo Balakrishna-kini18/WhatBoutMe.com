@@ -15,6 +15,7 @@ import { SessionsModule } from './modules/sessions/sessions.module.js';
 import { CertificatesModule } from './modules/certificates/certificates.module.js';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module.js';
 import { ProgressionModule } from './modules/progression/progression.module.js';
+import { AgreementsModule } from './modules/agreements/agreements.module.js';
 import { WebsiteModule } from './modules/website/website.module.js';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
 import { QueueModule } from './modules/queue/queue.module.js';
@@ -79,6 +80,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     CertificatesModule,
     EnrollmentsModule,
     ProgressionModule,
+    AgreementsModule,
     WebsiteModule,
     CloudinaryModule,
     CacheHelperModule,

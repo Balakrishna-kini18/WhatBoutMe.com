@@ -2,13 +2,24 @@
 
 import styles from "../login/auth.module.css";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function LearnerAgreement() {
   useEffect(() => {
     document.body.classList.add("auth-page-active");
     return () => document.body.classList.remove("auth-page-active");
   }, []);
+
+  const [agreed, setAgreed] = useState(false);
+  const [signature, setSignature] = useState("");
+  const router = useRouter();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agreed || !signature.trim()) return;
+    router.push("/");
+  };
 
   return (
     <div className={styles.authContainer}>
@@ -37,9 +48,15 @@ export default function LearnerAgreement() {
           Due to the digital nature of the content, refunds are only available within the first 14 days if Step 2 has not been completed.</p>
         </div>
 
-        <form className={styles.form}>
+        <form className={styles.form} onSubmit={handleSubmit}>
           <div className={styles.inputGroup} style={{ flexDirection: 'row', alignItems: 'center', gap: '1rem' }}>
-            <input type="checkbox" id="agreeCheck" style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
+            <input
+              type="checkbox"
+              id="agreeCheck"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+            />
             <label htmlFor="agreeCheck" style={{ cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               I have read and agree to the Terms of Service
             </label>
@@ -47,12 +64,23 @@ export default function LearnerAgreement() {
           
           <div className={styles.inputGroup}>
             <label>Digital Signature (Type your full name)</label>
-            <input type="text" placeholder="e.g. John Doe" />
+            <input
+              type="text"
+              placeholder="e.g. John Doe"
+              value={signature}
+              onChange={(e) => setSignature(e.target.value)}
+              required
+            />
           </div>
           
-          <Link href="/" className={styles.submitBtn} style={{display: 'block', textAlign: 'center', textDecoration: 'none'}}>
+          <button
+            type="submit"
+            className={styles.submitBtn}
+            disabled={!agreed || !signature.trim()}
+            style={{ width: '100%', cursor: agreed && signature.trim() ? 'pointer' : 'not-allowed', opacity: agreed && signature.trim() ? 1 : 0.6 }}
+          >
             Sign & Enter Dashboard
-          </Link>
+          </button>
         </form>
       </div>
     </div>

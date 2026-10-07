@@ -50,6 +50,10 @@ function formatLockReason(step: StepProgressionItem): string {
     return `Releases on ${dateStr}`;
   }
 
+  if (step.lockReason === "AGREEMENT_REQUIRED") {
+    return "Requires signing the Program Agreement before unlocking";
+  }
+
   if (step.lockReason === "QUIZ_NOT_PASSED") {
     return `Requires passing the quiz in Step ${step.sequence - 1}`;
   }
@@ -150,14 +154,18 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           }`}
           role="alert"
         >
-          {progression.enrolmentStatus === "PENDING_AGREEMENT" && (
+          {(progression.enrolmentStatus === "PENDING_AGREEMENT" ||
+            progression.steps?.some((s) => s.lockReason === "AGREEMENT_REQUIRED")) && (
             <>
               <h3 className={styles.statusBannerTitle}>Agreement Required</h3>
               <p className={styles.statusBannerText}>
                 Your enrolment in this program requires a signed program agreement before step content unlocks.
               </p>
               <div>
-                <Link href={`/agreement?programId=${id}`} className={dash.goldBtn}>
+                <Link
+                  href={`/agreement?programId=${id}${progression.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
+                  className={dash.goldBtn}
+                >
                   Review &amp; Sign Agreement
                 </Link>
               </div>
@@ -351,6 +359,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                   <p>Step {current.sequence} of {total}</p>
                   <Link href={`/steps/${current.stepId}`} className={dash.goldBtn}>
                     {current.isCompleted ? "Review Step" : "Start Step"}
+                  </Link>
+                </>
+              ) : done > 0 && done === total ? (
+                <>
+                  <h3>Final Certification Examination</h3>
+                  <p>Comprehensive 50-Question Assessment</p>
+                  <Link href={`/programs/${id}/exam`} className={dash.goldBtn} style={{ marginTop: "10px", display: "inline-block" }}>
+                    Take Final Exam →
                   </Link>
                 </>
               ) : (

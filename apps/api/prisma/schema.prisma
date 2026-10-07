@@ -218,6 +218,7 @@ model User {
   batchTrainers           BatchTrainer[]           @relation("BatchTrainers")
   oralAssessmentsAssessed OralAssessment[]         @relation("AssessorOralAssessments")
   signedAgreements        SignedAgreement[]
+  createdAgreementVersions AgreementTemplateVersion[] @relation("CreatedAgreementVersions")
   sessionBookings         SessionBooking[]         @relation("UserSessionBookings")
   attendedSessions        Attendance[]             @relation("UserAttendances")
   correctedAttendances    Attendance[]             @relation("CorrectedAttendances")
@@ -1069,22 +1070,42 @@ model Coupon {
 // -----------------------------------------------------------------------------
 
 model AgreementTemplate {
-  id       String  @id @default(uuid())
-  title    String
-  version  String // e.g. "v1.0", "v2.0"
-  content  String // Agreement body/terms for rendering and PDF generation
-  isActive Boolean @default(true) // Distinguishes usable/current version
+  id          String  @id @default(uuid())
+  title       String
+  description String?
 
   programId String
   program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  versions         AgreementTemplateVersion[]
+  signedAgreements SignedAgreement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([programId])
+}
+
+model AgreementTemplateVersion {
+  id          String        @id @default(uuid())
+  templateId  String
+  template    AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  version     String        // e.g. "v1.0", "v2.0"
+  content     String        // Agreement body/terms for rendering and PDF generation
+  changelog   String?       // Summary of changes from previous version
+  status      ContentStatus @default(DRAFT) // DRAFT, PUBLISHED, ARCHIVED
+  publishedAt DateTime?
+  createdById String?
+  createdBy   User?         @relation("CreatedAgreementVersions", fields: [createdById], references: [id], onDelete: SetNull)
 
   signedAgreements SignedAgreement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([programId, version])
-  @@index([programId, isActive])
+  @@unique([templateId, version])
+  @@index([templateId, status])
 }
 
 model SignedAgreement {
@@ -1101,8 +1122,11 @@ model SignedAgreement {
   templateId String
   template   AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
 
-  templateVersion String // Immutable snapshot of version string at signing
-  consentGiven    Boolean         @default(false) // Explicit read & consent tick
+  versionId String
+  version   AgreementTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+
+  templateVersion String  // Immutable snapshot of version string at signing (e.g. "v1.0")
+  consentGiven    Boolean @default(false) // Explicit read & consent tick
   typedName       String? // Typed full name signature
   drawnSignature  String? // Drawn signature data URL or storage pointer
   signerIp        String? // Signer IP address
@@ -1117,6 +1141,7 @@ model SignedAgreement {
   @@index([userId])
   @@index([programId])
   @@index([templateId])
+  @@index([versionId])
   @@index([status])
 }
 

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   AttemptStatus,
+  AgreementStatus,
   ContentStatus,
   ContentType,
   EnrolmentStatus,
@@ -19,10 +20,12 @@ export const DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT = 90.0;
 
 export type LockReason =
   | 'ENROLMENT_NOT_ACTIVE'
+  | 'AGREEMENT_REQUIRED'
   | 'PREVIOUS_STEP_INCOMPLETE'
   | 'QUIZ_NOT_PASSED'
   | 'SCHEDULED_DATE_NOT_REACHED'
   | 'MANUAL_LOCKED';
+
 
 export interface LessonProgressItem {
   lessonId: string;
@@ -146,6 +149,7 @@ export class ProgressionService {
             trainers: { select: { trainerId: true } },
           },
         },
+        signedAgreement: true,
       },
     });
 
@@ -185,6 +189,7 @@ export class ProgressionService {
             trainers: { select: { trainerId: true } },
           },
         },
+        signedAgreement: true,
       },
     });
 
@@ -202,8 +207,10 @@ export class ProgressionService {
               trainers: { select: { trainerId: true } },
             },
           },
+          signedAgreement: true,
         },
       });
+
 
       if (!fallback) {
         throw new NotFoundException(
@@ -281,6 +288,7 @@ export class ProgressionService {
           },
         },
         program: { select: { id: true, title: true, slug: true, status: true } },
+        signedAgreement: true,
       },
     });
 
@@ -303,11 +311,19 @@ export class ProgressionService {
 
     if (!targetStep || !targetStep.isUnlocked) {
       const reason = targetStep?.lockReason ?? 'LOCKED';
+      if (reason === 'AGREEMENT_REQUIRED') {
+        throw new ForbiddenException({
+          statusCode: 403,
+          error: 'AGREEMENT_REQUIRED',
+          message: 'Step is locked: AGREEMENT_REQUIRED',
+        });
+      }
       throw new ForbiddenException(`Step is locked: ${reason}`);
     }
 
     return true;
   }
+
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 5. ADMINISTRATIVE RECALCULATION & SYNCHRONIZATION
@@ -329,8 +345,10 @@ export class ProgressionService {
             trainers: { select: { trainerId: true } },
           },
         },
+        signedAgreement: true,
       },
     });
+
 
     if (!enrolment) {
       throw new NotFoundException('Enrolment not found');
@@ -695,9 +713,38 @@ export class ProgressionService {
     const isEnrolmentCompleted = enrolment.status === EnrolmentStatus.COMPLETED;
     const isEligibleForProgress = isEnrolmentActive || isEnrolmentCompleted;
 
+    // D1-041: Check agreement requirement and signed agreement status
+    let signedAgreement = enrolment.signedAgreement;
+    if (signedAgreement === undefined && this.prisma.signedAgreement?.findUnique) {
+      signedAgreement =
+        (await this.prisma.signedAgreement.findUnique({
+          where: { enrolmentId: enrolment.id },
+        })) ?? null;
+    }
+
+    const hasValidSignedAgreement =
+      signedAgreement?.status === AgreementStatus.SIGNED;
+
+    let agreementRequired =
+      enrolment.status === EnrolmentStatus.PENDING_AGREEMENT;
+
+    if (!agreementRequired && this.prisma.agreementTemplate?.findFirst) {
+      const template = await this.prisma.agreementTemplate.findFirst({
+        where: { programId: enrolment.programId },
+        select: { id: true },
+      });
+      if (template) {
+        agreementRequired = true;
+      }
+    }
+
+    const isAgreementBlocked = agreementRequired && !hasValidSignedAgreement;
+
     const evaluatedSteps: StepProgressionItem[] = [];
     let previousStepComplete = true; // Step 1 prerequisite is trivially satisfied
-    let previousStepFailureReason: LockReason = 'PREVIOUS_STEP_INCOMPLETE';
+    let previousStepFailureReason: LockReason = isAgreementBlocked
+      ? 'AGREEMENT_REQUIRED'
+      : 'PREVIOUS_STEP_INCOMPLETE';
 
     const updatesToPersist: Array<{
       stepId: string;
@@ -712,6 +759,7 @@ export class ProgressionService {
       const step = publishedSteps[i];
       const stepProgress = stepProgressMap.get(step.id);
       const batchOverride = batchOverridesMap.get(step.id);
+
 
       // Map lesson items with completion state
       const lessons: LessonProgressItem[] = step.lessons.map((lesson) => {
@@ -780,7 +828,12 @@ export class ProgressionService {
       const overriddenAt: Date | null = stepProgress?.overriddenAt ?? null;
       const overriddenById: string | null = stepProgress?.overriddenById ?? null;
 
-      if (!isEligibleForProgress) {
+      if (isAgreementBlocked) {
+        // D1-041: Step 1 and all learning content stay locked until agreement is signed
+        // Never allow manual unlock or batch override to bypass an unsigned agreement
+        isUnlocked = false;
+        lockReason = 'AGREEMENT_REQUIRED';
+      } else if (!isEligibleForProgress) {
         // Enrolment not active/completed fails closed
         isUnlocked = false;
         lockReason = 'ENROLMENT_NOT_ACTIVE';
@@ -874,13 +927,18 @@ export class ProgressionService {
 
       // Update cascading prerequisites for the next step in the loop
       previousStepComplete = isStepCompleted;
-      if (!allLessonsCompleted) {
-        previousStepFailureReason = 'PREVIOUS_STEP_INCOMPLETE';
-      } else if (!quizCompleted) {
-        previousStepFailureReason = 'QUIZ_NOT_PASSED';
-      } else {
-        previousStepFailureReason = 'PREVIOUS_STEP_INCOMPLETE';
+      if (!isStepCompleted) {
+        if (isAgreementBlocked) {
+          previousStepFailureReason = 'AGREEMENT_REQUIRED';
+        } else if (!allLessonsCompleted) {
+          previousStepFailureReason = 'PREVIOUS_STEP_INCOMPLETE';
+        } else if (!quizCompleted) {
+          previousStepFailureReason = 'QUIZ_NOT_PASSED';
+        } else {
+          previousStepFailureReason = 'PREVIOUS_STEP_INCOMPLETE';
+        }
       }
+
     }
 
     // 5. Persist synchronized states asynchronously without blocking read response

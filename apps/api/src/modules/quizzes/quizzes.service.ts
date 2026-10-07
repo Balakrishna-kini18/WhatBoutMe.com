@@ -661,7 +661,14 @@ export class QuizzesService {
       return null;
     }
 
+    await this.progressionService.assertStepUnlocked(
+      enrolment.id,
+      quiz.step.id,
+      actor,
+    );
+
     // Check active IN_PROGRESS attempt
+
     const activeAttempt = await this.prisma.attempt.findFirst({
       where: {
         enrolmentId: enrolment.id,

@@ -121,8 +121,16 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
       add: vi.fn().mockResolvedValue({ id: 'job-1' }),
     };
 
+    const attendanceServiceMock = {
+      recordAbsent: vi.fn(),
+      recordPresentAuto: vi.fn(),
+      recordPresentManual: vi.fn(),
+      correctAttendance: vi.fn(),
+    };
+
     service = new SessionsService(
       prismaMock as unknown as PrismaService,
+      attendanceServiceMock as any,
       meetingProviderMock,
       undefined,
       meetingSyncQueueMock,
@@ -569,6 +577,7 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
     it('throws BadRequestException if meeting provider is omitted and no joinUrl is provided', async () => {
       const unconfiguredService = new SessionsService(
         prismaMock as unknown as PrismaService,
+        {} as any, // attendanceServiceMock
         undefined, // No meeting provider injected
         undefined,
         undefined, // No meeting sync queue injected

@@ -31,6 +31,7 @@ import {
   enrichSessionWithTimezone,
   resolveTimezone,
 } from '../../common/timezone/timezone.util.js';
+import { AttendanceService } from './attendance.service.js';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -41,6 +42,7 @@ export class SessionsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly attendanceService: AttendanceService,
     @Optional()
     @Inject(MEETING_PROVIDER)
     private readonly meetingProvider?: IMeetingProvider,
@@ -816,24 +818,14 @@ export class SessionsService {
       throw new BadRequestException('User is not enrolled in this batch.');
     }
 
-    if (!isAdminOverride) await markDailyAttendance(this.prisma, userId, 'sessionJoined');
-
-    return this.prisma.attendance.upsert({
-      where: {
-        sessionId_enrolmentId: {
-          sessionId,
-          enrolmentId: enrolment.id,
-        },
-      },
-      update: {
-        joinTime: new Date(),
-      },
-      create: {
-        sessionId,
-        enrolmentId: enrolment.id,
-        joinTime: new Date(),
-      },
-    });
+    if (isAdminOverride) {
+      // In a real scenario, the actorId should be the admin's ID.
+      // Since this legacy method signature only accepts `userId` (the learner),
+      // we assume the system or a generic admin ID for now, or use `userId` as fallback.
+      return this.attendanceService.recordPresentManual(sessionId, enrolment.id, 'SYSTEM_ADMIN_OVERRIDE');
+    } else {
+      return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, { joinTime: new Date() });
+    }
   }
 
   async getAttendanceForSession(sessionId: string, user: any) {

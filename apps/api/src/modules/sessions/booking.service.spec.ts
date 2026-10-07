@@ -153,8 +153,16 @@ describe('D1-044: SessionsService.bookSession()', () => {
       getParticipantReport: vi.fn(),
     };
 
+    const attendanceServiceMock = {
+      recordAbsent: vi.fn(),
+      recordPresentAuto: vi.fn(),
+      recordPresentManual: vi.fn(),
+      correctAttendance: vi.fn(),
+    };
+
     service = new SessionsService(
       prismaMock as unknown as PrismaService,
+      attendanceServiceMock as any,
       meetingProviderMock,
       calendarProviderMock,
     );
@@ -642,6 +650,7 @@ describe('D1-044: SessionsService.bookSession()', () => {
       // Re-create service without calendar provider
       const serviceWithoutCalendar = new SessionsService(
         prismaMock as unknown as PrismaService,
+        {} as any,
         meetingProviderMock,
         undefined, // no calendar provider
       );
@@ -800,6 +809,7 @@ describe('D1-044: SessionsService.bookSession()', () => {
       expect(() => {
         new SessionsService(
           prismaMock as unknown as PrismaService,
+          {} as any,
           meetingProviderMock,
           calendarProviderMock,
         );
@@ -808,7 +818,7 @@ describe('D1-044: SessionsService.bookSession()', () => {
 
     it('service instantiates without any optional providers (graceful)', () => {
       expect(() => {
-        new SessionsService(prismaMock as unknown as PrismaService);
+        new SessionsService(prismaMock as unknown as PrismaService, {} as any);
       }).not.toThrow();
     });
   });
@@ -878,7 +888,7 @@ describe('D1-046: Reschedule & Cancellation Rules', () => {
     };
     calendarProviderMock = { getBusySlots: vi.fn().mockResolvedValue([]) } as any;
     meetingProviderMock = { createMeeting: vi.fn(), updateMeeting: vi.fn(), cancelMeeting: vi.fn(), getRecordingUrl: vi.fn(), getParticipantReport: vi.fn() } as any;
-    service = new SessionsService(prismaMock as any, meetingProviderMock, calendarProviderMock);
+    service = new SessionsService(prismaMock as any, {} as any, meetingProviderMock, calendarProviderMock);
     // Suppress warnings
     vi.spyOn(service['logger'], 'warn').mockImplementation(() => {});
   });

@@ -60,12 +60,27 @@ function CheckoutContent() {
         },
         body: JSON.stringify({ programId }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errorText = await res.text();
+        // If they are already enrolled, just redirect them smoothly
+        if (errorText.includes("already enrolled")) {
+          router.push("/courses");
+          return;
+        }
+        throw new Error(errorText);
+      }
       // straight to My Courses, where the course just bought now appears
       router.push("/courses");
     } catch (e: any) {
       console.error("Payment failed", e);
-      alert("Checkout failed: " + e.message);
+      
+      let errorMessage = e.message;
+      try {
+        const parsed = JSON.parse(e.message);
+        errorMessage = parsed.error?.message || parsed.message || e.message;
+      } catch (err) {}
+
+      alert("Checkout failed: " + errorMessage);
       setProcessing(false);
     }
   }

@@ -16,9 +16,11 @@ import {
   CreateAgreementTemplateDto,
   CreateTemplateVersionDto,
   QueryAgreementTemplatesDto,
+  SignAgreementDto,
   UpdateAgreementTemplateDto,
   UpdateTemplateVersionDto,
 } from './dto/index.js';
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. ADMIN AGREEMENT TEMPLATES CONTROLLER
@@ -142,10 +144,17 @@ export class AdminAgreementTemplatesController {
       ip,
     );
   }
+
+  @RequirePermission(Permission.AGREEMENTS_READ)
+  @Get(':id/signed')
+  async getSignedAgreementsForTemplate(@Param('id') templateId: string) {
+    return this.agreementsService.getSignedAgreementsForTemplate(templateId);
+  }
 }
 
+
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. LEARNER AGREEMENT TEMPLATES CONTROLLER
+// 2. LEARNER AGREEMENTS CONTROLLER
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Controller(['agreements/templates', 'agreements'])
@@ -156,5 +165,27 @@ export class LearnerAgreementsController {
   @Get('program/:programId/active')
   async getActiveVersionForProgram(@Param('programId') programId: string) {
     return this.agreementsService.getActiveVersionForProgram(programId);
+  }
+
+  @RequirePermission(Permission.AGREEMENTS_SIGN)
+  @Post('sign')
+  async signAgreement(
+    @Body() dto: SignAgreementDto,
+    @Request() req: any,
+  ) {
+    const user = req.user;
+    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    const userAgent = req.headers?.['user-agent'] ?? 'unknown';
+    return this.agreementsService.signAgreement(dto, user, ip, userAgent);
+  }
+
+  @RequirePermission(Permission.AGREEMENTS_READ)
+  @Get('enrolments/:enrolmentId')
+  async getSignedAgreementForEnrolment(
+    @Param('enrolmentId') enrolmentId: string,
+    @Request() req: any,
+  ) {
+    const user = req.user;
+    return this.agreementsService.getSignedAgreementForEnrolment(enrolmentId, user);
   }
 }

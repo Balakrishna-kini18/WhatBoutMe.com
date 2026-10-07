@@ -1,8 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { ContentStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import {
+  AgreementStatus,
+  ContentStatus,
+  EnrolmentStatus,
+  Role,
+} from '@prisma/client';
 import { AgreementsService } from './agreements.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+
 
 describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
   let service: AgreementsService;
@@ -70,7 +82,14 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
         updateMany: vi.fn(),
         delete: vi.fn(),
       },
+      enrolment: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
       signedAgreement: {
+        create: vi.fn(),
+        update: vi.fn(),
+        findUnique: vi.fn(),
         findMany: vi.fn(),
         findFirst: vi.fn(),
         count: vi.fn(),
@@ -78,6 +97,7 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       auditLog: {
         create: vi.fn(),
       },
+
       $transaction: vi.fn().mockImplementation(async (callback) => {
         if (typeof callback === 'function') {
           return callback(prismaMock);
@@ -465,6 +485,530 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       await expect(
         service.getActiveVersionForProgram('prog-no-agreement'),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 9. D1-040: LEARNER AGREEMENT SIGNING FLOW (POST /agreements/sign)
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('9. D1-040: Learner Agreement Signing Flow', () => {
+    const learnerUser = { id: 'user-learner-uuid', role: Role.USER };
+    const foreignUser = { id: 'user-foreign-uuid', role: Role.USER };
+
+    const mockEnrolment = {
+      id: 'enrol-active-uuid',
+      userId: learnerUser.id,
+      programId: mockProgram.id,
+      status: EnrolmentStatus.PENDING_AGREEMENT,
+      program: mockProgram,
+      signedAgreement: null,
+    };
+
+    const validSignDto = {
+      enrolmentId: mockEnrolment.id,
+      consentGiven: true,
+      typedName: 'Jane Doe',
+      drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+    };
+
+    it('signs agreement successfully with valid input, capturing server timestamp, IP, and user-agent', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+      });
+
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+
+      const mockCreatedSignedAgreement = {
+        id: 'signed-ag-uuid',
+        enrolmentId: mockEnrolment.id,
+        userId: learnerUser.id,
+        programId: mockProgram.id,
+        templateId: mockTemplate.id,
+        versionId: mockVersion2.id,
+        templateVersion: mockVersion2.version,
+        consentGiven: true,
+        typedName: validSignDto.typedName,
+        drawnSignature: validSignDto.drawnSignature,
+        signerIp: '192.168.1.100',
+        userAgent: 'Mozilla/5.0 Chrome/120.0',
+        status: AgreementStatus.SIGNED,
+        signedAt: new Date(),
+        signedPdfUrl: null,
+        version: mockVersion2,
+        template: mockTemplate,
+      };
+
+      prismaMock.signedAgreement.create.mockResolvedValue(mockCreatedSignedAgreement);
+      prismaMock.enrolment.update.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.ACTIVE,
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-1' });
+
+      const result = await service.signAgreement(
+        validSignDto,
+        learnerUser,
+        '192.168.1.100',
+        'Mozilla/5.0 Chrome/120.0',
+      );
+
+      expect(result.id).toBe('signed-ag-uuid');
+      expect(result.status).toBe(AgreementStatus.SIGNED);
+      expect(result.versionId).toBe(mockVersion2.id);
+      expect(result.templateVersion).toBe('v2.0');
+      expect(result.signerIp).toBe('192.168.1.100');
+      expect(result.userAgent).toBe('Mozilla/5.0 Chrome/120.0');
+      expect(result.consentGiven).toBe(true);
+      expect(result.typedName).toBe('Jane Doe');
+      expect(result.signedAt).toBeInstanceOf(Date);
+
+      // Verify enrolment transitioned from PENDING_AGREEMENT to ACTIVE
+      expect(prismaMock.enrolment.update).toHaveBeenCalledWith({
+        where: { id: mockEnrolment.id },
+        data: { status: EnrolmentStatus.ACTIVE },
+      });
+
+      // Verify signed agreement was created in DB
+      expect(prismaMock.signedAgreement.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          enrolmentId: mockEnrolment.id,
+          userId: learnerUser.id,
+          programId: mockProgram.id,
+          templateId: mockTemplate.id,
+          versionId: mockVersion2.id,
+          templateVersion: 'v2.0',
+          consentGiven: true,
+          typedName: 'Jane Doe',
+          signerIp: '192.168.1.100',
+          userAgent: 'Mozilla/5.0 Chrome/120.0',
+          status: AgreementStatus.SIGNED,
+        }),
+        include: { version: true, template: true },
+      });
+    });
+
+    it('rejects signing when consentGiven is false with BadRequestException', async () => {
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, consentGiven: false },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, consentGiven: false },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/consent/i);
+    });
+
+    it('rejects signing when typedName is empty or too short with BadRequestException', async () => {
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, typedName: ' ' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, typedName: 'J' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/typed full name/i);
+    });
+
+    it('rejects signing when drawnSignature is missing or too short with BadRequestException', async () => {
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, drawnSignature: 'abc' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, drawnSignature: '' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/drawn signature/i);
+    });
+
+    it('rejects unauthenticated caller with UnauthorizedException', async () => {
+      await expect(
+        service.signAgreement(validSignDto, null),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects signing when enrolment does not exist with NotFoundException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, enrolmentId: 'non-existent-id' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('IDOR defense: rejects learner signing another learner enrolment with ForbiddenException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        userId: learnerUser.id, // belongs to learnerUser
+      });
+
+      // foreignUser attempts to sign learnerUser's enrolment
+      await expect(
+        service.signAgreement(validSignDto, foreignUser),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.signAgreement(validSignDto, foreignUser),
+      ).rejects.toThrow(/not authorized/i);
+    });
+
+    it('rejects signing when enrolment status is PENDING_PAYMENT with BadRequestException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.PENDING_PAYMENT,
+      });
+
+      await expect(
+        service.signAgreement(validSignDto, learnerUser),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(validSignDto, learnerUser),
+      ).rejects.toThrow(/payment must be completed first/i);
+    });
+
+    it('rejects signing when enrolment status is REVOKED with BadRequestException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.REVOKED,
+      });
+
+      await expect(
+        service.signAgreement(validSignDto, learnerUser),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects signing when enrolment status is WAITLIST with BadRequestException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.WAITLIST,
+      });
+
+      await expect(
+        service.signAgreement(validSignDto, learnerUser),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('immutability & conflict: rejects repeated signing when agreement is already SIGNED with ConflictException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        signedAgreement: {
+          id: 'existing-signed-uuid',
+          status: AgreementStatus.SIGNED,
+          signedAt: new Date('2026-10-06T12:00:00Z'),
+        },
+      });
+
+      await expect(
+        service.signAgreement(validSignDto, learnerUser),
+      ).rejects.toThrow(ConflictException);
+
+      await expect(
+        service.signAgreement(validSignDto, learnerUser),
+      ).rejects.toThrow(/already been signed/i);
+    });
+
+    it('rejects signing with version belonging to a different program template with BadRequestException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+      });
+
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+
+      // version belongs to a foreign template
+      prismaMock.agreementTemplateVersion.findUnique.mockResolvedValue({
+        id: 'foreign-version-uuid',
+        templateId: 'different-template-uuid',
+        version: 'v1.0',
+        status: ContentStatus.PUBLISHED,
+      });
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, versionId: 'foreign-version-uuid' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, versionId: 'foreign-version-uuid' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/does not belong to this program/i);
+    });
+
+    it('rejects signing with an unpublished draft version with BadRequestException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+      });
+
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2], // published version
+      });
+
+      // draft version on the same template
+      prismaMock.agreementTemplateVersion.findUnique.mockResolvedValue({
+        id: 'draft-version-uuid',
+        templateId: mockTemplate.id,
+        version: 'v3.0-draft',
+        status: ContentStatus.DRAFT,
+      });
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, versionId: 'draft-version-uuid' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, versionId: 'draft-version-uuid' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/not currently published/i);
+    });
+
+    it('updates existing pending agreement record to SIGNED when already pre-created', async () => {
+      const existingPendingAgreement = {
+        id: 'pending-ag-uuid',
+        enrolmentId: mockEnrolment.id,
+        status: AgreementStatus.PENDING,
+      };
+
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        signedAgreement: existingPendingAgreement,
+      });
+
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+
+      prismaMock.signedAgreement.update.mockResolvedValue({
+        ...existingPendingAgreement,
+        status: AgreementStatus.SIGNED,
+        versionId: mockVersion2.id,
+        templateVersion: 'v2.0',
+        consentGiven: true,
+        typedName: 'Jane Doe',
+        drawnSignature: validSignDto.drawnSignature,
+        signerIp: '127.0.0.1',
+        userAgent: 'test-agent',
+        signedAt: new Date(),
+        version: mockVersion2,
+        template: mockTemplate,
+      });
+      prismaMock.enrolment.update.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.ACTIVE,
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-pending' });
+
+      const res = await service.signAgreement(
+        validSignDto,
+        learnerUser,
+        '127.0.0.1',
+        'test-agent',
+      );
+
+      expect(res.status).toBe(AgreementStatus.SIGNED);
+      expect(prismaMock.signedAgreement.update).toHaveBeenCalledWith({
+        where: { id: 'pending-ag-uuid' },
+        data: expect.objectContaining({
+          status: AgreementStatus.SIGNED,
+          versionId: mockVersion2.id,
+        }),
+        include: { version: true, template: true },
+      });
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 10. D1-042: IMMUTABLE AUDIT RECORD ON SIGNING
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('10. D1-042: Immutable Audit Record on Signing', () => {
+    const learnerUser = { id: 'user-learner-uuid', role: Role.USER };
+
+    const mockEnrolment = {
+      id: 'enrol-active-uuid',
+      userId: learnerUser.id,
+      programId: mockProgram.id,
+      status: EnrolmentStatus.PENDING_AGREEMENT,
+      program: mockProgram,
+      signedAgreement: null,
+    };
+
+    const validSignDto = {
+      enrolmentId: mockEnrolment.id,
+      consentGiven: true,
+      typedName: 'Jane Doe',
+      drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+    };
+
+    it('creates an immutable AuditLog entry in the same transaction upon signing', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+      });
+
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+
+      prismaMock.signedAgreement.create.mockResolvedValue({
+        id: 'signed-ag-uuid-2',
+        enrolmentId: mockEnrolment.id,
+        status: AgreementStatus.SIGNED,
+        version: mockVersion2,
+        template: mockTemplate,
+      });
+      prismaMock.enrolment.update.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.ACTIVE,
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-log-uuid' });
+
+      await service.signAgreement(
+        validSignDto,
+        learnerUser,
+        '10.0.0.42',
+        'Safari/17.0 macOS',
+      );
+
+      expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+      expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorId: learnerUser.id,
+          action: 'AGREEMENT_SIGNED',
+          entity: 'SignedAgreement',
+          entityId: 'signed-ag-uuid-2',
+          ip: '10.0.0.42',
+          meta: expect.objectContaining({
+            enrolmentId: mockEnrolment.id,
+            programId: mockProgram.id,
+            templateId: mockTemplate.id,
+            versionId: mockVersion2.id,
+            version: 'v2.0',
+            typedName: 'Jane Doe',
+            userAgent: 'Safari/17.0 macOS',
+            consentGiven: true,
+            signedAt: expect.any(String),
+          }),
+        }),
+      });
+    });
+
+    it('failed signing due to validation or permission error does NOT create an AuditLog entry', async () => {
+      prismaMock.auditLog.create.mockClear();
+
+      // Missing consent -> throws
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, consentGiven: false },
+          learnerUser,
+        ),
+      ).rejects.toThrow();
+
+      expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('application service provides no delete or update operations for AuditLog records', () => {
+      // Confirm that AgreementsService exposes no audit mutation or deletion APIs
+      expect((service as any).deleteAuditLog).toBeUndefined();
+      expect((service as any).updateAuditLog).toBeUndefined();
+      expect((service as any).deleteSigningAudit).toBeUndefined();
+      expect((service as any).modifySigningAudit).toBeUndefined();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 11. QUERY SIGNED AGREEMENT FOR ENROLMENT
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('11. Query Signed Agreement for Enrolment', () => {
+    const learnerUser = { id: 'user-learner-uuid', role: Role.USER };
+    const foreignUser = { id: 'user-foreign-uuid', role: Role.USER };
+    const adminUser = { id: 'admin-user-uuid', role: Role.ADMIN };
+
+    const mockSignedAgreement = {
+      id: 'signed-123',
+      enrolmentId: 'enrol-1',
+      userId: learnerUser.id,
+      status: AgreementStatus.SIGNED,
+      templateVersion: 'v2.0',
+      signedAt: new Date(),
+      version: mockVersion2,
+      template: mockTemplate,
+    };
+
+    it('allows owning learner to retrieve their signed agreement', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: learnerUser.id,
+        signedAgreement: mockSignedAgreement,
+      });
+
+      const res = await service.getSignedAgreementForEnrolment('enrol-1', learnerUser);
+      expect(res).toEqual(mockSignedAgreement);
+    });
+
+    it('allows staff (admin) to view any signed agreement', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: learnerUser.id,
+        signedAgreement: mockSignedAgreement,
+      });
+
+      const res = await service.getSignedAgreementForEnrolment('enrol-1', adminUser);
+      expect(res).toEqual(mockSignedAgreement);
+    });
+
+    it('rejects unauthorized learner from viewing another learner signed agreement with ForbiddenException', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: learnerUser.id, // belongs to learnerUser
+        signedAgreement: mockSignedAgreement,
+      });
+
+      await expect(
+        service.getSignedAgreementForEnrolment('enrol-1', foreignUser),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('returns null if agreement is not yet signed', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: learnerUser.id,
+        signedAgreement: null,
+      });
+
+      const res = await service.getSignedAgreementForEnrolment('enrol-1', learnerUser);
+      expect(res).toBeNull();
     });
   });
 });

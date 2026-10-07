@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -10,6 +10,28 @@ export class UsersService {
     private prisma: PrismaService,
     private cacheHelper: CacheHelperService
   ) {}
+
+  async findOne(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        enrolments: {
+          include: {
+            batch: {
+              include: {
+                program: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    const { passwordHash, ...safeUser } = user;
+    return safeUser;
+  }
 
   async findAll(params: { page: number; limit: number; search?: string; role?: Role }) {
     const { page, limit, search, role } = params;

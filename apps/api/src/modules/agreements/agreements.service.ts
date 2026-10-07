@@ -1,17 +1,22 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { ContentStatus } from '@prisma/client';
+import { AgreementStatus, ContentStatus, EnrolmentStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
   CreateAgreementTemplateDto,
   CreateTemplateVersionDto,
   QueryAgreementTemplatesDto,
+  SignAgreementDto,
   UpdateAgreementTemplateDto,
   UpdateTemplateVersionDto,
 } from './dto/index.js';
+
 
 @Injectable()
 export class AgreementsService {
@@ -598,5 +603,321 @@ export class AgreementsService {
       content: activeVersion.content,
       publishedAt: activeVersion.publishedAt,
     };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. LEARNER AGREEMENT SIGNING & AUDIT (D1-040, D1-042)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Signs a program agreement for a specific learner enrolment.
+   * Enforces learner ownership, valid enrolment state, published version identity,
+   * in-app consent, typed name, drawn signature, server timestamp, client IP,
+   * and creates an immutable AuditLog entry within the same transaction.
+   */
+  async signAgreement(
+    dto: SignAgreementDto,
+    user: any,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    const userId = user?.sub ?? user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('Authentication required');
+    }
+
+    if (!dto.consentGiven) {
+      throw new BadRequestException(
+        'Explicit consent acknowledgement is required to sign the agreement',
+      );
+    }
+
+    if (!dto.typedName || dto.typedName.trim().length < 2) {
+      throw new BadRequestException(
+        'Typed full name is required and must be at least 2 characters',
+      );
+    }
+
+    if (!dto.drawnSignature || dto.drawnSignature.trim().length < 5) {
+      throw new BadRequestException(
+        'Drawn signature representation is required',
+      );
+    }
+
+    // 1. Fetch enrolment
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id: dto.enrolmentId },
+      include: {
+        program: { select: { id: true, title: true } },
+        signedAgreement: {
+          include: {
+            version: true,
+          },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new NotFoundException(`Enrolment with ID ${dto.enrolmentId} not found`);
+    }
+
+    // 2. Authorize learner ownership: never trust client-supplied userId
+    if (enrolment.userId !== userId) {
+      throw new ForbiddenException(
+        'You are not authorized to sign the agreement for this enrolment',
+      );
+    }
+
+    // 3. Validate enrolment state
+    if (enrolment.status === EnrolmentStatus.PENDING_PAYMENT) {
+      throw new BadRequestException(
+        'Cannot sign agreement for enrolment pending payment. Payment must be completed first.',
+      );
+    }
+
+    if (enrolment.status === EnrolmentStatus.REVOKED) {
+      throw new BadRequestException(
+        'Cannot sign agreement for a revoked enrolment.',
+      );
+    }
+
+    if (enrolment.status === EnrolmentStatus.WAITLIST) {
+      throw new BadRequestException(
+        'Cannot sign agreement for a waitlisted enrolment.',
+      );
+    }
+
+    // 4. Repeated signing check: never overwrite an already signed agreement
+    if (
+      enrolment.signedAgreement &&
+      enrolment.signedAgreement.status === AgreementStatus.SIGNED
+    ) {
+      throw new ConflictException(
+        'Agreement has already been signed for this enrolment',
+      );
+    }
+
+    // 5. Fetch template & active version for the enrolled program
+    const template = await this.prisma.agreementTemplate.findFirst({
+      where: { programId: enrolment.programId },
+      include: {
+        versions: {
+          where: { status: ContentStatus.PUBLISHED },
+          orderBy: { publishedAt: 'desc' },
+        },
+      },
+    });
+
+    if (!template || template.versions.length === 0) {
+      throw new NotFoundException(
+        `No published agreement template found for program ID ${enrolment.programId}`,
+      );
+    }
+
+    let targetVersion: any;
+    if (dto.versionId) {
+      targetVersion = template.versions.find((v) => v.id === dto.versionId);
+      if (!targetVersion) {
+        // Check if version exists in DB but isn't published or belongs to another template
+        const dbVersion = await this.prisma.agreementTemplateVersion.findUnique({
+          where: { id: dto.versionId },
+        });
+        if (!dbVersion || dbVersion.templateId !== template.id) {
+          throw new BadRequestException(
+            'The selected agreement version does not belong to this program agreement template',
+          );
+        }
+        if (dbVersion.status !== ContentStatus.PUBLISHED) {
+          throw new BadRequestException(
+            'The selected agreement version is not currently published',
+          );
+        }
+        targetVersion = dbVersion;
+      }
+    } else {
+      targetVersion = template.versions[0];
+    }
+
+    // Server-captured values: never trust client for timestamp, IP, or user-agent
+    const signingTimestamp = new Date();
+    const resolvedIp = ip ?? '127.0.0.1';
+    const resolvedUserAgent = userAgent ?? 'unknown';
+
+    // 6. Execute atomic transaction: Persist SignedAgreement + update Enrolment + create AuditLog
+    const result = await this.prisma.$transaction(async (tx) => {
+      let signedAgreement: any;
+
+      if (enrolment.signedAgreement) {
+        signedAgreement = await tx.signedAgreement.update({
+          where: { id: enrolment.signedAgreement.id },
+          data: {
+            userId,
+            programId: enrolment.programId,
+            templateId: template.id,
+            versionId: targetVersion.id,
+            templateVersion: targetVersion.version,
+            consentGiven: true,
+            typedName: dto.typedName.trim(),
+            drawnSignature: dto.drawnSignature.trim(),
+            signerIp: resolvedIp,
+            userAgent: resolvedUserAgent,
+            status: AgreementStatus.SIGNED,
+            signedAt: signingTimestamp,
+          },
+          include: {
+            version: true,
+            template: true,
+          },
+        });
+      } else {
+        signedAgreement = await tx.signedAgreement.create({
+          data: {
+            enrolmentId: enrolment.id,
+            userId,
+            programId: enrolment.programId,
+            templateId: template.id,
+            versionId: targetVersion.id,
+            templateVersion: targetVersion.version,
+            consentGiven: true,
+            typedName: dto.typedName.trim(),
+            drawnSignature: dto.drawnSignature.trim(),
+            signerIp: resolvedIp,
+            userAgent: resolvedUserAgent,
+            status: AgreementStatus.SIGNED,
+            signedAt: signingTimestamp,
+          },
+          include: {
+            version: true,
+            template: true,
+          },
+        });
+      }
+
+      // Transition enrolment from PENDING_AGREEMENT to ACTIVE
+      if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT) {
+        await tx.enrolment.update({
+          where: { id: enrolment.id },
+          data: { status: EnrolmentStatus.ACTIVE },
+        });
+      }
+
+      // Create immutable audit log (D1-042)
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: 'AGREEMENT_SIGNED',
+          entity: 'SignedAgreement',
+          entityId: signedAgreement.id,
+          meta: {
+            enrolmentId: enrolment.id,
+            programId: enrolment.programId,
+            templateId: template.id,
+            versionId: targetVersion.id,
+            version: targetVersion.version,
+            typedName: dto.typedName.trim(),
+            userAgent: resolvedUserAgent,
+            consentGiven: true,
+            signedAt: signingTimestamp.toISOString(),
+          },
+          ip: resolvedIp,
+        },
+      });
+
+      return signedAgreement;
+    });
+
+    return {
+      id: result.id,
+      enrolmentId: result.enrolmentId,
+      programId: result.programId,
+      templateId: result.templateId,
+      versionId: result.versionId,
+      templateVersion: result.templateVersion,
+      consentGiven: result.consentGiven,
+      typedName: result.typedName,
+      drawnSignature: result.drawnSignature,
+      signerIp: result.signerIp,
+      userAgent: result.userAgent,
+      status: result.status,
+      signedAt: result.signedAt,
+      signedPdfUrl: result.signedPdfUrl,
+    };
+  }
+
+  /**
+   * Retrieves the signed agreement for an enrolment.
+   * Access is permitted to the enrolled learner or staff (admin/manager/super_admin).
+   */
+  async getSignedAgreementForEnrolment(enrolmentId: string, user: any) {
+    const userId = user?.sub ?? user?.id;
+    const isStaff =
+      user?.role === Role.SUPER_ADMIN ||
+      user?.role === Role.ADMIN ||
+      user?.role === Role.MANAGER;
+
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id: enrolmentId },
+      include: {
+        signedAgreement: {
+          include: {
+            version: {
+              select: {
+                id: true,
+                version: true,
+                content: true,
+                changelog: true,
+                publishedAt: true,
+              },
+            },
+            template: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!enrolment) {
+      throw new NotFoundException(`Enrolment with ID ${enrolmentId} not found`);
+    }
+
+    if (!isStaff && enrolment.userId !== userId) {
+      throw new ForbiddenException(
+        'You are not authorized to view the agreement for this enrolment',
+      );
+    }
+
+    if (!enrolment.signedAgreement) {
+      return null;
+    }
+
+    return enrolment.signedAgreement;
+  }
+
+  /**
+   * Admin view: lists all signed agreements for a specific template.
+   */
+  async getSignedAgreementsForTemplate(templateId: string) {
+    const template = await this.prisma.agreementTemplate.findUnique({
+      where: { id: templateId },
+      select: { id: true },
+    });
+
+    if (!template) {
+      throw new NotFoundException(`Agreement template with ID ${templateId} not found`);
+    }
+
+    return this.prisma.signedAgreement.findMany({
+      where: { templateId },
+      include: {
+        user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        version: { select: { id: true, version: true, publishedAt: true } },
+      },
+      orderBy: { signedAt: 'desc' },
+    });
   }
 }

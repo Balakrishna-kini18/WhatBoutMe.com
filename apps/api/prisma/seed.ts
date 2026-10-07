@@ -141,30 +141,40 @@ async function main() {
   console.log(`Seeded program: ${program.title} (${program.slug})`);
 
   // 4. Agreement Template for "11 Steps to U"
-  const agreementTemplate = await prisma.agreementTemplate.upsert({
-    where: {
-      programId_version: {
+  let agreementTemplate = await prisma.agreementTemplate.findFirst({
+    where: { programId: program.id },
+  });
+
+  if (!agreementTemplate) {
+    agreementTemplate = await prisma.agreementTemplate.create({
+      data: {
         programId: program.id,
+        title: '11 Steps to U Enrollment & Code of Conduct Agreement',
+        description: 'Standard code of conduct and cohort engagement terms.',
+      },
+    });
+  }
+
+  const templateVersion = await prisma.agreementTemplateVersion.upsert({
+    where: {
+      templateId_version: {
+        templateId: agreementTemplate.id,
         version: 'v1.0',
       },
     },
-    update: {
-      title: '11 Steps to U Enrollment & Code of Conduct Agreement',
-      content:
-        'By signing this agreement, you commit to actively participating in all scheduled cohort sessions, completing weekly reflective coursework, and adhering to strict cohort confidentiality standards.',
-      isActive: true,
-    },
+    update: {},
     create: {
-      programId: program.id,
+      templateId: agreementTemplate.id,
       version: 'v1.0',
-      title: '11 Steps to U Enrollment & Code of Conduct Agreement',
       content:
         'By signing this agreement, you commit to actively participating in all scheduled cohort sessions, completing weekly reflective coursework, and adhering to strict cohort confidentiality standards.',
-      isActive: true,
+      changelog: 'Initial baseline version',
+      status: 'PUBLISHED',
+      publishedAt: new Date('2026-10-04T17:51:44.248Z'),
     },
   });
 
-  console.log(`Seeded agreement template: ${agreementTemplate.title} (${agreementTemplate.version})`);
+  console.log(`Seeded agreement template: ${agreementTemplate.title} (${templateVersion.version})`);
 
   // 5. 11 Ordered Program Steps with Sample Lessons
   const stepTitles = [
@@ -329,13 +339,15 @@ async function main() {
       status: 'SIGNED',
       consentGiven: true,
       typedName: 'Alice Learner',
+      versionId: templateVersion.id,
     },
     create: {
       enrolmentId: enrolment1.id,
       userId: learner1.id,
       programId: program.id,
       templateId: agreementTemplate.id,
-      templateVersion: agreementTemplate.version,
+      versionId: templateVersion.id,
+      templateVersion: templateVersion.version,
       consentGiven: true,
       typedName: 'Alice Learner',
       signerIp: '127.0.0.1',

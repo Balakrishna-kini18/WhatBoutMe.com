@@ -324,3 +324,36 @@
   font-size: 0.9rem;
 }
 
+.videoContainer {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  background: #000;
+}
+
+.videoContainer video {
+  width: 100%;
+  display: block;
+}
+
+.movingWatermark {
+  position: absolute;
+  pointer-events: none;
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.3);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  animation: moveWatermark 240s steps(1, end) infinite;
+  white-space: nowrap;
+}
+
+@keyframes moveWatermark {
+  0%   { top: 10%; left: 10%; }
+  25%  { top: 10%; left: 50%; }
+  50%  { top: 75%; left: 50%; }
+  75%  { top: 75%; left: 10%; }
+  100% { top: 10%; left: 10%; }
+}

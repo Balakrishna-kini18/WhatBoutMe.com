@@ -576,6 +576,8 @@ export class QuizzesService {
       await this.progressionService.evaluateProgression(attempt.enrolment, {
         persist: true,
       });
+      await this.cacheHelper.invalidateNamespace(`auth_user:${attempt.enrolment.userId}`);
+      await this.cacheHelper.invalidateNamespace('users');
     }
 
     const allAttempts = await this.prisma.attempt.findMany({

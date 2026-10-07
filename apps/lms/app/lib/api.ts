@@ -146,6 +146,9 @@ export interface StepProgressionItem {
   lockReason: LockReason | null;
   lessons: LessonProgressItem[];
   quiz: QuizProgressItem | null;
+  progressPercent?: number;
+  completedItems?: number;
+  totalItems?: number;
 }
 
 export interface EnrolmentProgressionResponse {
@@ -167,6 +170,8 @@ export interface EnrolmentProgressionResponse {
   overallProgressPercent: number;
   currentStepSequence: number;
   steps: StepProgressionItem[];
+  totalItems?: number;
+  completedItems?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

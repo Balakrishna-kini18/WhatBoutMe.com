@@ -836,10 +836,13 @@ export class ProgramsService {
     return enrolment;
   }
 
-  async completeStep(stepId: string, userId: string, score?: number) {
+  async completeStep(stepId: string, userId: string, _score?: number) {
     const step = await this.prisma.step.findUnique({
       where: { id: stepId },
-      include: { lessons: { select: { id: true } }, quiz: { select: { id: true } } },
+      include: {
+        lessons: { where: { status: 'PUBLISHED' }, select: { id: true, type: true } },
+        quiz: { select: { id: true } },
+      },
     });
     if (!step) throw new NotFoundException('Step not found');
 
@@ -848,27 +851,54 @@ export class ProgramsService {
     });
     if (!enrolment) throw new ForbiddenException('You are not enrolled in this course');
 
-    for (const lesson of step.lessons) {
-      await this.prisma.userLessonProgress.upsert({
-        where: { enrolmentId_lessonId: { enrolmentId: enrolment.id, lessonId: lesson.id } },
-        create: { enrolmentId: enrolment.id, lessonId: lesson.id, viewed: true },
-        update: { viewed: true },
-      });
+    // Check published lessons completion
+    const viewedLessons = await this.prisma.userLessonProgress.findMany({
+      where: {
+        enrolmentId: enrolment.id,
+        lessonId: { in: step.lessons.map((l) => l.id) },
+        viewed: true,
+      },
+      select: { lessonId: true },
+    });
+    const viewedSet = new Set(viewedLessons.map((vl) => vl.lessonId));
+    const uncompletedLessons = step.lessons.filter((l) => !viewedSet.has(l.id));
+
+    // If remaining uncompleted lessons are TEXT, auto-complete them on manual finish
+    for (const l of uncompletedLessons) {
+      if (l.type === 'TEXT') {
+        await this.prisma.userLessonProgress.upsert({
+          where: { enrolmentId_lessonId: { enrolmentId: enrolment.id, lessonId: l.id } },
+          create: { enrolmentId: enrolment.id, lessonId: l.id, viewed: true, progressPercent: 100 },
+          update: { viewed: true, progressPercent: 100 },
+        });
+      } else {
+        throw new BadRequestException(
+          'Step cannot be completed yet: all video, audio, and document materials must be reviewed first',
+        );
+      }
     }
 
+    // Verify quiz requirement if step has a quiz
     if (step.quiz) {
       const passed = await this.prisma.attempt.findFirst({
         where: { enrolmentId: enrolment.id, quizId: step.quiz.id, status: 'PASSED' },
       });
       if (!passed) {
-        await this.prisma.attempt.create({
-          data: { enrolmentId: enrolment.id, quizId: step.quiz.id, status: 'PASSED', score: score ?? null },
-        });
+        throw new BadRequestException(
+          'Step cannot be completed yet: you must take and pass the step quiz first',
+        );
       }
     }
 
+    await this.prisma.stepProgress.upsert({
+      where: { enrolmentId_stepId: { enrolmentId: enrolment.id, stepId: step.id } },
+      create: { enrolmentId: enrolment.id, stepId: step.id, isCompleted: true, completedAt: new Date() },
+      update: { isCompleted: true, completedAt: new Date() },
+    });
+
     await markDailyAttendance(this.prisma, userId, 'lessonDone');
     await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
+    await this.cacheHelper.invalidateNamespace('users');
     return { stepId, completed: true };
   }
 }

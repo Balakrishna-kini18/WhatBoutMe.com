@@ -218,6 +218,17 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     }
   };
 
+  const handleCompleteLesson = async (lessonId: string) => {
+    try {
+      await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+    } catch (err) {
+      console.warn("Failed to mark lesson complete:", err);
+    }
+  };
+
   const handleOptionChange = (questionId: string, optionId: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
   };
@@ -392,6 +403,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     controls
                     controlsList="nodownload"
                     onEnded={() => {
+                      handleCompleteLesson(lesson.id);
                       if (!quiz && !isStepCompleted) handleCompleteStep();
                     }}
                     style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px" }}
@@ -421,6 +433,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       href={doc.mediaUrl}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={() => handleCompleteLesson(doc.id)}
                       style={{
                         display: "flex",
                         alignItems: "center",

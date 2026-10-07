@@ -1,4 +1,4 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Max, Min, IsObject } from 'class-validator';
 
 export class CreateQuizDto {
   @IsString()
@@ -38,4 +38,8 @@ export class CreateQuizDto {
   @IsOptional()
   @IsString()
   retryGuidance?: string;
+
+  @IsOptional()
+  @IsObject()
+  questions?: any;
 }

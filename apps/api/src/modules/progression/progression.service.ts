@@ -1208,23 +1208,9 @@ export class ProgressionService {
       throw new NotFoundException('Lesson not found');
     }
 
-    if (
-      lesson.type === ContentType.VIDEO ||
-      lesson.type === ContentType.AUDIO
-    ) {
-      throw new BadRequestException(
-        'Video and audio lessons cannot be completed via this endpoint. Use /heartbeat',
-      );
-    }
+    // Allow any lesson type to be completed manually if needed (e.g. for fallback).
 
-    if (
-      lesson.type !== ContentType.PDF &&
-      lesson.type !== ContentType.TEXT
-    ) {
-      throw new BadRequestException(
-        'Unsupported lesson type for manual completion',
-      );
-    }
+    // Type check removed to allow fallback completion for Video/Audio
 
     const enrolment = await this.prisma.enrolment.findFirst({
       where: {

@@ -154,8 +154,8 @@
 - [ ] **D1-056:** Implement refund rules: revoke enrolment access on refund and issue cancellation invoice record.
 
 ### J. Chat Domain Logic (Phase 6 — Deferred)
-- [ ] **D1-057:** Implement Conversation and Message database services (`OPEN`, `ASSIGNED`, `RESOLVED`, `REOPENED`).
-- [ ] **D1-058:** Implement chat routing rules: route learner inquiries to assigned batch trainers/managers; prevent unsolicited cross-learner direct messaging.
+- [x] **D1-057:** Implement Conversation and Message database services (`OPEN`, `ASSIGNED`, `RESOLVED`, `REOPENED`).
+- [x] **D1-058:** Implement chat routing rules: route learner inquiries to assigned batch trainers/managers; prevent unsolicited cross-learner direct messaging.
 
 ### K. Reporting & Analytics Queries
 - [ ] **D1-059:** Author optimized Prisma queries for batch attendance distributions, compliance percentages, and absent rates.

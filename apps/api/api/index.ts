@@ -22,8 +22,23 @@ async function bootstrapServer() {
     );
     
     nestApp.use(helmet());
+    const allowedOrigins = process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+      : []; // Don't rely exclusively on localhost, though we keep the regex below for local dev
+
     nestApp.enableCors({
-      origin: process.env.CORS_ORIGIN || ['http://localhost:3000', 'http://localhost:3002'],
+      origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        if (!origin) return callback(null, true);
+        if (
+          allowedOrigins.includes(origin) ||
+          /^http:\/\/localhost:[0-9]+$/.test(origin) ||
+          /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(origin) ||
+          /\.vercel\.app$/.test(origin) // <-- Automatically allow ALL Vercel domains (preview & production)
+        ) {
+          return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+      },
       credentials: true,
     });
     

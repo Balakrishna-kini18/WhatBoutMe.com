@@ -1,13 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   // nested relations load in a single joined query instead of one query per
   // level; each query is a round trip to a distant database
   previewFeatures = ["relationJoins"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -174,6 +174,13 @@ enum LeadStatus {
   CLOSED
 }
 
+enum ConversationStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+  REOPENED
+}
+
 // -----------------------------------------------------------------------------
 // CORE ENTITIES (USERS & COMPANIES)
 // -----------------------------------------------------------------------------
@@ -259,38 +266,38 @@ model UserSession {
 }
 
 model EmailVerificationToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, expiresAt])
 }
 
 model PasswordResetToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, expiresAt])
 }
 
 model OtpCode {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   code      String
   expiresAt DateTime
-  attempts  Int      @default(0)
+  attempts  Int       @default(0)
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId, expiresAt])
 }
@@ -326,16 +333,16 @@ model Program {
   hasCertificate      Boolean @default(false)
   certificateTemplate String?
 
-  steps               Step[]
-  batches             Batch[]
-  resources           Resource[]
-  enrolments          Enrolment[]
-  questionBanks       QuestionBank[]
-  exams               Exam[]
-  oralAssessments     OralAssessment[]
-  agreementTemplates  AgreementTemplate[]
-  signedAgreements    SignedAgreement[]
-  certificates        Certificate[]
+  steps              Step[]
+  batches            Batch[]
+  resources          Resource[]
+  enrolments         Enrolment[]
+  questionBanks      QuestionBank[]
+  exams              Exam[]
+  oralAssessments    OralAssessment[]
+  agreementTemplates AgreementTemplate[]
+  signedAgreements   SignedAgreement[]
+  certificates       Certificate[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -396,9 +403,9 @@ model Resource {
   description String?
   type        ResourceType
   scope       ResourceScope @default(STEP_SPECIFIC)
-  mediaUrl    String        // Cloudinary / Object Storage URL
-  fileSize    Int?          // File size in bytes
-  mimeType    String?       // MIME type e.g. application/pdf, audio/mpeg
+  mediaUrl    String // Cloudinary / Object Storage URL
+  fileSize    Int? // File size in bytes
+  mimeType    String? // MIME type e.g. application/pdf, audio/mpeg
   status      ContentStatus @default(PUBLISHED)
 
   programId String
@@ -423,7 +430,7 @@ model Resource {
 // -----------------------------------------------------------------------------
 
 model QuestionBank {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   title       String
   description String?
 
@@ -490,10 +497,10 @@ model Quiz {
   step   Step   @relation(fields: [stepId], references: [id], onDelete: Cascade)
 
   title         String?
-  passMark      Int        @default(75) // Percentage required to pass
-  maxAttempts   Int        @default(3)  // Throttling / retry limit
-  cooldownHours Int        @default(24) // Wait between retries
-  questionCount Int        @default(10) // 10-question step quiz requirement
+  passMark      Int     @default(75) // Percentage required to pass
+  maxAttempts   Int     @default(3) // Throttling / retry limit
+  cooldownHours Int     @default(24) // Wait between retries
+  questionCount Int     @default(10) // 10-question step quiz requirement
   timeLimitMin  Int?
   retryGuidance String?
 
@@ -505,11 +512,11 @@ model Quiz {
 }
 
 model Exam {
-  id          String        @id @default(uuid())
+  id          String  @id @default(uuid())
   title       String
   description String?
   programId   String
-  program     Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program     Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   questionCount    Int           @default(50) // 50 questions pooled from question bank
   passMark         Int           @default(75) // Percentage required to pass
@@ -612,11 +619,12 @@ model Batch {
   capacity  Int
   status    BatchStatus @default(UPCOMING)
 
-  enrolments Enrolment[]
-  sessions   Session[]
-  overrides  BatchStepOverride[]
-  trainers   BatchTrainer[]
-  resources  Resource[]
+  enrolments    Enrolment[]
+  sessions      Session[]
+  overrides     BatchStepOverride[]
+  trainers      BatchTrainer[]
+  resources     Resource[]
+  conversations Conversation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -626,11 +634,11 @@ model Batch {
 }
 
 model BatchTrainer {
-  id        String   @id @default(uuid())
+  id        String @id @default(uuid())
   batchId   String
-  batch     Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batch     Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
   trainerId String
-  trainer   User     @relation("BatchTrainers", fields: [trainerId], references: [id], onDelete: Cascade)
+  trainer   User   @relation("BatchTrainers", fields: [trainerId], references: [id], onDelete: Cascade)
 
   assignedAt DateTime @default(now())
   createdAt  DateTime @default(now())
@@ -681,19 +689,19 @@ model Enrolment {
 
 // TRD 2.2: Tracks video view logic
 model UserLessonProgress {
-  id              String    @id @default(uuid())
-  enrolmentId     String
-  enrolment       Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
-  lessonId        String
-  lesson          Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  id          String    @id @default(uuid())
+  enrolmentId String
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  lessonId    String
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
   viewed          Boolean   @default(false)
   progressPercent Float     @default(0)
   lastPositionSec Float?
   completedAt     DateTime?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([enrolmentId, lessonId])
   @@index([enrolmentId, viewed])
@@ -772,18 +780,18 @@ model StepProgress {
   isCompleted Boolean   @default(false)
   completedAt DateTime?
 
-  isUnlocked  Boolean   @default(false)
-  unlockedAt  DateTime?
+  isUnlocked Boolean   @default(false)
+  unlockedAt DateTime?
 
   overrideState  StepOverrideState @default(AUTOMATIC)
   overrideReason String?
   overriddenById String?
   overriddenAt   DateTime?
 
-  score       Int?
+  score Int?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([enrolmentId, stepId])
   @@index([enrolmentId])
@@ -814,21 +822,21 @@ model Session {
   description String?
   startTime   DateTime
   endTime     DateTime
-  timezone    String? @default("UTC") // Timezone-aware scheduling
+  timezone    String?  @default("UTC") // Timezone-aware scheduling
 
   // Lifecycle & Capacity
   sessionType SessionType   @default(GROUP_COHORT)
   status      SessionStatus @default(SCHEDULED)
-  capacity    Int?          // Maximum booking capacity (e.g. 1 for 1:1, or cohort size)
+  capacity    Int? // Maximum booking capacity (e.g. 1 for 1:1, or cohort size)
 
   // Meeting Provider Metadata (Provider-Neutral)
   meetingProvider      MeetingProvider @default(ZOOM)
-  providerMeetingId    String?         // Provider-neutral meeting ID
-  zoomMeetingId        String?         // Preserved for backward compatibility
-  joinUrl              String?         // Learner/attendee join URL
-  hostUrl              String?         // Host start/join URL
-  recordingUrl         String?         // Final recording URL
-  providerRecordingUrl String?         // Raw provider cloud recording URL
+  providerMeetingId    String? // Provider-neutral meeting ID
+  zoomMeetingId        String? // Preserved for backward compatibility
+  joinUrl              String? // Learner/attendee join URL
+  hostUrl              String? // Host start/join URL
+  recordingUrl         String? // Final recording URL
+  providerRecordingUrl String? // Raw provider cloud recording URL
 
   // Agenda & Assessment References
   agenda String?
@@ -994,11 +1002,19 @@ model Certificate {
 // -----------------------------------------------------------------------------
 
 model Conversation {
-  id             String    @id @default(uuid())
+  id             String             @id @default(uuid())
   participantIds String[] // Store UUIDs of participants
-  messages       Message[]
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  status         ConversationStatus @default(OPEN)
+
+  batchId String?
+  batch   Batch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+  @@index([batchId])
 }
 
 model Message {
@@ -1145,13 +1161,13 @@ model Notification {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  actorId   String?  // Can be null if system action
-  action    String
-  entity    String
-  entityId  String
-  meta      Json?
-  ip        String?
+  id       String  @id @default(uuid())
+  actorId  String? // Can be null if system action
+  action   String
+  entity   String
+  entityId String
+  meta     Json?
+  ip       String?
 
   createdAt DateTime @default(now())
 }
@@ -1186,12 +1202,12 @@ model EmailDeliveryLog {
   subject    String
   template   String?
   status     DeliveryStatus @default(QUEUED)
-  providerId String?        // E.g. Resend ID
+  providerId String? // E.g. Resend ID
   error      String?
-  html       String?        // Useful for local dev / debugging
+  html       String? // Useful for local dev / debugging
 
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([to])
   @@index([status])

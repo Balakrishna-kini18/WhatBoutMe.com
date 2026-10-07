@@ -46,6 +46,14 @@ WhatBoutMe-backend/
 baton/
 .z-ai-config
 
+# AI Agents
+.agents/
+.claude/
+.cursor/
+
+# files the API stores on disk (uploads, website content)
+apps/api/storage/
+
 # >>> baton (generated coordination + KB files — managed block, do not edit)
 **/.baton/*
 !**/.baton/agents.json
@@ -56,11 +64,3 @@ graphify-out/
 **/.agents/mcp_config.json
 CODEBASE.md
 # <<< baton
-
-# AI Agents
-.agents/
-.claude/
-.cursor/
-
-# files the API stores on disk (uploads, website content)
-apps/api/storage/

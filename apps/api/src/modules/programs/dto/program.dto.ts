@@ -61,6 +61,10 @@ export class UpdateProgramDto {
   isActive?: boolean;
 
   @IsOptional()
+  @IsEnum(ContentStatus)
+  status?: ContentStatus;
+
+  @IsOptional()
   @IsBoolean()
   hasCertificate?: boolean;
 

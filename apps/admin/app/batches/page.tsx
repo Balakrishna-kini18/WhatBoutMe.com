@@ -82,7 +82,14 @@ export default function BatchesPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setBatches(data);
+        const mappedBatches = data.map((b: any) => ({
+          ...b,
+          program: b.program?.title || 'Unknown',
+          manager: b.manager?.name || 'Unknown',
+          startDate: b.startDate ? new Date(b.startDate).toLocaleDateString() : '--',
+          students: b.enrolledCount || 0
+        }));
+        setBatches(mappedBatches);
       }
     } catch (e) {
       console.error("Failed to fetch batches", e);

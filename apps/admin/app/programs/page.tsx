@@ -16,6 +16,9 @@ interface Program {
   description: string | null;
   price: number;
   isActive: boolean;
+  _count?: {
+    steps: number;
+  };
 }
 
 const slugify = (text: string) =>
@@ -140,7 +143,7 @@ export default function ProgramsPage() {
       price: parseFloat(price) || 0,
       // slug and active flag are only set on creation: the slug stays fixed so
       // existing links keep working, and the API ignores isActive on update
-      ...(editingProgramId ? {} : { slug: slugify(title), isActive }),
+      ...(editingProgramId ? { isActive, status: isActive ? "PUBLISHED" : "DRAFT" } : { slug: slugify(title), isActive, status: isActive ? "PUBLISHED" : "DRAFT" }),
     };
 
     try {
@@ -224,7 +227,7 @@ export default function ProgramsPage() {
                   </td>
                   <td><span className={styles.cellTextMuted}>{parseCourseInfo(prog.description).type || "Course"}</span></td>
                   <td><span className={styles.cellText}>${prog.price}</span></td>
-                  <td><span className={styles.cellText}>--</span></td>
+                  <td><span className={styles.cellText}>{prog._count?.steps ?? "--"}</span></td>
                   <td>
                     <span className={`${styles.statusChip} ${prog.isActive ? styles.active : styles.locked}`}>
                       {prog.isActive ? "Active" : "Hidden"}

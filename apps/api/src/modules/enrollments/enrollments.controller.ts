@@ -8,8 +8,12 @@ import {
   Query,
   Request,
   UseGuards,
+  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
+import { BatchStatus, EnrolmentStatus } from '@prisma/client';
 import { EnrollmentsService } from './enrollments.service.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import {
   BatchAccessGuard,
@@ -18,6 +22,7 @@ import {
 import { Permission } from '../../config/permissions.config.js';
 import {
   CreateEnrolmentDto,
+  PaymentMode,
   QueryEnrolmentsDto,
   TransferBatchDto,
   TransitionEnrolmentStatusDto,
@@ -109,5 +114,66 @@ export class LearnerEnrolmentsController {
   async findMyEnrolment(@Param('id') id: string, @Request() req: any) {
     const userId = req.user?.sub ?? req.user?.id;
     return this.enrollmentsService.findOneForLearner(id, userId);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. MOCK CHECKOUT CONTROLLER
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Controller('checkout')
+export class CheckoutController {
+  constructor(private readonly enrollmentsService: EnrollmentsService, private readonly prisma: PrismaService) {}
+
+  @Post('mock')
+  async mockCheckout(@Body() body: any, @Request() req: any) {
+    const userId = req.user?.sub ?? req.user?.id;
+    const { programId } = body;
+    if (!userId || !programId) {
+      throw new BadRequestException('Missing user or programId');
+    }
+    
+    // Find active batch for the program
+    let batch = await this.prisma.batch.findFirst({
+      where: { 
+        programId, 
+        status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] }
+      },
+      orderBy: { startDate: 'asc' }
+    });
+    
+    if (!batch) {
+      const program = await this.prisma.program.findUnique({ where: { id: programId } });
+      if (!program) {
+        throw new NotFoundException('Program not found');
+      }
+
+      // Auto-create a batch so the user can enroll
+      batch = await this.prisma.batch.create({
+        data: {
+          name: `${program.title} - Cohort 1`,
+          programId: programId,
+          startDate: new Date(),
+          capacity: 9999,
+          status: BatchStatus.ACTIVE
+        }
+      });
+    }
+
+    const enrollment = await this.enrollmentsService.create({
+      userId,
+      programId,
+      batchId: batch.id,
+      paymentMode: PaymentMode.STRIPE,
+      overrideCapacity: true
+    } as any);
+
+    // Force ACTIVE status since we are simulating payment and agreement
+    const activeEnrollment = await this.prisma.enrolment.update({
+      where: { id: enrollment.id },
+      data: { status: EnrolmentStatus.ACTIVE }
+    });
+
+    return activeEnrollment;
   }
 }

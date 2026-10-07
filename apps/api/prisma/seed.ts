@@ -116,6 +116,9 @@ async function main() {
   });
 
   console.log(`Seeded users: ${superAdmin.email}, ${admin.email}, ${manager.email}, ${trainer.email}, ${learner1.email}, ${learner2.email}`);
+  
+  const seedDummyData = false;
+  if (seedDummyData) {
 
   // 3. Canonical Program: "11 Steps to U"
   const program = await prisma.program.upsert({
@@ -244,6 +247,50 @@ async function main() {
           ],
         });
       }
+    }
+  }
+
+  // Add a quiz to Step 1
+  const step1 = await prisma.step.findUnique({
+    where: { programId_sequence: { programId: program.id, sequence: 1 } }
+  });
+  if (step1) {
+    const existingQuiz = await prisma.quiz.findUnique({ where: { stepId: step1.id } });
+    if (!existingQuiz) {
+      await prisma.quiz.create({
+        data: {
+          stepId: step1.id,
+          title: 'Self-Awareness Knowledge Check',
+          passMark: 80,
+          questionCount: 2,
+          questions: {
+            create: [
+              {
+                text: 'What is the primary goal of self-awareness?',
+                explanation: 'Self-awareness aims to understand your core values and emotions.',
+                options: {
+                  create: [
+                    { text: 'To understand your core values and emotions', isCorrect: true, order: 1 },
+                    { text: 'To manipulate others', isCorrect: false, order: 2 },
+                    { text: 'To memorize facts', isCorrect: false, order: 3 },
+                  ]
+                }
+              },
+              {
+                text: 'Which of these is a core component of emotional resilience?',
+                explanation: 'Acceptance and adaptability are key components of resilience.',
+                options: {
+                  create: [
+                    { text: 'Avoiding all stress', isCorrect: false, order: 1 },
+                    { text: 'Acceptance and adaptability', isCorrect: true, order: 2 },
+                    { text: 'Suppressing negative feelings', isCorrect: false, order: 3 },
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      });
     }
   }
 
@@ -379,11 +426,16 @@ async function main() {
 
   console.log(`Seeded enrolments: Learner1 (ACTIVE + SIGNED), Learner2 (PENDING_AGREEMENT)`);
   console.log('Canonical development seed completed successfully.');
+  } else {
+    console.log('Skipping dummy data (Programs, Batches, etc.) as requested.');
+  }
 }
 
 main()
   .catch((e) => {
-    console.error('Seed failed:', e);
+    console.error('Seed failed:');
+    console.error(e);
+    if (e && e.message) console.error(e.message);
     process.exit(1);
   })
   .finally(async () => {

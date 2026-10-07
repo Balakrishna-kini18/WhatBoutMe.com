@@ -33,10 +33,11 @@ export async function parseApiError(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROGRESSION TYPES (D1-033, D1-034)
+// PROGRESSION TYPES (D1-033, D1-034, D1-041)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type LockReason =
+  | "AGREEMENT_REQUIRED"
   | "ENROLMENT_NOT_ACTIVE"
   | "PREVIOUS_STEP_INCOMPLETE"
   | "QUIZ_NOT_PASSED"
@@ -48,6 +49,8 @@ export type StepOverrideState = "AUTOMATIC" | "MANUAL_UNLOCKED" | "MANUAL_LOCKED
 
 export function getLockMessage(reason: LockReason | null | undefined): string {
   switch (reason) {
+    case "AGREEMENT_REQUIRED":
+      return "You must read and sign the Program Agreement before accessing this step.";
     case "ENROLMENT_NOT_ACTIVE":
       return "Enrolment is not active. Access to course steps is restricted.";
     case "PREVIOUS_STEP_INCOMPLETE":
@@ -61,6 +64,47 @@ export function getLockMessage(reason: LockReason | null | undefined): string {
     default:
       return "This step is currently locked.";
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGREEMENT TYPES (D1-039, D1-040, D1-041)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ActiveAgreementResponse {
+  templateId: string;
+  templateTitle: string;
+  templateDescription?: string | null;
+  programId: string;
+  programTitle: string;
+  versionId: string;
+  version: string;
+  content: string;
+  publishedAt: string;
+}
+
+export interface SignAgreementPayload {
+  enrolmentId: string;
+  versionId?: string;
+  consentGiven: boolean;
+  typedName: string;
+  drawnSignature: string;
+}
+
+export interface SignedAgreementResponse {
+  id: string;
+  enrolmentId: string;
+  programId: string;
+  templateId: string;
+  versionId: string;
+  templateVersion: string;
+  consentGiven: boolean;
+  typedName: string;
+  drawnSignature: string;
+  signerIp: string;
+  userAgent: string;
+  status: string;
+  signedAt: string;
+  signedPdfUrl?: string | null;
 }
 
 export interface LessonProgressItem {

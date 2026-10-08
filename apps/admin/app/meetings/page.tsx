@@ -32,6 +32,7 @@ interface Meeting {
   timezone?: string;
   status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "RESCHEDULED";
   joinUrl: string | null;
+  hostUrl?: string | null;
   hostTrainer?: TrainerInfo | null;
   learner?: { id: string; name: string; email: string } | null;
   batch?: { id: string; name: string; program: { id: string; title: string } | null } | null;

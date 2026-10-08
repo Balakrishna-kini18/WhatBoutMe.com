@@ -133,7 +133,19 @@ async function fetchActivePrograms(): Promise<Program[]> {
  */
 export async function getCourses(): Promise<Course[]> {
   const programs = await getActivePrograms();
-  return programs.map((program, index) => toCourse(program, index));
+  const apiCourses = programs.map((program, index) => toCourse(program, index));
+  if (apiCourses.length >= MIN_COURSES) {
+    return apiCourses;
+  }
+  const existingSlugs = new Set(apiCourses.map((c) => c.slug));
+  const brochureCourses: Course[] = COURSES
+    .filter((b) => !existingSlugs.has(b.slug))
+    .map((b) => ({
+      ...b,
+      category: BROCHURE_CATEGORY[b.slug] || "Course",
+      points: [...b.points],
+    }));
+  return [...apiCourses, ...brochureCourses];
 }
 
 export const enrolUrl = (programId: string) =>

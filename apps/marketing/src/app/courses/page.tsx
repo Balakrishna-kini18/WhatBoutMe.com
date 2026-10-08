@@ -44,7 +44,7 @@ export default async function CoursesPage() {
 
       <section className="mx-auto max-w-[1240px] px-5 pb-20 md:px-10 md:pb-28">
         <PurchaseNotice />
-        <FeaturedCourse course={featured} />
+        {featured && <FeaturedCourse course={featured} />}
 
         <h2 className="mb-6 mt-16 text-center text-2xl font-bold tracking-tight md:text-3xl">
           Browse All Courses

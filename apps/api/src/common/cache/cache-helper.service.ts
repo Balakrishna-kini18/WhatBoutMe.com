@@ -18,8 +18,17 @@ export class CacheHelperService {
     const url = process.env.UPSTASH_REDIS_REST_URL;
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (url && token) {
-      this.redis = new Redis({ url, token });
-      this.logger.log('Upstash Redis initialized for caching');
+      // Upstash REST Redis constructor can throw synchronously on malformed URL
+      // input (same Layer E pattern as ioredis / Prisma).  Caching is OPTIONAL,
+      // so fail-open (degrade to in-memory Map-only local cache) instead of
+      // crashing the entire cold start when user entered wrong UPSTASH_* env vars.
+      try {
+        this.redis = new Redis({ url, token });
+        this.logger.log('Upstash Redis initialized for caching');
+      } catch (err: any) {
+        this.logger.warn(`Upstash Redis constructor error (caching disabled, using local fallbacks): ${err?.message || String(err).slice(0, 200)}`);
+        (this as any).redis = null;
+      }
     } else {
       this.logger.warn('Upstash Redis credentials missing. Caching is disabled.');
     }

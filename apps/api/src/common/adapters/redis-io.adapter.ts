@@ -21,8 +21,21 @@ export class RedisIoAdapter extends IoAdapter {
       retryStrategy: (times: number) => Math.min(times * 100, 3000),
     };
 
-    const pubClient = new Redis(redisUrl, redisOptions);
-    const subClient = pubClient.duplicate();
+    // `new Redis(<malformed url>)` can throw SYNCHRONOUSLY during ioredis URL
+    // parsing (same Layer E root cause as redis.service.ts).  The Socket.IO
+    // adapter is OPTIONAL for serverless function operation (next-auth/REST
+    // endpoints work without Redis pub/sub).  Fail silently with a warning
+    // instead of crashing Nest DI / the whole cold start.
+    let pubClient: Redis;
+    let subClient: Redis;
+    try {
+      pubClient = new Redis(redisUrl, redisOptions);
+      subClient = pubClient.duplicate();
+    } catch (err: any) {
+      console.warn('[RedisIoAdapter] Redis constructor parse error (socket.io adapter disabled):', err?.message || String(err).slice(0, 200));
+      this.adapterConstructor = null;
+      return;
+    }
 
     pubClient.on('error', (err) => {
       console.warn('[RedisIoAdapter] pubClient Redis error:', err.message);

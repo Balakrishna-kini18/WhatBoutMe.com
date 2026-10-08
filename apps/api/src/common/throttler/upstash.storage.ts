@@ -4,13 +4,27 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class UpstashThrottlerStorage {
-  private redis: Redis;
+  private redis: Redis | null = null;
 
   constructor() {
-    this.redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
+    // Upstash REST Redis constructor can throw synchronously on malformed URL
+    // or undefined inputs (same pattern as ioredis Layer E).
+    // Rate limiting is OPTIONAL for serverless operation; fail-open (disable
+    // throttler storage) rather than crashing the entire cold start when the
+    // user entered wrong UPSTASH_* env vars.
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) {
+      console.warn('[UpstashThrottlerStorage] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN missing. Throttler disabled (fail-open).');
+      this.redis = null;
+      return;
+    }
+    try {
+      this.redis = new Redis({ url, token });
+    } catch (err: any) {
+      console.warn('[UpstashThrottlerStorage] Redis constructor error (throttler disabled, fail-open):', err?.message || String(err).slice(0, 200));
+      this.redis = null;
+    }
   }
 
   async increment(
@@ -21,6 +35,10 @@ export class UpstashThrottlerStorage {
     throttlerName: string,
   ) {
     try {
+      if (!this.redis) {
+        // Fail-open: no storage → no rate limiting → allow every request
+        return { totalHits: 1, timeToExpire: ttl, isBlocked: false, timeToBlockExpire: 0 };
+      }
       const prefixedKey = `throttler:${throttlerName}:${key}`;
       const blockKey = `${prefixedKey}:blocked`;
 

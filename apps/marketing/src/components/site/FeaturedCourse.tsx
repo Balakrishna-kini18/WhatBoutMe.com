@@ -5,7 +5,8 @@ import EnrolLink from "./EnrolLink";
 import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
 
 /** Banner at the top of the courses page. */
-export default function FeaturedCourse({ course }: { course: Course }) {
+export default function FeaturedCourse({ course }: { course?: Course }) {
+  if (!course) return null;
   const facts = [
     course.duration,
     course.meta,

@@ -54,6 +54,7 @@
     "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
     "nestjs-pino": "^5.3.1",
+    "nodemailer": "^7.0.13",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdf-lib": "^1.17.1",
@@ -63,7 +64,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "reflect-metadata": "^0.2.2",
-    "resend": "^6.32.0",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.4"
   },
@@ -76,6 +76,7 @@
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^4.1.2",

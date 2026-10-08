@@ -1,30 +1,44 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 @Injectable()
 export class EmailService {
-  private readonly resend: Resend;
+  private readonly transporter: nodemailer.Transporter | null = null;
   private readonly defaultSender = process.env.NODE_ENV === 'production'
     ? 'WhatBoutMe <no-reply@whatboutme.com>'
-    : 'WhatBoutMe <onboarding@resend.dev>';
+    : 'WhatBoutMe <no-reply@example.com>';
   private readonly logger = new Logger(EmailService.name);
   private readonly isMockMode: boolean;
 
   constructor(private readonly prisma: PrismaService) {
-    // Determine mock mode: if KEY is empty or explicitly 'mock'
-    this.isMockMode = !process.env.RESEND_API_KEY || process.env.RESEND_API_KEY === 'mock';
-    this.resend = new Resend(process.env.RESEND_API_KEY || 're_development_dummy_key');
+    const host = process.env.SMTP_HOST;
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+
+    // Determine mock mode: if SMTP_HOST is empty or explicitly 'mock'
+    this.isMockMode = !host || host === 'mock';
     
     if (this.isMockMode) {
-      this.logger.warn('RESEND_API_KEY is not set. Emails will be logged locally (.email-debug/) instead of being sent.');
+      this.logger.warn('SMTP_HOST is not set. Emails will be logged locally (.email-debug/) instead of being sent.');
+    } else {
+      this.transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465, // true for 465, false for other ports
+        auth: {
+          user,
+          pass,
+        },
+      });
     }
   }
 
   /**
-   * Send an email via Resend and log it to DB
+   * Send an email via Nodemailer and log it to DB
    */
   async sendEmail(options: {
     to: string | string[];
@@ -49,7 +63,7 @@ export class EmailService {
     });
 
     try {
-      if (this.isMockMode) {
+      if (this.isMockMode || !this.transporter) {
         // Fallback mock logger for local dev
         this.logger.log(`[MOCK EMAIL] To: ${toAddress} | Subject: ${options.subject}`);
         const debugDir = path.join(process.cwd(), '.email-debug');
@@ -65,33 +79,24 @@ export class EmailService {
         return { id: 'mock-id' };
       }
 
-      // 2. Dispatch via Resend SDK
-      const { data, error } = await this.resend.emails.send({
+      // 2. Dispatch via Nodemailer SDK
+      const info = await this.transporter.sendMail({
         from: options.from || this.defaultSender,
-        to: Array.isArray(options.to) ? options.to : [options.to],
+        to: toAddress,
         subject: options.subject,
         html: options.html || '', 
         text: options.text,
         replyTo: options.replyTo,
       });
 
-      if (error) {
-        await this.prisma.emailDeliveryLog.update({
-          where: { id: logRecord.id },
-          data: { status: 'FAILED', error: error.message },
-        });
-        this.logger.error(`Resend API rejected email to ${toAddress}:`, error);
-        throw new Error(error.message);
-      }
-
       // 3. Mark SENT
       await this.prisma.emailDeliveryLog.update({
         where: { id: logRecord.id },
-        data: { status: 'SENT', providerId: data?.id },
+        data: { status: 'SENT', providerId: info.messageId },
       });
 
-      this.logger.log(`Email dispatched successfully to ${toAddress}. Resend ID: ${data?.id}`);
-      return data;
+      this.logger.log(`Email dispatched successfully to ${toAddress}. Message ID: ${info.messageId}`);
+      return { id: info.messageId };
     } catch (err: any) {
       await this.prisma.emailDeliveryLog.update({
         where: { id: logRecord.id },

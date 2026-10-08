@@ -1,10 +1,7 @@
 import { BadRequestException, Controller, Post, Request } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { Roles } from '../../common/decorators/roles.decorator.js';
-import { UPLOAD_DIR } from './storage.js';
 
 // Content types an admin may upload, and the extension each is stored with.
 // SVG is left out on purpose: it can carry scripts.
@@ -34,10 +31,34 @@ export class UploadsController {
       throw new BadRequestException('The upload was empty');
     }
 
-    const name = `${randomUUID()}.${extension}`;
-    await writeFile(join(UPLOAD_DIR, name), req.body);
+    return new Promise((resolve, reject) => {
+      import('cloudinary').then(({ v2: cloudinary }) => {
+        cloudinary.config({
+          cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+          api_key: process.env.CLOUDINARY_API_KEY,
+          api_secret: process.env.CLOUDINARY_API_SECRET,
+        });
 
-    const base = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
-    return { url: `${base}/uploads/${name}`, name, type, size: req.body.length };
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: 'auto',
+            type: 'upload',
+            format: extension,
+          },
+          (error, result) => {
+            if (error || !result) return reject(new BadRequestException('Cloudinary upload failed'));
+            resolve({
+              url: result.secure_url,
+              name: result.public_id + '.' + extension,
+              type,
+              size: req.body.length
+            });
+          }
+        );
+        const bufferStream = new PassThrough();
+        bufferStream.end(req.body);
+        bufferStream.pipe(uploadStream);
+      }).catch(reject);
+    });
   }
 }

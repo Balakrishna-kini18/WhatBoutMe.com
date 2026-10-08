@@ -1,9 +1,9 @@
-import { ThrottlerStorage } from '@nestjs/throttler';
+// import { ThrottlerStorage } from '@nestjs/throttler';
 import { Redis } from '@upstash/redis';
 import { Injectable } from '@nestjs/common';
 
 @Injectable()
-export class UpstashThrottlerStorage implements ThrottlerStorage {
+export class UpstashThrottlerStorage {
   private redis: Redis;
 
   constructor() {

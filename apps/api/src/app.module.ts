@@ -26,7 +26,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { ChatModule } from './modules/chat/chat.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+// import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { CacheHelperModule } from './common/cache/cache-helper.module.js';
@@ -51,6 +51,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
       },
     }),
     PrismaModule,
+    /*
     ThrottlerModule.forRootAsync({
       useFactory: () => ({
         throttlers: [
@@ -67,6 +68,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
           : undefined,
       }),
     }),
+    */
     UsersModule,
     ProgramsModule,
     BatchesModule,
@@ -108,10 +110,12 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
       provide: APP_GUARD,
       useClass: PermissionsGuard,
     },
+    /*
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    */
     Reflector
   ],
 })

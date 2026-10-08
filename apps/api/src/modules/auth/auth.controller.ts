@@ -1,5 +1,5 @@
 import { Controller, Post, Body, Get, Request, Query, Delete, Param } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+// import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { AuthService } from './auth.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
@@ -39,7 +39,7 @@ export class AuthController {
    * Learner Login: POST /auth/login
    */
   @Public()
-  @Throttle(CREDENTIAL_LIMIT)
+//   @Throttle(CREDENTIAL_LIMIT)
   @Post('login')
   login(@Body() body: LoginDto, @Request() req?: any) {
     const identifier = body.email?.trim() || body.phone?.trim() || '';
@@ -59,7 +59,7 @@ export class AuthController {
    * Learner Signup: POST /auth/signup
    */
   @Public()
-  @Throttle(CREDENTIAL_LIMIT)
+//   @Throttle(CREDENTIAL_LIMIT)
   @Post('signup')
   signup(@Body() body: SignupDto) {
     return this.authService.signup(body);
@@ -87,7 +87,7 @@ export class AuthController {
    * Password Reset Request: POST /auth/password-reset/request
    */
   @Public()
-  @Throttle(CREDENTIAL_LIMIT)
+//   @Throttle(CREDENTIAL_LIMIT)
   @Post('password-reset/request')
   requestPasswordReset(@Body() body: PasswordResetRequestDto) {
     return this.authService.requestPasswordReset(body.email);
@@ -97,7 +97,7 @@ export class AuthController {
    * Password Reset Confirm: POST /auth/password-reset/confirm
    */
   @Public()
-  @Throttle(CREDENTIAL_LIMIT)
+//   @Throttle(CREDENTIAL_LIMIT)
   @Post('password-reset/confirm')
   confirmPasswordReset(@Body() body: PasswordResetConfirmDto) {
     const newPassword = body.newPassword || body.password || '';
@@ -109,7 +109,7 @@ export class AuthController {
    * Only ADMIN / SUPER_ADMIN / MANAGER roles can use this.
    */
   @Public()
-  @Throttle(CREDENTIAL_LIMIT)
+//   @Throttle(CREDENTIAL_LIMIT)
   @Post('admin-login')
   adminLogin(@Body() body: LoginDto, @Request() req?: any) {
     const ipAddress = req?.ip || req?.socket?.remoteAddress || null;
@@ -149,7 +149,7 @@ export class AuthController {
    * Public (second step of admin login), throttled.
    */
   @Public()
-  @Throttle(CREDENTIAL_LIMIT)
+//   @Throttle(CREDENTIAL_LIMIT)
   @Post('2fa/verify')
   verify2fa(@Body() body: TotpVerifyDto, @Request() req?: any) {
     const tempToken =

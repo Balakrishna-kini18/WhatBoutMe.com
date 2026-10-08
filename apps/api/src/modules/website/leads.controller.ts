@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+// import { Throttle } from '@nestjs/throttler';
 import { LeadStatus, Role } from '@prisma/client';
 import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator.js';
@@ -24,7 +24,7 @@ export class LeadsController {
 
   // public form: keep it to a handful of submissions a minute per address
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+//   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post()
   async create(@Body() body: CreateLeadDto) {
     const lead = await this.prisma.lead.create({ data: body });

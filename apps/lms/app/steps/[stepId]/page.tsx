@@ -42,6 +42,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
 
+  const [userEmail, setUserEmail] = useState<string>("Learner");
+
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.email) setUserEmail(payload.email);
+      } catch(e) {}
+    }
+  }, []);
+
   const fetchStepAndProgression = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
@@ -583,7 +595,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           )}
 
           {currentMedia ? (
-            <div className={styles.videoContainer}>
+            <div>
               {(() => {
                 const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
                 let videoSrc = currentMedia.mediaUrl;
@@ -594,41 +606,59 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 }
 
                 return (
-                  <video
-                    ref={videoRef}
-                    key={currentMedia.id}
-                    controls
-                    controlsList="nodownload"
-                    onLoadedMetadata={(e) => {
-                      const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
-                      if (resumeSec && resumeSec > 5 && resumeSec < e.currentTarget.duration - 5) {
-                        e.currentTarget.currentTime = resumeSec;
-                        setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
-                      }
-                    }}
-                    onTimeUpdate={(e) => {
-                      const currentSec = Math.floor(e.currentTarget.currentTime);
-                      const now = Date.now();
-                      if (now - lastHeartbeatTimeRef.current > 15000) {
-                        lastHeartbeatTimeRef.current = now;
-                        sendMediaHeartbeat(currentMedia.id, currentSec);
-                      }
-                    }}
-                    onPause={(e) => {
-                      sendMediaHeartbeat(currentMedia.id, Math.floor(e.currentTarget.currentTime));
-                    }}
-                    onEnded={(e) => {
-                      const duration = Math.floor(e.currentTarget.duration || 0);
-                      sendMediaHeartbeat(currentMedia.id, duration);
-                      if (!currentMedia.durationSec || currentMedia.durationSec <= 0) {
-                        handleCompleteDocument(currentMedia.id);
-                      }
-                    }}
-                    style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px" }}
-                    src={videoSrc}
-                  >
-                    Your browser does not support the video tag.
-                  </video>
+                  <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                    <video
+                      ref={videoRef}
+                      key={currentMedia.id}
+                      controls
+                      controlsList="nodownload"
+                      onLoadedMetadata={(e) => {
+                        const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
+                        if (resumeSec && resumeSec > 5 && resumeSec < e.currentTarget.duration - 5) {
+                          e.currentTarget.currentTime = resumeSec;
+                          setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
+                        }
+                      }}
+                      onTimeUpdate={(e) => {
+                        const currentSec = Math.floor(e.currentTarget.currentTime);
+                        const now = Date.now();
+                        if (now - lastHeartbeatTimeRef.current > 15000) {
+                          lastHeartbeatTimeRef.current = now;
+                          sendMediaHeartbeat(currentMedia.id, currentSec);
+                        }
+                      }}
+                      onPause={(e) => {
+                        sendMediaHeartbeat(currentMedia.id, Math.floor(e.currentTarget.currentTime));
+                      }}
+                      onEnded={(e) => {
+                        const duration = Math.floor(e.currentTarget.duration || 0);
+                        sendMediaHeartbeat(currentMedia.id, duration);
+                        if (!currentMedia.durationSec || currentMedia.durationSec <= 0) {
+                          handleCompleteDocument(currentMedia.id);
+                        }
+                      }}
+                      style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px", display: "block" }}
+                      src={videoSrc}
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                    <img 
+                      src="/brand/logo-dark.png" 
+                      alt="WhatBoutMe"
+                      style={{
+                        position: "absolute",
+                        top: "20px",
+                        right: "20px",
+                        height: "24px",
+                        opacity: 0.7,
+                        pointerEvents: "none",
+                        zIndex: 40,
+                      }}
+                    />
+                    <div className={styles.movingWatermark}>
+                      {userEmail}
+                    </div>
+                  </div>
                 );
               })()}
 
@@ -692,7 +722,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
             </div>
           ) : (
-            <div className={styles.videoContainer}>
+            <div>
               <div className={styles.videoPlaceholder} style={{ textAlign: "center", padding: "40px", background: "var(--bg-soft)", borderRadius: "12px" }}>
                 <p>No video content uploaded for this step yet.</p>
               </div>

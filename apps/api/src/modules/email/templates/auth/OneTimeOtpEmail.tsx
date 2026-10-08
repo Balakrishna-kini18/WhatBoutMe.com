@@ -1,6 +1,6 @@
 import { Text, Section, Container } from '@react-email/components';
 import * as React from 'react';
-import WhatBoutMeEmailLayout from '../WhatBoutMeEmailLayout.js';
+import WhatBoutMeEmailLayout from '../WhatBoutMeEmailLayout.jsx';
 
 interface OneTimeOtpEmailProps {
   firstName: string;

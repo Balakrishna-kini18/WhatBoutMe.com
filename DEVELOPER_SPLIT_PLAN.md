@@ -851,7 +851,7 @@ If Developer 2 requires a database change (e.g., adding `StripeWebhookEvent`, ad
 
 1. **Stripe Payments (DEFERRED):** No payment gateway code, checkout sessions, or live webhooks until Phase 7.
 2. **Mock Payment Tables:** Do not create or retain prototype `Order` or mock payment tables.
-3. **Nodemailer:** Do not install or use Nodemailer; transactional email must use Resend and React Email.
+3. **Nodemailer:** We are using Nodemailer for email dispatch. The previous plan to use Resend has been superseded.
 4. **Mux Video:** Mux is officially rejected and must be completely removed (`@mux/mux-node` and `modules/mux`).
 5. **LinkedIn / Social Login:** The client PDF does not require social login; do not add OAuth social login.
 6. **Upstash REST for BullMQ:** BullMQ must never connect via Upstash HTTP/REST; it strictly requires Redis TCP/RESP.

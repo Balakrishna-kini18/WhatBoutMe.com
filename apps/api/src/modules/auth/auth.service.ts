@@ -127,9 +127,10 @@ export class AuthService {
           batch: {
             select: {
               name: true,
+              status: true,
               programId: true,
               program: {
-                select: { title: true }
+                select: { title: true, status: true }
               }
             }
           }
@@ -386,8 +387,7 @@ export class AuthService {
             batchId: true,
             batch: {
               select: {
-                name: true,
-                programId: true,
+                name: true, status: true, programId: true,
                 program: {
                   select: { title: true }
                 }
@@ -768,9 +768,8 @@ export class AuthService {
             batchId: true,
             batch: {
               select: {
-                name: true,
-                programId: true,
-                program: { select: { title: true } }
+                name: true, status: true, programId: true,
+                program: { select: { title: true, status: true } }
               }
             }
           }

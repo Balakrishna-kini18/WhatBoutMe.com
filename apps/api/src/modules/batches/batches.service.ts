@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { BatchStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -17,6 +18,8 @@ import {
 
 @Injectable()
 export class BatchesService {
+  private readonly logger = new Logger(BatchesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheHelper: CacheHelperService,
@@ -508,6 +511,26 @@ export class BatchesService {
     if (enrolmentCount > 0 || sessionCount > 0) {
       // Hard delete, cascade will handle the enrolments and sessions
       // because we added onDelete: Cascade to the schema
+    }
+
+    try {
+      const sessions = await this.prisma.session.findMany({
+        where: { batchId: id },
+        select: { providerMeetingId: true }
+      });
+      for (const sess of sessions) {
+        if (sess.providerMeetingId) {
+          await this.prisma.outboxEvent.create({
+            data: {
+              type: 'sync-meeting',
+              action: 'CANCEL',
+              payload: { providerMeetingId: sess.providerMeetingId }
+            }
+          });
+        }
+      }
+    } catch (cleanupErr) {
+      this.logger.error(`Failed to create Zoom cancel outbox events for batch ${id}:`, cleanupErr);
     }
 
     // Clean hard delete

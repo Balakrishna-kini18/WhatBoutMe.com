@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { ContentStatus, ReleaseSchedule, Role } from '@prisma/client';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -20,6 +20,8 @@ import {
 
 @Injectable()
 export class ProgramsService {
+  private readonly logger = new Logger(ProgramsService.name);
+
   constructor(
     private prisma: PrismaService,
     private cacheHelper: CacheHelperService,
@@ -223,6 +225,23 @@ export class ProgramsService {
           await this.mediaProvider.deleteMedia(publicId, 'raw').catch(() => 
             this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete resource ${publicId}: ${err.message}`))
           );
+        }
+      }
+
+      // 4. Cancel Zoom Meetings
+      const sessions = await this.prisma.session.findMany({
+        where: { batch: { programId: id } },
+        select: { providerMeetingId: true }
+      });
+      for (const sess of sessions) {
+        if (sess.providerMeetingId) {
+          await this.prisma.outboxEvent.create({
+            data: {
+              type: 'sync-meeting',
+              action: 'CANCEL',
+              payload: { providerMeetingId: sess.providerMeetingId }
+            }
+          }).catch(e => this.logger.error('Failed to create Zoom cancel outbox event', e));
         }
       }
     } catch (cleanupErr) {

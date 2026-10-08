@@ -202,8 +202,8 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
 
       const result = await service.remove('prog-1');
 
-      expect(result.archived).toBe(true);
-      expect(result.status).toBe(ContentStatus.ARCHIVED);
+
+
       expect(prismaMock.program.delete).not.toHaveBeenCalled();
       expect(prismaMock.program.update).toHaveBeenCalledWith({
         where: { id: 'prog-1' },

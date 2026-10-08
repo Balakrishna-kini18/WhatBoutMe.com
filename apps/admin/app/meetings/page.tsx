@@ -529,14 +529,28 @@ export default function MeetingsPage() {
                     </td>
                     <td className={styles.alignRight}>
                       {m.status !== "CANCELLED" && (
-                        <button
-                          className={`${styles.dropdownItem} ${styles.textDanger}`}
-                          style={{ width: "auto", display: "inline-block", marginRight: "6px" }}
-                          onClick={() => handleCancel(m.id)}
-                          title="Cancel session with reason"
-                        >
-                          Cancel
-                        </button>
+                        <>
+                          {m.hostUrl && (
+                            <a
+                              href={m.hostUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={styles.dropdownItem}
+                              style={{ width: "auto", display: "inline-block", marginRight: "6px", color: "var(--accent-primary)", fontWeight: 600, textDecoration: "none" }}
+                              title="Start session as host"
+                            >
+                              Start
+                            </a>
+                          )}
+                          <button
+                            className={`${styles.dropdownItem} ${styles.textDanger}`}
+                            style={{ width: "auto", display: "inline-block", marginRight: "6px" }}
+                            onClick={() => handleCancel(m.id)}
+                            title="Cancel session with reason"
+                          >
+                            Cancel
+                          </button>
+                        </>
                       )}
                       <button
                         className={styles.dropdownItem}

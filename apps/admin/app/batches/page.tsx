@@ -42,8 +42,7 @@ export default function BatchesPage() {
 
   const fetchManagers = async () => {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const res = await fetch(`${baseUrl}/users?limit=100`);
+      const res = await fetch(`${API_URL}/users?limit=100`);
       if (res.ok) {
         const json = await res.json();
         const userList = Array.isArray(json) ? json : json?.data || [];
@@ -62,7 +61,7 @@ export default function BatchesPage() {
   const fetchPrograms = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs`, {
+      const res = await fetch(`${API_URL}/programs`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
@@ -77,7 +76,7 @@ export default function BatchesPage() {
   const fetchBatches = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches`, {
+      const res = await fetch(`${API_URL}/batches`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {

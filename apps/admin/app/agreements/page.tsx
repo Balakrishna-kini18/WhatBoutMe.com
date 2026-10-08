@@ -192,7 +192,7 @@ export default function AdminAgreementsPage() {
                 <th>Total Versions</th>
                 <th>Signed Copies</th>
                 <th>Created</th>
-                <th className={styles.alignRight}>Action</th>
+                <th className={styles.alignRight} style={{ width: "160px" }}>Action</th>
               </tr>
             </thead>
             <tbody>

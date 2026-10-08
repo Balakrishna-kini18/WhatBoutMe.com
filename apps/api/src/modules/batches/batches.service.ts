@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { BatchStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -17,6 +18,8 @@ import {
 
 @Injectable()
 export class BatchesService {
+  private readonly logger = new Logger(BatchesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheHelper: CacheHelperService,

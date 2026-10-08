@@ -77,7 +77,7 @@ export default function CertificatesPage() {
     }
   };
 
-  const issued = certificates.filter((c) => c.status === "APPROVED").length;
+  const issued = certificates.filter((c) => c.status === "APPROVED" || c.status === "ISSUED").length;
   const summary = [
     { label: "Courses", value: courses.length },
     { label: "Completed", value: courses.filter((c) => c.progress >= 100).length },
@@ -119,7 +119,8 @@ export default function CertificatesPage() {
                 {courses.map((course) => {
                   const cert = certificates.find((c) => c.enrolmentId === course.enrolmentId);
                   const done = course.progress >= 100;
-                  const status = cert?.status === "APPROVED" ? "Issued" : cert ? "Awaiting approval" : done ? "Ready to request" : "In progress";
+                  const isReady = cert?.status === "APPROVED" || cert?.status === "ISSUED";
+                  const status = isReady ? "Issued" : cert ? "Awaiting approval" : done ? "Ready to request" : "In progress";
                   return (
                     <li key={course.programId} className={dash.course}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -138,7 +139,7 @@ export default function CertificatesPage() {
                           <span>{course.progress}%</span>
                         </div>
                       </div>
-                      {cert?.status === "APPROVED" ? (
+                      {isReady ? (
                         <Link href={`/certificates/${cert.id}`} className={dash.darkBtn}>View Certificate</Link>
                       ) : cert ? null : done ? (
                         <button type="button" onClick={() => request(course.enrolmentId)} className={dash.darkBtn}>Request Certificate</button>

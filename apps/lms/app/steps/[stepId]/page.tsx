@@ -48,8 +48,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        if (payload.email) setUserEmail(payload.email);
+        const parts = token.split('.');
+        if (parts[1]) {
+          const payload = JSON.parse(atob(parts[1]));
+          if (payload.email) setUserEmail(payload.email);
+        }
       } catch(e) {}
     }
   }, []);

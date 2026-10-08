@@ -31,20 +31,65 @@ export class RedisService implements OnModuleDestroy {
           maxRetriesPerRequest: 3,
         };
 
-    if (process.env.REDIS_URL) {
-      this.client = new Redis(process.env.REDIS_URL, {
-        tls: isRediss ? { rejectUnauthorized: false } : undefined,
-        lazyConnect: true,
-        ...serverlessOpts,
-      } as any);
-    } else {
+    // NOTE: `new Redis(<malformed url>)` throws SYNCHRONOUSLY during URL
+    // parsing (before any socket is opened, before lazyConnect even has a
+    // chance to engage).  Wrap the entire constructor in try/catch so a
+    // wrong/invalid REDIS_URL (the classic "I entered wrong env var" case
+    // the user reported) degrades gracefully to a no-op disconnected client
+    // + warning instead of crashing Nest DI → generic FUNCTION_INVOCATION_FAILED.
+    let clientAttempted: Redis | undefined;
+    try {
+      if (process.env.REDIS_URL) {
+        clientAttempted = new Redis(process.env.REDIS_URL, {
+          tls: isRediss ? { rejectUnauthorized: false } : undefined,
+          lazyConnect: true,
+          ...serverlessOpts,
+        } as any);
+      } else {
+        clientAttempted = new Redis({
+          host: process.env.REDIS_HOST || 'localhost',
+          port: parseInt(process.env.REDIS_PORT || '6379', 10),
+          password: process.env.REDIS_PASSWORD || undefined,
+          lazyConnect: true,
+          ...serverlessOpts,
+        } as any);
+      }
+      this.client = clientAttempted;
+    } catch (err: any) {
+      console.warn('[RedisService] Constructor warning (falling back to disconnected no-op client):', err?.message || err);
+      // Fully valid ioredis client with lazyConnect + connectTimeout 1 +
+      // retryStrategy null.  All .get()/.set() calls will reject fast with a
+      // clean connection error instead of crashing bootstrap.  Downstream
+      // consumers already have their own try/catch for Redis failures.
       this.client = new Redis({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-        password: process.env.REDIS_PASSWORD || undefined,
+        host: '127.0.0.1',
+        port: 1,
         lazyConnect: true,
-        ...serverlessOpts,
+        connectTimeout: 1,
+        retryStrategy: () => null as any,
+        maxRetriesPerRequest: 0,
+        autoResendUnfulfilledCommands: false,
+        autoResubscribe: false,
+        reconnectOnError: () => false as any,
+        keepAlive: 0,
       } as any);
+      // Serverless kill-socket path still applies to our fallback client so
+      // even this 127.0.0.1:1 dead-end doesn't stall the event loop.
+      if (isServerless) {
+        try {
+          let killed = false;
+          const kill = () => {
+            if (killed) return; killed = true;
+            try { (this.client as any).removeAllListeners(); this.client.on('error', () => undefined); (this.client as any).disconnect(false); } catch {}
+            try { const s = (this.client as any).stream || (this.client as any).socket; if (s && typeof s.destroy === 'function') s.destroy(); } catch {}
+          };
+          const t = setTimeout(kill, 200); try { t.unref(); } catch {}
+          this.client.once('ready', () => { try { clearTimeout(t); } catch {} });
+          this.client.once('error', kill);
+          this.client.once('close', kill);
+        } catch {}
+      }
+      return; // Skip the post-constructor registration block below
     }
 
     if (isServerless) {

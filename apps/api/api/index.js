@@ -75,8 +75,12 @@ process.on('uncaughtException', (err) => {
       stack: process.env.NODE_ENV === 'production' ? undefined : err?.stack,
     });
   } catch { /* noop */ }
-  // Give the response 100ms to flush (TCP write), then exit.
-  setTimeout(() => { try { process.exit(1); } catch {} }, 100).unref();
+  // IMPORTANT: DO NOT call process.exit() here.  Node will flush pending TCP
+  // writes and exit on its own within a few ms once all handles are
+  // unref'd.  Forcibly exiting with process.exit(1) while a write is still
+  // buffered causes Node to discard the socket buffer entirely → Vercel
+  // never receives our JSON response bytes → Vercel shows generic
+  // "FUNCTION_INVOCATION_FAILED" instead of our real 500 error payload.
 });
 
 export default async function (req, res) {

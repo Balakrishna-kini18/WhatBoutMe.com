@@ -49,7 +49,37 @@ function buildBullRedisOptions(): RedisOptions & { createClient?: (type: string,
     return {
       ...opts,
       createClient: (_type: string, clientOpts: RedisOptions) => {
-        const client = new IORedis(clientOpts);
+        // Catch synchronous URL-parsing throws inside `new IORedis(opts)`
+        // (same path as redis.service.ts).  A malformed/wrong REDIS_URL
+        // env var would otherwise crash Nest DI → generic FUNCTION_INVOCATION_FAILED.
+        // On throw, fall back to a guaranteed-disconnected dead-end client
+        // that rejects all commands fast.  `.add()` to BullMQ queues will
+        // error cleanly; the application itself still boots.
+        let client: IORedis;
+        try {
+          client = new IORedis(clientOpts);
+        } catch (err: any) {
+          console.warn('[BullMQ serverless] createClient parse error (fallback to disconnected):', err?.message || String(err).slice(0, 120));
+          client = new IORedis({
+            host: '127.0.0.1',
+            port: 1,
+            lazyConnect: true,
+            connectTimeout: 1,
+            retryStrategy: () => null,
+            maxRetriesPerRequest: 0,
+            autoResendUnfulfilledCommands: false,
+            autoResubscribe: false,
+            reconnectOnError: () => false as any,
+            keepAlive: 0,
+          } as RedisOptions);
+          // Run the same idempotent kill flow below; skip wallclock timer since
+          // we already know this client is doomed.
+          try {
+            const sock = (client as any).stream || (client as any).socket;
+            if (sock && typeof sock.destroy === 'function') sock.destroy();
+          } catch {}
+          return client;
+        }
         // Kill the TCP socket immediately on any connection-level error so
         // the Vercel event loop goes idle and the function terminates.
         let killed = false;

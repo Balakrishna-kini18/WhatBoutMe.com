@@ -263,7 +263,7 @@ export class AuthService {
     });
 
     // Return user data with enrolled programs for tenant separation
-    const enrolledPrograms = user.enrolments?.map((e) => ({
+    const enrolledPrograms = user.enrolments?.filter((e) => e.batch?.status !== 'ARCHIVED' && e.batch?.program?.status !== 'ARCHIVED').map((e) => ({
       enrolmentId: e.id,
       batchId: e.batchId,
       batchName: e.batch?.name,
@@ -861,7 +861,7 @@ export class AuthService {
       }
     }
 
-    const enrolledPrograms = user.enrolments.map((e) => {
+    const enrolledPrograms = user.enrolments.filter((e) => e.batch?.status !== 'ARCHIVED' && e.batch?.program?.status !== 'ARCHIVED').map((e) => {
       const programId = e.batch?.programId;
       const totalItems = programId ? programTotalItems[programId] || 0 : 0;
       const completedItems = Math.min(

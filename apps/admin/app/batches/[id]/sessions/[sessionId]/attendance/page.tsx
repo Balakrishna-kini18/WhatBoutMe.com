@@ -49,21 +49,41 @@ export default function SessionAttendancePage({ params }: { params: Promise<{ id
     }
   };
 
-  const markAttendance = async (userId: string) => {
+  const [overrideData, setOverrideData] = useState<{ isOpen: boolean, attendanceId: string, reason: string, loading: boolean, error: string }>({
+    isOpen: false,
+    attendanceId: "",
+    reason: "",
+    loading: false,
+    error: ""
+  });
+
+  const handleOverrideClick = (attendanceId: string) => {
+    setOverrideData({ isOpen: true, attendanceId, reason: "", loading: false, error: "" });
+  };
+
+  const submitOverride = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!overrideData.reason.trim()) {
+      setOverrideData(prev => ({ ...prev, error: "A reason is required." }));
+      return;
+    }
+
+    setOverrideData(prev => ({ ...prev, loading: true, error: "" }));
     try {
-      // the AuthProvider adds the sign-in token to API requests
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/sessions/${sessionId}/override-attendance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId })
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/attendance/${overrideData.attendanceId}/override`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ status: "CORRECTED", correctionReason: overrideData.reason })
       });
       if (res.ok) {
+        setOverrideData(prev => ({ ...prev, isOpen: false, loading: false }));
         fetchData();
       } else {
-        alert("Failed to mark attendance.");
+        const err = await res.json();
+        setOverrideData(prev => ({ ...prev, loading: false, error: err.message || "Failed to override attendance." }));
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setOverrideData(prev => ({ ...prev, loading: false, error: e.message || "Network error" }));
     }
   };
 
@@ -74,10 +94,17 @@ export default function SessionAttendancePage({ params }: { params: Promise<{ id
       userId: enrolment.userId,
       userName: enrolment.user?.name || 'Unknown User',
       userEmail: enrolment.user?.email || '',
-      isPresent: !!record,
-      joinTime: record?.joinTime || null
+      isPresent: record && record.status !== 'ABSENT',
+      joinTime: record?.joinTime || null,
+      attendanceId: record?.id,
+      status: record?.status || 'NO_RECORD'
     };
   });
+
+  function getAuthHeaders(): Record<string, string> {
+    const token = localStorage.getItem("token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
 
   return (
     <div className={styles.dashboard}>
@@ -118,7 +145,7 @@ export default function SessionAttendancePage({ params }: { params: Promise<{ id
                   <td><span className={styles.cellTextMuted}>{student.userEmail}</span></td>
                   <td>
                     <span className={`${styles.statusChip} ${student.isPresent ? styles.active : styles.expired}`}>
-                      {student.isPresent ? 'Present' : 'Absent'}
+                      {student.status === 'CORRECTED' ? 'Corrected' : (student.isPresent ? 'Present' : 'Absent')}
                     </span>
                   </td>
                   <td>
@@ -127,8 +154,12 @@ export default function SessionAttendancePage({ params }: { params: Promise<{ id
                     </span>
                   </td>
                   <td className={styles.alignRight}>
-                    {!student.isPresent && (
-                      <button className={styles.secondaryBtn} onClick={() => markAttendance(student.userId)}>Mark Present</button>
+                    {student.attendanceId ? (
+                      <button className={styles.secondaryBtn} onClick={() => handleOverrideClick(student.attendanceId)}>
+                        Override
+                      </button>
+                    ) : (
+                      <span className={styles.cellTextMuted} style={{ fontSize: '0.8rem' }}>Pending</span>
                     )}
                   </td>
                 </tr>
@@ -137,6 +168,40 @@ export default function SessionAttendancePage({ params }: { params: Promise<{ id
           </table>
         </div>
       </section>
+
+      {overrideData.isOpen && (
+        <div className={styles.modalOverlay} onClick={() => setOverrideData(prev => ({ ...prev, isOpen: false }))}>
+          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Override Attendance</h2>
+              <button className={styles.closeBtn} onClick={() => setOverrideData(prev => ({ ...prev, isOpen: false }))}>×</button>
+            </div>
+            <form onSubmit={submitOverride} className={styles.modalForm}>
+              <div className={styles.formGroup}>
+                <label>Correction Reason (Required)</label>
+                <textarea
+                  required
+                  value={overrideData.reason}
+                  onChange={(e) => setOverrideData(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="e.g. Student joined via phone instead of Zoom"
+                  style={{ width: '100%', minHeight: '80px', padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+                />
+              </div>
+              {overrideData.error && (
+                <p style={{ color: '#b91c1c', background: '#fef2f2', padding: '0.5rem', borderRadius: '4px' }}>
+                  {overrideData.error}
+                </p>
+              )}
+              <div className={styles.modalFooter}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setOverrideData(prev => ({ ...prev, isOpen: false }))}>Cancel</button>
+                <button type="submit" className={styles.primaryBtn} disabled={overrideData.loading}>
+                  {overrideData.loading ? "Saving..." : "Confirm Override"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

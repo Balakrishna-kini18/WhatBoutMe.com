@@ -22,7 +22,7 @@ export class UpdateUserDto {
 }
 
 @Controller('users')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 

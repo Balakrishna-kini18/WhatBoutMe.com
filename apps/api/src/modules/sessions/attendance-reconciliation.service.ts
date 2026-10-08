@@ -326,4 +326,10 @@ export class AttendanceReconciliationService {
 
     return resolved;
   }
+  async getUnmatchedForSession(sessionId: string) {
+    return this.prisma.unmatchedAttendance.findMany({
+      where: { sessionId },
+      orderBy: { joinTime: 'asc' },
+    });
+  }
 }

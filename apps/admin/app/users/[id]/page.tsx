@@ -107,6 +107,7 @@ export default function UserDetailPage({
   const [user, setUser] = useState<UserDetail | null>(null);
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState<string>("");
   const [progression, setProgression] = useState<EnrolmentProgression | null>(null);
+  const [compliance, setCompliance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadingProgression, setLoadingProgression] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -167,6 +168,7 @@ export default function UserDetailPage({
 
   async function fetchProgression(enrolmentId: string) {
     setLoadingProgression(true);
+    setCompliance(null);
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/progression/enrolments/${enrolmentId}`, {
@@ -177,6 +179,17 @@ export default function UserDetailPage({
       }
       const data = await res.json();
       setProgression(data);
+
+      try {
+        const cres = await fetch(`${API_URL}/attendance/compliance/${enrolmentId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (cres.ok) {
+          setCompliance(await cres.json());
+        }
+      } catch (ce) {
+        console.error("Failed to fetch compliance", ce);
+      }
     } catch (err: any) {
       setActionError(err.message);
     } finally {
@@ -436,6 +449,30 @@ export default function UserDetailPage({
                 </div>
               </div>
             </div>
+
+            {compliance && compliance.status !== 'NOT_APPLICABLE' && (
+              <div className={styles.statCard}>
+                <div className={styles.statHeader}>
+                  <h3>Attendance</h3>
+                </div>
+                <div className={styles.statBody}>
+                  <p className={styles.statValue} style={{ color: compliance.status === 'COMPLIANT' ? "#16a34a" : "#dc2626" }}>
+                    {Math.round(compliance.attendancePercentage)}%
+                  </p>
+                  <div className={styles.statTrendWrapper}>
+                    <span className={compliance.status === 'COMPLIANT' ? styles.statTrendPositive : styles.statTrendNegative} style={{
+                      background: compliance.status === 'COMPLIANT' ? '#ecfdf5' : '#fef2f2',
+                      color: compliance.status === 'COMPLIANT' ? '#059669' : '#dc2626',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {compliance.status === 'COMPLIANT' ? "Compliant" : "Low Attendance"} 
+                      ({compliance.attendedSessionCount}/{compliance.requiredSessionCount} sessions)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className={styles.statCard}>
               <div className={styles.statHeader}>

@@ -39,11 +39,14 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
   const [joinUrl, setJoinUrl] = useState("");
   const [recordingUrl, setRecordingUrl] = useState("");
   const [quizId, setQuizId] = useState("");
+  const [hostTrainerId, setHostTrainerId] = useState("");
   const [quizzes, setQuizzes] = useState<{ id: string; title: string }[]>([]);
+  const [trainers, setTrainers] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     fetchSessions();
     fetchQuizzes();
+    fetchTrainers();
   }, [batchId]);
 
   const fetchQuizzes = async () => {
@@ -55,6 +58,31 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
       }
     } catch (e) {
       console.error("Failed to fetch quizzes", e);
+    }
+  };
+
+  const fetchTrainers = async () => {
+    try {
+      // D1-043: Load available trainers
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/users?limit=1000`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const result = await res.json();
+        const userList = Array.isArray(result.data)
+          ? result.data
+          : Array.isArray(result)
+          ? result
+          : (result.users || []);
+        setTrainers(
+          userList.filter((u: any) =>
+            ['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(u.role)
+          )
+        );
+      }
+    } catch (e) {
+      console.error("Failed to fetch trainers", e);
     }
   };
 
@@ -144,6 +172,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
         joinUrl: joinUrl.trim() || undefined,
         recordingUrl: recordingUrl.trim() || undefined,
         quizId: quizId || undefined,
+        hostTrainerId: hostTrainerId || undefined,
       };
 
       const res = await fetch(`${API_URL}/sessions`, {
@@ -161,6 +190,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
         setJoinUrl("");
         setRecordingUrl("");
         setQuizId("");
+        setHostTrainerId("");
         fetchSessions();
       } else {
         setFormError(await errorMessage(res, "Failed to schedule session"));
@@ -204,6 +234,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
               <tr>
                 <th>Topic / Title</th>
                 <th>Format</th>
+                <th>Host Trainer</th>
                 <th>Capacity</th>
                 <th>Start Time (UTC saved)</th>
                 <th>End Time</th>
@@ -216,13 +247,13 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
                     Loading sessions...
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
                     No sessions scheduled yet for this batch.
                   </td>
                 </tr>
@@ -246,6 +277,9 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                       >
                         {s.sessionType === "ONE_ON_ONE" ? "1-on-1" : "Cohort"}
                       </span>
+                    </td>
+                    <td>
+                      <span className={styles.cellText}>{s.hostTrainer?.name || '—'}</span>
                     </td>
                     <td>
                       <span className={styles.cellText}>{s.capacity}</span>
@@ -456,6 +490,18 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Host Trainer (D1-043)</label>
+                <select value={hostTrainerId} onChange={(e) => setHostTrainerId(e.target.value)}>
+                  <option value="">-- Select Trainer --</option>
+                  {trainers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className={styles.formRow}>

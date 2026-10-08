@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceService } from './attendance.service.js';
 import { attendanceDay, markDailyAttendance } from '../../common/daily-attendance.js';
@@ -6,6 +6,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { Permission } from '../../config/permissions.config.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { OverrideAttendanceDto } from './dto/index.js';
+import { AttendanceComplianceService } from './attendance-compliance.service.js';
 
 /**
  * Daily attendance for the learner portal. A learner is present on a day when
@@ -17,6 +18,7 @@ export class AttendanceController {
   constructor(
     private prisma: PrismaService,
     private attendanceService: AttendanceService,
+    private complianceService: AttendanceComplianceService,
   ) {}
 
   /** Called by the learner portal when it is opened. */
@@ -52,5 +54,24 @@ export class AttendanceController {
       role: req.user.role,
     };
     return this.attendanceService.overrideAttendanceById(id, dto.status, actor, dto.correctionReason);
+  }
+
+  /**
+   * D1-049: Get attendance compliance for an enrolment
+   */
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(Permission.ATTENDANCE_READ)
+  @Get('compliance/:enrolmentId')
+  async getCompliance(@Param('enrolmentId') enrolmentId: string, @Request() req: any) {
+    if (req.user?.role === 'USER') {
+      const enrolment = await this.prisma.enrolment.findUnique({
+        where: { id: enrolmentId },
+        select: { userId: true },
+      });
+      if (enrolment && enrolment.userId !== req.user.sub) {
+        throw new ForbiddenException('Access denied: You can only view your own attendance compliance');
+      }
+    }
+    return this.complianceService.calculateCompliance(enrolmentId);
   }
 }

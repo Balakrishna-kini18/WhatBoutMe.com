@@ -89,8 +89,18 @@ const Icons = {
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
-const formatTime = (d: Date) =>
-  d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const getUserTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch (e) {
+    return undefined;
+  }
+};
+
+const formatTime = (d: Date) => {
+  const tz = getUserTimeZone();
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short", timeZone: tz });
+};
 
 const formatMonth = (d: Date) =>
   d.toLocaleDateString([], { month: "short" }).toUpperCase();
@@ -98,8 +108,10 @@ const formatMonth = (d: Date) =>
 const formatDay = (d: Date) =>
   String(d.getDate()).padStart(2, "0");
 
-const formatWeekdayDate = (d: Date) =>
-  d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const formatWeekdayDate = (d: Date) => {
+  const tz = getUserTimeZone();
+  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: tz });
+};
 
 const formatDuration = (start: Date, end: Date) => {
   const mins = Math.round((end.getTime() - start.getTime()) / 60000);
@@ -145,9 +157,10 @@ function interpretBookingError(message: string, status: number): { label: string
 interface BookingButtonProps {
   session: Session;
   onBooked: (sessionId: string) => void;
+  onRescheduleStart: (bookingId: string, currentSessionId: string) => void;
 }
 
-function BookingButton({ session, onBooked }: BookingButtonProps) {
+function BookingButton({ session, onBooked, onRescheduleStart }: BookingButtonProps) {
   const [state, setState] = useState<BookingState>({ type: "idle" });
 
   const isAlreadyBooked =
@@ -184,33 +197,43 @@ function BookingButton({ session, onBooked }: BookingButtonProps) {
           <span>Seat reserved</span>
         </div>
         {session.bookingId && (
-          <button
-            type="button"
-            className={styles.cancelBtn}
-            disabled={state.type === "loading"}
-            onClick={async () => {
-              if (!confirm("Are you sure you want to cancel this booking?")) return;
-              setState({ type: "loading" });
-              try {
-                const res = await fetch(`${API_URL}/sessions/bookings/${session.bookingId}/cancel`, {
-                  method: "POST",
-                  headers: getAuthHeaders(),
-                  body: JSON.stringify({ reason: "Learner cancelled via portal" }),
-                });
-                if (res.ok) {
-                  setState({ type: "success", message: "Booking cancelled successfully." });
-                  onBooked(session.id); // Trigger refresh
-                  return;
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              type="button"
+              className={styles.cancelBtn}
+              disabled={state.type === "loading"}
+              onClick={() => onRescheduleStart(session.bookingId!, session.id)}
+            >
+              Reschedule
+            </button>
+            <button
+              type="button"
+              className={styles.cancelBtn}
+              disabled={state.type === "loading"}
+              onClick={async () => {
+                if (!confirm("Are you sure you want to cancel this booking?")) return;
+                setState({ type: "loading" });
+                try {
+                  const res = await fetch(`${API_URL}/sessions/bookings/${session.bookingId}/cancel`, {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ reason: "Learner cancelled via portal" }),
+                  });
+                  if (res.ok) {
+                    setState({ type: "success", message: "Booking cancelled successfully." });
+                    onBooked(session.id); // Trigger refresh
+                    return;
+                  }
+                  const { message, status } = await parseApiError(res, "Cancellation failed");
+                  setState({ type: "error", message, code: String(status) });
+                } catch (err: any) {
+                  setState({ type: "error", message: err.message || "Network error — please try again." });
                 }
-                const { message, status } = await parseApiError(res, "Cancellation failed");
-                setState({ type: "error", message, code: String(status) });
-              } catch (err: any) {
-                setState({ type: "error", message: err.message || "Network error — please try again." });
-              }
-            }}
-          >
-            Cancel
-          </button>
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         )}
       </div>
     );
@@ -280,6 +303,32 @@ export default function LiveSessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("upcoming");
+  const [rescheduleState, setRescheduleState] = useState<{
+    isOpen: boolean;
+    bookingId: string;
+    currentSessionId: string;
+    loading: boolean;
+    error: string;
+  }>({
+    isOpen: false,
+    bookingId: "",
+    currentSessionId: "",
+    loading: false,
+    error: "",
+  });
+
+  const handleRescheduleStart = useCallback(
+    (bookingId: string, currentSessionId: string) => {
+      setRescheduleState((prev) => ({
+        ...prev,
+        isOpen: true,
+        bookingId,
+        currentSessionId,
+        error: "",
+      }));
+    },
+    []
+  );
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem("token");
@@ -350,6 +399,32 @@ export default function LiveSessionsPage() {
   const next = [...upcoming].sort(
     (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
   )[0];
+
+  const handleRescheduleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const newSessionId = formData.get("newSessionId") as string;
+    if (!newSessionId) return;
+
+    setRescheduleState((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const res = await fetch(`${API_URL}/sessions/bookings/${rescheduleState.bookingId}/reschedule`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ newSessionId }),
+      });
+      if (res.ok) {
+        setRescheduleState((prev) => ({ ...prev, isOpen: false, loading: false }));
+        // Refresh sessions to show the new booking state
+        await fetchSessions();
+        return;
+      }
+      const { message } = await parseApiError(res, "Reschedule failed");
+      setRescheduleState((prev) => ({ ...prev, loading: false, error: message }));
+    } catch (err: any) {
+      setRescheduleState((prev) => ({ ...prev, loading: false, error: err.message }));
+    }
+  };
 
   const tabs: { value: Tab; label: string; count: number }[] = [
     { value: "upcoming", label: "Upcoming", count: upcoming.length },
@@ -565,26 +640,26 @@ export default function LiveSessionsPage() {
                     <span className={styles.statusNote} role="status">Session cancelled</span>
                   ) : isBooked && s.joinUrl ? (
                     /* Booked and has join link — show join button */
-                    <a
-                      href={s.joinUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={styles.joinBtn}
-                      aria-label={`Join ${s.title}`}
-                    >
-                      {Icons.video}
-                      <span>Join Meeting</span>
-                      {Icons.arrowUpRight}
-                    </a>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+                      <a
+                        href={s.joinUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.joinBtn}
+                        aria-label={`Join ${s.title}`}
+                      >
+                        {Icons.video}
+                        <span>Join Meeting</span>
+                        {Icons.arrowUpRight}
+                      </a>
+                      <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
+                    </div>
                   ) : isBooked ? (
                     /* Booked, no join link yet */
-                    <div className={styles.bookedBadge} role="status">
-                      <span className={styles.bookedIcon} aria-hidden="true">{Icons.checkCircle}</span>
-                      <span>Seat reserved</span>
-                    </div>
+                    <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
                   ) : canBook ? (
                     /* Not yet booked — show booking button */
-                    <BookingButton session={s} onBooked={handleBooked} />
+                    <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
                   ) : (
                     /* Default: join link without booking */
                     s.joinUrl ? (
@@ -619,6 +694,45 @@ export default function LiveSessionsPage() {
         <li>Attendance is recorded when you check in and join.</li>
         <li>Recordings appear under Past once they are added.</li>
       </ul>
+
+      {rescheduleState.isOpen && (
+        <div className={styles.modalOverlay} onClick={() => setRescheduleState(prev => ({...prev, isOpen: false}))}>
+          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>Reschedule Session</h2>
+              <button className={styles.closeBtn} onClick={() => setRescheduleState(prev => ({...prev, isOpen: false}))}>×</button>
+            </div>
+            <form onSubmit={handleRescheduleSubmit} className={styles.modalForm}>
+              <div className={styles.formGroup}>
+                <label>Select New Session</label>
+                <select name="newSessionId" required disabled={rescheduleState.loading}>
+                  <option value="">-- Choose a new session --</option>
+                  {upcoming
+                    .filter(s => s.id !== rescheduleState.currentSessionId && s.status === "SCHEDULED" && s.capacity !== 0 && !s.bookingId)
+                    .map(s => (
+                      <option key={s.id} value={s.id}>
+                        {formatWeekdayDate(new Date(s.startTime))} • {formatTime(new Date(s.startTime))} ({s.title})
+                      </option>
+                  ))}
+                </select>
+              </div>
+              {rescheduleState.error && (
+                <p className={styles.bookingErrorBadge} style={{ background: '#fef2f2', color: '#b91c1c', marginTop: '1rem', padding: '0.5rem' }}>
+                  {rescheduleState.error}
+                </p>
+              )}
+              <div className={styles.modalFooter} style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setRescheduleState(prev => ({...prev, isOpen: false}))}>
+                  Cancel
+                </button>
+                <button type="submit" className={styles.bookBtn} disabled={rescheduleState.loading} style={{ padding: '0.5rem 1rem', flex: 'none', height: 'auto', borderRadius: '4px' }}>
+                  {rescheduleState.loading ? 'Rescheduling...' : 'Confirm Reschedule'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

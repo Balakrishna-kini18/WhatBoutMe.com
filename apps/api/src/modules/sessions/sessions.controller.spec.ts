@@ -31,7 +31,10 @@ describe('SessionsController — D1-043 & D1-044 RBAC and Routing Tests', () => 
       getMyBookings: vi.fn(),
     };
 
-    controller = new SessionsController(serviceMock as unknown as SessionsService);
+    controller = new SessionsController(
+      serviceMock as unknown as SessionsService,
+      {} as any,
+    );
   });
 
   // ─── D1-043 RBAC Metadata ─────────────────────────────────────────────────

@@ -11,15 +11,20 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
+import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { Role } from '@prisma/client';
 import { CreateSessionDto, UpdateSessionDto, QuerySessionsDto } from './dto/index.js';
 
 @Controller('sessions')
 @UseGuards(PermissionsGuard)
 export class SessionsController {
-  constructor(private readonly sessionsService: SessionsService) {}
+  constructor(
+    private readonly sessionsService: SessionsService,
+    private readonly reconciliationService: AttendanceReconciliationService
+  ) {}
 
   /**
    * Filter sessions by batch, sessionType, trainer, status, or date range.
@@ -134,6 +139,45 @@ export class SessionsController {
   overrideAttendance(@Param('id') id: string, @Body('userId') userId: string) {
     return this.sessionsService.markAttendance(id, userId, true);
   }
+
+  /**
+   * D1-048b: Fetch unmatched attendance records for a session
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
+  @Get(':id/unmatched-attendance')
+  getUnmatchedAttendance(@Param('id') id: string) {
+    return this.reconciliationService.getUnmatchedForSession(id);
+  }
+
+  /**
+   * D1-048b: Resolve unmatched attendance
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
+  @Patch(':id/unmatched-attendance/:unmatchedId/resolve')
+  resolveUnmatchedAttendance(
+    @Param('unmatchedId') unmatchedId: string,
+    @Body('enrolmentId') enrolmentId: string,
+    @Request() req: any
+  ) {
+    const actorId = req.user.sub ?? req.user.userId ?? req.user.id;
+    const isPrivileged = req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    return this.reconciliationService.resolveUnmatched(unmatchedId, enrolmentId, actorId, isPrivileged);
+  }
+
+  /**
+   * D1-048b: Dismiss unmatched attendance
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
+  @Patch(':id/unmatched-attendance/:unmatchedId/dismiss')
+  dismissUnmatchedAttendance(
+    @Param('unmatchedId') unmatchedId: string,
+    @Request() req: any
+  ) {
+    const actorId = req.user.sub ?? req.user.userId ?? req.user.id;
+    const isPrivileged = req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    return this.reconciliationService.dismissUnmatched(unmatchedId, actorId, isPrivileged);
+  }
+
 
   /**
    * D1-044: Learner self-booking for a session slot.

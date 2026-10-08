@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
+import { API_URL } from "../lib/api";
 
 export default function RevenuePage() {
   const [data, setData] = useState<any>(null);
@@ -14,7 +15,7 @@ export default function RevenuePage() {
 
   const fetchRevenue = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/revenue`);
+      const res = await fetch(`${API_URL}/revenue`);
       if (res.ok) {
         const json = await res.json();
         setData(json);

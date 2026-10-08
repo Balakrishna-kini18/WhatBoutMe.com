@@ -853,7 +853,7 @@ export class AgreementsService {
     const isStaff =
       user?.role === Role.SUPER_ADMIN ||
       user?.role === Role.ADMIN ||
-      user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
+      user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
 
     const enrolment = await this.prisma.enrolment.findUnique({
       where: { id: enrolmentId },

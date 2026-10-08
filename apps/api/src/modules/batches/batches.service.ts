@@ -27,7 +27,7 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findAll(user: any, query?: QueryBatchesDto) {
-    const isManagerOrTeacher = user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER') || user?.role === 'TEACHER';
+    const isManagerOrTeacher = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
@@ -57,6 +57,8 @@ export class BatchesService {
 
       if (query?.status) {
         where.status = query.status;
+      } else {
+        where.status = { not: 'ARCHIVED' };
       }
 
       const batches = await this.prisma.batch.findMany({
@@ -87,7 +89,7 @@ export class BatchesService {
   }
 
   async findOne(id: string, user: any) {
-    const isManagerOrTeacher = user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER') || user?.role === 'TEACHER';
+    const isManagerOrTeacher = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
@@ -504,20 +506,8 @@ export class BatchesService {
     ]);
 
     if (enrolmentCount > 0 || sessionCount > 0) {
-      // Archive to preserve relational and historical integrity
-      const archived = await this.prisma.batch.update({
-        where: { id },
-        data: { status: BatchStatus.ARCHIVED },
-      });
-
-      await this.cacheHelper.invalidateNamespace('batches');
-      return {
-        id: archived.id,
-        archived: true,
-        message:
-          'Batch has linked enrolments or sessions and was archived instead of deleted',
-        status: BatchStatus.ARCHIVED,
-      };
+      // Hard delete, cascade will handle the enrolments and sessions
+      // because we added onDelete: Cascade to the schema
     }
 
     // Clean hard delete

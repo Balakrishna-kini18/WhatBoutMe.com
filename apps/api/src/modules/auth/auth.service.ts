@@ -15,6 +15,7 @@ import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { getRolePermissions } from '../../config/permissions.config.js';
 import {
   generateTotpSecret,
   generateOtpauthUri,
@@ -236,7 +237,10 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      permissions: user.permissions,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role)
+      ])),
       companyId: user.companyId,
       sessionId,
     };
@@ -259,7 +263,7 @@ export class AuthService {
     });
 
     // Return user data with enrolled programs for tenant separation
-    const enrolledPrograms = user.enrolments?.map((e) => ({
+    const enrolledPrograms = user.enrolments?.filter((e) => e.batch?.status !== 'ARCHIVED' && e.batch?.program?.status !== 'ARCHIVED').map((e) => ({
       enrolmentId: e.id,
       batchId: e.batchId,
       batchName: e.batch?.name,
@@ -280,7 +284,10 @@ export class AuthService {
         companyId: user.companyId,
         country: user.country,
         timezone: user.timezone,
-        permissions: user.permissions || [],
+        permissions: Array.from(new Set([
+          ...(user.permissions || []),
+          ...getRolePermissions(user.role)
+        ])),
         enrolledPrograms,
       },
     };
@@ -551,6 +558,10 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role)
+      ])),
       companyId: user.companyId,
       sessionId,
     };
@@ -581,6 +592,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions: Array.from(new Set([
+          ...(user.permissions || []),
+          ...getRolePermissions(user.role)
+        ])),
       },
     };
 
@@ -683,6 +698,10 @@ export class AuthService {
           sub: user.id,
           email: user.email,
           role: user.role,
+          permissions: Array.from(new Set([
+            ...(user.permissions || []),
+            ...getRolePermissions(user.role)
+          ])),
           companyId: user.companyId,
           sessionId: session.id,
         };
@@ -842,7 +861,7 @@ export class AuthService {
       }
     }
 
-    const enrolledPrograms = user.enrolments.map((e) => {
+    const enrolledPrograms = user.enrolments.filter((e) => e.batch?.status !== 'ARCHIVED' && e.batch?.program?.status !== 'ARCHIVED').map((e) => {
       const programId = e.batch?.programId;
       const totalItems = programId ? programTotalItems[programId] || 0 : 0;
       const completedItems = Math.min(
@@ -1492,6 +1511,10 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role)
+      ])),
       companyId: user.companyId,
       sessionId,
     };
@@ -1517,6 +1540,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions: Array.from(new Set([
+          ...(user.permissions || []),
+          ...getRolePermissions(user.role)
+        ])),
       },
     };
   }

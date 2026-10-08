@@ -720,7 +720,12 @@ export class SessionsService {
   // Learner: their own sessions with attendance (preserved)
   async getMySessions(userId: string, viewerTimezone?: string | null) {
     const enrolments = await this.prisma.enrolment.findMany({
-      where: { userId, status: { in: ['ACTIVE', 'COMPLETED'] } },
+      where: { 
+        userId, 
+        status: { in: ['ACTIVE', 'COMPLETED'] },
+        program: { status: { not: 'ARCHIVED' } },
+        batch: { status: { not: 'ARCHIVED' } },
+      },
       select: { id: true, batchId: true, batch: { select: { name: true, program: { select: { title: true } } } } },
     });
 

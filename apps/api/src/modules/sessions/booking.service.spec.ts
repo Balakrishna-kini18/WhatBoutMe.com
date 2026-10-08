@@ -153,8 +153,16 @@ describe('D1-044: SessionsService.bookSession()', () => {
       getParticipantReport: vi.fn(),
     };
 
+    const attendanceServiceMock = {
+      recordAbsent: vi.fn(),
+      recordPresentAuto: vi.fn(),
+      recordPresentManual: vi.fn(),
+      correctAttendance: vi.fn(),
+    };
+
     service = new SessionsService(
       prismaMock as unknown as PrismaService,
+      attendanceServiceMock as any,
       meetingProviderMock,
       calendarProviderMock,
     );
@@ -642,6 +650,7 @@ describe('D1-044: SessionsService.bookSession()', () => {
       // Re-create service without calendar provider
       const serviceWithoutCalendar = new SessionsService(
         prismaMock as unknown as PrismaService,
+        {} as any,
         meetingProviderMock,
         undefined, // no calendar provider
       );
@@ -800,6 +809,7 @@ describe('D1-044: SessionsService.bookSession()', () => {
       expect(() => {
         new SessionsService(
           prismaMock as unknown as PrismaService,
+          {} as any,
           meetingProviderMock,
           calendarProviderMock,
         );
@@ -808,7 +818,7 @@ describe('D1-044: SessionsService.bookSession()', () => {
 
     it('service instantiates without any optional providers (graceful)', () => {
       expect(() => {
-        new SessionsService(prismaMock as unknown as PrismaService);
+        new SessionsService(prismaMock as unknown as PrismaService, {} as any);
       }).not.toThrow();
     });
   });
@@ -834,6 +844,180 @@ describe('D1-044: SessionsService.bookSession()', () => {
       await service.bookSession(SESSION_ID, LEARNER_ID);
       // The service should not attempt to update session.learnerId
       expect(prismaMock.session.update).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('D1-046: Reschedule & Cancellation Rules', () => {
+  let service: SessionsService;
+  let prismaMock: any;
+  let calendarProviderMock: ICalendarProvider;
+  let meetingProviderMock: IMeetingProvider;
+  
+  const LEARNER_ID = 'learner-user-1';
+  const BATCH_ID = 'batch-xyz';
+  const ENROLMENT_ID = 'enrol-001';
+
+  beforeEach(() => {
+    prismaMock = {
+      sessionBooking: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      session: {
+        findUnique: vi.fn(),
+      },
+      enrolment: {
+        findUnique: vi.fn().mockResolvedValue({ id: ENROLMENT_ID, status: EnrolmentStatus.ACTIVE }),
+      },
+      notification: {
+        create: vi.fn(),
+      },
+      auditLog: {
+        create: vi.fn(),
+      },
+      $transaction: vi.fn((cb) => cb({
+        $executeRaw: vi.fn(),
+        sessionBooking: prismaMock.sessionBooking,
+        session: prismaMock.session,
+        notification: prismaMock.notification,
+        auditLog: prismaMock.auditLog,
+      })),
+    };
+    calendarProviderMock = { getBusySlots: vi.fn().mockResolvedValue([]) } as any;
+    meetingProviderMock = { createMeeting: vi.fn(), updateMeeting: vi.fn(), cancelMeeting: vi.fn(), getRecordingUrl: vi.fn(), getParticipantReport: vi.fn() } as any;
+    service = new SessionsService(prismaMock as any, {} as any, meetingProviderMock, calendarProviderMock);
+    // Suppress warnings
+    vi.spyOn(service['logger'], 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Cancellation', () => {
+    it('succeeds before 24h cutoff, changes status, sends notification', async () => {
+      const start = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h from now
+      prismaMock.sessionBooking.findUnique.mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: LEARNER_ID,
+        status: BookingStatus.BOOKED,
+        session: { id: 'session-1', startTime: start, status: SessionStatus.SCHEDULED, title: 'Future Session' }
+      });
+      prismaMock.sessionBooking.update.mockResolvedValueOnce({ id: 'booking-1', status: BookingStatus.CANCELLED });
+
+      await service.cancelBooking('booking-1', LEARNER_ID);
+      
+      expect(prismaMock.sessionBooking.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: BookingStatus.CANCELLED })
+      }));
+      expect(prismaMock.notification.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ type: 'SESSION_BOOKING_CANCELLED' })
+      }));
+    });
+
+    it('rejects cancellation inside 24h cutoff', async () => {
+      const start = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12h from now
+      prismaMock.sessionBooking.findUnique.mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: LEARNER_ID,
+        status: BookingStatus.BOOKED,
+        session: { id: 'session-1', startTime: start, status: SessionStatus.SCHEDULED }
+      });
+
+      await expect(service.cancelBooking('booking-1', LEARNER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('learner cannot cancel another learner\'s booking (IDOR)', async () => {
+      prismaMock.sessionBooking.findUnique.mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: 'other-learner', // Not LEARNER_ID
+        status: BookingStatus.BOOKED,
+        session: { id: 'session-1', startTime: new Date(Date.now() + 48 * 60 * 60 * 1000), status: SessionStatus.SCHEDULED }
+      });
+
+      await expect(service.cancelBooking('booking-1', LEARNER_ID)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('Rescheduling', () => {
+    it('successfully reschedules if policies are met', async () => {
+      const oldStart = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      const newStart = new Date(Date.now() + 72 * 60 * 60 * 1000);
+      
+      prismaMock.sessionBooking.findUnique.mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: LEARNER_ID,
+        sessionId: 'session-1',
+        status: BookingStatus.BOOKED,
+        session: { id: 'session-1', startTime: oldStart, status: SessionStatus.SCHEDULED }
+      }).mockResolvedValueOnce(null); // No existing booking for new session
+
+      prismaMock.session.findUnique.mockResolvedValueOnce({
+        id: 'session-2',
+        startTime: newStart,
+        endTime: new Date(newStart.getTime() + 3600000),
+        status: SessionStatus.SCHEDULED,
+        sessionType: SessionType.GROUP_COHORT,
+        batchId: BATCH_ID,
+        capacity: 10,
+        title: 'New Target Session',
+        hostTrainer: { name: 'Ro', email: 'ro@x.com' }
+      });
+
+      prismaMock.sessionBooking.create.mockResolvedValueOnce({ id: 'booking-2', session: { title: 'New Target Session' } });
+
+      await service.rescheduleBooking('booking-1', 'session-2', LEARNER_ID);
+      
+      expect(prismaMock.sessionBooking.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'booking-1' },
+        data: expect.objectContaining({ status: BookingStatus.RESCHEDULED })
+      }));
+      expect(prismaMock.sessionBooking.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ sessionId: 'session-2', status: BookingStatus.BOOKED })
+      }));
+      expect(calendarProviderMock.getBusySlots).toHaveBeenCalled();
+    });
+
+    it('rejects reschedule if old session is inside 24h cutoff', async () => {
+      const oldStart = new Date(Date.now() + 10 * 60 * 60 * 1000); // 10h
+      prismaMock.sessionBooking.findUnique.mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: LEARNER_ID,
+        status: BookingStatus.BOOKED,
+        session: { id: 'session-1', startTime: oldStart, status: SessionStatus.SCHEDULED }
+      });
+
+      await expect(service.rescheduleBooking('booking-1', 'session-2', LEARNER_ID)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects reschedule to full session', async () => {
+      const oldStart = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      const newStart = new Date(Date.now() + 72 * 60 * 60 * 1000);
+      
+      prismaMock.sessionBooking.findUnique.mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: LEARNER_ID,
+        status: BookingStatus.BOOKED,
+        session: { id: 'session-1', startTime: oldStart, status: SessionStatus.SCHEDULED }
+      });
+
+      prismaMock.session.findUnique.mockResolvedValueOnce({
+        id: 'session-2',
+        startTime: newStart,
+        endTime: new Date(newStart.getTime() + 3600000),
+        status: SessionStatus.SCHEDULED,
+        sessionType: SessionType.GROUP_COHORT,
+        batchId: BATCH_ID,
+        capacity: 10,
+        hostTrainer: { name: 'Ro', email: 'ro@x.com' }
+      });
+
+      prismaMock.sessionBooking.count.mockResolvedValueOnce(10); // Fully booked
+
+      await expect(service.rescheduleBooking('booking-1', 'session-2', LEARNER_ID)).rejects.toThrow(ConflictException);
     });
   });
 });

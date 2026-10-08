@@ -3,6 +3,7 @@ export interface CreateMeetingParams {
   startTime: Date;
   durationMinutes: number;
   timezone?: string;
+  referenceId?: string; // e.g. for idempotency checking
 }
 
 export interface MeetingDetails {

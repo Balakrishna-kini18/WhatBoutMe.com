@@ -53,6 +53,8 @@ export default function LearnerDashboard() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
+  const [complianceMap, setComplianceMap] = useState<Record<string, any>>({});
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -60,12 +62,10 @@ export default function LearnerDashboard() {
       return;
     }
 
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}/auth/me`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
-        // Only a rejected session signs the learner out. A slow database, a
-        // rate limit or a server error used to log them out as well.
         if (res.status === 401) {
           localStorage.removeItem("token");
           router.push("/login");
@@ -77,8 +77,25 @@ export default function LearnerDashboard() {
         }
         return res.json();
       })
-      .then((profile: UserProfile) => {
+      .then(async (profile: UserProfile) => {
         setUser(profile);
+        
+        // Fetch compliance for each enrolled program
+        const compMap: Record<string, any> = {};
+        for (const ep of profile.enrolledPrograms) {
+          try {
+            const cres = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/attendance/compliance/${ep.enrolmentId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (cres.ok) {
+              compMap[ep.enrolmentId] = await cres.json();
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        setComplianceMap(compMap);
+
         // Also fetch their certificates
         return fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/certificates/mine`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -233,7 +250,22 @@ export default function LearnerDashboard() {
                     <img src="/brand/session.png" alt="" className={styles.thumb} />
                     <div className={styles.rowMain}>
                       <p className={styles.rowTitle}>{prog.programTitle}</p>
-                      <p className={styles.muted}>Cohort: {prog.batchName}</p>
+                      <p className={styles.muted} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span>Cohort: {prog.batchName}</span>
+                        {complianceMap[prog.enrolmentId] && complianceMap[prog.enrolmentId].status !== 'NOT_APPLICABLE' && (
+                          <span style={{ 
+                            fontSize: '0.75rem', 
+                            padding: '2px 6px', 
+                            borderRadius: '4px',
+                            background: complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? '#ecfdf5' : '#fef2f2',
+                            color: complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? '#059669' : '#dc2626',
+                            border: `1px solid ${complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? '#a7f3d0' : '#fecaca'}`
+                          }}>
+                            {complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? 'Attendance Compliant' : 'Low Attendance'} 
+                            ({Math.round(complianceMap[prog.enrolmentId].attendancePercentage)}%)
+                          </span>
+                        )}
+                      </p>
                       <div className={styles.progressLine}>
                         <div className={styles.progress} role="progressbar" aria-valuenow={prog.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${prog.programTitle} progress`}>
                           <span style={{ width: `${prog.progress}%` }} />

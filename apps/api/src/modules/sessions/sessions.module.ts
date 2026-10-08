@@ -1,12 +1,17 @@
 import { Module } from '@nestjs/common';
 import { SessionsController } from './sessions.controller.js';
 import { SessionsService } from './sessions.service.js';
+import { AttendanceService } from './attendance.service.js';
+import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
+import { AttendanceComplianceService } from './attendance-compliance.service.js';
 import { AttendanceController } from './attendance.controller.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { ZoomModule } from '../zoom/zoom.module.js';
 import { ZoomMeetingProvider } from '../zoom/zoom.service.js';
 import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.interface.js';
 import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.interface.js';
+
+import { MeetingSyncProcessor } from './meeting-sync.processor.js';
 
 /**
  * D1-044: CALENDAR_PROVIDER is registered as a null factory until the
@@ -19,6 +24,10 @@ import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.int
   controllers: [SessionsController, AttendanceController],
   providers: [
     SessionsService,
+    AttendanceService,
+    AttendanceReconciliationService,
+    AttendanceComplianceService,
+    MeetingSyncProcessor,
     {
       provide: MEETING_PROVIDER,
       useExisting: ZoomMeetingProvider,
@@ -30,6 +39,6 @@ import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.int
       useValue: null,
     },
   ],
-  exports: [SessionsService],
+  exports: [SessionsService, AttendanceService, AttendanceReconciliationService, AttendanceComplianceService],
 })
 export class SessionsModule {}

@@ -214,27 +214,28 @@ model User {
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
 
-  managedBatches          Batch[]                  @relation("ManagerBatches")
-  batchTrainers           BatchTrainer[]           @relation("BatchTrainers")
-  oralAssessmentsAssessed OralAssessment[]         @relation("AssessorOralAssessments")
-  signedAgreements        SignedAgreement[]
-  createdAgreementVersions AgreementTemplateVersion[] @relation("CreatedAgreementVersions")
-  sessionBookings         SessionBooking[]         @relation("UserSessionBookings")
-  attendedSessions        Attendance[]             @relation("UserAttendances")
-  correctedAttendances    Attendance[]             @relation("CorrectedAttendances")
-  learnerSessions         Session[]                @relation("Learner1on1Sessions")
-  hostedSessions          Session[]                @relation("HostTrainerSessions")
-  certificates            Certificate[]            @relation("UserCertificates")
-  approvedCertificates    Certificate[]            @relation("ApprovedCertificates")
-  enrolments              Enrolment[]
-  messagesSent            Message[]
-  sessions                UserSession[]
-  notifications           Notification[]
-  dailyAttendance         DailyAttendance[]
-  emailVerificationTokens EmailVerificationToken[]
-  passwordResetTokens     PasswordResetToken[]
-  otpCodes                OtpCode[]
-  loginAudits             LoginAudit[]
+  managedBatches               Batch[]                    @relation("ManagerBatches")
+  batchTrainers                BatchTrainer[]             @relation("BatchTrainers")
+  oralAssessmentsAssessed      OralAssessment[]           @relation("AssessorOralAssessments")
+  signedAgreements             SignedAgreement[]
+  createdAgreementVersions     AgreementTemplateVersion[] @relation("CreatedAgreementVersions")
+  sessionBookings              SessionBooking[]           @relation("UserSessionBookings")
+  attendedSessions             Attendance[]               @relation("UserAttendances")
+  correctedAttendances         Attendance[]               @relation("CorrectedAttendances")
+  resolvedUnmatchedAttendances UnmatchedAttendance[]      @relation("ResolvedUnmatchedAttendances")
+  learnerSessions              Session[]                  @relation("Learner1on1Sessions")
+  hostedSessions               Session[]                  @relation("HostTrainerSessions")
+  certificates                 Certificate[]              @relation("UserCertificates")
+  approvedCertificates         Certificate[]              @relation("ApprovedCertificates")
+  enrolments                   Enrolment[]
+  messagesSent                 Message[]
+  sessions                     UserSession[]
+  notifications                Notification[]
+  dailyAttendance              DailyAttendance[]
+  emailVerificationTokens      EmailVerificationToken[]
+  passwordResetTokens          PasswordResetToken[]
+  otpCodes                     OtpCode[]
+  loginAudits                  LoginAudit[]
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -332,6 +333,7 @@ model Program {
 
   hasCertificate      Boolean @default(false)
   certificateTemplate String?
+  attendanceThreshold Int     @default(80)
 
   steps              Step[]
   batches            Batch[]
@@ -614,10 +616,11 @@ model Batch {
   managerId String?
   manager   User?   @relation("ManagerBatches", fields: [managerId], references: [id])
 
-  startDate DateTime
-  endDate   DateTime?
-  capacity  Int
-  status    BatchStatus @default(UPCOMING)
+  startDate           DateTime
+  endDate             DateTime?
+  capacity            Int
+  status              BatchStatus @default(UPCOMING)
+  attendanceThreshold Int?
 
   enrolments    Enrolment[]
   sessions      Session[]
@@ -664,15 +667,16 @@ model Enrolment {
 
   signedAgreement SignedAgreement?
 
-  attempts        Attempt[]
-  examAttempts    ExamAttempt[]
-  oralAssessments OralAssessment[]
-  lessonProgress  UserLessonProgress[]
-  attendance      Attendance[]
-  sessionBookings SessionBooking[]
-  certificate     Certificate?
-  payments        Payment[]
-  stepProgress    StepProgress[]
+  attempts             Attempt[]
+  examAttempts         ExamAttempt[]
+  oralAssessments      OralAssessment[]
+  lessonProgress       UserLessonProgress[]
+  attendance           Attendance[]
+  unmatchedAttendances UnmatchedAttendance[]
+  sessionBookings      SessionBooking[]
+  certificate          Certificate?
+  payments             Payment[]
+  stepProgress         StepProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -828,6 +832,7 @@ model Session {
   sessionType SessionType   @default(GROUP_COHORT)
   status      SessionStatus @default(SCHEDULED)
   capacity    Int? // Maximum booking capacity (e.g. 1 for 1:1, or cohort size)
+  isRequired  Boolean       @default(true) // Indicates if this session counts towards compliance
 
   // Meeting Provider Metadata (Provider-Neutral)
   meetingProvider      MeetingProvider @default(ZOOM)
@@ -850,9 +855,10 @@ model Session {
   rescheduledFrom Session[] @relation("RescheduledSessions")
 
   // Attendance & Booking Relations (Historical records protected via Restrict)
-  attendancePulled Boolean          @default(false)
-  attendances      Attendance[]
-  bookings         SessionBooking[]
+  attendancePulled     Boolean               @default(false)
+  attendances          Attendance[]
+  unmatchedAttendances UnmatchedAttendance[]
+  bookings             SessionBooking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -921,6 +927,48 @@ model Attendance {
   @@index([sessionId, userId])
   @@index([status])
   @@index([enrolmentId])
+}
+
+// -----------------------------------------------------------------------------
+// UNMATCHED ATTENDANCE
+// -----------------------------------------------------------------------------
+
+enum UnmatchedAttendanceStatus {
+  UNMATCHED
+  LINKED
+  IGNORED
+}
+
+model UnmatchedAttendance {
+  id String @id @default(uuid())
+
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  provider         String
+  providerId       String?
+  participantEmail String?
+  participantName  String?
+
+  joinTime    DateTime?
+  leaveTime   DateTime?
+  durationMin Int?
+
+  status UnmatchedAttendanceStatus @default(UNMATCHED)
+
+  linkedEnrolmentId String?
+  linkedEnrolment   Enrolment? @relation(fields: [linkedEnrolmentId], references: [id], onDelete: SetNull)
+
+  resolvedById String?
+  resolvedBy   User?     @relation("ResolvedUnmatchedAttendances", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([participantEmail])
 }
 
 // -----------------------------------------------------------------------------
@@ -1087,13 +1135,13 @@ model AgreementTemplate {
 }
 
 model AgreementTemplateVersion {
-  id          String        @id @default(uuid())
-  templateId  String
-  template    AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  id         String            @id @default(uuid())
+  templateId String
+  template   AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
-  version     String        // e.g. "v1.0", "v2.0"
-  content     String        // Agreement body/terms for rendering and PDF generation
-  changelog   String?       // Summary of changes from previous version
+  version     String // e.g. "v1.0", "v2.0"
+  content     String // Agreement body/terms for rendering and PDF generation
+  changelog   String? // Summary of changes from previous version
   status      ContentStatus @default(DRAFT) // DRAFT, PUBLISHED, ARCHIVED
   publishedAt DateTime?
   createdById String?
@@ -1125,8 +1173,8 @@ model SignedAgreement {
   versionId String
   version   AgreementTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
 
-  templateVersion String  // Immutable snapshot of version string at signing (e.g. "v1.0")
-  consentGiven    Boolean @default(false) // Explicit read & consent tick
+  templateVersion String // Immutable snapshot of version string at signing (e.g. "v1.0")
+  consentGiven    Boolean         @default(false) // Explicit read & consent tick
   typedName       String? // Typed full name signature
   drawnSignature  String? // Drawn signature data URL or storage pointer
   signerIp        String? // Signer IP address
@@ -1211,4 +1259,30 @@ model EmailDeliveryLog {
 
   @@index([to])
   @@index([status])
+}
+
+// -----------------------------------------------------------------------------
+// RELIABILITY & OUTBOX
+// -----------------------------------------------------------------------------
+
+model OutboxEvent {
+  id         String       @id @default(uuid())
+  type       String // e.g., "sync-meeting"
+  action     String // e.g., "CREATE", "UPDATE", "CANCEL"
+  payload    Json? // Job payload
+  status     OutboxStatus @default(PENDING)
+  providerId String? // Used for idempotency (e.g., storing Zoom Meeting ID temporarily)
+  error      String?
+  attempts   Int          @default(0)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([status, createdAt])
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }

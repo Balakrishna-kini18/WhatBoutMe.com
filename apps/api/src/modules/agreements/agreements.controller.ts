@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { AgreementsService } from './agreements.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { Role } from '@prisma/client';
 import { Permission } from '../../config/permissions.config.js';
 import {
   CreateAgreementTemplateDto,
@@ -27,6 +29,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Controller(['admin/agreement-templates', 'admin/agreements/templates'])
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class AdminAgreementTemplatesController {
   constructor(private readonly agreementsService: AgreementsService) {}
 

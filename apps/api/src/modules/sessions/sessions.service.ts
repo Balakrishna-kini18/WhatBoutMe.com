@@ -10,7 +10,7 @@ import {
   Optional,
   Logger,
 } from '@nestjs/common';
-import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus } from '@prisma/client';
+import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus, OutboxEvent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
 import type { IMeetingProvider } from '../../common/interfaces/meeting-provider.interface.js';
@@ -21,7 +21,20 @@ import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { CreateSessionDto } from './dto/create-session.dto.js';
 import { UpdateSessionDto } from './dto/update-session.dto.js';
 import { QuerySessionsDto } from './dto/query-sessions.dto.js';
-import { getAdvanceNoticeMs, getAdvanceNoticeHours } from '../../config/booking-policy.config.js';
+import {
+  getAdvanceNoticeMs,
+  getAdvanceNoticeHours,
+  getCancellationCutoffMs,
+  getCancellationCutoffHours,
+} from '../../config/booking-policy.config.js';
+import {
+  enrichSessionWithTimezone,
+  resolveTimezone,
+} from '../../common/timezone/timezone.util.js';
+import { AttendanceService } from './attendance.service.js';
+
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class SessionsService {
@@ -29,12 +42,16 @@ export class SessionsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly attendanceService: AttendanceService,
     @Optional()
     @Inject(MEETING_PROVIDER)
     private readonly meetingProvider?: IMeetingProvider,
     @Optional()
     @Inject(CALENDAR_PROVIDER)
     private readonly calendarProvider?: ICalendarProvider,
+    @Optional()
+    @InjectQueue('meeting-sync')
+    private readonly meetingSyncQueue?: Queue,
   ) {}
 
   /**
@@ -179,86 +196,100 @@ export class SessionsService {
       }
     }
 
-    // 6. Meeting Provider Integration (Zoom via IMeetingProvider)
+    // 6. Meeting Provider Setup
     let finalJoinUrl = data.joinUrl;
-    let finalHostUrl: string | null = null;
-    let finalProviderMeetingId: string | null = null;
-    let finalZoomMeetingId: string | null = null;
     const provider = data.meetingProvider || (finalJoinUrl ? MeetingProvider.MANUAL : MeetingProvider.ZOOM);
 
     if ((!finalJoinUrl || finalJoinUrl.trim() === '') && provider === MeetingProvider.ZOOM) {
-      if (!this.meetingProvider) {
+      if (!this.meetingProvider && !this.meetingSyncQueue) {
         throw new BadRequestException(
-          'Meeting provider is not configured. Please supply a manual joinUrl or configure the meeting provider.',
-        );
-      }
-
-      const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
-      try {
-        const meetingDetails = await this.meetingProvider.createMeeting({
-          topic: data.title,
-          startTime: start,
-          durationMinutes: durationMin,
-          timezone: data.timezone || 'UTC',
-        });
-
-        finalJoinUrl = meetingDetails.joinUrl;
-        finalHostUrl = meetingDetails.startUrl || null;
-        finalProviderMeetingId = meetingDetails.id;
-        finalZoomMeetingId = meetingDetails.id;
-      } catch (err: any) {
-        this.logger.error(`Zoom meeting creation failed: ${err.message}`);
-        throw new BadGatewayException(
-          `Meeting provider scheduling failed: ${err.message || 'Unable to create meeting'}`,
+          'Meeting provider or sync queue is not configured. Please supply a manual joinUrl or configure the meeting provider.',
         );
       }
     }
 
-    // 7. UTC Persistence in Database
-    const session = await this.prisma.session.create({
-      data: {
-        batchId: data.batchId,
-        title: data.title,
-        description: data.description || null,
-        startTime: start,
-        endTime: end,
-        timezone: data.timezone || 'UTC',
-        sessionType,
-        status: SessionStatus.SCHEDULED,
-        capacity: finalCapacity,
-        hostTrainerId: hostTrainerId || null,
-        learnerId: data.learnerId || null,
-        meetingProvider: provider,
-        providerMeetingId: finalProviderMeetingId,
-        zoomMeetingId: finalZoomMeetingId,
-        joinUrl: finalJoinUrl || null,
-        hostUrl: finalHostUrl,
-        recordingUrl: data.recordingUrl || null,
-        agenda: data.agenda || null,
-        quizId: data.quizId || null,
-      },
-      include: {
-        batch: {
-          select: {
-            id: true,
-            name: true,
-            program: { select: { id: true, title: true } },
+    // 7. UTC Persistence in Database with Transactional Outbox
+    let syncOutboxEvent: OutboxEvent | null = null;
+    
+    const session = await this.prisma.$transaction(async (tx) => {
+      const createdSession = await tx.session.create({
+        data: {
+          batchId: data.batchId,
+          title: data.title,
+          description: data.description || null,
+          startTime: start,
+          endTime: end,
+          timezone: data.timezone || 'UTC',
+          sessionType,
+          status: SessionStatus.SCHEDULED,
+          capacity: finalCapacity,
+          hostTrainerId: hostTrainerId || null,
+          learnerId: data.learnerId || null,
+          meetingProvider: provider,
+          providerMeetingId: null,
+          zoomMeetingId: null,
+          joinUrl: finalJoinUrl || null,
+          hostUrl: null,
+          recordingUrl: data.recordingUrl || null,
+          agenda: data.agenda || null,
+          quizId: data.quizId || null,
+        },
+        include: {
+          batch: {
+            select: {
+              id: true,
+              name: true,
+              program: { select: { id: true, title: true } },
+            },
+          },
+          hostTrainer: { select: { id: true, name: true, email: true, role: true } },
+          learner: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actorUser.sub,
+          action: 'SESSION_CREATED',
+          entity: 'Session',
+          entityId: createdSession.id,
+          meta: {
+            batchId: createdSession.batchId,
+            sessionType: createdSession.sessionType,
+            capacity: createdSession.capacity,
+            hostTrainerId: createdSession.hostTrainerId,
+            startTime: createdSession.startTime.toISOString(),
+            endTime: createdSession.endTime.toISOString(),
           },
         },
-        hostTrainer: { select: { id: true, name: true, email: true, role: true } },
-        learner: { select: { id: true, name: true, email: true } },
-      },
+      });
+
+      if (provider === MeetingProvider.ZOOM && !finalJoinUrl && this.meetingSyncQueue) {
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'CREATE',
+            payload: { sessionId: createdSession.id },
+          }
+        });
+      }
+
+      return createdSession;
     });
 
-    // 8. Audit Logging for sensitive scheduling operations
-    await this.recordAudit(actorUser.sub, 'SESSION_CREATED', session.id, {
-      batchId: session.batchId,
-      sessionType: session.sessionType,
-      capacity: session.capacity,
-      hostTrainerId: session.hostTrainerId,
-      startTime: session.startTime.toISOString(),
-      endTime: session.endTime.toISOString(),
-    });
+    // 8. Queue Zoom Meeting Creation (Best effort - outbox handles failures)
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
+      try {
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: 'CREATE',
+          sessionId: session.id,
+        });
+      } catch (err: any) {
+        this.logger.error(`Failed to enqueue meeting sync for session ${session.id}: ${err.message}`);
+      }
+    }
 
     // 9. Queue In-App Reminders
     await this.remindLearners(session.batchId, session.title, session.startTime, session.learnerId);
@@ -435,50 +466,81 @@ export class SessionsService {
       }
     }
 
-    // External meeting update if time changed
-    if ((data.startTime || data.endTime || data.title) && session.providerMeetingId && this.meetingProvider) {
-      try {
-        const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
-        await this.meetingProvider.updateMeeting(session.providerMeetingId, {
-          topic: data.title || session.title,
+    let syncOutboxEvent: OutboxEvent | null = null;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedSession = await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          title: data.title ?? undefined,
+          description: data.description ?? undefined,
           startTime: start,
-          durationMinutes: durationMin,
-          timezone: data.timezone || session.timezone || 'UTC',
+          endTime: end,
+          timezone: data.timezone ?? undefined,
+          capacity: data.capacity ?? undefined,
+          hostTrainerId: data.hostTrainerId ?? undefined,
+          learnerId: data.learnerId ?? undefined,
+          status: data.status ?? undefined,
+          joinUrl: data.joinUrl ?? undefined,
+          recordingUrl: data.recordingUrl ?? undefined,
+          agenda: data.agenda ?? undefined,
+          quizId: data.quizId ?? undefined,
+          cancelReason: data.cancelReason ?? undefined,
+        },
+        include: {
+          batch: { select: { id: true, name: true } },
+          hostTrainer: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actorUser.sub,
+          action: 'SESSION_UPDATED',
+          entity: 'Session',
+          entityId: sessionId,
+          meta: {
+            startTime: updatedSession.startTime.toISOString(),
+            endTime: updatedSession.endTime.toISOString(),
+            status: updatedSession.status,
+          },
+        },
+      });
+
+      // External meeting update if time changed
+      if ((data.startTime || data.endTime || data.title) && session.providerMeetingId && this.meetingSyncQueue) {
+        const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'UPDATE',
+            payload: {
+              sessionId: session.id,
+              payload: {
+                topic: updatedSession.title,
+                startTime: updatedSession.startTime,
+                durationMinutes: durationMin,
+                timezone: updatedSession.timezone || 'UTC',
+              }
+            }
+          }
+        });
+      }
+      return updatedSession;
+    });
+
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
+      try {
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: outboxToQueue.action,
+          ...(outboxToQueue.payload as any),
         });
       } catch (err: any) {
-        this.logger.warn(`Could not update external meeting: ${err.message}`);
+        this.logger.error(`Failed to enqueue meeting sync update for session ${sessionId}: ${err.message}`);
       }
     }
-
-    const updated = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        title: data.title ?? undefined,
-        description: data.description ?? undefined,
-        startTime: start,
-        endTime: end,
-        timezone: data.timezone ?? undefined,
-        capacity: data.capacity ?? undefined,
-        hostTrainerId: data.hostTrainerId ?? undefined,
-        learnerId: data.learnerId ?? undefined,
-        status: data.status ?? undefined,
-        joinUrl: data.joinUrl ?? undefined,
-        recordingUrl: data.recordingUrl ?? undefined,
-        agenda: data.agenda ?? undefined,
-        quizId: data.quizId ?? undefined,
-        cancelReason: data.cancelReason ?? undefined,
-      },
-      include: {
-        batch: { select: { id: true, name: true } },
-        hostTrainer: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    await this.recordAudit(actorUser.sub, 'SESSION_UPDATED', sessionId, {
-      startTime: updated.startTime.toISOString(),
-      endTime: updated.endTime.toISOString(),
-      status: updated.status,
-    });
 
     return updated;
   }
@@ -503,26 +565,57 @@ export class SessionsService {
       }
     }
 
-    if (session.providerMeetingId && this.meetingProvider) {
+    let syncOutboxEvent: OutboxEvent | null = null;
+
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const updatedSession = await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          status: SessionStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelReason: cancelReason || 'Cancelled by administrator',
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actorUser.sub,
+          action: 'SESSION_CANCELLED',
+          entity: 'Session',
+          entityId: sessionId,
+          meta: {
+            cancelReason: updatedSession.cancelReason,
+          },
+        },
+      });
+
+      if (session.providerMeetingId && this.meetingSyncQueue) {
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'CANCEL',
+            payload: {
+              providerMeetingId: session.providerMeetingId,
+            }
+          }
+        });
+      }
+
+      return updatedSession;
+    });
+
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
       try {
-        await this.meetingProvider.cancelMeeting(session.providerMeetingId);
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: outboxToQueue.action,
+          ...(outboxToQueue.payload as any),
+        });
       } catch (err: any) {
-        this.logger.warn(`Could not cancel external meeting: ${err.message}`);
+        this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
       }
     }
-
-    const cancelled = await this.prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        status: SessionStatus.CANCELLED,
-        cancelledAt: new Date(),
-        cancelReason: cancelReason || 'Cancelled by administrator',
-      },
-    });
-
-    await this.recordAudit(actorUser.sub, 'SESSION_CANCELLED', sessionId, {
-      cancelReason: cancelled.cancelReason,
-    });
 
     return cancelled;
   }
@@ -546,20 +639,51 @@ export class SessionsService {
       throw new BadRequestException('Cannot delete a session that has attendance records. Cancel it instead.');
     }
 
-    if (session.providerMeetingId && this.meetingProvider) {
-      try {
-        await this.meetingProvider.cancelMeeting(session.providerMeetingId);
-      } catch (err: any) {
-        this.logger.warn(`Could not cancel external meeting: ${err.message}`);
-      }
-    }
+    let syncOutboxEvent: OutboxEvent | null = null;
 
-    const res = await this.prisma.session.delete({
-      where: { id: sessionId },
+    const res = await this.prisma.$transaction(async (tx) => {
+      const deletedSession = await tx.session.delete({
+        where: { id: sessionId },
+      });
+
+      if (actorUser) {
+        await tx.auditLog.create({
+          data: {
+            actorId: actorUser.sub,
+            action: 'SESSION_DELETED',
+            entity: 'Session',
+            entityId: sessionId,
+            meta: { title: session.title },
+          }
+        });
+      }
+
+      if (session.providerMeetingId && this.meetingSyncQueue) {
+        syncOutboxEvent = await tx.outboxEvent.create({
+          data: {
+            type: 'sync-meeting',
+            action: 'CANCEL',
+            payload: {
+              providerMeetingId: session.providerMeetingId,
+            }
+          }
+        });
+      }
+
+      return deletedSession;
     });
 
-    if (actorUser) {
-      await this.recordAudit(actorUser.sub, 'SESSION_DELETED', sessionId, { title: session.title });
+    const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
+    if (outboxToQueue && this.meetingSyncQueue) {
+      try {
+        await this.meetingSyncQueue.add('sync-meeting', {
+          outboxId: outboxToQueue.id,
+          type: outboxToQueue.action,
+          ...(outboxToQueue.payload as any),
+        });
+      } catch (err: any) {
+        this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
+      }
     }
 
     return res;
@@ -594,7 +718,7 @@ export class SessionsService {
   }
 
   // Learner: their own sessions with attendance (preserved)
-  async getMySessions(userId: string) {
+  async getMySessions(userId: string, viewerTimezone?: string | null) {
     const enrolments = await this.prisma.enrolment.findMany({
       where: { userId, status: { in: ['ACTIVE', 'COMPLETED'] } },
       select: { id: true, batchId: true, batch: { select: { name: true, program: { select: { title: true } } } } },
@@ -615,15 +739,20 @@ export class SessionsService {
         })
       : [];
 
+    // D1-045: resolve the display timezone once — validated IANA or fallback UTC.
+    // Booking enforcement (elsewhere) always uses raw UTC timestamps, never this value.
+    const displayTz = resolveTimezone(viewerTimezone);
+
     const mappedCohorts = cohortSessions.map((session) => {
       const enrolment = enrolments.find((e) => e.batchId === session.batchId);
       const attendance = session.attendances[0];
-      return {
+      const base = {
         id: session.id,
         title: session.title,
         sessionType: session.sessionType,
         startTime: session.startTime,
         endTime: session.endTime,
+        timezone: session.timezone,
         recordingUrl: session.recordingUrl,
         joinUrl: session.joinUrl,
         programTitle: enrolment?.batch.program.title ?? '',
@@ -632,22 +761,27 @@ export class SessionsService {
         joinTime: attendance?.joinTime ?? null,
         durationMin: attendance?.durationMin ?? null,
       };
+      return enrichSessionWithTimezone(base, displayTz);
     });
 
-    const mappedOneOnOnes = oneOnOnes.map((s) => ({
-      id: s.id,
-      title: s.title,
-      sessionType: s.sessionType,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      recordingUrl: s.recordingUrl,
-      joinUrl: s.joinUrl,
-      programTitle: '1:1 Coaching',
-      batchName: 'Individual',
-      attended: false,
-      joinTime: null,
-      durationMin: null,
-    }));
+    const mappedOneOnOnes = oneOnOnes.map((s) => {
+      const base = {
+        id: s.id,
+        title: s.title,
+        sessionType: s.sessionType,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        timezone: s.timezone,
+        recordingUrl: s.recordingUrl,
+        joinUrl: s.joinUrl,
+        programTitle: '1:1 Coaching',
+        batchName: 'Individual',
+        attended: false,
+        joinTime: null,
+        durationMin: null,
+      };
+      return enrichSessionWithTimezone(base, displayTz);
+    });
 
     return [...mappedOneOnOnes, ...mappedCohorts].sort(
       (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
@@ -684,24 +818,14 @@ export class SessionsService {
       throw new BadRequestException('User is not enrolled in this batch.');
     }
 
-    if (!isAdminOverride) await markDailyAttendance(this.prisma, userId, 'sessionJoined');
-
-    return this.prisma.attendance.upsert({
-      where: {
-        sessionId_enrolmentId: {
-          sessionId,
-          enrolmentId: enrolment.id,
-        },
-      },
-      update: {
-        joinTime: new Date(),
-      },
-      create: {
-        sessionId,
-        enrolmentId: enrolment.id,
-        joinTime: new Date(),
-      },
-    });
+    if (isAdminOverride) {
+      // In a real scenario, the actorId should be the admin's ID.
+      // Since this legacy method signature only accepts `userId` (the learner),
+      // we assume the system or a generic admin ID for now, or use `userId` as fallback.
+      return this.attendanceService.recordPresentManual(sessionId, enrolment.id, 'SYSTEM_ADMIN_OVERRIDE');
+    } else {
+      return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, { joinTime: new Date() });
+    }
   }
 
   async getAttendanceForSession(sessionId: string, user: any) {
@@ -726,7 +850,26 @@ export class SessionsService {
     });
   }
 
-  // Private helper: audit log recording
+  /**
+   * D1-045: Retrieves the stored IANA timezone for a user from their profile.
+   * Returns 'UTC' if the user has no timezone set or the record is not found.
+   * Never throws.
+   *
+   * This is intentionally public so the controller can read the stored timezone
+   * and forward it to service methods. The timezone always comes from the DB —
+   * the client cannot supply or override it for security-relevant operations.
+   */
+  async getUserTimezoneForDisplay(userId: string): Promise<string> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      });
+      return resolveTimezone(user?.timezone);
+    } catch {
+      return 'UTC';
+    }
+  }
   private async recordAudit(actorId: string, action: string, entityId: string, meta?: any) {
     try {
       await this.prisma.auditLog.create({
@@ -1097,5 +1240,277 @@ export class SessionsService {
         },
       },
     });
+  }
+
+  /**
+   * D1-046: Cancel a booking. Enforces the 24-hour cancellation cutoff.
+   */
+  async cancelBooking(bookingId: string, learnerId: string, reason?: string) {
+    const booking = await this.prisma.sessionBooking.findUnique({
+      where: { id: bookingId },
+      include: { session: true },
+    });
+
+    if (!booking) {
+      throw new NotFoundException(`Booking with ID ${bookingId} not found.`);
+    }
+
+    if (booking.userId !== learnerId) {
+      throw new ForbiddenException('You can only cancel your own bookings.');
+    }
+
+    if (
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.RESCHEDULED
+    ) {
+      throw new BadRequestException(`Booking is already ${booking.status.toLowerCase()}.`);
+    }
+
+    if (booking.session.status === SessionStatus.COMPLETED) {
+      throw new BadRequestException('Cannot cancel a booking for a completed session.');
+    }
+
+    const nowUtc = new Date();
+    const cutoffMs = getCancellationCutoffMs();
+    const sessionStartMs = booking.session.startTime.getTime();
+
+    if (sessionStartMs - nowUtc.getTime() < cutoffMs) {
+      const hours = getCancellationCutoffHours();
+      throw new BadRequestException(
+        `Cancellations must be made at least ${hours} hour${hours !== 1 ? 's' : ''} before the session starts.`,
+      );
+    }
+
+    const cancelledBooking = await this.prisma.sessionBooking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.CANCELLED,
+        cancelledAt: nowUtc,
+        cancelReason: reason || 'Learner cancelled',
+      },
+      include: {
+        session: {
+          select: { title: true, hostTrainer: { select: { name: true } } },
+        },
+      },
+    });
+
+    // Audit log
+    await this.recordAudit(learnerId, 'BOOKING_CANCELLED', booking.session.id, {
+      bookingId: booking.id,
+      reason,
+    });
+
+    // Notification
+    try {
+      await this.prisma.notification.create({
+        data: {
+          userId: learnerId,
+          type: 'SESSION_BOOKING_CANCELLED',
+          template: `Your booking for "${booking.session.title}" has been cancelled.`,
+          channel: 'IN_APP',
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Failed to create cancellation notification: ${err.message}`);
+    }
+
+    return cancelledBooking;
+  }
+
+  /**
+   * D1-046: Reschedule a booking.
+   * Cancels the old booking (enforcing 24h cutoff) and books the new session
+   * atomically in a transaction.
+   */
+  async rescheduleBooking(bookingId: string, newSessionId: string, learnerId: string) {
+    if (bookingId === newSessionId) {
+        throw new BadRequestException('Cannot reschedule to the same session.');
+    }
+
+    // Step 1: Pre-flight checks on the old booking
+    const oldBooking = await this.prisma.sessionBooking.findUnique({
+      where: { id: bookingId },
+      include: { session: true },
+    });
+
+    if (!oldBooking) {
+      throw new NotFoundException(`Booking with ID ${bookingId} not found.`);
+    }
+    if (oldBooking.userId !== learnerId) {
+      throw new ForbiddenException('You can only reschedule your own bookings.');
+    }
+    if (oldBooking.status === BookingStatus.CANCELLED || oldBooking.status === BookingStatus.RESCHEDULED) {
+      throw new BadRequestException(`Booking is already ${oldBooking.status.toLowerCase()}.`);
+    }
+
+    const nowUtc = new Date();
+    const cutoffMs = getCancellationCutoffMs();
+    
+    if (oldBooking.session.startTime.getTime() - nowUtc.getTime() < cutoffMs) {
+      const hours = getCancellationCutoffHours();
+      throw new BadRequestException(
+        `Rescheduling requires at least ${hours} hour${hours !== 1 ? 's' : ''} notice before the original session starts.`,
+      );
+    }
+
+    // Step 2: Pre-flight checks on the new session
+    const newSession = await this.prisma.session.findUnique({
+      where: { id: newSessionId },
+      include: { hostTrainer: { select: { name: true, email: true } } },
+    });
+
+    if (!newSession) {
+      throw new NotFoundException(`Target session ${newSessionId} not found.`);
+    }
+
+    if (newSession.status === SessionStatus.CANCELLED || newSession.status === SessionStatus.RESCHEDULED || newSession.status === SessionStatus.COMPLETED) {
+      throw new BadRequestException('Target session is not available for booking.');
+    }
+
+    // Eligibility check for new session
+    let enrolmentId: string | null = null;
+    if (newSession.sessionType === SessionType.ONE_ON_ONE) {
+      if (newSession.learnerId && newSession.learnerId !== learnerId) {
+        throw new ForbiddenException('This 1-on-1 session is dedicated to a different learner.');
+      }
+      const enrolment = await this.prisma.enrolment.findUnique({
+        where: { userId_batchId: { userId: learnerId, batchId: newSession.batchId } },
+        select: { id: true, status: true },
+      });
+      if (enrolment && enrolment.status === EnrolmentStatus.ACTIVE) {
+        enrolmentId = enrolment.id;
+      }
+      if (!newSession.learnerId && !enrolmentId) {
+        throw new ForbiddenException('You must have an ACTIVE enrolment in the batch to book this open 1-on-1 session.');
+      }
+    } else {
+      const enrolment = await this.prisma.enrolment.findUnique({
+        where: { userId_batchId: { userId: learnerId, batchId: newSession.batchId } },
+        select: { id: true, status: true },
+      });
+      if (!enrolment || enrolment.status !== EnrolmentStatus.ACTIVE) {
+        throw new ForbiddenException('You are not enrolled with an ACTIVE status in the batch associated with the target session.');
+      }
+      enrolmentId = enrolment.id;
+    }
+
+    const advanceNoticeMs = getAdvanceNoticeMs();
+    if (newSession.startTime.getTime() - nowUtc.getTime() < advanceNoticeMs) {
+      const hours = getAdvanceNoticeHours();
+      throw new BadRequestException(
+        `Bookings must be made at least ${hours} hour${hours !== 1 ? 's' : ''} before the session starts.`,
+      );
+    }
+
+    // Step 3: Calendar Provider Check (fail closed)
+    if (this.calendarProvider) {
+      const trainerEmail = newSession.hostTrainer?.email;
+      if (!trainerEmail) {
+        throw new ServiceUnavailableException('Session host trainer email is not configured. Cannot verify calendar availability.');
+      }
+      let busySlots: Array<{ startTime: Date; endTime: Date }>;
+      try {
+        busySlots = await this.calendarProvider.getBusySlots(trainerEmail, newSession.startTime, newSession.endTime);
+      } catch (err: any) {
+        throw new ServiceUnavailableException('Calendar availability check failed. Please try again shortly.');
+      }
+      const hasClash = busySlots.some(
+        (slot) =>
+          slot.startTime.getTime() < newSession.endTime.getTime() &&
+          slot.endTime.getTime() > newSession.startTime.getTime(),
+      );
+      if (hasClash) {
+        throw new ConflictException('The trainer is unavailable during the target session time (calendar clash).');
+      }
+    }
+
+    // Step 4: Atomic Reschedule
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Lock both sessions to prevent concurrent capacity changes
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${oldBooking.session.id}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${newSessionId}))`;
+
+      // Check if target is full
+      if (newSession.capacity !== null && newSession.capacity !== undefined) {
+        const activeBookings = await tx.sessionBooking.count({
+          where: {
+            sessionId: newSessionId,
+            status: { in: [BookingStatus.BOOKED, BookingStatus.CONFIRMED, BookingStatus.ATTENDED] },
+          },
+        });
+        if (activeBookings >= newSession.capacity) {
+          throw new ConflictException('Target session is fully booked.');
+        }
+      }
+
+      // Check if they already have an active booking for the new session
+      const existingNewBooking = await tx.sessionBooking.findUnique({
+        where: { sessionId_userId: { sessionId: newSessionId, userId: learnerId } },
+      });
+
+      if (existingNewBooking && ([BookingStatus.BOOKED, BookingStatus.CONFIRMED, BookingStatus.ATTENDED] as BookingStatus[]).includes(existingNewBooking.status)) {
+         throw new ConflictException('You already have an active booking for the target session.');
+      }
+
+      // 1. Cancel old booking
+      await tx.sessionBooking.update({
+        where: { id: bookingId },
+        data: {
+          status: BookingStatus.RESCHEDULED,
+          cancelledAt: nowUtc,
+          cancelReason: 'Rescheduled to new session',
+        },
+      });
+
+      // 2. Create or Upsert new booking
+      let newBooking;
+      if (existingNewBooking) {
+        newBooking = await tx.sessionBooking.update({
+          where: { sessionId_userId: { sessionId: newSessionId, userId: learnerId } },
+          data: {
+            enrolmentId: enrolmentId ?? undefined,
+            status: BookingStatus.BOOKED,
+          },
+          include: { session: true },
+        });
+      } else {
+        newBooking = await tx.sessionBooking.create({
+          data: {
+            sessionId: newSessionId,
+            userId: learnerId,
+            enrolmentId: enrolmentId ?? undefined,
+            status: BookingStatus.BOOKED,
+          },
+          include: { session: true },
+        });
+      }
+
+      return newBooking;
+    });
+
+    // Audit logs
+    await this.recordAudit(learnerId, 'BOOKING_RESCHEDULED', result.sessionId, {
+      oldBookingId: bookingId,
+      newBookingId: result.id,
+      oldSessionId: oldBooking.sessionId,
+      newSessionId: newSessionId,
+    });
+
+    // Notifications
+    try {
+      await this.prisma.notification.create({
+        data: {
+          userId: learnerId,
+          type: 'SESSION_BOOKING_RESCHEDULED',
+          template: `Your booking has been rescheduled to "${result.session.title}".`,
+          channel: 'IN_APP',
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Failed to create reschedule notification: ${err.message}`);
+    }
+
+    return result;
   }
 }

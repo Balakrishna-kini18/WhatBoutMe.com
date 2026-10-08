@@ -11,15 +11,20 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
+import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
+import { Role } from '@prisma/client';
 import { CreateSessionDto, UpdateSessionDto, QuerySessionsDto } from './dto/index.js';
 
 @Controller('sessions')
 @UseGuards(PermissionsGuard)
 export class SessionsController {
-  constructor(private readonly sessionsService: SessionsService) {}
+  constructor(
+    private readonly sessionsService: SessionsService,
+    private readonly reconciliationService: AttendanceReconciliationService
+  ) {}
 
   /**
    * Filter sessions by batch, sessionType, trainer, status, or date range.
@@ -34,11 +39,14 @@ export class SessionsController {
 
   /**
    * Learner-specific: live sessions across enrolled cohorts and dedicated 1:1s.
+   * D1-045: Sessions are enriched with a `displayTime` block in the learner's
+   * stored profile timezone. UTC startTime/endTime values are never altered.
    */
   @RequirePermission(Permission.SESSIONS_READ)
   @Get('mine')
-  getMySessions(@Request() req: any) {
-    return this.sessionsService.getMySessions(req.user.sub);
+  async getMySessions(@Request() req: any) {
+    const tz = await this.sessionsService.getUserTimezoneForDisplay(req.user.sub);
+    return this.sessionsService.getMySessions(req.user.sub, tz);
   }
 
   /**
@@ -133,6 +141,45 @@ export class SessionsController {
   }
 
   /**
+   * D1-048b: Fetch unmatched attendance records for a session
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
+  @Get(':id/unmatched-attendance')
+  getUnmatchedAttendance(@Param('id') id: string) {
+    return this.reconciliationService.getUnmatchedForSession(id);
+  }
+
+  /**
+   * D1-048b: Resolve unmatched attendance
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
+  @Patch(':id/unmatched-attendance/:unmatchedId/resolve')
+  resolveUnmatchedAttendance(
+    @Param('unmatchedId') unmatchedId: string,
+    @Body('enrolmentId') enrolmentId: string,
+    @Request() req: any
+  ) {
+    const actorId = req.user.sub ?? req.user.userId ?? req.user.id;
+    const isPrivileged = req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    return this.reconciliationService.resolveUnmatched(unmatchedId, enrolmentId, actorId, isPrivileged);
+  }
+
+  /**
+   * D1-048b: Dismiss unmatched attendance
+   */
+  @RequirePermission(Permission.ATTENDANCE_CORRECT)
+  @Patch(':id/unmatched-attendance/:unmatchedId/dismiss')
+  dismissUnmatchedAttendance(
+    @Param('unmatchedId') unmatchedId: string,
+    @Request() req: any
+  ) {
+    const actorId = req.user.sub ?? req.user.userId ?? req.user.id;
+    const isPrivileged = req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    return this.reconciliationService.dismissUnmatched(unmatchedId, actorId, isPrivileged);
+  }
+
+
+  /**
    * D1-044: Learner self-booking for a session slot.
    * Learner identity is derived exclusively from the authenticated JWT — the
    * client cannot supply or forge a userId.
@@ -159,5 +206,30 @@ export class SessionsController {
   @Get('my/bookings')
   getMyBookings(@Request() req: any) {
     return this.sessionsService.getMyBookings(req.user.sub);
+  }
+  /**
+   * D1-046: Cancel a booking
+   */
+  @RequirePermission(Permission.SESSIONS_BOOK)
+  @Post('bookings/:bookingId/cancel')
+  cancelBooking(
+    @Param('bookingId') bookingId: string,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    return this.sessionsService.cancelBooking(bookingId, req.user.sub, reason);
+  }
+
+  /**
+   * D1-046: Reschedule a booking
+   */
+  @RequirePermission(Permission.SESSIONS_BOOK)
+  @Post('bookings/:bookingId/reschedule')
+  rescheduleBooking(
+    @Param('bookingId') bookingId: string,
+    @Body('newSessionId') newSessionId: string,
+    @Request() req: any,
+  ) {
+    return this.sessionsService.rescheduleBooking(bookingId, newSessionId, req.user.sub);
   }
 }

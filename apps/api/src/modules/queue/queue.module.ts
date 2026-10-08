@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QueueEventsService } from './queue-events.service.js';
+import { OutboxDispatcherService } from './outbox-dispatcher.service.js';
 
 const defaultJobOptions = {
   attempts: 3,
@@ -41,9 +42,10 @@ const defaultJobOptions = {
       { name: 'calendar-sync' },
       { name: 'media-process' },
       { name: 'invoice-gen' },
+      { name: 'meeting-sync' },
     ),
   ],
-  providers: [QueueEventsService],
-  exports: [BullModule, QueueEventsService],
+  providers: [QueueEventsService, OutboxDispatcherService],
+  exports: [BullModule, QueueEventsService, OutboxDispatcherService],
 })
 export class QueueModule {}

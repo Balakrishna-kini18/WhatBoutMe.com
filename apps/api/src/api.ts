@@ -64,26 +64,95 @@ async function bootstrapServer() {
 }
 
 export default async (req: any, res: any) => {
+  // Vercel Hobby serverless max execution is 10s.  Guarantee the handler
+  // always resolves and writes a response within 9.5s, even if Nest bootstrap,
+  // Redis, Prisma, or middleware stall indefinitely.  This prevents Vercel's
+  // generic "FUNCTION_INVOCATION_FAILED" and instead returns a descriptive JSON
+  // error — the critical difference between an infra-crash page and a real API
+  // error response that clients can programmatically handle.
+  const SAFETY_LIMIT_MS = 9500;
+  let safetyFired = false;
+  let safetyClearResolved: (() => void) | undefined;
+
+  const safetyTimer = setTimeout(() => {
+    safetyFired = true;
+    console.error(`FATAL SERVERLESS SAFETY TIMEOUT: force-ending response (${SAFETY_LIMIT_MS}ms)`);
+    try {
+      if (!res.headersSent) {
+        res.status(500).json({
+          statusCode: 500,
+          error: 'Serverless Execution Timeout',
+          message: `Handler exceeded ${SAFETY_LIMIT_MS}ms safety limit`,
+        });
+      } else if (typeof res.end === 'function') {
+        try { res.end(); } catch { /* noop */ }
+      }
+    } catch { /* noop */ }
+    // If safetyClearResolved is set, the outer handler is stuck awaiting
+    // bootstrap (no Promise listeners on res yet) — unblock it directly.
+    if (safetyClearResolved) try { safetyClearResolved(); } catch { /* noop */ }
+  }, SAFETY_LIMIT_MS);
+
+  const finishEarly = () => {
+    try { clearTimeout(safetyTimer); } catch { /* noop */ }
+  };
+
   try {
-    const app = await bootstrapServer();
-    return new Promise<void>((resolve, reject) => {
-      res.on('finish', () => resolve());
-      res.on('close', () => resolve());
-      res.on('error', (err: any) => reject(err));
+    let bootstrapDone = false;
+    const app = await Promise.race([
+      bootstrapServer(),
+      new Promise<never>((_, reject) => {
+        safetyClearResolved = () => reject(new Error(`Serverless safety timeout during bootstrap (${SAFETY_LIMIT_MS}ms)`));
+      }),
+    ]);
+    bootstrapDone = true;
+
+    if (safetyFired) {
+      // Safety timer already wrote a response during bootstrap.  Ensure the
+      // Vercel Lambda unblocks immediately instead of waiting for the event
+      // loop to empty.
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const done = () => { finishEarly(); resolve(); };
+      const fail = (err: any) => { finishEarly(); reject(err); };
+      res.once('finish', done);
+      res.once('close', done);
+      res.once('error', fail);
+      if (safetyFired) { done(); return; }
       app(req, res, (err: any) => {
-        if (err) return reject(err);
-        resolve();
+        if (safetyFired) { done(); return; }
+        if (err) return fail(err);
+        // Express reached the bottom of its stack with no match → force end.
+        if (!res.headersSent) {
+          res.status(404).json({ statusCode: 404, error: 'Not Found', message: `Cannot ${req.method} ${req.url}` });
+        }
+        if (res.writableEnded) done();
+        else if (typeof res.end === 'function') { try { res.end(undefined, undefined, () => done()); } catch { done(); } }
+        else done();
       });
     });
   } catch (err: any) {
+    finishEarly();
     console.error('FATAL SERVERLESS BOOTSTRAP ERROR:', err);
     if (!res.headersSent) {
-      res.status(500).json({
-        statusCode: 500,
-        error: 'Serverless Bootstrap Error',
-        message: err?.message || String(err),
-        stack: err?.stack,
-      });
+      try {
+        res.status(500).json({
+          statusCode: 500,
+          error: 'Serverless Bootstrap Error',
+          message: err?.message || String(err),
+          stack: process.env.NODE_ENV === 'production' ? undefined : err?.stack,
+        });
+      } catch (writeErr) {
+        console.error('FATAL: could not write error response:', (writeErr as any)?.message || writeErr);
+        if (typeof res.end === 'function') try { res.end(); } catch { /* noop */ }
+      }
+    } else if (typeof res.end === 'function') {
+      try { res.end(); } catch { /* noop */ }
     }
+  } finally {
+    finishEarly();
+    safetyClearResolved = undefined;
   }
 };

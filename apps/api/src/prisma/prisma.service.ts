@@ -15,6 +15,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleInit() {
+    const isWorkerMode = process.env.WORKER_MODE === 'true';
+    // Long-running BullMQ workers must fail-fast at boot if DB is unreachable.
+    // Serverless API functions: Prisma auto-lazy-connects on the first query
+    // (e.g. HealthController / real endpoint).  Skipping eager connect here
+    // removes the 3-attempt × 1s retry delay (~2s+ idle stall) from cold start
+    // and avoids Prisma DNS/connect hangs blocking Vercel invocation.
+    if (!isWorkerMode) {
+      try {
+        // @ts-ignore
+        this.$on('query', (e) => {
+          queryCount++;
+        });
+      } catch {}
+      return;
+    }
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         await this.$connect();

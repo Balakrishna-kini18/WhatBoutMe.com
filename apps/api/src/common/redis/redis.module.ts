@@ -11,17 +11,37 @@ import { RedisService } from './redis.service.js';
       useFactory: async () => {
         const url = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || '6379'}`;
         const isRediss = url.startsWith('rediss://');
-        
+        const isWorkerMode = process.env.WORKER_MODE === 'true';
+        const isServerless = !isWorkerMode;
+
+        // In serverless mode, connect to Redis quickly or fall back to memory
+        // cache immediately so the Vercel invocation never stalls.
+        const connectTimeout = isServerless ? 1500 : 10000;
+        const reconnectStrategy = (retries: number) =>
+          isServerless ? false : retries > 5 ? false : Math.min(retries * 100, 2000);
+
         try {
-          const store = await redisStore({
+          const storeP = redisStore({
             url,
             socket: {
               tls: isRediss ? true : undefined,
               rejectUnauthorized: false,
-              reconnectStrategy: (retries: number) => Math.min(retries * 100, 3000),
+              connectTimeout,
+              reconnectStrategy,
             },
             ttl: 60 * 1000, // Default 60 seconds caching globally
           });
+
+          // Fail fast in serverless mode: don't let redisStore() hang bootstrap
+          // indefinitely when Redis is unreachable (DNS, auth, rate-limit).
+          const store = isServerless
+            ? await Promise.race([
+                storeP,
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`redisStore init timed out after ${connectTimeout}ms`)), connectTimeout),
+                ),
+              ])
+            : await storeP;
 
           if (store && store.client) {
             store.client.on('error', (err: any) => {

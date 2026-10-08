@@ -927,7 +927,7 @@ export default function UserDetailPage({
       {/* Manual Override Dialog Modal */}
       {activeModal && targetStep && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modal} style={{ maxWidth: "520px" }}>
+          <div className={styles.modalContent} style={{ maxWidth: "520px" }}>
             <div className={styles.modalHeader}>
               <h2 style={{ fontSize: "1.25rem", margin: 0 }}>
                 {activeModal === "unlock" && `Manual Unlock — Step ${targetStep.sequence}`}

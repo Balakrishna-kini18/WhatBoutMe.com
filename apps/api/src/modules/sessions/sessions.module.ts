@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { SessionsController } from './sessions.controller.js';
 import { SessionsService } from './sessions.service.js';
 import { AttendanceService } from './attendance.service.js';
+import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { AttendanceController } from './attendance.controller.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { ZoomModule } from '../zoom/zoom.module.js';
@@ -23,6 +24,7 @@ import { MeetingSyncProcessor } from './meeting-sync.processor.js';
   providers: [
     SessionsService,
     AttendanceService,
+    AttendanceReconciliationService,
     MeetingSyncProcessor,
     {
       provide: MEETING_PROVIDER,
@@ -35,6 +37,6 @@ import { MeetingSyncProcessor } from './meeting-sync.processor.js';
       useValue: null,
     },
   ],
-  exports: [SessionsService, AttendanceService],
+  exports: [SessionsService, AttendanceService, AttendanceReconciliationService],
 })
 export class SessionsModule {}

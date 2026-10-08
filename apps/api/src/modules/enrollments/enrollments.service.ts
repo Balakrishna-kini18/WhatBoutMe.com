@@ -777,7 +777,11 @@ export class EnrollmentsService {
 
   async findForLearner(userId: string) {
     return this.prisma.enrolment.findMany({
-      where: { userId },
+      where: {
+        userId,
+        program: { status: { not: 'ARCHIVED' } },
+        batch: { status: { not: 'ARCHIVED' } },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         program: {
@@ -828,7 +832,12 @@ export class EnrollmentsService {
 
   async findOneForLearner(id: string, userId: string) {
     const enrolment = await this.prisma.enrolment.findFirst({
-      where: { id, userId },
+      where: {
+        id,
+        userId,
+        program: { status: { not: 'ARCHIVED' } },
+        batch: { status: { not: 'ARCHIVED' } },
+      },
       include: {
         program: {
           select: {

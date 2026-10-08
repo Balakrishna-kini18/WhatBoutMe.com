@@ -108,13 +108,20 @@ export default function ProgramsPage() {
   };
 
   const handleDeleteProgram = async (id: string) => {
-    if (!confirm("Are you sure you want to archive this program?")) return;
+    if (!confirm("Are you sure you want to delete this program?")) return;
     try {
       const res = await fetch(`${API_URL}/programs/${id}`, {
         method: "DELETE",
       });
       if (res.ok) {
         fetchPrograms();
+      } else {
+        const errorData = await res.json().catch(() => null);
+        if (res.status === 403) {
+          alert("You do not have permission to delete programs.");
+        } else {
+          alert(`Failed to delete program: ${errorData?.message || res.statusText}`);
+        }
       }
     } catch (e) {
       console.error("Failed to delete program", e);
@@ -249,7 +256,7 @@ export default function ProgramsPage() {
                       <div className={styles.actionDropdown}>
                         <Link href={`/programs/${prog.id}`} className={styles.dropdownItem} style={{display: 'block', textDecoration: 'none'}}>Edit Curriculum (Steps)</Link>
                         <button className={styles.dropdownItem} onClick={() => openEditModal(prog)}>Edit Program Settings</button>
-                        <button className={`${styles.dropdownItem} ${styles.textDanger}`} onClick={() => handleDeleteProgram(prog.id)}>Archive Program</button>
+                        <button className={`${styles.dropdownItem} ${styles.textDanger}`} onClick={() => handleDeleteProgram(prog.id)}>Delete Program</button>
                       </div>
                     )}
                   </td>

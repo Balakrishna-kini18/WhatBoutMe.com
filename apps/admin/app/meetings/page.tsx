@@ -409,8 +409,8 @@ export default function MeetingsPage() {
         <div className={styles.sectionHeader}>
           <h2>Scheduled Sessions ({filteredMeetings.length})</h2>
         </div>
-        <div className={styles.tableWrapper}>
-          <table className={styles.adminTable}>
+        <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
+          <table className={styles.adminTable} style={{ tableLayout: "auto", minWidth: "1100px" }}>
             <thead>
               <tr>
                 <th>Session</th>

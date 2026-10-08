@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -198,7 +198,14 @@ export class UsersService {
     if (plain) {
       userData.passwordHash = await bcrypt.hash(plain, 12);
     }
-    return this.prisma.user.create({ data: userData });
+    try {
+      return await this.prisma.user.create({ data: userData });
+    } catch (error: any) {
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        throw new ConflictException('A user with this email already exists.');
+      }
+      throw error;
+    }
   }
 
   async update(id: string, data: any) {
@@ -237,14 +244,21 @@ export class UsersService {
       forgetSessions();
     }
 
-    const updatedUser = await this.prisma.user.update({
-      where: { id },
-      data: userData,
-    });
-    
-    await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
-    await this.cacheHelper.invalidateNamespace('users');
-    return updatedUser;
+    try {
+      const updatedUser = await this.prisma.user.update({
+        where: { id },
+        data: userData,
+      });
+      
+      await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
+      await this.cacheHelper.invalidateNamespace('users');
+      return updatedUser;
+    } catch (error: any) {
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        throw new ConflictException('A user with this email already exists.');
+      }
+      throw error;
+    }
   }
 
   async remove(id: string) {

@@ -74,10 +74,13 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('Access denied: User has no assigned role');
     }
 
-    // Verify all required permissions are possessed by user's role
-    const hasAllPermissions = requiredPermissions.every((perm) =>
-      roleHasPermission(user.role, perm as Permission),
-    );
+    // Verify all required permissions are possessed by user's role OR custom user permissions array
+    const hasAllPermissions = requiredPermissions.every((perm) => {
+      const hasRolePerm = roleHasPermission(user.role, perm as Permission);
+      if (hasRolePerm) return true;
+      // Check dynamic custom permissions
+      return user.permissions && Array.isArray(user.permissions) && user.permissions.includes(perm);
+    });
 
     if (!hasAllPermissions) {
       throw new ForbiddenException('Access denied: Insufficient permissions');

@@ -27,7 +27,7 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findAll(user: any, query?: QueryBatchesDto) {
-    const isManager = user?.role === Role.MANAGER;
+    const isManagerOrTeacher = user?.role === Role.MANAGER || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
@@ -35,7 +35,7 @@ export class BatchesService {
       (user?.role as any) || 'GUEST',
       {
         action: 'findAll',
-        userId: isManager ? userId : undefined,
+        userId: isManagerOrTeacher ? userId : undefined,
         programId: query?.programId,
         status: query?.status,
       },
@@ -44,7 +44,7 @@ export class BatchesService {
     return this.cacheHelper.getOrSet(cacheKey, async () => {
       const where: any = {};
 
-      if (isManager) {
+      if (isManagerOrTeacher) {
         where.OR = [
           { managerId: userId },
           { trainers: { some: { trainerId: userId } } },
@@ -87,13 +87,13 @@ export class BatchesService {
   }
 
   async findOne(id: string, user: any) {
-    const isManager = user?.role === Role.MANAGER;
+    const isManagerOrTeacher = user?.role === Role.MANAGER || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
       'batches',
       (user?.role as any) || 'GUEST',
-      { action: 'findOne', id, userId: isManager ? userId : undefined },
+      { action: 'findOne', id, userId: isManagerOrTeacher ? userId : undefined },
     );
 
     return this.cacheHelper.getOrSet(cacheKey, async () => {
@@ -134,7 +134,7 @@ export class BatchesService {
         throw new NotFoundException('Batch not found');
       }
 
-      if (isManager) {
+      if (isManagerOrTeacher) {
         const isAssigned =
           batch.managerId === userId ||
           batch.trainers.some((t) => t.trainerId === userId);

@@ -236,6 +236,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      permissions: user.permissions,
       companyId: user.companyId,
       sessionId,
     };
@@ -279,6 +280,7 @@ export class AuthService {
         companyId: user.companyId,
         country: user.country,
         timezone: user.timezone,
+        permissions: user.permissions || [],
         enrolledPrograms,
       },
     };
@@ -737,6 +739,7 @@ export class AuthService {
         name: true,
         phone: true,
         role: true,
+        permissions: true,
         companyId: true,
         createdAt: true,
         enrolments: {

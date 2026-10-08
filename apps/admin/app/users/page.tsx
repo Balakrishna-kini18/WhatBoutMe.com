@@ -13,6 +13,7 @@ interface User {
   progress?: string;
   cohort?: string;
   joined?: string;
+  permissions?: string[];
 }
 
 export default function UsersPage() {
@@ -34,6 +35,7 @@ export default function UsersPage() {
   const [cohort, setCohort] = useState("");
   const [role, setRole] = useState("USER");
   const [password, setPassword] = useState("");
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [formError, setFormError] = useState("");
   // only a super admin may create another super admin
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -105,6 +107,7 @@ export default function UsersPage() {
     setCohort(""); // Real implementation would resolve cohort to batch ID
     setRole(user.role || "USER");
     setPassword("");
+    setPermissions(user.permissions || []);
     setFormError("");
     setIsModalOpen(true);
     setActiveDropdown(null);
@@ -118,6 +121,7 @@ export default function UsersPage() {
     setCohort("");
     setRole("USER");
     setPassword("");
+    setPermissions([]);
     setFormError("");
     setIsModalOpen(true);
   };
@@ -147,6 +151,7 @@ export default function UsersPage() {
       email,
       name: `${firstName} ${lastName}`.trim(),
       role,
+      permissions,
       ...(password ? { password } : {}),
     };
 
@@ -348,6 +353,7 @@ export default function UsersPage() {
                   <label>Role</label>
                   <select value={role} onChange={e => setRole(e.target.value)}>
                     <option value="USER">Learner</option>
+                    <option value="TEACHER">Teacher / Instructor</option>
                     <option value="MANAGER">Manager</option>
                     <option value="ADMIN">Admin</option>
                     {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
@@ -368,6 +374,35 @@ export default function UsersPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Dynamic Permissions Checkboxes (Only Super Admin can assign these to Admins/Managers/Teachers) */}
+              {isSuperAdmin && ["ADMIN", "MANAGER", "TEACHER"].includes(role) && (
+                <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
+                  <label style={{ marginBottom: "0.5rem" }}>Custom Module Access</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                    {[
+                      { id: "view_users", label: "Users & Enrolments" },
+                      { id: "view_batches", label: "Batches & Cohorts" },
+                      { id: "manage_curriculum", label: "Curriculum & Programs" },
+                      { id: "manage_website", label: "Website Content & CRM" },
+                      { id: "view_finance", label: "Finance & Revenue" },
+                      { id: "manage_operations", label: "Operations & Meetings" }
+                    ].map(perm => (
+                      <label key={perm.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", fontWeight: 500, cursor: "pointer" }}>
+                        <input 
+                          type="checkbox" 
+                          checked={permissions.includes(perm.id)} 
+                          onChange={(e) => {
+                            if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
+                            else setPermissions(prev => prev.filter(p => p !== perm.id));
+                          }} 
+                        />
+                        {perm.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {formError && (
                 <p role="alert" style={{ margin: 0, padding: '0.75rem 1rem', borderRadius: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.85rem' }}>{formError}</p>

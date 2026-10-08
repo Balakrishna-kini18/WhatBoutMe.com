@@ -33,8 +33,8 @@ export class UsersService {
     return safeUser;
   }
 
-  async findAll(params: { page: number; limit: number; search?: string; role?: Role }) {
-    const { page, limit, search, role } = params;
+  async findAll(params: { page: number; limit: number; search?: string; role?: Role; reqUser?: any }) {
+    const { page, limit, search, role, reqUser } = params;
     
     // Hash parameters to create a unique cache key for this exact list request
     const paramsHash = Buffer.from(JSON.stringify({ page, limit, search, role })).toString('base64');
@@ -50,6 +50,20 @@ export class UsersService {
         { name: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
       ];
+    }
+
+    if (reqUser && (reqUser.role === Role.MANAGER || reqUser.role === 'TEACHER')) {
+      const userId = reqUser.sub || reqUser.id;
+      where.enrolments = {
+        some: {
+          batch: {
+            OR: [
+              { managerId: userId },
+              { trainers: { some: { trainerId: userId } } },
+            ],
+          },
+        },
+      };
     }
 
     const [total, users] = await Promise.all([
@@ -157,6 +171,7 @@ export class UsersService {
         name: user.name || 'Unknown',
         email: user.email,
         role: user.role,
+        permissions: user.permissions || [],
         status: enrolment?.status || 'Active',
         progress: `${progressPct}%`,
         cohort: enrolment?.batch?.name || 'Unassigned',

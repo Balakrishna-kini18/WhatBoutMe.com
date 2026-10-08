@@ -685,7 +685,7 @@ export class ExamsService {
     }
 
     // Manager Batch Scoping
-    if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,
@@ -762,7 +762,7 @@ export class ExamsService {
       throw new NotFoundException('Enrolment not found');
     }
 
-    if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,

@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseInterceptors, Req } from '@nestjs/common';
 import { CacheInterceptor, CacheKey, CacheTTL } from '@nestjs/cache-manager';
 import { Query } from '@nestjs/common';
 import { UsersService } from './users.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
-import { IsString, IsEmail, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsEnum, IsArray } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail() email: string;
@@ -12,6 +12,7 @@ export class CreateUserDto {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() password?: string;
   @IsOptional() @IsEnum(Role) role?: Role;
+  @IsOptional() @IsArray() permissions?: string[];
 }
 
 export class UpdateUserDto {
@@ -19,10 +20,11 @@ export class UpdateUserDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsEnum(Role) role?: Role;
+  @IsOptional() @IsArray() permissions?: string[];
 }
 
 @Controller('users')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -30,12 +32,13 @@ export class UsersController {
   // @UseInterceptors(CacheInterceptor)
   // @CacheKey('all_users')
   // @CacheTTL(60000)
-  findAll(@Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('role') role?: Role) {
+  findAll(@Req() req: any, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('role') role?: Role) {
     return this.usersService.findAll({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 20,
       search,
-      role
+      role,
+      reqUser: req.user,
     });
   }
 

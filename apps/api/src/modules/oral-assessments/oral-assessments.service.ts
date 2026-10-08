@@ -54,7 +54,7 @@ export class OralAssessmentsService {
     }
 
     // Manager Batch Scoping
-    if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,
@@ -132,7 +132,7 @@ export class OralAssessmentsService {
           'Access denied: You do not own this oral assessment',
         );
       }
-    } else if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    } else if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,
@@ -177,7 +177,7 @@ export class OralAssessmentsService {
           'Access denied: You do not own this enrolment',
         );
       }
-    } else if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    } else if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,
@@ -234,7 +234,7 @@ export class OralAssessmentsService {
     }
 
     // Manager Batch Scoping
-    if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,
@@ -381,7 +381,7 @@ export class OralAssessmentsService {
       throw new ForbiddenException('Access denied: Learners cannot view batch assessments');
     }
 
-    if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+    if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(
         this.prisma,
         actorId,

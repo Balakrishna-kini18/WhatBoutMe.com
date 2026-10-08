@@ -19,6 +19,7 @@ enum Role {
   SUPER_ADMIN
   ADMIN
   MANAGER
+  TEACHER
   USER
 }
 
@@ -201,6 +202,7 @@ model User {
   phone        String?
   passwordHash String?
   role         Role    @default(USER)
+  permissions  String[] @default([])
 
   // Authentication & Security (D1-004)
   country              String?

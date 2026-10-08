@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -33,8 +33,8 @@ export class UsersService {
     return safeUser;
   }
 
-  async findAll(params: { page: number; limit: number; search?: string; role?: Role }) {
-    const { page, limit, search, role } = params;
+  async findAll(params: { page: number; limit: number; search?: string; role?: Role; reqUser?: any }) {
+    const { page, limit, search, role, reqUser } = params;
     
     // Hash parameters to create a unique cache key for this exact list request
     const paramsHash = Buffer.from(JSON.stringify({ page, limit, search, role })).toString('base64');
@@ -44,12 +44,31 @@ export class UsersService {
       const skip = (page - 1) * limit;
 
     const where: any = {};
-    if (role) where.role = role;
+    if (role === 'STAFF' as any) {
+      where.role = { not: Role.USER };
+    } else if (role) {
+      where.role = role;
+    }
+    
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
       ];
+    }
+
+    if (reqUser && ((reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER') || reqUser.role === 'TEACHER')) {
+      const userId = reqUser.sub || reqUser.id;
+      where.enrolments = {
+        some: {
+          batch: {
+            OR: [
+              { managerId: userId },
+              { trainers: { some: { trainerId: userId } } },
+            ],
+          },
+        },
+      };
     }
 
     const [total, users] = await Promise.all([
@@ -157,6 +176,7 @@ export class UsersService {
         name: user.name || 'Unknown',
         email: user.email,
         role: user.role,
+        permissions: user.permissions || [],
         status: enrolment?.status || 'Active',
         progress: `${progressPct}%`,
         cohort: enrolment?.batch?.name || 'Unassigned',
@@ -183,7 +203,14 @@ export class UsersService {
     if (plain) {
       userData.passwordHash = await bcrypt.hash(plain, 12);
     }
-    return this.prisma.user.create({ data: userData });
+    try {
+      return await this.prisma.user.create({ data: userData });
+    } catch (error: any) {
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        throw new ConflictException('A user with this email already exists.');
+      }
+      throw error;
+    }
   }
 
   async update(id: string, data: any) {
@@ -222,14 +249,21 @@ export class UsersService {
       forgetSessions();
     }
 
-    const updatedUser = await this.prisma.user.update({
-      where: { id },
-      data: userData,
-    });
-    
-    await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
-    await this.cacheHelper.invalidateNamespace('users');
-    return updatedUser;
+    try {
+      const updatedUser = await this.prisma.user.update({
+        where: { id },
+        data: userData,
+      });
+      
+      await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
+      await this.cacheHelper.invalidateNamespace('users');
+      return updatedUser;
+    } catch (error: any) {
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        throw new ConflictException('A user with this email already exists.');
+      }
+      throw error;
+    }
   }
 
   async remove(id: string) {

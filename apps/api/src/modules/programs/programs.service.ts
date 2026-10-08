@@ -203,7 +203,7 @@ export class ProgramsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getSteps(programId: string, role?: string) {
-    const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN || role === Role.MANAGER;
+    const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN || (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
     const cacheKey = await this.cacheHelper.getEndpointKey(
       'programs',
       (role as any) || 'GUEST',
@@ -232,7 +232,7 @@ export class ProgramsService {
 
   async getStep(stepId: string, role?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
-    const isManager = role === Role.MANAGER;
+    const isManager = (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
     const isPrivileged = isStaff || isManager;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
@@ -520,7 +520,7 @@ export class ProgramsService {
 
   async getLessons(stepId: string, role?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
-    const isManager = role === Role.MANAGER;
+    const isManager = (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
     const isPrivileged = isStaff || isManager;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(

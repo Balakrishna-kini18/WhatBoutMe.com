@@ -87,6 +87,29 @@ export default async function (req, res) {
   // Track latest res in case global uncaught handlers need to write a response.
   globalThis.__lastRes = res;
 
+  // Normalize req.url and req.originalUrl for Vercel internal rewrites.
+  // When vercel.json rewrites /(.*) to /api/index, Vercel sets req.url to
+  // '/api/index' and provides the original requested path in 'x-matched-path'.
+  // Restore the real requested path so Express/Nest routing matches.
+  try {
+    const rawMatched = req?.headers?.['x-matched-path'] || req?.headers?.['x-forwarded-uri'] || req?.headers?.['x-invoke-path'];
+    let targetPath = typeof rawMatched === 'string' ? rawMatched : (req.url || '/');
+    const qIdx = req.url && typeof req.url === 'string' ? req.url.indexOf('?') : -1;
+    const query = qIdx !== -1 ? req.url.slice(qIdx) : (targetPath.includes('?') ? targetPath.slice(targetPath.indexOf('?')) : '');
+    targetPath = targetPath.split('?')[0];
+
+    if (targetPath === '/api/index' || targetPath === '/api/index/' || targetPath === '/api' || targetPath === '/api/') {
+      targetPath = '/';
+    } else if (targetPath.startsWith('/api/')) {
+      // NestJS controllers do not have an '/api' global prefix (e.g. /health, /auth, /users).
+      // Strip leading '/api' so both /health and /api/health route correctly.
+      targetPath = targetPath.slice(4) || '/';
+    }
+
+    req.url = targetPath + query;
+    req.originalUrl = req.url;
+  } catch {}
+
   // Final 11s outer hard-stop (Vercel Hobby hard limit 10s).  If nothing else
   // fires, this guarantees we write at least SOMETHING before Vercel kills us.
   let outerFinished = false;

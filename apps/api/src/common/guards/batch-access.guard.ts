@@ -107,8 +107,8 @@ export class BatchAccessGuard implements CanActivate {
       return true;
     }
 
-    // Only MANAGER is subject to manager-batch scoping. Other roles have no batch management access.
-    if (user.role !== Role.MANAGER && user.role !== 'MANAGER') {
+    // Only MANAGER and TEACHER are subject to batch scoping. Other roles have no batch management access.
+    if (user.role !== Role.MANAGER && user.role !== 'MANAGER' && user.role !== 'TEACHER') {
       throw new ForbiddenException('Access denied: Role does not have batch management access');
     }
 

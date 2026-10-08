@@ -1094,7 +1094,7 @@ export class ProgressionService {
       return;
     }
 
-    if (role === Role.MANAGER) {
+    if ((role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER')) {
       const isAssigned =
         enrolment.batch.managerId === userId ||
         (Array.isArray(enrolment.batch.trainers) &&

@@ -97,8 +97,8 @@ export class SessionsService {
       throw new BadRequestException('Cannot schedule sessions for an archived batch.');
     }
 
-    // Role-based Manager Batch Scoping
-    if (actorUser.role === Role.MANAGER) {
+    // Role-based Manager/Teacher Batch Scoping
+    if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER') || actorUser.role === 'TEACHER') {
       const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, data.batchId);
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
@@ -316,7 +316,7 @@ export class SessionsService {
     }
 
     // Role-based scoping
-    if (user.role === Role.MANAGER) {
+    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
       const assignedBatches = await this.prisma.batch.findMany({
         where: {
           OR: [
@@ -393,7 +393,7 @@ export class SessionsService {
       throw new NotFoundException(`Session with ID ${sessionId} not found.`);
     }
 
-    if (user.role === Role.MANAGER) {
+    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
       const isAssigned =
         session.batch.managerId === user.sub ||
         session.batch.trainers.some((t: any) => t.trainerId === user.sub);
@@ -428,7 +428,7 @@ export class SessionsService {
       throw new NotFoundException(`Session with ID ${sessionId} not found.`);
     }
 
-    if (actorUser.role === Role.MANAGER) {
+    if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId);
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
@@ -558,7 +558,7 @@ export class SessionsService {
       throw new NotFoundException(`Session with ID ${sessionId} not found.`);
     }
 
-    if (actorUser.role === Role.MANAGER) {
+    if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId);
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
@@ -836,7 +836,7 @@ export class SessionsService {
 
     if (!session) throw new NotFoundException('Session not found');
 
-    if (user.role === Role.MANAGER && session.batch.managerId !== user.sub) {
+    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER') && session.batch.managerId !== user.sub) {
       throw new ForbiddenException('You can only view attendance for your own batches');
     }
 

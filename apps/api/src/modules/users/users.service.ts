@@ -57,7 +57,7 @@ export class UsersService {
       ];
     }
 
-    if (reqUser && (reqUser.role === Role.MANAGER || reqUser.role === 'TEACHER')) {
+    if (reqUser && ((reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER') || reqUser.role === 'TEACHER')) {
       const userId = reqUser.sub || reqUser.id;
       where.enrolments = {
         some: {

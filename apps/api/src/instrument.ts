@@ -1,11 +1,11 @@
 import * as Sentry from '@sentry/nestjs';
-import { nodeProfilingIntegration } from '@sentry/profiling-node';
+// import { nodeProfilingIntegration } from '@sentry/profiling-node';
 
 // Initialize Sentry early. This file should be imported at the very top of main.ts / worker.ts
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   integrations: [
-    nodeProfilingIntegration(),
+    // nodeProfilingIntegration(), // TEMPORARILY DISABLED: known to cause Vercel 500 crashes
   ],
   tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
   // @ts-ignore - Some versions of Sentry type definitions miss this property

@@ -558,6 +558,10 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role)
+      ])),
       companyId: user.companyId,
       sessionId,
     };
@@ -588,6 +592,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions: Array.from(new Set([
+          ...(user.permissions || []),
+          ...getRolePermissions(user.role)
+        ])),
       },
     };
 
@@ -690,6 +698,10 @@ export class AuthService {
           sub: user.id,
           email: user.email,
           role: user.role,
+          permissions: Array.from(new Set([
+            ...(user.permissions || []),
+            ...getRolePermissions(user.role)
+          ])),
           companyId: user.companyId,
           sessionId: session.id,
         };
@@ -1499,6 +1511,10 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role)
+      ])),
       companyId: user.companyId,
       sessionId,
     };
@@ -1524,6 +1540,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions: Array.from(new Set([
+          ...(user.permissions || []),
+          ...getRolePermissions(user.role)
+        ])),
       },
     };
   }

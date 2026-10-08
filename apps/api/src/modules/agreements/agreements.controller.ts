@@ -29,7 +29,6 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Controller(['admin/agreement-templates', 'admin/agreements/templates'])
-@Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class AdminAgreementTemplatesController {
   constructor(private readonly agreementsService: AgreementsService) {}
 

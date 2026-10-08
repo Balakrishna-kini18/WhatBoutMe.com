@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { AttendanceStatus } from '@prisma/client';
+import { AttendanceStatus, Role } from '@prisma/client';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 
 @Injectable()
@@ -205,6 +205,104 @@ export class AttendanceService {
       // If corrected to a positive presence, mark daily attendance
       if (enrolment.userId) {
          await markDailyAttendance(tx as any, enrolment.userId, 'sessionJoined');
+      }
+
+      return result;
+    });
+  }
+
+  /**
+   * D1-050: Overrides an attendance record by ID.
+   * Performs authorization checks, enforces reason requirement, and creates an audit trail.
+   */
+  async overrideAttendanceById(
+    attendanceId: string,
+    newStatus: AttendanceStatus,
+    actor: { id: string; role: string },
+    reason: string
+  ) {
+    if (!reason || reason.trim() === '') {
+      throw new BadRequestException('A reason is required for correcting attendance.');
+    }
+
+    const actorId = actor.id;
+
+    return this.prisma.$transaction(async (tx) => {
+      const attendance = await tx.attendance.findUnique({
+        where: { id: attendanceId },
+        include: {
+          enrolment: {
+            include: {
+              batch: {
+                include: {
+                  trainers: true
+                }
+              }
+            }
+          }
+        },
+      });
+
+      if (!attendance) {
+        throw new NotFoundException('Attendance record not found');
+      }
+
+      // Enforce Manager batch scoping
+      if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+        const batch = attendance.enrolment.batch;
+        const isAssigned =
+          batch.managerId === actorId ||
+          batch.trainers.some((t) => t.trainerId === actorId);
+
+        if (!isAssigned) {
+          throw new ForbiddenException('Access denied: You are not assigned to this batch');
+        }
+      } else if (actor.role === Role.USER || actor.role === 'USER') {
+        throw new ForbiddenException('Learners cannot override attendance');
+      }
+
+      // Existing behavior: we force status to CORRECTED, but we will pass the intended newStatus to correctAttendance if it was updated,
+      // wait, the prompt says: "Ensure the resulting attendance status is CORRECTED according to the existing attendance model."
+      // BUT if I just reuse correctAttendance logic inline, I can ensure the intended status is maybe saved?
+      // Wait, the schema says: status AttendanceStatus @default(ABSENT)
+      // and there's CORRECTED in the enum.
+      // If I just call correctAttendance, it sets status to CORRECTED. 
+      // If the client literally passes "ABSENT" and it becomes "CORRECTED", that's what correctAttendance does. 
+      // I will just implement the update here matching correctAttendance's exact persistence behavior, but allowing the DTO to pass whatever.
+      // Wait! If they pass "ABSENT", and the resulting status is CORRECTED, it counts as PRESENT. 
+      // What if I set the status to the actual passed status (e.g. ABSENT), but wait, the prompt says:
+      // "Ensure the resulting attendance status is CORRECTED according to the existing attendance model."
+      // This is explicit! I must set it to CORRECTED.
+
+      const result = await tx.attendance.update({
+        where: { id: attendanceId },
+        data: {
+          status: AttendanceStatus.CORRECTED,
+          correctedById: actorId,
+          correctionReason: reason,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'ATTENDANCE_CORRECTED',
+          entity: 'Attendance',
+          entityId: result.id,
+          meta: {
+            sessionId: attendance.sessionId,
+            enrolmentId: attendance.enrolmentId,
+            previousStatus: attendance.status,
+            newStatus: AttendanceStatus.CORRECTED, // explicitly what we set
+            intendedStatus: newStatus, // capture what they tried to set for clarity
+            reason,
+          },
+        },
+      });
+
+      // If corrected, we also mark daily attendance as per the existing logic.
+      if (attendance.userId) {
+        await markDailyAttendance(tx as any, attendance.userId, 'sessionJoined');
       }
 
       return result;

@@ -192,4 +192,107 @@ describe('AttendanceService', () => {
         .rejects.toThrow('reason is required');
     });
   });
+
+  describe('overrideAttendanceById (D1-050)', () => {
+    it('throws BadRequestException if reason is empty', async () => {
+      await expect(
+        service.overrideAttendanceById('att-1', AttendanceStatus.ABSENT, { id: 'mgr-1', role: 'MANAGER' }, '')
+      ).rejects.toThrow('A reason is required');
+    });
+
+    it('throws NotFoundException if attendance record not found', async () => {
+      prismaMock.attendance.findUnique.mockResolvedValue(null);
+      await expect(
+        service.overrideAttendanceById('att-1', AttendanceStatus.ABSENT, { id: 'mgr-1', role: 'MANAGER' }, 'Because')
+      ).rejects.toThrow('Attendance record not found');
+    });
+
+    it('throws ForbiddenException if actor is a LEARNER/USER', async () => {
+      prismaMock.attendance.findUnique.mockResolvedValue({ id: 'att-1' });
+      await expect(
+        service.overrideAttendanceById('att-1', AttendanceStatus.ABSENT, { id: 'learner-1', role: 'USER' }, 'Because')
+      ).rejects.toThrow('Learners cannot override attendance');
+    });
+
+    it('throws ForbiddenException if Manager is not assigned to the batch', async () => {
+      prismaMock.attendance.findUnique.mockResolvedValue({
+        id: 'att-1',
+        enrolment: {
+          batch: {
+            managerId: 'other-mgr',
+            trainers: [{ trainerId: 'other-trainer' }]
+          }
+        }
+      });
+      await expect(
+        service.overrideAttendanceById('att-1', AttendanceStatus.ABSENT, { id: 'mgr-1', role: 'MANAGER' }, 'Because')
+      ).rejects.toThrow('Access denied: You are not assigned to this batch');
+    });
+
+    it('succeeds for assigned Manager and creates correct audit log', async () => {
+      prismaMock.attendance.findUnique.mockResolvedValue({
+        id: 'att-1',
+        sessionId: 'sess-1',
+        enrolmentId: 'enrol-1',
+        status: AttendanceStatus.ABSENT,
+        userId: 'learner-1',
+        enrolment: {
+          batch: {
+            managerId: 'mgr-1', // Assigned!
+            trainers: []
+          }
+        }
+      });
+      prismaMock.attendance.update = vi.fn().mockResolvedValue({ id: 'att-1' });
+
+      await service.overrideAttendanceById('att-1', AttendanceStatus.ABSENT, { id: 'mgr-1', role: 'MANAGER' }, 'Valid reason');
+
+      expect(prismaMock.attendance.update).toHaveBeenCalledWith({
+        where: { id: 'att-1' },
+        data: {
+          status: AttendanceStatus.CORRECTED,
+          correctedById: 'mgr-1',
+          correctionReason: 'Valid reason',
+        }
+      });
+
+      expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          actorId: 'mgr-1',
+          action: 'ATTENDANCE_CORRECTED',
+          entity: 'Attendance',
+          entityId: 'att-1',
+          meta: {
+            sessionId: 'sess-1',
+            enrolmentId: 'enrol-1',
+            previousStatus: AttendanceStatus.ABSENT,
+            newStatus: AttendanceStatus.CORRECTED,
+            intendedStatus: AttendanceStatus.ABSENT,
+            reason: 'Valid reason'
+          }
+        }
+      });
+    });
+
+    it('succeeds for Admin bypassing batch assignment', async () => {
+      prismaMock.attendance.findUnique.mockResolvedValue({
+        id: 'att-1',
+        sessionId: 'sess-1',
+        enrolmentId: 'enrol-1',
+        status: AttendanceStatus.ABSENT,
+        userId: 'learner-1',
+        enrolment: {
+          batch: {
+            managerId: 'other-mgr',
+            trainers: []
+          }
+        }
+      });
+      prismaMock.attendance.update = vi.fn().mockResolvedValue({ id: 'att-1' });
+
+      await service.overrideAttendanceById('att-1', AttendanceStatus.PRESENT_MANUAL, { id: 'admin-1', role: 'ADMIN' }, 'Admin override');
+
+      expect(prismaMock.attendance.update).toHaveBeenCalled();
+    });
+  });
 });

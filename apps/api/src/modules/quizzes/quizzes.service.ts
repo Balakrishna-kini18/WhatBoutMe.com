@@ -105,6 +105,10 @@ export class QuizzesService {
   }
 
   async remove(id: string) {
+    const attemptCount = await this.prisma.attempt.count({ where: { quizId: id } });
+    if (attemptCount > 0) {
+      throw new BadRequestException('Cannot delete quiz: it has existing learner attempts. To protect grading history, quizzes with active attempts cannot be deleted.');
+    }
     const res = await this.prisma.quiz.delete({
       where: { id },
     });

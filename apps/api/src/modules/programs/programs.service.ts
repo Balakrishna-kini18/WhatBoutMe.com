@@ -41,6 +41,9 @@ export class ProgramsService {
     return this.cacheHelper.getOrSet(cacheKey, async () => {
       if (isStaff) {
         return this.prisma.program.findMany({
+          where: {
+            status: { not: ContentStatus.ARCHIVED },
+          },
           include: {
             _count: {
               select: { steps: true }

@@ -44,7 +44,12 @@ export class UsersService {
       const skip = (page - 1) * limit;
 
     const where: any = {};
-    if (role) where.role = role;
+    if (role === 'STAFF' as any) {
+      where.role = { not: Role.USER };
+    } else if (role) {
+      where.role = role;
+    }
+    
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },

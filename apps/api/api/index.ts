@@ -62,5 +62,13 @@ async function bootstrapServer() {
 
 export default async (req: any, res: any) => {
   const app = await bootstrapServer();
-  return app(req, res);
+  return new Promise<void>((resolve, reject) => {
+    res.on('finish', () => resolve());
+    res.on('close', () => resolve());
+    res.on('error', (err: any) => reject(err));
+    app(req, res, (err: any) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
 };

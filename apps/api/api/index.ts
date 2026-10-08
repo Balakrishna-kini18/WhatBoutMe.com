@@ -1,3 +1,4 @@
+import '../src/instrument.js';
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import express from 'express';
@@ -61,14 +62,26 @@ async function bootstrapServer() {
 }
 
 export default async (req: any, res: any) => {
-  const app = await bootstrapServer();
-  return new Promise<void>((resolve, reject) => {
-    res.on('finish', () => resolve());
-    res.on('close', () => resolve());
-    res.on('error', (err: any) => reject(err));
-    app(req, res, (err: any) => {
-      if (err) return reject(err);
-      resolve();
+  try {
+    const app = await bootstrapServer();
+    return new Promise<void>((resolve, reject) => {
+      res.on('finish', () => resolve());
+      res.on('close', () => resolve());
+      res.on('error', (err: any) => reject(err));
+      app(req, res, (err: any) => {
+        if (err) return reject(err);
+        resolve();
+      });
     });
-  });
+  } catch (err: any) {
+    console.error('FATAL SERVERLESS BOOTSTRAP ERROR:', err);
+    if (!res.headersSent) {
+      res.status(500).json({
+        statusCode: 500,
+        error: 'Serverless Bootstrap Error',
+        message: err?.message || String(err),
+        stack: err?.stack,
+      });
+    }
+  }
 };

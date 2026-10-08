@@ -57,6 +57,8 @@ export class BatchesService {
 
       if (query?.status) {
         where.status = query.status;
+      } else {
+        where.status = { not: 'ARCHIVED' };
       }
 
       const batches = await this.prisma.batch.findMany({

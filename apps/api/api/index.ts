@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
-import serverlessExpress from '@vendia/serverless-express';
 import express from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
@@ -56,12 +55,12 @@ async function bootstrapServer() {
     nestApp.useGlobalFilters(new HttpExceptionFilter());
 
     await nestApp.init();
-    cachedServer = (serverlessExpress as any)({ app: expressApp });
+    cachedServer = expressApp;
   }
   return cachedServer;
 }
 
 export default async (req: any, res: any) => {
-  const server = await bootstrapServer();
-  return server(req, res);
+  const app = await bootstrapServer();
+  return app(req, res);
 };

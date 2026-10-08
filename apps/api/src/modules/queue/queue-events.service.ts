@@ -8,6 +8,7 @@ export class QueueEventsService implements OnModuleInit, OnModuleDestroy {
     'notification',
     'attendance-import',
     'certificate-gen',
+    'certificates',
     'calendar-sync',
     'media-process',
     'invoice-gen',

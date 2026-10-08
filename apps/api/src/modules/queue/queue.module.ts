@@ -32,12 +32,13 @@ function buildBullRedisOptions(): RedisOptions & { createClient?: (type: string,
       };
 
   if (isServerless) {
+    const SERVERLESS_CONNECT_WALLCLOCK_MS = 1500;
     const opts: RedisOptions = {
       ...base,
       lazyConnect: true,
       maxRetriesPerRequest: 0,
       enableReadyCheck: false,
-      connectTimeout: 1000,
+      connectTimeout: SERVERLESS_CONNECT_WALLCLOCK_MS,
       retryStrategy: () => null,
       autoResendUnfulfilledCommands: false,
       autoResubscribe: false,
@@ -51,16 +52,33 @@ function buildBullRedisOptions(): RedisOptions & { createClient?: (type: string,
         const client = new IORedis(clientOpts);
         // Kill the TCP socket immediately on any connection-level error so
         // the Vercel event loop goes idle and the function terminates.
+        let killed = false;
         const kill = (err?: any) => {
+          if (killed) return;
+          killed = true;
+          try { clearTimeout(killTimer); } catch {/* noop */}
           try {
             client.removeAllListeners();
             client.on('error', () => undefined);
-            client.disconnect(false);
+            (client as any).disconnect(false);
+          } catch {
+            /* noop */
+          }
+          try {
+            const sock = (client as any).stream || (client as any).socket;
+            if (sock && typeof sock.destroy === 'function') sock.destroy();
           } catch {
             /* noop */
           }
           if (err) console.warn('[BullMQ serverless] redis error (socket released):', err?.message || String(err).slice(0, 120));
         };
+        // WALLCLOCK GUARANTEE: even if connectTimeout / DNS / TLS handshake never
+        // emit 'error' or 'connectTimeout' (can happen on some Lambda networks),
+        // this setTimeout will FORCE the socket closed after 1500ms.
+        const killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
+        try { killTimer.unref(); } catch {/* noop */}
+        client.once('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
+        client.once('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
         client.once('error', kill);
         client.once('close', () => kill());
         client.once('connectTimeout', () => kill(new Error('connectTimeout')));

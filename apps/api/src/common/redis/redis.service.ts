@@ -50,16 +50,34 @@ export class RedisService implements OnModuleDestroy {
     if (isServerless) {
       // Kill TCP socket immediately on any connection-level failure so the
       // Vercel event loop goes idle instead of hanging.
+      const SERVERLESS_CONNECT_WALLCLOCK_MS = 1500;
+      let killed = false;
       const kill = (err?: any) => {
+        if (killed) return;
+        killed = true;
+        try { clearTimeout(killTimer); } catch {/* noop */}
         try {
           this.client.removeAllListeners();
           this.client.on('error', () => undefined);
-          this.client.disconnect(false);
+          (this.client as any).disconnect(false);
+        } catch {
+          /* noop */
+        }
+        try {
+          const sock = (this.client as any).stream || (this.client as any).socket;
+          if (sock && typeof sock.destroy === 'function') sock.destroy();
         } catch {
           /* noop */
         }
         if (err) console.warn('[RedisService serverless] redis error (socket released):', err?.message || String(err).slice(0, 120));
       };
+      // WALLCLOCK GUARANTEE: DNS + TLS handshakes on Vercel Lambda's network
+      // sometimes hang past ioredis's connectTimeout without emitting any
+      // event.  This setTimeout FORCES socket close at 1500ms no matter what.
+      const killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
+      try { killTimer.unref(); } catch {/* noop */}
+      this.client.once('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
+      this.client.once('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
       this.client.once('error', kill);
       this.client.once('close', () => kill());
       this.client.once('connectTimeout', () => kill(new Error('connectTimeout')));

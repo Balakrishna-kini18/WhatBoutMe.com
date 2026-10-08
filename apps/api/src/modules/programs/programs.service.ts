@@ -41,6 +41,9 @@ export class ProgramsService {
     return this.cacheHelper.getOrSet(cacheKey, async () => {
       if (isStaff) {
         return this.prisma.program.findMany({
+          where: {
+            status: { not: ContentStatus.ARCHIVED },
+          },
           include: {
             _count: {
               select: { steps: true }
@@ -176,21 +179,54 @@ export class ProgramsService {
     ]);
 
     if (batchCount > 0 || enrolmentCount > 0) {
-      // Archive rather than delete to preserve foreign key integrity
-      const archived = await this.prisma.program.update({
-        where: { id },
-        data: {
-          status: ContentStatus.ARCHIVED,
-          isActive: false,
-        },
+      this.logger.warn(`Program ${id} is being hard deleted. It has ${batchCount} batches and ${enrolmentCount} enrolments which will be cascade deleted.`);
+    }
+
+    try {
+      // 1. Program Cover Image
+      if (program.description) {
+        try {
+          const info = JSON.parse(program.description);
+          if (info.image && info.image.includes('cloudinary.com')) {
+            const parts = info.image.split('/');
+            const filename = parts[parts.length - 1];
+            const publicId = filename.split('.')[0];
+            await this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete program image ${publicId}: ${err.message}`));
+          }
+        } catch (e) {}
+      }
+
+      // 2. Lesson Media
+      const lessons = await this.prisma.lesson.findMany({
+        where: { step: { programId: id } },
+        select: { mediaUrl: true }
       });
-      await this.cacheHelper.invalidateNamespace('programs');
-      return {
-        id: archived.id,
-        archived: true,
-        message: 'Program has linked batches or enrolments and was archived instead of deleted',
-        status: ContentStatus.ARCHIVED,
-      };
+      for (const lesson of lessons) {
+        if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
+          const publicId = lesson.mediaUrl.replace('upload:', '');
+          await this.mediaProvider.deleteMedia(publicId, 'video').catch(err => this.logger.warn(`Failed to delete lesson media ${publicId}: ${err.message}`));
+        }
+      }
+
+      // 3. Resource Media
+      const resources = await this.prisma.resource.findMany({
+        where: { programId: id },
+        select: { mediaUrl: true }
+      });
+      for (const res of resources) {
+        if (res.mediaUrl && res.mediaUrl.includes('cloudinary.com')) {
+          const parts = res.mediaUrl.split('/');
+          const filename = parts[parts.length - 1];
+          const publicId = filename.split('.')[0];
+          // Cloudinary resources uploaded as raw might need 'raw', but images are 'image'.
+          // Let's try 'raw' and fallback to 'image' if needed, or just let it fail gracefully.
+          await this.mediaProvider.deleteMedia(publicId, 'raw').catch(() => 
+            this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete resource ${publicId}: ${err.message}`))
+          );
+        }
+      }
+    } catch (cleanupErr) {
+      this.logger.error(`Failed to clean up Cloudinary media for program ${id}:`, cleanupErr);
     }
 
     await this.prisma.program.delete({ where: { id } });
@@ -203,7 +239,7 @@ export class ProgramsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async getSteps(programId: string, role?: string) {
-    const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN || role === Role.MANAGER;
+    const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN || (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
     const cacheKey = await this.cacheHelper.getEndpointKey(
       'programs',
       (role as any) || 'GUEST',
@@ -232,7 +268,7 @@ export class ProgramsService {
 
   async getStep(stepId: string, role?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
-    const isManager = role === Role.MANAGER;
+    const isManager = (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
     const isPrivileged = isStaff || isManager;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
@@ -520,7 +556,7 @@ export class ProgramsService {
 
   async getLessons(stepId: string, role?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
-    const isManager = role === Role.MANAGER;
+    const isManager = (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
     const isPrivileged = isStaff || isManager;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(

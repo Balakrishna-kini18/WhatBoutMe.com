@@ -66,8 +66,32 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   }
 
   const userName = user?.name || user?.email || "Admin";
-  const userRole = user?.role === "SUPER_ADMIN" ? "Super Admin" : user?.role === "MANAGER" ? "Manager" : "Admin";
-  const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+  const userRole = user?.role === "SUPER_ADMIN" ? "Super Admin" : user?.role === "TEACHER" ? "Teacher" : user?.role === "MANAGER" ? "Manager" : "Admin";
+  const initials = userName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
+
+  const hasPermission = (perm: string) => {
+    if (user?.role === "SUPER_ADMIN") return true;
+    if (!user?.permissions) return false;
+    
+    // Map legacy UI permission checks to new granular ones
+    switch(perm) {
+      case 'view_users':
+        return user.permissions.includes('users:read') || user.permissions.includes('users:read_assigned');
+      case 'view_batches':
+        return user.permissions.includes('batches:read') || user.permissions.includes('batches:read_assigned');
+      case 'manage_curriculum':
+        return user.permissions.includes('programs:read');
+      case 'manage_website':
+        return user.role === 'ADMIN'; // Currently no granular permission for website
+      case 'view_finance':
+        return user.permissions.includes('payments:read') || user.permissions.includes('invoices:read');
+      case 'manage_operations':
+        return user.permissions.includes('sessions:read') || user.permissions.includes('certificates:read') || user.permissions.includes('agreements:read');
+      default:
+        return user.permissions.includes(perm);
+    }
+  };
+
 
   return (
     <div className={styles.appContainer}>
@@ -80,67 +104,81 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         </div>
 
         <nav className={styles.navMenu}>
-          <div className={styles.navGroup}>
-            <p className={styles.navTitle}>OVERVIEW</p>
-            <Link href="/" className={`${styles.navItem} ${pathname === "/" ? styles.active : ""}`}>
-              <Icons.Dashboard /> Dashboard
-            </Link>
-            <Link href="/users" className={`${styles.navItem} ${pathname.startsWith("/users") ? styles.active : ""}`}>
-              <Icons.Users /> Users & Enrolments
-            </Link>
-            <Link href="/batches" className={`${styles.navItem} ${pathname.startsWith("/batches") ? styles.active : ""}`}>
-              <Icons.Batches /> Batches
-            </Link>
-          </div>
+          {(hasPermission('view_users') || hasPermission('view_batches')) && (
+            <div className={styles.navGroup}>
+              <p className={styles.navTitle}>OVERVIEW</p>
+              <Link href="/" className={`${styles.navItem} ${pathname === "/" ? styles.active : ""}`}>
+                <Icons.Dashboard /> Dashboard
+              </Link>
+              {hasPermission('view_users') && (
+                <Link href="/users" className={`${styles.navItem} ${pathname.startsWith("/users") ? styles.active : ""}`}>
+                  <Icons.Users /> Users & Enrolments
+                </Link>
+              )}
+              {hasPermission('view_batches') && (
+                <Link href="/batches" className={`${styles.navItem} ${pathname.startsWith("/batches") ? styles.active : ""}`}>
+                  <Icons.Batches /> Batches
+                </Link>
+              )}
+            </div>
+          )}
 
-          <div className={styles.navGroup}>
-            <p className={styles.navTitle}>CURRICULUM</p>
-            <Link href="/programs" className={`${styles.navItem} ${pathname.startsWith("/programs") ? styles.active : ""}`}>
-              <Icons.Programs /> Programs
-            </Link>
-            <Link href="/quizzes" className={`${styles.navItem} ${pathname.startsWith("/quizzes") ? styles.active : ""}`}>
-              <Icons.QuestionBank /> Question Bank
-            </Link>
-            <Link href="/agreements" className={`${styles.navItem} ${pathname.startsWith("/agreements") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Agreements
-            </Link>
-          </div>
+          {hasPermission('manage_curriculum') && (
+            <div className={styles.navGroup}>
+              <p className={styles.navTitle}>CURRICULUM</p>
+              <Link href="/programs" className={`${styles.navItem} ${pathname.startsWith("/programs") ? styles.active : ""}`}>
+                <Icons.Programs /> Programs
+              </Link>
+              <Link href="/quizzes" className={`${styles.navItem} ${pathname.startsWith("/quizzes") ? styles.active : ""}`}>
+                <Icons.QuestionBank /> Question Bank
+              </Link>
+              <Link href="/agreements" className={`${styles.navItem} ${pathname.startsWith("/agreements") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Agreements
+              </Link>
+            </div>
+          )}
 
-          <div className={styles.navGroup}>
-            <p className={styles.navTitle}>WEBSITE</p>
-            <Link href="/website" className={`${styles.navItem} ${pathname.startsWith("/website") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path></svg> Website Content
-            </Link>
-            <Link href="/leads" className={`${styles.navItem} ${pathname.startsWith("/leads") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v16H4z"></path><polyline points="4 6 12 13 20 6"></polyline></svg> Enquiries (CRM)
-            </Link>
-          </div>
+          {hasPermission('manage_website') && (
+            <div className={styles.navGroup}>
+              <p className={styles.navTitle}>WEBSITE</p>
+              <Link href="/website" className={`${styles.navItem} ${pathname.startsWith("/website") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z"></path></svg> Website Content
+              </Link>
+              <Link href="/leads" className={`${styles.navItem} ${pathname.startsWith("/leads") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16v16H4z"></path><polyline points="4 6 12 13 20 6"></polyline></svg> Enquiries (CRM)
+              </Link>
+            </div>
+          )}
 
-          <div className={styles.navGroup}>
-            <p className={styles.navTitle}>FINANCE</p>
-            <Link href="/revenue" className={`${styles.navItem} ${pathname === "/revenue" ? styles.active : ""}`}>
-              <Icons.Revenue /> Revenue
-            </Link>
-            <Link href="/invoices" className={`${styles.navItem} ${pathname === "/invoices" ? styles.active : ""}`}>
-              <Icons.Invoices /> Invoices
-            </Link>
-          </div>
+          {hasPermission('view_finance') && (
+            <div className={styles.navGroup}>
+              <p className={styles.navTitle}>FINANCE</p>
+              <Link href="/revenue" className={`${styles.navItem} ${pathname === "/revenue" ? styles.active : ""}`}>
+                <Icons.Revenue /> Revenue
+              </Link>
+              <Link href="/invoices" className={`${styles.navItem} ${pathname === "/invoices" ? styles.active : ""}`}>
+                <Icons.Invoices /> Invoices
+              </Link>
+            </div>
+          )}
 
-          <div className={styles.navGroup}>
-            <p className={styles.navTitle}>OPERATIONS</p>
-            <Link href="/meetings" className={`${styles.navItem} ${pathname.startsWith("/meetings") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> Meetings
-            </Link>
-            <Link href="/messages" className={`${styles.navItem} ${pathname.startsWith("/messages") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> Support Inbox
-            </Link>
-            <Link href="/certificates" className={`${styles.navItem} ${pathname.startsWith("/certificates") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg> Certificates
-            </Link>
-            <Link href="/approvals" className={`${styles.navItem} ${pathname.startsWith("/approvals") ? styles.active : ""}`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg> Oral Assessments
-            </Link>
-          </div>
+          {hasPermission('manage_operations') && (
+            <div className={styles.navGroup}>
+              <p className={styles.navTitle}>OPERATIONS</p>
+              <Link href="/meetings" className={`${styles.navItem} ${pathname.startsWith("/meetings") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> Meetings
+              </Link>
+              <Link href="/messages" className={`${styles.navItem} ${pathname.startsWith("/messages") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> Support Inbox
+              </Link>
+              <Link href="/certificates" className={`${styles.navItem} ${pathname.startsWith("/certificates") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg> Certificates
+              </Link>
+              <Link href="/approvals" className={`${styles.navItem} ${pathname.startsWith("/approvals") ? styles.active : ""}`}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg> Oral Assessments
+              </Link>
+            </div>
+          )}
         </nav>
 
         <div className={styles.sidebarBottom}>

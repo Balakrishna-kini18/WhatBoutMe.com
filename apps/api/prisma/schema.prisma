@@ -19,6 +19,7 @@ enum Role {
   SUPER_ADMIN
   ADMIN
   MANAGER
+  TEACHER
   USER
 }
 
@@ -201,6 +202,7 @@ model User {
   phone        String?
   passwordHash String?
   role         Role    @default(USER)
+  permissions  String[] @default([])
 
   // Authentication & Security (D1-004)
   country              String?
@@ -658,10 +660,10 @@ model Enrolment {
   user   User   @relation(fields: [userId], references: [id])
 
   batchId String
-  batch   Batch  @relation(fields: [batchId], references: [id])
+  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   programId String
-  program   Program @relation(fields: [programId], references: [id])
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   status EnrolmentStatus @default(PENDING_PAYMENT)
 
@@ -1012,13 +1014,13 @@ model Certificate {
   id String @id @default(uuid())
 
   enrolmentId String    @unique
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Restrict)
+  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
 
   userId String?
   user   User?   @relation("UserCertificates", fields: [userId], references: [id], onDelete: Restrict)
 
   programId String?
-  program   Program? @relation(fields: [programId], references: [id], onDelete: Restrict)
+  program   Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   certificateCode   String  @unique @default(uuid())
   certificateNumber String? @unique // Legacy compatibility with existing services
@@ -1165,7 +1167,7 @@ model SignedAgreement {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   programId String
-  program   Program @relation(fields: [programId], references: [id], onDelete: Restrict)
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   templateId String
   template   AgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)

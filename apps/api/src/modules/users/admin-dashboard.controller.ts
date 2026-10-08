@@ -4,7 +4,7 @@ import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
 
 @Controller('admin')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
 export class AdminDashboardController {
   constructor(private prisma: PrismaService) {}
 

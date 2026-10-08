@@ -97,8 +97,8 @@ export class SessionsService {
       throw new BadRequestException('Cannot schedule sessions for an archived batch.');
     }
 
-    // Role-based Manager Batch Scoping
-    if (actorUser.role === Role.MANAGER) {
+    // Role-based Manager/Teacher Batch Scoping
+    if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER') || actorUser.role === 'TEACHER') {
       const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, data.batchId);
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
@@ -147,11 +147,11 @@ export class SessionsService {
         throw new NotFoundException(`Host trainer with ID ${hostTrainerId} not found.`);
       }
       if (trainer.role === Role.USER) {
-        throw new BadRequestException('Host trainer must have an administrative or trainer role (SUPER_ADMIN, ADMIN, or MANAGER).');
+        throw new BadRequestException('Host trainer must have an administrative or trainer role (SUPER_ADMIN, ADMIN, MANAGER, or TEACHER).');
       }
     } else {
       // Default host trainer to actor if actor is a trainer/manager/admin
-      if ([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER].includes(actorUser.role)) {
+      if ([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER].includes(actorUser.role)) {
         hostTrainerId = actorUser.sub;
       } else if (batch.managerId) {
         hostTrainerId = batch.managerId;
@@ -316,7 +316,7 @@ export class SessionsService {
     }
 
     // Role-based scoping
-    if (user.role === Role.MANAGER) {
+    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
       const assignedBatches = await this.prisma.batch.findMany({
         where: {
           OR: [
@@ -393,7 +393,7 @@ export class SessionsService {
       throw new NotFoundException(`Session with ID ${sessionId} not found.`);
     }
 
-    if (user.role === Role.MANAGER) {
+    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
       const isAssigned =
         session.batch.managerId === user.sub ||
         session.batch.trainers.some((t: any) => t.trainerId === user.sub);
@@ -428,7 +428,7 @@ export class SessionsService {
       throw new NotFoundException(`Session with ID ${sessionId} not found.`);
     }
 
-    if (actorUser.role === Role.MANAGER) {
+    if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId);
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
@@ -558,7 +558,7 @@ export class SessionsService {
       throw new NotFoundException(`Session with ID ${sessionId} not found.`);
     }
 
-    if (actorUser.role === Role.MANAGER) {
+    if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER')) {
       const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId);
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
@@ -720,7 +720,12 @@ export class SessionsService {
   // Learner: their own sessions with attendance (preserved)
   async getMySessions(userId: string, viewerTimezone?: string | null) {
     const enrolments = await this.prisma.enrolment.findMany({
-      where: { userId, status: { in: ['ACTIVE', 'COMPLETED'] } },
+      where: { 
+        userId, 
+        status: { in: ['ACTIVE', 'COMPLETED'] },
+        program: { status: { not: 'ARCHIVED' } },
+        batch: { status: { not: 'ARCHIVED' } },
+      },
       select: { id: true, batchId: true, batch: { select: { name: true, program: { select: { title: true } } } } },
     });
 
@@ -836,7 +841,7 @@ export class SessionsService {
 
     if (!session) throw new NotFoundException('Session not found');
 
-    if (user.role === Role.MANAGER && session.batch.managerId !== user.sub) {
+    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER') && session.batch.managerId !== user.sub) {
       throw new ForbiddenException('You can only view attendance for your own batches');
     }
 

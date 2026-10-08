@@ -13,6 +13,7 @@ interface User {
   progress?: string;
   cohort?: string;
   joined?: string;
+  permissions?: string[];
 }
 
 export default function UsersPage() {
@@ -27,6 +28,7 @@ export default function UsersPage() {
   const [batches, setBatches] = useState<{id: string, name: string}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const [viewMode, setViewMode] = useState<"LEARNERS" | "STAFF">("LEARNERS");
   // Form states
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -34,6 +36,7 @@ export default function UsersPage() {
   const [cohort, setCohort] = useState("");
   const [role, setRole] = useState("USER");
   const [password, setPassword] = useState("");
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [formError, setFormError] = useState("");
   // only a super admin may create another super admin
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
@@ -56,7 +59,7 @@ export default function UsersPage() {
       fetchUsers();
     }, 300); // debounce search
     return () => clearTimeout(delay);
-  }, [page, search]);
+  }, [page, search, viewMode]);
 
   const fetchBatches = async () => {
     try {
@@ -76,7 +79,8 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`, {
+      const roleParam = viewMode === "LEARNERS" ? "USER" : "STAFF";
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&role=${roleParam}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -105,6 +109,7 @@ export default function UsersPage() {
     setCohort(""); // Real implementation would resolve cohort to batch ID
     setRole(user.role || "USER");
     setPassword("");
+    setPermissions(user.permissions || []);
     setFormError("");
     setIsModalOpen(true);
     setActiveDropdown(null);
@@ -118,6 +123,7 @@ export default function UsersPage() {
     setCohort("");
     setRole("USER");
     setPassword("");
+    setPermissions([]);
     setFormError("");
     setIsModalOpen(true);
   };
@@ -147,6 +153,7 @@ export default function UsersPage() {
       email,
       name: `${firstName} ${lastName}`.trim(),
       role,
+      permissions,
       ...(password ? { password } : {}),
     };
 
@@ -198,6 +205,41 @@ export default function UsersPage() {
         </div>
       </header>
 
+      <div className={styles.tabsContainer} style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0' }}>
+        <button 
+          className={styles.tabBtn} 
+          style={{ 
+            background: 'none', 
+            border: 'none', 
+            padding: '0.75rem 1rem', 
+            fontSize: '0.95rem', 
+            fontWeight: viewMode === "LEARNERS" ? 600 : 500, 
+            color: viewMode === "LEARNERS" ? '#0284c7' : '#64748b',
+            borderBottom: viewMode === "LEARNERS" ? '2px solid #0284c7' : '2px solid transparent',
+            cursor: 'pointer'
+          }}
+          onClick={() => { setViewMode("LEARNERS"); setPage(1); }}
+        >
+          Learners
+        </button>
+        <button 
+          className={styles.tabBtn} 
+          style={{ 
+            background: 'none', 
+            border: 'none', 
+            padding: '0.75rem 1rem', 
+            fontSize: '0.95rem', 
+            fontWeight: viewMode === "STAFF" ? 600 : 500, 
+            color: viewMode === "STAFF" ? '#0284c7' : '#64748b',
+            borderBottom: viewMode === "STAFF" ? '2px solid #0284c7' : '2px solid transparent',
+            cursor: 'pointer'
+          }}
+          onClick={() => { setViewMode("STAFF"); setPage(1); }}
+        >
+          Staff & Administrators
+        </button>
+      </div>
+
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
           <h2>All Learners ({totalUsers})</h2>
@@ -216,22 +258,22 @@ export default function UsersPage() {
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Learner</th>
+                <th>{viewMode === "LEARNERS" ? "Learner" : "Staff"}</th>
                 <th>Joined</th>
-                <th>Cohort</th>
+                <th>{viewMode === "LEARNERS" ? "Cohort" : "Role"}</th>
                 <th>Status</th>
-                <th>Progress</th>
+                {viewMode === "LEARNERS" && <th>Progress</th>}
                 <th className={styles.alignRight}>Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} style={{textAlign: "center", padding: "20px"}}>Loading users from database...</td>
+                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "20px"}}>Loading users from database...</td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{textAlign: "center", padding: "20px"}}>No users found.</td>
+                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "20px"}}>No users found.</td>
                 </tr>
               ) : users.map((user) => (
                 <tr key={user.id}>
@@ -245,29 +287,35 @@ export default function UsersPage() {
                   </td>
                   <td><span className={styles.cellTextMuted}>{user.joined || "Just now"}</span></td>
                   <td>
-                    <span className={styles.cellText}>{user.cohort || "None"}</span>
+                    {viewMode === "STAFF" ? (
+                      <span className={`${styles.statusChip} ${styles.roleAdmin}`}>{user.role}</span>
+                    ) : (
+                      <span className={styles.cellText}>{user.cohort || "None"}</span>
+                    )}
                   </td>
                   <td>
                     <span className={`${styles.statusChip} ${styles[user.status.toLowerCase()] || styles.active}`}>
                       {user.status}
                     </span>
                   </td>
-                  <td>
-                    {(() => {
-                      const percentVal = parseInt(user.progress || "0", 10) || 0;
-                      const progressFillColor = percentVal === 100 ? "#16a34a" : percentVal > 0 ? "#f59e0b" : "#cbd5e1";
-                      return (
-                        <div className={styles.progressCell}>
-                          <div className={styles.progressBar}>
-                            <div className={styles.progressFill} style={{ width: user.progress || "0%", backgroundColor: progressFillColor }}></div>
+                  {viewMode === "LEARNERS" && (
+                    <td>
+                      {(() => {
+                        const percentVal = parseInt(user.progress || "0", 10) || 0;
+                        const progressFillColor = percentVal === 100 ? "#16a34a" : percentVal > 0 ? "#f59e0b" : "#cbd5e1";
+                        return (
+                          <div className={styles.progressCell}>
+                            <div className={styles.progressBar}>
+                              <div className={styles.progressFill} style={{ width: user.progress || "0%", backgroundColor: progressFillColor }}></div>
+                            </div>
+                            <span className={styles.progressText} style={{ fontWeight: 600, color: percentVal === 100 ? "#16a34a" : undefined }}>
+                              {user.progress || "0%"}
+                            </span>
                           </div>
-                          <span className={styles.progressText} style={{ fontWeight: 600, color: percentVal === 100 ? "#16a34a" : undefined }}>
-                            {user.progress || "0%"}
-                          </span>
-                        </div>
-                      );
-                    })()}
-                  </td>
+                        );
+                      })()}
+                    </td>
+                  )}
                   <td className={styles.alignRight} style={{ position: 'relative' }}>
                     <button 
                       className={styles.iconActionBtn} 
@@ -348,6 +396,7 @@ export default function UsersPage() {
                   <label>Role</label>
                   <select value={role} onChange={e => setRole(e.target.value)}>
                     <option value="USER">Learner</option>
+                    <option value="TEACHER">Teacher / Instructor</option>
                     <option value="MANAGER">Manager</option>
                     <option value="ADMIN">Admin</option>
                     {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
@@ -368,6 +417,35 @@ export default function UsersPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Dynamic Permissions Checkboxes (Only Super Admin can assign these to Admins/Managers/Teachers) */}
+              {isSuperAdmin && ["ADMIN", "MANAGER", "TEACHER"].includes(role) && (
+                <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
+                  <label style={{ marginBottom: "0.5rem" }}>Custom Module Access</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                    {[
+                      { id: "view_users", label: "Users & Enrolments" },
+                      { id: "view_batches", label: "Batches & Cohorts" },
+                      { id: "manage_curriculum", label: "Curriculum & Programs" },
+                      { id: "manage_website", label: "Website Content & CRM" },
+                      { id: "view_finance", label: "Finance & Revenue" },
+                      { id: "manage_operations", label: "Operations & Meetings" }
+                    ].map(perm => (
+                      <label key={perm.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", fontWeight: 500, cursor: "pointer" }}>
+                        <input 
+                          type="checkbox" 
+                          checked={permissions.includes(perm.id)} 
+                          onChange={(e) => {
+                            if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
+                            else setPermissions(prev => prev.filter(p => p !== perm.id));
+                          }} 
+                        />
+                        {perm.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {formError && (
                 <p role="alert" style={{ margin: 0, padding: '0.75rem 1rem', borderRadius: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.85rem' }}>{formError}</p>

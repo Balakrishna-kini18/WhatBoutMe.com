@@ -105,6 +105,9 @@ export class QuizzesService {
   }
 
   async remove(id: string) {
+    // Delete all attempts (and cascading answers) first
+    await this.prisma.attempt.deleteMany({ where: { quizId: id } });
+    
     const res = await this.prisma.quiz.delete({
       where: { id },
     });
@@ -1177,7 +1180,7 @@ export class QuizzesService {
       return;
     }
 
-    if (role === Role.MANAGER) {
+    if ((role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER')) {
       const isAssigned =
         enrolment.batch.managerId === actorId ||
         (Array.isArray(enrolment.batch.trainers) &&

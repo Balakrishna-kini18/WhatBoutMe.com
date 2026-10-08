@@ -248,7 +248,7 @@ export class AttendanceService {
       }
 
       // Enforce Manager batch scoping
-      if (actor.role === Role.MANAGER || actor.role === 'MANAGER') {
+      if ((actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER')) {
         const batch = attendance.enrolment.batch;
         const isAssigned =
           batch.managerId === actorId ||

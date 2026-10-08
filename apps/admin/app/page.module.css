@@ -87,6 +87,28 @@
   box-shadow: var(--shadow-md);
 }
 
+.dangerBtn {
+  background: var(--status-error);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.dangerBtn:hover {
+  background: #b91c1c; /* darker red */
+  box-shadow: var(--shadow-md);
+}
+
 /* Stats Row */
 .statsGrid {
   display: grid;

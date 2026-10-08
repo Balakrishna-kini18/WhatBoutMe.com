@@ -64,7 +64,7 @@ export class CertificatesController {
   }
 
   // Admin: Get all certificates
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
   findAll() {
     return this.certificatesService.findAll();

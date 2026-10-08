@@ -16,7 +16,7 @@ export class CloudinaryController {
   // D2-008: Implement backend endpoint POST /media/upload-signature
   // Only admins or managers should be able to upload course media.
   @Post('upload-signature')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
   getUploadSignature() {
     return this.cloudinaryService.createDirectUpload();
   }

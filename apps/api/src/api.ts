@@ -23,7 +23,7 @@ async function bootstrapServer() {
       new ExpressAdapter(expressApp),
     );
     
-    nestApp.use(helmet());
+    nestApp.use(helmet ? (typeof helmet === 'function' ? helmet() : (helmet as any).default()) : (helmet as any)());
     const allowedOrigins = process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
       : []; // Don't rely exclusively on localhost, though we keep the regex below for local dev

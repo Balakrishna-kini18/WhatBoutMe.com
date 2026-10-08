@@ -21,6 +21,7 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
   
   // Security
+  // @ts-ignore - Ignore TS2349: This expression is not callable
   app.use(helmet());
   const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())

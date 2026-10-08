@@ -603,7 +603,7 @@ export class EnrollmentsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findAll(user: any, query?: QueryEnrolmentsDto) {
-    const isManager = user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
+    const isManager = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const where: any = {};
@@ -705,7 +705,7 @@ export class EnrollmentsService {
   }
 
   async findOne(id: string, user: any) {
-    const isManager = user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
+    const isManager = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const enrolment = await this.prisma.enrolment.findUnique({

@@ -27,7 +27,7 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findAll(user: any, query?: QueryBatchesDto) {
-    const isManagerOrTeacher = user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER') || user?.role === 'TEACHER';
+    const isManagerOrTeacher = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(
@@ -87,7 +87,7 @@ export class BatchesService {
   }
 
   async findOne(id: string, user: any) {
-    const isManagerOrTeacher = user?.(role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER') || user?.role === 'TEACHER';
+    const isManagerOrTeacher = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 
     const cacheKey = await this.cacheHelper.getEndpointKey(

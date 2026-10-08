@@ -71,7 +71,25 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   const hasPermission = (perm: string) => {
     if (user?.role === "SUPER_ADMIN") return true;
-    return user?.permissions?.includes(perm);
+    if (!user?.permissions) return false;
+    
+    // Map legacy UI permission checks to new granular ones
+    switch(perm) {
+      case 'view_users':
+        return user.permissions.includes('users:read') || user.permissions.includes('users:read_assigned');
+      case 'view_batches':
+        return user.permissions.includes('batches:read') || user.permissions.includes('batches:read_assigned');
+      case 'manage_curriculum':
+        return user.permissions.includes('programs:read');
+      case 'manage_website':
+        return user.role === 'ADMIN'; // Currently no granular permission for website
+      case 'view_finance':
+        return user.permissions.includes('payments:read') || user.permissions.includes('invoices:read');
+      case 'manage_operations':
+        return user.permissions.includes('sessions:read') || user.permissions.includes('certificates:read') || user.permissions.includes('agreements:read');
+      default:
+        return user.permissions.includes(perm);
+    }
   };
 
 

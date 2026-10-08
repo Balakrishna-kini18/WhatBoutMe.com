@@ -147,11 +147,11 @@ export class SessionsService {
         throw new NotFoundException(`Host trainer with ID ${hostTrainerId} not found.`);
       }
       if (trainer.role === Role.USER) {
-        throw new BadRequestException('Host trainer must have an administrative or trainer role (SUPER_ADMIN, ADMIN, or MANAGER).');
+        throw new BadRequestException('Host trainer must have an administrative or trainer role (SUPER_ADMIN, ADMIN, MANAGER, or TEACHER).');
       }
     } else {
       // Default host trainer to actor if actor is a trainer/manager/admin
-      if ([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER].includes(actorUser.role)) {
+      if ([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER].includes(actorUser.role)) {
         hostTrainerId = actorUser.sub;
       } else if (batch.managerId) {
         hostTrainerId = batch.managerId;

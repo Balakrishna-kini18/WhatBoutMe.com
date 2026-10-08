@@ -481,7 +481,7 @@ export class AuthService {
     }
 
     // Enforce role-based access: only admin roles can use admin login
-    const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER];
+    const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER];
     if (!adminRoles.includes(user.role)) {
       await this.recordLoginAudit({
         userId: user.id,

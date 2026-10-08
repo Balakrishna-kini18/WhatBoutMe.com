@@ -15,6 +15,7 @@ import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { getRolePermissions } from '../../config/permissions.config.js';
 import {
   generateTotpSecret,
   generateOtpauthUri,
@@ -236,7 +237,10 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      permissions: user.permissions,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role)
+      ])),
       companyId: user.companyId,
       sessionId,
     };
@@ -280,7 +284,10 @@ export class AuthService {
         companyId: user.companyId,
         country: user.country,
         timezone: user.timezone,
-        permissions: user.permissions || [],
+        permissions: Array.from(new Set([
+          ...(user.permissions || []),
+          ...getRolePermissions(user.role)
+        ])),
         enrolledPrograms,
       },
     };

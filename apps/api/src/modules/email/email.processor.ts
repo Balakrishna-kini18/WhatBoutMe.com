@@ -5,18 +5,18 @@ import { EmailService } from './email.service.js';
 import { render } from '@react-email/render';
 import * as React from 'react';
 
-import { SignupWelcomeEmail } from './templates/auth/SignupWelcomeEmail.jsx';
-import { EmailVerificationEmail } from './templates/auth/EmailVerificationEmail.jsx';
-import { PasswordResetEmail } from './templates/auth/PasswordResetEmail.jsx';
-import { OneTimeOtpEmail } from './templates/auth/OneTimeOtpEmail.jsx';
-import { EnrolmentConfirmedEmail } from './templates/lms/EnrolmentConfirmedEmail.jsx';
-import { AgreementSignedConfirmationEmail } from './templates/lms/AgreementSignedConfirmationEmail.jsx';
-import { SessionBookingConfirmationEmail } from './templates/lms/SessionBookingConfirmationEmail.jsx';
-import { SessionReminderEmail } from './templates/lms/SessionReminderEmail.jsx';
-import { SessionCancelledEmail } from './templates/lms/SessionCancelledEmail.jsx';
-import { SessionRescheduledEmail } from './templates/lms/SessionRescheduledEmail.jsx';
-import { OralAssessmentResultEmail } from './templates/lms/OralAssessmentResultEmail.jsx';
-import { CertificateIssuedEmail } from './templates/lms/CertificateIssuedEmail.jsx';
+import { SignupWelcomeEmail } from './templates/auth/SignupWelcomeEmail.js';
+import { EmailVerificationEmail } from './templates/auth/EmailVerificationEmail.js';
+import { PasswordResetEmail } from './templates/auth/PasswordResetEmail.js';
+import { OneTimeOtpEmail } from './templates/auth/OneTimeOtpEmail.js';
+import { EnrolmentConfirmedEmail } from './templates/lms/EnrolmentConfirmedEmail.js';
+import { AgreementSignedConfirmationEmail } from './templates/lms/AgreementSignedConfirmationEmail.js';
+import { SessionBookingConfirmationEmail } from './templates/lms/SessionBookingConfirmationEmail.js';
+import { SessionReminderEmail } from './templates/lms/SessionReminderEmail.js';
+import { SessionCancelledEmail } from './templates/lms/SessionCancelledEmail.js';
+import { SessionRescheduledEmail } from './templates/lms/SessionRescheduledEmail.js';
+import { OralAssessmentResultEmail } from './templates/lms/OralAssessmentResultEmail.js';
+import { CertificateIssuedEmail } from './templates/lms/CertificateIssuedEmail.js';
 
 export interface SendEmailJobData {
   to: string | string[];

@@ -506,20 +506,8 @@ export class BatchesService {
     ]);
 
     if (enrolmentCount > 0 || sessionCount > 0) {
-      // Archive to preserve relational and historical integrity
-      const archived = await this.prisma.batch.update({
-        where: { id },
-        data: { status: BatchStatus.ARCHIVED },
-      });
-
-      await this.cacheHelper.invalidateNamespace('batches');
-      return {
-        id: archived.id,
-        archived: true,
-        message:
-          'Batch has linked enrolments or sessions and was archived instead of deleted',
-        status: BatchStatus.ARCHIVED,
-      };
+      // Hard delete, cascade will handle the enrolments and sessions
+      // because we added onDelete: Cascade to the schema
     }
 
     // Clean hard delete

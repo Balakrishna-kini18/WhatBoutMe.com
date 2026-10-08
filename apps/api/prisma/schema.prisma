@@ -660,10 +660,10 @@ model Enrolment {
   user   User   @relation(fields: [userId], references: [id])
 
   batchId String
-  batch   Batch  @relation(fields: [batchId], references: [id])
+  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   programId String
-  program   Program @relation(fields: [programId], references: [id])
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   status EnrolmentStatus @default(PENDING_PAYMENT)
 

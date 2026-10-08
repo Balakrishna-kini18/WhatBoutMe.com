@@ -370,10 +370,10 @@ export class ProgramsService {
         orderBy: { sequence: 'asc' },
       });
 
-      let targetSeq = data.stepNumber ?? data.sequence;
-      if (!targetSeq || targetSeq > existingSteps.length + 1) {
-        targetSeq = existingSteps.length + 1;
-      }
+      const rawSeq = data.stepNumber ?? data.sequence;
+      const targetSeq = (!rawSeq || rawSeq > existingSteps.length + 1)
+        ? existingSteps.length + 1
+        : rawSeq;
 
       // Shift subsequent steps if inserting at an existing sequence
       const toShift = existingSteps.filter((s) => s.sequence >= targetSeq);
@@ -646,10 +646,10 @@ export class ProgramsService {
         orderBy: { order: 'asc' },
       });
 
-      let targetOrder = data.lessonOrder ?? data.order;
-      if (!targetOrder || targetOrder > existingLessons.length + 1) {
-        targetOrder = existingLessons.length + 1;
-      }
+      const rawOrder = data.lessonOrder ?? data.order;
+      const targetOrder = (!rawOrder || rawOrder > existingLessons.length + 1)
+        ? existingLessons.length + 1
+        : rawOrder;
 
       // Shift subsequent lessons if inserting at an existing order
       const toShift = existingLessons.filter((l) => l.order >= targetOrder);

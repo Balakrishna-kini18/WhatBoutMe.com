@@ -3,6 +3,7 @@ import { SessionsController } from './sessions.controller.js';
 import { SessionsService } from './sessions.service.js';
 import { AttendanceService } from './attendance.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
+import { AttendanceComplianceService } from './attendance-compliance.service.js';
 import { AttendanceController } from './attendance.controller.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { ZoomModule } from '../zoom/zoom.module.js';
@@ -25,6 +26,7 @@ import { MeetingSyncProcessor } from './meeting-sync.processor.js';
     SessionsService,
     AttendanceService,
     AttendanceReconciliationService,
+    AttendanceComplianceService,
     MeetingSyncProcessor,
     {
       provide: MEETING_PROVIDER,
@@ -37,6 +39,6 @@ import { MeetingSyncProcessor } from './meeting-sync.processor.js';
       useValue: null,
     },
   ],
-  exports: [SessionsService, AttendanceService, AttendanceReconciliationService],
+  exports: [SessionsService, AttendanceService, AttendanceReconciliationService, AttendanceComplianceService],
 })
 export class SessionsModule {}

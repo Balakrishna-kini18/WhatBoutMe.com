@@ -333,6 +333,7 @@ model Program {
 
   hasCertificate      Boolean @default(false)
   certificateTemplate String?
+  attendanceThreshold Int     @default(80)
 
   steps              Step[]
   batches            Batch[]
@@ -615,10 +616,11 @@ model Batch {
   managerId String?
   manager   User?   @relation("ManagerBatches", fields: [managerId], references: [id])
 
-  startDate DateTime
-  endDate   DateTime?
-  capacity  Int
-  status    BatchStatus @default(UPCOMING)
+  startDate           DateTime
+  endDate             DateTime?
+  capacity            Int
+  status              BatchStatus @default(UPCOMING)
+  attendanceThreshold Int?
 
   enrolments    Enrolment[]
   sessions      Session[]
@@ -830,6 +832,7 @@ model Session {
   sessionType SessionType   @default(GROUP_COHORT)
   status      SessionStatus @default(SCHEDULED)
   capacity    Int? // Maximum booking capacity (e.g. 1 for 1:1, or cohort size)
+  isRequired  Boolean       @default(true) // Indicates if this session counts towards compliance
 
   // Meeting Provider Metadata (Provider-Neutral)
   meetingProvider      MeetingProvider @default(ZOOM)

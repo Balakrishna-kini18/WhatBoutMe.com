@@ -5,6 +5,8 @@ import { ZoomWebhookController } from './zoom.webhook.controller.js';
 import { ZoomProcessor } from './zoom.processor.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 
+const isWorkerMode = process.env.WORKER_MODE === 'true';
+
 @Module({
   imports: [
     PrismaModule,
@@ -13,7 +15,10 @@ import { PrismaModule } from '../../prisma/prisma.module.js';
     }),
   ],
   controllers: [ZoomWebhookController],
-  providers: [ZoomMeetingProvider, ZoomProcessor],
+  providers: [
+    ZoomMeetingProvider,
+    ...(isWorkerMode ? [ZoomProcessor] : []),
+  ],
   exports: [ZoomMeetingProvider],
 })
 export class ZoomModule {}

@@ -3,6 +3,8 @@ import { BullModule } from '@nestjs/bullmq';
 import { QueueEventsService } from './queue-events.service.js';
 import { OutboxDispatcherService } from './outbox-dispatcher.service.js';
 
+const isWorkerMode = process.env.WORKER_MODE === 'true';
+
 const defaultJobOptions = {
   attempts: 3,
   backoff: {
@@ -45,7 +47,14 @@ const defaultJobOptions = {
       { name: 'meeting-sync' },
     ),
   ],
-  providers: [QueueEventsService, OutboxDispatcherService],
-  exports: [BullModule, QueueEventsService, OutboxDispatcherService],
+  providers: [
+    ...(isWorkerMode ? [QueueEventsService] : []),
+    OutboxDispatcherService,
+  ],
+  exports: [
+    BullModule,
+    ...(isWorkerMode ? [QueueEventsService] : []),
+    OutboxDispatcherService,
+  ],
 })
 export class QueueModule {}

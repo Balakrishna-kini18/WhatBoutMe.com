@@ -1,3 +1,5 @@
+process.env.WORKER_MODE = 'true';
+
 import './instrument.js'; // Must be first!
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';

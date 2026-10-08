@@ -13,6 +13,8 @@ import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.int
 
 import { MeetingSyncProcessor } from './meeting-sync.processor.js';
 
+const isWorkerMode = process.env.WORKER_MODE === 'true';
+
 /**
  * D1-044: CALENDAR_PROVIDER is registered as a null factory until the
  * OutlookCalendarProvider (D2-037–D2-040) is implemented.  The SessionsService
@@ -27,7 +29,7 @@ import { MeetingSyncProcessor } from './meeting-sync.processor.js';
     AttendanceService,
     AttendanceReconciliationService,
     AttendanceComplianceService,
-    MeetingSyncProcessor,
+    ...(isWorkerMode ? [MeetingSyncProcessor] : []),
     {
       provide: MEETING_PROVIDER,
       useExisting: ZoomMeetingProvider,

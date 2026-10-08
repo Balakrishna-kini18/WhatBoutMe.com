@@ -8,6 +8,8 @@ import { PrismaModule } from '../../prisma/prisma.module.js';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module.js';
 import { SessionsModule } from '../sessions/sessions.module.js';
 
+const isWorkerMode = process.env.WORKER_MODE === 'true';
+
 @Module({
   imports: [
     PrismaModule,
@@ -21,7 +23,7 @@ import { SessionsModule } from '../sessions/sessions.module.js';
   providers: [
     CertificatesService,
     CertificateEligibilityService,
-    CertificateGenProcessor,
+    ...(isWorkerMode ? [CertificateGenProcessor] : []),
   ],
   exports: [CertificatesService, CertificateEligibilityService],
 })

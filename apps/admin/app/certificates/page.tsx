@@ -33,18 +33,38 @@ export default function CertificatesQueue() {
     }
   };
 
-  const handleAction = async (id: string, action: 'approve' | 'reject') => {
+  const handleAction = async (id: string, action: 'approve' | 'reject' | 'issue') => {
     try {
       setNotice("");
       const res = await fetch(`${API_URL}/certificates/${id}/${action}`, { method: 'POST' });
       if (res.ok) {
         fetchCertificates(); // Refresh queue
       } else {
-        // e.g. the learner has not finished the course yet
         setNotice(await errorMessage(res, `Could not ${action} the certificate`));
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleDownloadPdf = async (certId: string, directUrl?: string) => {
+    try {
+      const res = await fetch(`${API_URL}/certificates/${certId}/pdf`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.downloadUrl || data.pdfUrl) {
+          window.open(data.downloadUrl || data.pdfUrl, '_blank');
+          return;
+        }
+      }
+      if (directUrl) {
+        window.open(directUrl, '_blank');
+      } else {
+        alert("Official PDF is still being generated or is unavailable.");
+      }
+    } catch (e) {
+      console.error(e);
+      if (directUrl) window.open(directUrl, '_blank');
     }
   };
 
@@ -102,6 +122,13 @@ export default function CertificatesQueue() {
                     <span className={`${styles.statusChip} ${styles[cert.status.toLowerCase()] || ''}`}>
                       {cert.status}
                     </span>
+                    {cert.certificateCode && (
+                      <div style={{ marginTop: '4px' }}>
+                        <code style={{ fontSize: '0.75rem', color: 'var(--text-muted, #64748b)' }}>
+                          {cert.certificateCode}
+                        </code>
+                      </div>
+                    )}
                   </td>
                   <td className={styles.alignRight}>
                     {cert.status === 'PENDING' && (
@@ -111,7 +138,34 @@ export default function CertificatesQueue() {
                       </div>
                     )}
                     {cert.status === 'APPROVED' && (
-                      <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtn} style={{ textDecoration: 'none', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>View Certificate</Link>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button className={styles.primaryBtn} style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', background: '#059669', borderColor: '#059669' }} onClick={() => handleAction(cert.id, 'issue')}>
+                          Issue Certificate
+                        </button>
+                        <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtn} style={{ textDecoration: 'none', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
+                          Preview
+                        </Link>
+                      </div>
+                    )}
+                    {cert.status === 'ISSUED' && (
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <button
+                          className={styles.primaryBtn}
+                          style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                          onClick={() => handleDownloadPdf(cert.id, cert.pdfUrl)}
+                          title="Download official generated PDF"
+                        >
+                          Official PDF ↗
+                        </button>
+                        <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtn} style={{ textDecoration: 'none', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
+                          View
+                        </Link>
+                      </div>
+                    )}
+                    {cert.status === 'REJECTED' && (
+                      <span className={styles.cellTextMuted} style={{ fontSize: '0.8rem' }}>
+                        {cert.rejectionReason || 'Rejected'}
+                      </span>
                     )}
                   </td>
                 </tr>

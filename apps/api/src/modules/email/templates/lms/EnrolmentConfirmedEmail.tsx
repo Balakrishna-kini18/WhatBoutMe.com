@@ -1,6 +1,6 @@
 import { Button, Text, Section, Link } from '@react-email/components';
 import * as React from 'react';
-import WhatBoutMeEmailLayout from '../WhatBoutMeEmailLayout.jsx';
+import WhatBoutMeEmailLayout from '../WhatBoutMeEmailLayout.js';
 
 interface EnrolmentConfirmedEmailProps {
   firstName: string;

@@ -7,15 +7,15 @@ async function bootstrapServer() {
 
   if (!cachedServer) {
     // Dynamically import everything so top-level module load errors are caught
-    await import('../src/instrument.js');
+    await import('./instrument.js');
     
     const { NestFactory } = await import('@nestjs/core');
     const { ExpressAdapter } = await import('@nestjs/platform-express');
     const express = (await import('express')).default;
     const { ValidationPipe } = await import('@nestjs/common');
     const helmet = (await import('helmet')).default;
-    const { HttpExceptionFilter } = await import('../src/common/filters/http-exception.filter.js');
-    const { AppModule } = await import('../src/app.module.js');
+    const { HttpExceptionFilter } = await import('./common/filters/http-exception.filter.js');
+    const { AppModule } = await import('./app.module.js');
 
     const expressApp = express();
     const nestApp = await NestFactory.create(

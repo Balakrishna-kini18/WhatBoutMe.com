@@ -225,6 +225,23 @@ export class ProgramsService {
           );
         }
       }
+
+      // 4. Cancel Zoom Meetings
+      const sessions = await this.prisma.session.findMany({
+        where: { batch: { programId: id } },
+        select: { providerMeetingId: true }
+      });
+      for (const sess of sessions) {
+        if (sess.providerMeetingId) {
+          await this.prisma.outboxEvent.create({
+            data: {
+              type: 'sync-meeting',
+              action: 'CANCEL',
+              payload: { providerMeetingId: sess.providerMeetingId }
+            }
+          }).catch(e => this.logger.error('Failed to create Zoom cancel outbox event', e));
+        }
+      }
     } catch (cleanupErr) {
       this.logger.error(`Failed to clean up Cloudinary media for program ${id}:`, cleanupErr);
     }

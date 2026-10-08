@@ -510,6 +510,26 @@ export class BatchesService {
       // because we added onDelete: Cascade to the schema
     }
 
+    try {
+      const sessions = await this.prisma.session.findMany({
+        where: { batchId: id },
+        select: { providerMeetingId: true }
+      });
+      for (const sess of sessions) {
+        if (sess.providerMeetingId) {
+          await this.prisma.outboxEvent.create({
+            data: {
+              type: 'sync-meeting',
+              action: 'CANCEL',
+              payload: { providerMeetingId: sess.providerMeetingId }
+            }
+          });
+        }
+      }
+    } catch (cleanupErr) {
+      this.logger.error(`Failed to create Zoom cancel outbox events for batch ${id}:`, cleanupErr);
+    }
+
     // Clean hard delete
     await this.prisma.batch.delete({ where: { id } });
     await this.cacheHelper.invalidateNamespace('batches');

@@ -130,12 +130,31 @@ export default function LearnerDashboard() {
   if (loading) {
     return (
       <div className={styles.dashboard}>
-        <div style={{ textAlign: "center", padding: "60px 20px" }}>
-          <h2>Loading your dashboard...</h2>
+        {/* Skeleton Greeting */}
+        <div className={styles.greeting} style={{ marginBottom: "1.5rem" }}>
+          <div className="skeleton" style={{ width: 48, height: 48, borderRadius: "50%" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div className="skeleton" style={{ width: 220, height: 28, borderRadius: 8 }} />
+            <div className="skeleton" style={{ width: 160, height: 16, borderRadius: 6 }} />
+          </div>
         </div>
+
+        {/* Skeleton Hero Banner */}
+        <div className="skeleton" style={{ height: 200, width: "100%", borderRadius: 24, marginBottom: "2rem" }} />
+
+        {/* Skeleton Stat Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.25rem", marginBottom: "2rem" }}>
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="skeleton" style={{ height: 110, borderRadius: 20 }} />
+          ))}
+        </div>
+
+        {/* Skeleton Course Section */}
+        <div className="skeleton" style={{ height: 260, width: "100%", borderRadius: 20 }} />
       </div>
     );
   }
+
 
   if (loadError) {
     return (

@@ -65,7 +65,15 @@ async function bootstrapServer() {
     // module onModuleInit hooks + 12 Redis clients + helmet/cors MUST finish
     // within this TOTAL wallclock, or we force-fail bootstrap so the handler
     // safety net can write a JSON 500 response.
-    const BOOTSTRAP_HARD_LIMIT_MS = 5000;
+    //
+    // NOTE: Raised from 5000ms → 9000ms on 2026-10-09 after cold-start
+    // evidence on Vercel Hobby Basic builder: first Prisma pooled connect to
+    // Neon + TLS handshake to 12 Upstash Redis clients + helmet CSP policy
+    // compilation regularly takes 5.2–6.1s on a cold sandbox, well above
+    // the original 5s gate.  We keep 9000ms < 10000ms (Vercel Hobby hard
+    // execution limit at 10s) so the safety-net writeJson always has time
+    // to deliver a readable response before the Vercel watchdog SIGKILLs us.
+    const BOOTSTRAP_HARD_LIMIT_MS = 9000;
     let bootstrapReject: ((err: Error) => void) | undefined;
     const bootstrapLimitTimer = setTimeout(() => {
       if (bootstrapReject) {

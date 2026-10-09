@@ -23,7 +23,9 @@ const nextConfig: NextConfig = {
     remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],
   },
   async rewrites() {
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+    const backendUrl =
+      process.env.NEXT_PUBLIC_API_URL ||
+      (process.env.VERCEL ? "https://what-bout-me-com.vercel.app" : "http://localhost:4000");
     return [
       {
         source: "/api/backend",

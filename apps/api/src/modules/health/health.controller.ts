@@ -32,7 +32,11 @@ export class HealthController {
           return { redis: { status: 'up', note: 'memory fallback (REDIS_URL not configured)' } };
         }
         try {
-          await this.redisService.getClient().ping();
+          const client = this.redisService.getClient();
+          if (client.status === 'wait') {
+            await client.connect();
+          }
+          await client.ping();
           return { redis: { status: 'up' } };
         } catch (error: any) {
           return { redis: { status: 'down', error: error.message } };

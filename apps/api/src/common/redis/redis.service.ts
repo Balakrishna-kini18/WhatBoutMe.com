@@ -118,9 +118,12 @@ export class RedisService implements OnModuleDestroy {
       };
       // WALLCLOCK GUARANTEE: DNS + TLS handshakes on Vercel Lambda's network
       // sometimes hang past ioredis's connectTimeout without emitting any
-      // event.  This setTimeout FORCES socket close at 1500ms no matter what.
-      const killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
-      try { killTimer.unref(); } catch {/* noop */}
+      // event. Only arm this wallclock timer once an actual connection attempt begins.
+      let killTimer: any;
+      this.client.on('connecting', () => {
+        killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
+        try { killTimer.unref(); } catch {/* noop */}
+      });
       this.client.once('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
       this.client.once('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
       this.client.once('error', kill);

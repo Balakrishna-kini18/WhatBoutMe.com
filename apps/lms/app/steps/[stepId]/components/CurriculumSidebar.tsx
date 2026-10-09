@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import styles from "../step.module.css";
-import ProgressRing from "../../../components/ui/ProgressRing";
 import { StepProgressionItem, getLockMessage } from "../../../lib/api";
 
 interface CurriculumSidebarProps {
@@ -25,6 +24,9 @@ interface CurriculumSidebarProps {
   isNotesCaptured: boolean;
   isQuizPassed: boolean;
   isStepCompleted: boolean;
+  currentMediaId?: string | null;
+  mediaLessons?: any[];
+  onSelectMediaId?: (id: string) => void;
 }
 
 export default function CurriculumSidebar({
@@ -46,6 +48,9 @@ export default function CurriculumSidebar({
   isNotesCaptured,
   isQuizPassed,
   isStepCompleted,
+  currentMediaId,
+  mediaLessons = [],
+  onSelectMediaId,
 }: CurriculumSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   // Track expanded accordion modules (default current step is open)
@@ -67,15 +72,20 @@ export default function CurriculumSidebar({
     return steps.filter(
       (s) =>
         s.title.toLowerCase().includes(q) ||
+        `module ${s.sequence}`.toLowerCase().includes(q) ||
         `step ${s.sequence}`.toLowerCase().includes(q)
     );
   }, [steps, searchQuery]);
 
   const completedCount = steps.filter((s) => s.isCompleted).length;
+  const totalLessonsEstimated = steps.reduce((acc, s) => acc + (s.isCompleted ? 4 : 3), 0) || 16;
+  const completedLessonsEstimated = Math.round((overallProgressPercent / 100) * totalLessonsEstimated);
 
   if (!isOpen) {
     return null;
   }
+
+  const courseDisplayName = batchName || programTitle || "Sigma batch";
 
   return (
     <>
@@ -83,64 +93,64 @@ export default function CurriculumSidebar({
       <div className={styles.mobileBackdrop} onClick={onClose} />
 
       <aside className={styles.sidebarStickyWrapper} aria-label="Course Curriculum">
-        {/* Sidebar Header with Course Info & Progress */}
+        {/* Sidebar Header Card matching Reference */}
         <div className={styles.sidebarHeaderCard}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-            <div style={{ flex: 1, paddingRight: "0.5rem" }}>
-              <span className={styles.courseCohortPill}>
-                {batchName ? `Cohort: ${batchName}` : "Active Course"}
-              </span>
-              <h2 className={styles.courseSidebarTitle} title={programTitle}>
-                {programTitle || "Curriculum"}
+          <div className={styles.courseSidebarTitleRow}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <h2 className={styles.courseSidebarTitle} title={courseDisplayName}>
+                {courseDisplayName}
               </h2>
+              <span className={styles.courseCohortPill}>Self Paced</span>
             </div>
             <button
               type="button"
               className={styles.sidebarCloseBtn}
               onClick={onClose}
-              title="Close Sidebar (o)"
+              title="Close Curriculum Sidebar"
               aria-label="Close Curriculum Sidebar"
             >
               ✕
             </button>
           </div>
 
-          {/* Progress Ring Summary */}
+          {/* Progress Bar & Summary matching Reference */}
           <div className={styles.sidebarProgressRow}>
-            <ProgressRing progressPercent={overallProgressPercent} size={48} strokeWidth={4} />
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+            <div className={styles.sidebarProgressLabels}>
+              <span className={styles.sidebarProgressPct}>
                 {Math.round(overallProgressPercent)}% Complete
               </span>
-              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                {completedCount} of {steps.length} Steps Finished
+              <span className={styles.sidebarProgressDoneCount}>
+                {completedCount} Complete
               </span>
             </div>
+
+            <div className={styles.progressBarTrack}>
+              <div
+                className={styles.progressBarFill}
+                style={{ width: `${Math.min(100, Math.max(0, overallProgressPercent))}%` }}
+              />
+            </div>
+
+            <span className={styles.sidebarProgressSubtext}>
+              {completedCount} of {steps.length} Modules • {completedLessonsEstimated} of {totalLessonsEstimated} Lessons
+            </span>
           </div>
 
-          {/* Search Lessons Filter */}
+          {/* Search Box with Search Icon matching Reference */}
           <div className={styles.sidebarSearchWrap}>
             <input
               type="text"
-              placeholder="Search curriculum lessons..."
+              placeholder="Search lessons or modules..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className={styles.sidebarSearchInput}
               aria-label="Search curriculum"
             />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.8rem" }}
-              >
-                ✕
-              </button>
-            )}
+            <span className={styles.sidebarSearchIcon} aria-hidden="true">🔍</span>
           </div>
         </div>
 
-        {/* Modules Accordion List */}
+        {/* Modules Accordion List matching Reference */}
         <div className={styles.modulesScrollArea}>
           {filteredSteps.map((s) => {
             const isCurrent = s.stepId === currentStepId;
@@ -182,8 +192,12 @@ export default function CurriculumSidebar({
                   }}
                   aria-expanded={isExpanded}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                    <span className={`${styles.moduleStatusCircle} ${isDone ? styles.statusDone : isCurrent ? styles.statusCurrent : ""}`}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                    <span
+                      className={`${styles.moduleStatusCircle} ${
+                        isDone ? styles.statusDone : isCurrent ? styles.statusCurrent : ""
+                      }`}
+                    >
                       {isDone ? "✓" : s.sequence}
                     </span>
                     <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -191,100 +205,129 @@ export default function CurriculumSidebar({
                       <span className={styles.moduleAccordionTitle} title={s.title}>
                         {s.title}
                       </span>
+                      <span className={styles.moduleCountLabel}>
+                        {isCurrent ? `${Math.max(1, mediaLessons.length) + (hasReadingDocs ? 1 : 0) + (hasQuiz ? 1 : 0)} Lessons` : "4 Lessons"}
+                      </span>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                    {isCurrent && <span className={styles.activePillBadge}>Active</span>}
-                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", transition: "transform 0.2s ease", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
-                      ▼
-                    </span>
-                  </div>
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      color: "var(--text-muted)",
+                      transition: "transform 0.2s ease",
+                      transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                    }}
+                  >
+                    ▼
+                  </span>
                 </div>
 
-                {/* Sub-lessons list (expanded) */}
+                {/* Sub-lessons list (expanded) matching reference timeline */}
                 {isExpanded && (
                   <div className={styles.moduleLessonsSubList}>
                     {/* Link to change step if not current */}
                     {!isCurrent && (
                       <Link
                         href={`/steps/${s.stepId}`}
-                        className={styles.startStepLink}
+                        className={styles.subLessonItem}
                         onClick={onClose}
+                        style={{ background: "var(--bg-card-muted)", fontWeight: 600 }}
                       >
-                        <span>▶ Resume Module {s.sequence}</span>
+                        <span className={styles.subLessonIcon}>▶</span>
+                        <span className={styles.subLessonLabel}>Resume Module {s.sequence}</span>
                       </Link>
                     )}
 
-                    {/* If current step, show interactive nested activities */}
+                    {/* If current step, show interactive nested sub-lessons */}
                     {isCurrent && (
                       <>
-                        {hasVideoLesson && (
+                        {/* Video Lesson(s) */}
+                        {hasVideoLesson && mediaLessons.length > 0 ? (
+                          mediaLessons.map((m, mIdx) => {
+                            const isThisMediaActive = currentActivity === "video" && (!currentMediaId || currentMediaId === m.id);
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className={`${styles.subLessonItem} ${isThisMediaActive ? styles.subLessonItemActive : ""}`}
+                                onClick={() => {
+                                  onSelectActivity("video");
+                                  if (onSelectMediaId) onSelectMediaId(m.id);
+                                }}
+                              >
+                                <span className={styles.subLessonIcon}>
+                                  {isThisMediaActive ? "▶" : isVideoDone ? "✓" : "⊙"}
+                                </span>
+                                <span className={styles.subLessonLabel}>
+                                  {mIdx + 1}. {m.title || "Video Lecture"}
+                                </span>
+                                <span className={styles.subLessonDurationChip}>
+                                  {m.durationSec ? `${Math.floor(m.durationSec / 60)}:${(m.durationSec % 60).toString().padStart(2, "0")}` : "10:30"}
+                                </span>
+                              </button>
+                            );
+                          })
+                        ) : hasVideoLesson ? (
                           <button
                             type="button"
                             className={`${styles.subLessonItem} ${currentActivity === "video" ? styles.subLessonItemActive : ""}`}
                             onClick={() => onSelectActivity("video")}
                           >
-                            <span className={styles.subLessonIcon}>🎬</span>
-                            <span className={styles.subLessonLabel}>Video Lecture</span>
-                            <span className={styles.subLessonStatus}>
-                              {isVideoDone ? <span style={{ color: "#16a34a" }}>✓</span> : <span style={{ color: "var(--accent-primary)" }}>●</span>}
-                            </span>
+                            <span className={styles.subLessonIcon}>▶</span>
+                            <span className={styles.subLessonLabel}>1. Video Lecture</span>
+                            <span className={styles.subLessonDurationChip}>10:30</span>
                           </button>
-                        )}
+                        ) : null}
 
+                        {/* Reading Documents */}
                         {hasReadingDocs && (
                           <button
                             type="button"
                             className={`${styles.subLessonItem} ${currentActivity === "reading" ? styles.subLessonItemActive : ""}`}
                             onClick={() => onSelectActivity("reading")}
                           >
-                            <span className={styles.subLessonIcon}>📄</span>
+                            <span className={styles.subLessonIcon}>{isReadingDone ? "✓" : "📄"}</span>
                             <span className={styles.subLessonLabel}>
-                              Reading Material ({readingDocsCount})
+                              2. Reading &amp; References ({readingDocsCount})
                             </span>
-                            <span className={styles.subLessonStatus}>
-                              {isReadingDone ? <span style={{ color: "#16a34a" }}>✓</span> : "○"}
-                            </span>
+                            <span className={styles.subLessonDurationChip}>5 min</span>
                           </button>
                         )}
 
+                        {/* Personal Notes */}
                         <button
                           type="button"
                           className={`${styles.subLessonItem} ${currentActivity === "notes" ? styles.subLessonItemActive : ""}`}
                           onClick={() => onSelectActivity("notes")}
                         >
-                          <span className={styles.subLessonIcon}>📝</span>
-                          <span className={styles.subLessonLabel}>Personal Notes</span>
-                          <span className={styles.subLessonStatus}>
-                            {isNotesCaptured ? <span style={{ color: "#16a34a" }}>✓</span> : "○"}
-                          </span>
+                          <span className={styles.subLessonIcon}>{isNotesCaptured ? "✓" : "📝"}</span>
+                          <span className={styles.subLessonLabel}>3. Personal Notes</span>
+                          <span className={styles.subLessonDurationChip}>Self</span>
                         </button>
 
+                        {/* Knowledge Check Quiz */}
                         {hasQuiz && (
                           <button
                             type="button"
                             className={`${styles.subLessonItem} ${currentActivity === "quiz" ? styles.subLessonItemActive : ""}`}
                             onClick={() => onSelectActivity("quiz")}
                           >
-                            <span className={styles.subLessonIcon}>🧠</span>
-                            <span className={styles.subLessonLabel}>Knowledge Check</span>
-                            <span className={styles.subLessonStatus}>
-                              {isQuizPassed ? <span style={{ color: "#16a34a" }}>✓</span> : "○"}
-                            </span>
+                            <span className={styles.subLessonIcon}>{isQuizPassed ? "✓" : "🌸"}</span>
+                            <span className={styles.subLessonLabel}>4. Knowledge Check Quiz</span>
+                            <span className={styles.subLessonDurationChip}>10 Qs</span>
                           </button>
                         )}
 
+                        {/* Step Completed Milestone */}
                         <button
                           type="button"
                           className={`${styles.subLessonItem} ${currentActivity === "completion" ? styles.subLessonItemActive : ""}`}
                           onClick={() => onSelectActivity("completion")}
                         >
-                          <span className={styles.subLessonIcon}>🎉</span>
+                          <span className={styles.subLessonIcon}>{isStepCompleted ? "✓" : "🎉"}</span>
                           <span className={styles.subLessonLabel}>Module Mastered</span>
-                          <span className={styles.subLessonStatus}>
-                            {isStepCompleted ? <span style={{ color: "#16a34a" }}>✓</span> : "○"}
-                          </span>
+                          <span className={styles.subLessonDurationChip}>Done</span>
                         </button>
                       </>
                     )}

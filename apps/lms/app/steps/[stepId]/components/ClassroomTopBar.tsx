@@ -8,8 +8,10 @@ import ProgressRing from "../../../components/ui/ProgressRing";
 interface ClassroomTopBarProps {
   programId: string;
   programTitle: string;
+  batchName?: string;
   stepSequence: number;
   stepTitle: string;
+  currentLessonTitle?: string;
   activeActivity: "video" | "reading" | "notes" | "quiz" | "completion";
   hasPrevLesson: boolean;
   hasNextLesson: boolean;
@@ -24,8 +26,10 @@ interface ClassroomTopBarProps {
 export default function ClassroomTopBar({
   programId,
   programTitle,
+  batchName,
   stepSequence,
   stepTitle,
+  currentLessonTitle,
   activeActivity,
   hasPrevLesson,
   hasNextLesson,
@@ -49,131 +53,114 @@ export default function ClassroomTopBar({
     }
   };
 
-  const getActivityLabel = () => {
-    switch (activeActivity) {
-      case "video":
-        return "🎬 Video Lesson";
-      case "reading":
-        return "📄 Reading Material";
-      case "notes":
-        return "📝 Personal Notes";
-      case "quiz":
-        return "🧠 Knowledge Check";
-      case "completion":
-        return "🎉 Step Mastered";
-    }
-  };
+  const cohortName = batchName || programTitle || "Sigma batch";
+  const displayLesson = currentLessonTitle || stepTitle || "Quick Start";
 
   return (
     <>
-      <header className={styles.topNav}>
-        {/* Left: Back & Course Breadcrumbs */}
+      <header className={styles.topNav} role="banner">
+        {/* Left: Curriculum Toggle & Batch Breadcrumb */}
         <div className={styles.topNavLeft}>
           <button
             type="button"
             className={styles.outlineToggleBtn}
             onClick={onToggleSidebar}
-            title={isSidebarOpen ? "Collapse Curriculum (o)" : "Expand Curriculum (o)"}
+            title={isSidebarOpen ? "Collapse Curriculum" : "Expand Curriculum"}
             aria-label="Toggle Curriculum Sidebar"
           >
-            <span>{isSidebarOpen ? "«" : "☰"}</span>
-            <span>{isSidebarOpen ? "Curriculum" : "Curriculum"}</span>
+            <span>{isSidebarOpen ? "←" : "☰"}</span>
+            <span>Curriculum</span>
           </button>
 
-          <Link
-            href={`/programs/${programId}/steps`}
-            className={styles.backLink}
-            title="Return to Course Overview"
-          >
-            <span>←</span>
-            <span>Course Path</span>
-          </Link>
-
-          <div className={styles.breadcrumbGroup}>
-            <span className={styles.breadcrumbCourse} title={programTitle}>
-              {programTitle || "Program"}
-            </span>
-            <span className={styles.breadcrumbDivider}>/</span>
-            <span className={styles.breadcrumbCurrent} title={stepTitle}>
-              Step {stepSequence}: {stepTitle}
-            </span>
-            <span className={styles.breadcrumbActivity}>
-              {getActivityLabel()}
-            </span>
-          </div>
+          <span className={styles.topNavCohort} title={cohortName}>
+            <span>•</span>
+            <span>{cohortName}</span>
+          </span>
         </div>
 
-        {/* Right: Lesson Controls & Quick Tools */}
-        <div className={styles.topNavRight}>
-          {/* Previous / Next Lesson Quick Switches */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button
-              type="button"
-              className={styles.playerToolBtn}
-              onClick={onNavigatePrev}
-              disabled={!hasPrevLesson}
-              title="Previous Lesson ([)"
-              style={{ opacity: hasPrevLesson ? 1 : 0.4, cursor: hasPrevLesson ? "pointer" : "not-allowed" }}
-            >
-              <span>‹</span>
-              <span>Prev</span>
-            </button>
-            <button
-              type="button"
-              className={styles.playerToolBtn}
-              onClick={onNavigateNext}
-              disabled={!hasNextLesson}
-              title="Next Lesson (])"
-              style={{ opacity: hasNextLesson ? 1 : 0.4, cursor: hasNextLesson ? "pointer" : "not-allowed" }}
-            >
-              <span>Next</span>
-              <span>›</span>
-            </button>
+        {/* Right: Path Breadcrumb, Lesson Switchers, Progress & Quick Actions */}
+        <div className={styles.topNavRightCluster}>
+          {/* Path Breadcrumb Card matching reference */}
+          <div className={styles.topNavPathCard} title={`${cohortName} / Module ${stepSequence}: ${stepTitle} / ${displayLesson}`}>
+            <span className={styles.topNavPathIcon} aria-hidden="true">🗂</span>
+            <span>
+              {cohortName} / Module {stepSequence}: {stepTitle} /{" "}
+              <strong className={styles.topNavPathCurrent}>{displayLesson}</strong>
+            </span>
           </div>
 
-          {/* Overall Course Progress Ring */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }} title="Course Completion Progress">
-            <ProgressRing progressPercent={overallProgressPercent} size={36} strokeWidth={3} />
+          {/* Previous / Next Lesson Switchers */}
+          <button
+            type="button"
+            className={styles.topNavBtn}
+            onClick={onNavigatePrev}
+            disabled={!hasPrevLesson}
+            title="Previous Lesson"
+            aria-label="Previous Lesson"
+          >
+            <span>‹</span>
+            <span>Previous</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.topNavBtn}
+            onClick={onNavigateNext}
+            disabled={!hasNextLesson}
+            title="Next Lesson"
+            aria-label="Next Lesson"
+          >
+            <span>Next</span>
+            <span>›</span>
+          </button>
+
+          {/* Course Progress Ring */}
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 4px" }}
+            title={`Overall Course Progress: ${Math.round(overallProgressPercent)}%`}
+          >
+            <ProgressRing progressPercent={overallProgressPercent} size={32} strokeWidth={3} />
             <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-secondary)" }}>
               {Math.round(overallProgressPercent)}%
             </span>
           </div>
 
-          {/* AI Tutor Trigger */}
+          {/* Theme Toggle Icon */}
           <button
             type="button"
-            className={styles.playerToolBtn}
-            onClick={onToggleAITutor}
-            title="Open AI Tutor Copilot (t)"
-            style={{
-              background: "var(--accent-highlight, #f6edde)",
-              color: "var(--accent-primary, #c97a1e)",
-              border: "1px solid var(--accent-primary, #c97a1e)",
-              fontWeight: 700,
+            className={styles.topNavIconBtn}
+            onClick={() => {
+              // Subtle theme toggle feedback
+              const isDark = document.documentElement.classList.toggle("dark");
+              localStorage.setItem("wbm_theme", isDark ? "dark" : "light");
             }}
+            title="Toggle Light / Dark Mode"
+            aria-label="Toggle Theme"
           >
-            <span>🤖</span>
-            <span>AI Tutor</span>
-          </button>
-
-          {/* Keyboard Shortcuts Trigger */}
-          <button
-            type="button"
-            className={styles.playerToolBtn}
-            onClick={() => setShowShortcuts(true)}
-            title="Keyboard Shortcuts (?)"
-          >
-            <span>⌨</span>
+            <span>☀️</span>
           </button>
 
           {/* Fullscreen Toggle */}
           <button
             type="button"
-            className={styles.playerToolBtn}
+            className={styles.topNavIconBtn}
             onClick={toggleFullscreen}
             title="Toggle Fullscreen (f)"
+            aria-label="Toggle Fullscreen"
           >
-            <span>{isFullscreen ? "⛶" : "⛶"}</span>
+            <span>⛶</span>
+          </button>
+
+          {/* AI Tutor Entry Button */}
+          <button
+            type="button"
+            className={styles.topNavAITutorBtn}
+            onClick={onToggleAITutor}
+            title="AI Study Copilot"
+            aria-label="Open AI Tutor"
+          >
+            <span>🤖</span>
+            <span>AI Tutor</span>
           </button>
         </div>
       </header>
@@ -217,8 +204,8 @@ export default function ClassroomTopBar({
                 { key: "j / l", desc: "Seek backward or forward 10s" },
                 { key: "m", desc: "Mute or unmute audio" },
                 { key: "f", desc: "Toggle fullscreen mode" },
-                { key: "o", desc: "Toggle Curriculum Sidebar" },
-                { key: "t", desc: "Open AI Tutor Copilot" },
+                { key: "Curriculum", desc: "Toggle Curriculum Sidebar" },
+                { key: "t", desc: "Focus AI Tutor Copilot" },
                 { key: "[ / ]", desc: "Previous / Next Lesson" },
                 { key: "Esc", desc: "Close drawer or dialog" },
               ].map((item) => (

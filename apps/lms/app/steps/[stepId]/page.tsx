@@ -21,7 +21,7 @@ import ClassroomTopBar from "./components/ClassroomTopBar";
 import CurriculumSidebar from "./components/CurriculumSidebar";
 import CinemaVideoPlayer from "./components/CinemaVideoPlayer";
 import PostVideoCelebration from "./components/PostVideoCelebration";
-import LearningTabsPanel from "./components/LearningTabsPanel";
+import LearningTabsPanel, { AssistantTabType } from "./components/LearningTabsPanel";
 import AITutorDrawer from "./components/AITutorDrawer";
 import AdaptiveQuizPlayer from "./components/AdaptiveQuizPlayer";
 
@@ -68,10 +68,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     }
   };
 
-  // 3. UI Shell Layout States (Apna College + Coursera Dual-Pane)
-  // Left sidebar is open by default on desktop (>=1024px), closed on mobile
+  // 3. UI Shell Layout States (3-Column Layout: Sidebar, Stage, Study Assistant)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isAITutorOpen, setIsAITutorOpen] = useState(false);
+  const [assistantTab, setAssistantTab] = useState<AssistantTabType>("aitutor");
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -554,6 +554,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         switchActivity("reading");
       } else {
         switchActivity("notes");
+        setAssistantTab("notes");
       }
       return;
     }
@@ -564,6 +565,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         if (!lessonProgress[d.id]?.isCompleted) handleCompleteDocument(d.id);
       });
       switchActivity("notes");
+      setAssistantTab("notes");
       return;
     }
 
@@ -662,22 +664,25 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         <header className={styles.topNav}>
           <div className={styles.topNavLeft}>
             <div className={styles.skeleton} style={{ width: 110, height: 32, borderRadius: 8 }} />
-            <div className={styles.skeleton} style={{ width: 180, height: 18, borderRadius: 4 }} />
+            <div className={styles.skeleton} style={{ width: 160, height: 18, borderRadius: 4 }} />
           </div>
-          <div className={styles.topNavRight}>
-            <div className={styles.skeleton} style={{ width: 120, height: 28, borderRadius: 20 }} />
-            <div className={styles.skeleton} style={{ width: 90, height: 32, borderRadius: 8 }} />
+          <div className={styles.topNavRightCluster}>
+            <div className={styles.skeleton} style={{ width: 220, height: 32, borderRadius: 8 }} />
+            <div className={styles.skeleton} style={{ width: 80, height: 32, borderRadius: 8 }} />
+            <div className={styles.skeleton} style={{ width: 34, height: 34, borderRadius: 17 }} />
           </div>
         </header>
 
-        <main className={`${styles.taskWorkspace} ${styles.videoScope}`}>
-          <div style={{ width: "100%", marginBottom: 20 }}>
-            <div className={styles.skeleton} style={{ width: 140, height: 14, marginBottom: 8, borderRadius: 4 }} />
-            <div className={styles.skeleton} style={{ width: "60%", height: 32, marginBottom: 8, borderRadius: 6 }} />
-            <div className={styles.skeleton} style={{ width: "80%", height: 16, borderRadius: 4 }} />
+        <div className={styles.classroom3ColGrid}>
+          <div className={styles.skeleton} style={{ width: 310, height: 600, borderRadius: 14 }} />
+          <div className={styles.centerStage}>
+            <div className={styles.skeleton} style={{ width: 160, height: 16, marginBottom: 10, borderRadius: 4 }} />
+            <div className={styles.skeleton} style={{ width: "60%", height: 36, marginBottom: 10, borderRadius: 6 }} />
+            <div className={styles.skeleton} style={{ width: "40%", height: 18, marginBottom: 20, borderRadius: 4 }} />
+            <div className={styles.skeleton} style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: 14 }} />
           </div>
-          <div className={styles.skeleton} style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: 14 }} />
-        </main>
+          <div className={styles.skeleton} style={{ width: 400, height: 600, borderRadius: 14 }} />
+        </div>
       </div>
     );
   }
@@ -708,13 +713,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   return (
     <div className={styles.classroomContainer}>
       {/* ===================================================================
-          1. Sticky Top Navigation Bar
+          1. Sticky Top Navigation Bar matching Reference
           =================================================================== */}
       <ClassroomTopBar
         programId={step.programId}
         programTitle={progression?.programTitle || "Program"}
+        batchName={progression?.batchName}
         stepSequence={step.sequence}
         stepTitle={step.title}
+        currentLessonTitle={currentMedia?.title || step.title}
         activeActivity={activeActivity}
         hasPrevLesson={Boolean(prevStep || currentActIdx > 0)}
         hasNextLesson={Boolean(nextStep || currentActIdx < availableActivities.length - 1)}
@@ -722,15 +729,20 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         onNavigateNext={handleGoContinue}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
-        onToggleAITutor={() => setIsAITutorOpen((prev) => !prev)}
+        onToggleAITutor={() => {
+          setAssistantTab("aitutor");
+          if (typeof window !== "undefined" && window.innerWidth < 1024) {
+            setIsAITutorOpen(true);
+          }
+        }}
         overallProgressPercent={progression?.overallProgressPercent || 0}
       />
 
       {/* ===================================================================
-          2. Dual-Pane Desktop Layout (Apna College Curriculum + Coursera Stage)
+          2. 3-Column Guided Learning Grid (Curriculum | Stage | Study Assistant)
           =================================================================== */}
-      <div className={styles.classroomDualFrame}>
-        {/* Collapsible Left Curriculum Sidebar */}
+      <div className={`${styles.classroom3ColGrid} ${!isSidebarOpen ? styles.classroom3ColGridSidebarClosed : ""}`}>
+        {/* Column 1: Curriculum Sidebar */}
         <CurriculumSidebar
           programTitle={progression?.programTitle || "Course Curriculum"}
           batchName={progression?.batchName}
@@ -738,7 +750,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           steps={allSteps}
           currentStepId={stepId}
           currentActivity={activeActivity}
-          onSelectActivity={(act) => switchActivity(act)}
+          onSelectActivity={(act) => {
+            switchActivity(act);
+            if (act === "notes") setAssistantTab("notes");
+          }}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           hasVideoLesson={mediaLessons.length > 0}
@@ -750,22 +765,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           isNotesCaptured={isNotesCaptured}
           isQuizPassed={isQuizPassed}
           isStepCompleted={isStepCompleted}
+          currentMediaId={selectedMediaId || currentMedia?.id}
+          mediaLessons={mediaLessons}
+          onSelectMediaId={(id) => setSelectedMediaId(id)}
         />
 
-        {/* Centered Learning Stage */}
-        <main
-          className={`${styles.taskWorkspace} ${
-            activeActivity === "video"
-              ? styles.videoScope
-              : activeActivity === "reading"
-              ? styles.readingScope
-              : activeActivity === "notes"
-              ? styles.notesScope
-              : activeActivity === "quiz"
-              ? styles.quizScope
-              : styles.completionScope
-          }`}
-        >
+        {/* Column 2: Center Content Stage */}
+        <main className={styles.centerStage}>
           {/* Fallback UI for Direct Access to Locked Step */}
           {isStepLocked ? (
             <div style={{ maxWidth: 520, margin: "4rem auto", textAlign: "center", background: "#ffffff", padding: "2.5rem 2rem", borderRadius: 14, border: "1px solid var(--border-light)", boxShadow: "0 8px 24px rgba(20, 17, 15, 0.05)" }}>
@@ -795,21 +801,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </div>
           ) : (
             <>
-              {/* Activity Header */}
-              <div className={styles.activityHeader}>
-                <div className={styles.moduleEyebrow}>
-                  <span>STEP {step.sequence} OF {allSteps.length || 1}</span>
-                  <span>•</span>
-                  <span>
-                    {activeActivity === "video" && "Video Lesson"}
-                    {activeActivity === "reading" && "Reading Material"}
-                    {activeActivity === "notes" && "Personal Reflection"}
-                    {activeActivity === "quiz" && "Knowledge Check"}
-                    {activeActivity === "completion" && "Step Mastered"}
-                  </span>
+              {/* Activity Header matching Reference Image */}
+              <div className={styles.stageHeader}>
+                <div className={styles.stageEyebrow}>
+                  <span>MODULE {step.sequence} • LESSON 1 OF {mediaLessons.length || 1}</span>
                 </div>
 
-                <h1 className={styles.activityTitle}>
+                <h1 className={styles.stageTitle}>
                   {activeActivity === "video" && (currentMedia?.title || step.title)}
                   {activeActivity === "reading" && "Required Reading & Reference Materials"}
                   {activeActivity === "notes" && "Reflection & Personal Takeaways"}
@@ -817,18 +815,38 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   {activeActivity === "completion" && `Step ${step.sequence} Mastered: ${step.title}`}
                 </h1>
 
-                <p className={styles.activitySubtitle}>
+                <p className={styles.stageSubtitle}>
                   {activeActivity === "video" && (step.description || "Watch this guided lecture attentively.")}
                   {activeActivity === "reading" && "Review the supplementary documents and articles to solidify your understanding."}
                   {activeActivity === "notes" && "Synthesize what you have learned and record insights for future reference."}
                   {activeActivity === "quiz" && "Validate your comprehension before advancing to subsequent modules."}
                   {activeActivity === "completion" && "You have successfully completed every requirement for this step."}
                 </p>
+
+                {/* Metadata Pills matching Reference Image */}
+                <div className={styles.stageMetadataRow}>
+                  <span className={`${styles.stageMetaPill} ${styles.stageMetaPillHighlight}`}>
+                    <span>🎬</span>
+                    <span>Video Lecture</span>
+                  </span>
+                  <span className={styles.stageMetaPill}>
+                    <span>⏱</span>
+                    <span>{currentMedia?.durationSec ? `${Math.floor(currentMedia.durationSec / 60)}:${(currentMedia.durationSec % 60).toString().padStart(2, "0")} min` : "10:30 min"}</span>
+                  </span>
+                  <span className={styles.stageMetaPill}>
+                    <span>📊</span>
+                    <span>Beginner</span>
+                  </span>
+                  <span className={styles.stageMetaPill}>
+                    <span>⭐</span>
+                    <span>Core Concept</span>
+                  </span>
+                </div>
               </div>
 
-              {/* TASK 1: VIDEO ACTIVITY (Cinema Video Player + Celebration + Tabs) */}
+              {/* TASK 1: VIDEO ACTIVITY */}
               {activeActivity === "video" && (
-                <div style={{ width: "100%" }}>
+                <div className={styles.stageMedia}>
                   <CinemaVideoPlayer
                     currentMedia={currentMedia}
                     allMediaLessons={mediaLessons}
@@ -866,23 +884,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       }}
                     />
                   )}
-
-                  {/* Tabbed Learning Workspace Below Video Player */}
-                  <LearningTabsPanel
-                    step={step}
-                    currentMedia={currentMedia}
-                    documents={documents}
-                    textLessons={textLessons}
-                    personalNotes={personalNotes}
-                    notesSaveStatus={notesSaveStatus}
-                    onNotesChange={handleNotesChange}
-                    onInsertTimestamp={insertTimestamp}
-                    onExportNotes={exportNotes}
-                    lessonProgress={lessonProgress}
-                    onCompleteDocument={handleCompleteDocument}
-                    videoRef={videoRef}
-                    onTriggerFloatingAITutor={() => setIsAITutorOpen(true)}
-                  />
                 </div>
               )}
 
@@ -948,23 +949,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       </div>
                     )}
                   </div>
-
-                  {/* Supporting Learning Tabs for Notes, Discussion & AI Tutor */}
-                  <LearningTabsPanel
-                    step={step}
-                    currentMedia={currentMedia}
-                    documents={documents}
-                    textLessons={textLessons}
-                    personalNotes={personalNotes}
-                    notesSaveStatus={notesSaveStatus}
-                    onNotesChange={handleNotesChange}
-                    onInsertTimestamp={insertTimestamp}
-                    onExportNotes={exportNotes}
-                    lessonProgress={lessonProgress}
-                    onCompleteDocument={handleCompleteDocument}
-                    videoRef={videoRef}
-                    onTriggerFloatingAITutor={() => setIsAITutorOpen(true)}
-                  />
                 </div>
               )}
 
@@ -1080,6 +1064,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </>
           )}
         </main>
+
+        {/* Column 3: Right Study Assistant Card (AI Tutor, Notes, Resources, Transcript, Discussion) */}
+        <aside className={styles.rightStudyPanel}>
+          <LearningTabsPanel
+            step={step}
+            currentMedia={currentMedia}
+            documents={documents}
+            textLessons={textLessons}
+            personalNotes={personalNotes}
+            notesSaveStatus={notesSaveStatus}
+            onNotesChange={handleNotesChange}
+            onInsertTimestamp={insertTimestamp}
+            onExportNotes={exportNotes}
+            lessonProgress={lessonProgress}
+            onCompleteDocument={handleCompleteDocument}
+            videoRef={videoRef}
+            activeTab={assistantTab}
+            onChangeTab={setAssistantTab}
+            onTriggerFloatingAITutor={() => setIsAITutorOpen(true)}
+          />
+        </aside>
       </div>
 
       {/* ===================================================================

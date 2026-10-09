@@ -2,6 +2,16 @@
 
 Welcome to the **WhatBoutMe** monorepo! This repository contains the complete course platform, consisting of a Learner portal, an Admin dashboard, a Marketing website, and a centralized NestJS backend.
 
+## 🌐 Live Production Deployments
+
+| Service | Role | Production URL | Status |
+|---|---|---|:---:|
+| **Marketing Website** | Public Landing & Course Catalog | [what-bout-me-com-atyb.vercel.app](https://what-bout-me-com-atyb.vercel.app) | ![Status](https://img.shields.io/badge/status-active-success) |
+| **LMS Learner Portal** | Student Classroom & Quizzes | [what-bout-me-com-lms.vercel.app](https://what-bout-me-com-lms.vercel.app) | ![Status](https://img.shields.io/badge/status-active-success) |
+| **Admin Console** | Content Studio & Cohort Operations | [what-bout-me-com-admin.vercel.app](https://what-bout-me-com-admin.vercel.app) | ![Status](https://img.shields.io/badge/status-active-success) |
+| **Backend API** | NestJS API & Database Engine | [what-bout-me-com.vercel.app](https://what-bout-me-com.vercel.app) | ![Status](https://img.shields.io/badge/status-active-success) |
+
+
 ## 🏗️ Project Structure
 
 This project uses **Turborepo** to manage multiple applications and shared packages in a single repository.

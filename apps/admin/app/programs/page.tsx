@@ -7,7 +7,11 @@ import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
 import { uploadFile } from "../lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
+    ? "https://what-bout-me-com.vercel.app"
+    : "http://localhost:4000");
 
 interface Program {
   id: string;

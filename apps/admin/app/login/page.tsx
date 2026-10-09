@@ -12,7 +12,11 @@ const QUICK = [
   { label: "Manager", email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL || "manager@whatboutme.com" },
 ];
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
+    ? "https://what-bout-me-com.vercel.app"
+    : "http://localhost:4000");
 
 type ViewMode = "login" | "verify_2fa" | "setup_2fa";
 

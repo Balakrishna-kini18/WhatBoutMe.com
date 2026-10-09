@@ -1,5 +1,8 @@
-/** Shared helpers for admin pages. The AuthProvider adds the sign-in token to every API request. */
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
+    ? "https://what-bout-me-com.vercel.app"
+    : "http://localhost:4000");
 
 /** The API wraps errors as { error: { code, message } }. */
 export async function errorMessage(res: Response, fallback: string) {

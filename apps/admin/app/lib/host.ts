@@ -7,6 +7,9 @@
 export function onThisHost(url: string) {
   if (typeof window === "undefined") return url;
   const host = window.location.hostname;
+  if (host.endsWith(".vercel.app") && (url.includes("localhost") || url.includes("127.0.0.1"))) {
+    return "https://what-bout-me-com.vercel.app";
+  }
   if (host === "localhost" || host === "127.0.0.1") return url;
   return url.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)(?=[:/]|$)/, `$1${host}`);
 }

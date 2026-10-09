@@ -48,7 +48,7 @@ export default function LmsSidebar() {
 
   const handleSignOut = () => signOutEverywhere();
 
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/sso") {
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/sso" || pathname.startsWith("/steps/")) {
     return null;
   }
 

@@ -1,13 +1,14 @@
 /* =========================================================================
-   WhatBoutMe Learner Step Experience - Guided Learning Journey
-   Three-Panel Learning Workspace (Coursera / MasterClass / Notion aesthetic)
-   Brand Theme: Warm Ivory, Cream, Champagne, Deep Ink, Golden Amber
+   WhatBoutMe Learner Step Experience - Task-Focused Guided Learning Flow
+   Philosophy: ONE SCREEN = ONE TASK (Coursera / Microsoft Learn / Apple Developer)
+   Aesthetic: Warm Ivory, Cream, Champagne, Deep Ink, Golden Amber
    ========================================================================= */
 
-.workspaceLayout {
+.classroomContainer {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
   background-color: var(--bg-main, #faf6f0);
   color: var(--text-primary, #14110f);
   position: relative;
@@ -15,10 +16,10 @@
 }
 
 /* =========================================================================
-   1. Top Navigation Bar
+   1. Clean Top Navigation Bar
    ========================================================================= */
 .topNav {
-  height: 64px;
+  height: 60px;
   background: #ffffff;
   border-bottom: 1px solid var(--border-light, #ece4d7);
   display: flex;
@@ -79,10 +80,21 @@
 .breadcrumbCurrent {
   color: var(--text-primary, #14110f);
   font-weight: 700;
-  max-width: 280px;
+  max-width: 240px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.breadcrumbActivity {
+  color: var(--accent-primary, #c97a1e);
+  font-weight: 700;
+  background: var(--accent-highlight, #f6edde);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .topNavRight {
@@ -91,332 +103,122 @@
   gap: 1.25rem;
 }
 
-.progressMeterWrap {
+.courseProgressMeter {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
 }
 
-.progressMeterLabel {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--text-muted, #78716a);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.progressMeterTrack {
-  width: 120px;
-  height: 8px;
+.progressBarTrack {
+  width: 90px;
+  height: 6px;
   background: var(--bg-soft, #f5ece1);
-  border-radius: 9999px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
-.progressMeterFill {
+.progressBarFill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-secondary, #efa944), var(--accent-primary, #c97a1e));
-  border-radius: 9999px;
-  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--accent-primary, #c97a1e);
+  border-radius: 3px;
+  transition: width 0.3s ease;
 }
 
-.progressMeterPercent {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-primary, #14110f);
-}
-
-.navTools {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toolBtn {
-  background: transparent;
-  border: 1px solid var(--border-light, #ece4d7);
-  color: var(--text-secondary, #4a443d);
-  border-radius: 8px;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 600;
+.outlineToggleBtn {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.45rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: #ffffff;
+  color: var(--text-primary, #14110f);
+  font-size: 0.85rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.toolBtn:hover {
+.outlineToggleBtn:hover {
   background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
-}
-
-.toolBtnActive {
-  background: var(--accent-highlight, #f6edde) !important;
-  color: var(--accent-highlight-text, #8c531b) !important;
-  border-color: #ebd9c0 !important;
+  border-color: var(--accent-primary, #c97a1e);
 }
 
 /* =========================================================================
-   2. Three-Panel Main Frame
+   2. Focused Single-Task Workspace Area
    ========================================================================= */
-.mainThreePanelFrame {
-  display: flex;
+.taskWorkspace {
   flex: 1;
-  min-height: calc(100vh - 64px);
-  position: relative;
-}
-
-/* =========================================================================
-   3. Left Panel - Course Outline Navigation
-   ========================================================================= */
-.leftSidebar {
-  width: 300px;
-  background: var(--bg-sidebar, #faf7f2);
-  border-right: 1px solid var(--border-light, #ece4d7);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
-  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s ease;
-  position: sticky;
-  top: 64px;
-  height: calc(100vh - 64px);
-  overflow-y: auto;
-  z-index: 20;
-}
-
-.leftSidebarCollapsed {
-  width: 0;
-  overflow: hidden;
-  border-right: none;
-}
-
-.sidebarHeader {
-  padding: 1.25rem 1.25rem 0.75rem;
-  border-bottom: 1px solid var(--border-light, #ece4d7);
-}
-
-.sidebarTitle {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--text-primary, #14110f);
-  margin: 0 0 0.25rem;
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.sidebarCount {
-  font-size: 0.75rem;
-  color: var(--text-muted, #78716a);
-  font-weight: 500;
-}
-
-.stepNavList {
-  display: flex;
-  flex-direction: column;
-  padding: 0.75rem;
-  gap: 0.35rem;
-}
-
-.stepNavItem {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 12px;
-  text-decoration: none;
-  font-size: 0.85rem;
-  color: var(--text-secondary, #4a443d);
-  transition: all 0.15s ease;
-  position: relative;
-  background: transparent;
-  border: 1px solid transparent;
-}
-
-.stepNavItem:hover {
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
-}
-
-.stepNavItemActive {
-  background: #ffffff !important;
-  color: var(--accent-highlight-text, #8c531b) !important;
-  font-weight: 700;
-  border-color: #ebd9c0 !important;
-  box-shadow: 0 2px 8px rgba(180, 140, 100, 0.08);
-}
-
-.stepNavItemLocked {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.stepSeqCircle {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 700;
-  flex-shrink: 0;
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-muted, #78716a);
-}
-
-.stepSeqCompleted {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.stepSeqCurrent {
-  background: var(--accent-primary, #c97a1e);
-  color: #ffffff;
-}
-
-.stepNavText {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stepNavBadge {
-  font-size: 0.7rem;
-  margin-left: auto;
-}
-
-/* =========================================================================
-   4. Center Workspace (The Focused Single-Activity Experience)
-   ========================================================================= */
-.centerWorkspace {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 1.5rem 2.5rem 6rem;
-  max-width: 1100px;
-  margin: 0 auto;
+  justify-content: flex-start;
+  padding: 2rem 1.5rem 6.5rem;
   width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
-.workspaceHero {
+.videoScope {
+  max-width: 1020px;
+}
+
+.readingScope,
+.notesScope,
+.quizScope,
+.completionScope {
+  max-width: 800px;
+}
+
+/* Activity Header */
+.activityHeader {
+  width: 100%;
   margin-bottom: 1.5rem;
+  text-align: left;
 }
 
-.stepEyebrow {
+.moduleEyebrow {
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--accent-primary, #c97a1e);
   margin-bottom: 0.35rem;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.stepMainTitle {
-  font-family: var(--font-serif, serif);
-  font-size: 2.1rem;
+.activityTitle {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.85rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
-  margin: 0 0 0.5rem 0;
-  line-height: 1.2;
+  margin: 0 0 0.4rem;
+  line-height: 1.25;
 }
 
-.stepDescriptionText {
-  color: var(--text-secondary, #4a443d);
+.activitySubtitle {
   font-size: 0.95rem;
-  line-height: 1.5;
-  margin: 0;
-}
-
-/* =========================================================================
-   5. Step Journey Navigation Tabs (Guided Flow)
-   ========================================================================= */
-.journeyNav {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: #ffffff;
-  border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 16px;
-  padding: 0.35rem;
-  margin-bottom: 1.75rem;
-  box-shadow: 0 2px 8px rgba(20, 17, 15, 0.02);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.journeyTab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.65rem 1rem;
-  border-radius: 12px;
-  background: transparent;
-  border: none;
-  font-size: 0.85rem;
-  font-weight: 600;
   color: var(--text-secondary, #4a443d);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.journeyTab:hover {
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
-}
-
-.journeyTabActive {
-  background: var(--accent-highlight, #f6edde) !important;
-  color: var(--accent-highlight-text, #8c531b) !important;
-  font-weight: 700;
-  box-shadow: 0 2px 6px rgba(180, 140, 100, 0.08);
-}
-
-.tabIcon {
-  display: flex;
-  align-items: center;
-  font-size: 1rem;
-}
-
-.tabStatusCheck {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #dcfce7;
-  color: #15803d;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: 800;
+  margin: 0;
+  line-height: 1.5;
 }
 
 /* =========================================================================
-   6. Activity Stage: Video Experience
+   3. TASK 1: VIDEO ACTIVITY (Coursera style Cinema Mode)
    ========================================================================= */
-.stageContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .videoCinemaBox {
   position: relative;
   width: 100%;
-  aspect-ratio: 16/9;
-  background: #000000;
-  border-radius: 20px;
+  border-radius: 14px;
   overflow: hidden;
+  background: #0a0908;
   box-shadow: 0 10px 30px -5px rgba(20, 17, 15, 0.15);
+  aspect-ratio: 16 / 9;
 }
 
 .videoElement {
@@ -426,52 +228,60 @@
   display: block;
 }
 
-.videoWatermark {
-  position: absolute;
-  pointer-events: none;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.25);
-  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
-  z-index: 30;
-  animation: moveWatermark 240s steps(1, end) infinite;
-  white-space: nowrap;
-}
-
 .brandLogoWatermark {
   position: absolute;
-  top: 20px;
-  right: 20px;
-  height: 22px;
+  top: 18px;
+  left: 20px;
+  height: 20px;
   width: auto;
-  opacity: 0.7;
+  opacity: 0.65;
   pointer-events: none;
-  z-index: 25;
+  z-index: 10;
 }
 
-.videoControlsBar {
+.videoWatermark {
+  position: absolute;
+  bottom: 50px;
+  right: 20px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.videoMetaBar {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
+  align-items: center;
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0.85rem 1.25rem;
   background: #ffffff;
   border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 14px;
+  border-radius: 10px;
+  box-sizing: border-box;
 }
 
-.videoLessonTitle {
+.videoMetaInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.videoLessonBadge {
+  font-size: 0.85rem;
   font-weight: 700;
-  font-size: 0.95rem;
   color: var(--text-primary, #14110f);
 }
 
-.videoProgressChip {
+.videoDurationChip {
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--accent-primary, #c97a1e);
+  padding: 2px 8px;
+  border-radius: 6px;
   background: var(--bg-soft, #f5ece1);
-  padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
+  color: var(--text-secondary, #4a443d);
 }
 
 .videoPlayerTools {
@@ -481,411 +291,388 @@
 }
 
 .playerToolBtn {
-  background: var(--bg-soft, #f5ece1);
-  border: 1px solid var(--border-light, #ece4d7);
-  color: var(--text-secondary, #4a443d);
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 0.3rem 0.65rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: #ffffff;
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .playerToolBtn:hover {
-  background: var(--accent-highlight, #f6edde);
-  color: var(--accent-highlight-text, #8c531b);
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
 }
 
-
-.multiMediaSelector {
-  display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
-}
-
-.mediaSelectPill {
-  padding: 0.45rem 0.85rem;
-  border-radius: 10px;
-  border: 1px solid var(--border-light, #ece4d7);
-  background: #ffffff;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-secondary, #4a443d);
-  cursor: pointer;
+.videoCompletedNotice {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  color: #166534;
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+.multiVideoSelector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  width: 100%;
+}
+
+.videoPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: #ffffff;
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.mediaSelectPillActive {
-  background: var(--accent-primary, #c97a1e) !important;
-  color: #ffffff !important;
-  border-color: var(--accent-primary, #c97a1e) !important;
+.videoPillActive {
+  background: var(--accent-primary, #c97a1e);
+  border-color: var(--accent-primary, #c97a1e);
+  color: #ffffff;
 }
 
 /* =========================================================================
-   7. Activity Stage: Resources & Reading
+   4. TASK 2: READING / PDF ACTIVITY
    ========================================================================= */
-.resourcesGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1.25rem;
-}
-
-.resourceDocCard {
+.readingCard {
+  width: 100%;
   background: #ffffff;
   border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 18px;
-  padding: 1.35rem;
-  box-shadow: 0 4px 14px rgba(180, 140, 100, 0.05);
+  border-radius: 14px;
+  padding: 2.25rem;
+  box-shadow: 0 4px 20px -5px rgba(20, 17, 15, 0.05);
+  box-sizing: border-box;
+}
+
+.docMetaHeader {
   display: flex;
-  flex-direction: column;
   justify-content: space-between;
-  gap: 1rem;
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
-}
-
-.resourceDocCard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(180, 140, 100, 0.1);
-  border-color: #dfd2bf;
-}
-
-.docCardHeader {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.85rem;
-}
-
-.docBadgeIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: #fdf2e2;
-  color: #c97a1e;
-  border: 1px solid #fae1c3;
-  display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 1.25rem;
-  flex-shrink: 0;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  margin-bottom: 1.5rem;
 }
 
-.docInfo {
-  flex: 1;
-}
-
-.docTitle {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text-primary, #14110f);
-  margin: 0 0 0.25rem 0;
-}
-
-.docMeta {
-  font-size: 0.75rem;
-  color: var(--text-muted, #78716a);
-}
-
-.docCardFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-light, #ece4d7);
-}
-
-.docOpenLink {
-  color: var(--accent-primary, #c97a1e);
-  text-decoration: none;
-  font-size: 0.82rem;
-  font-weight: 700;
+.docEstTime {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-}
-
-.docOpenLink:hover {
-  text-decoration: underline;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #78716a);
+  font-weight: 500;
 }
 
 .markReadBtn {
-  background: #ffffff;
-  border: 1px solid var(--border-light, #ece4d7);
-  color: var(--text-secondary, #4a443d);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 1rem;
   border-radius: 8px;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.78rem;
+  border: 1px solid var(--accent-primary, #c97a1e);
+  background: transparent;
+  color: var(--accent-primary, #c97a1e);
   font-weight: 600;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .markReadBtn:hover {
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
+  background: var(--accent-highlight, #f6edde);
 }
 
-.docCompletedBadge {
-  color: #15803d;
-  font-size: 0.8rem;
-  font-weight: 700;
+.markReadBtnDone {
+  background: #dcfce7 !important;
+  border-color: #86efac !important;
+  color: #15803d !important;
+}
+
+.docContentBox {
+  margin-bottom: 1.5rem;
+}
+
+.docContentText {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--text-secondary, #4a443d);
+}
+
+.docDownloadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem;
+  background: var(--bg-soft, #f5ece1);
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  margin-top: 1.25rem;
+}
+
+.openPdfBtn {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.88rem;
+  border-radius: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.openPdfBtn:hover {
+  opacity: 0.9;
 }
 
 /* =========================================================================
-   8. Activity Stage: Dedicated Notes Notebook
+   5. TASK 3: PERSONAL REFLECTION / NOTES ACTIVITY
    ========================================================================= */
 .notesCard {
+  width: 100%;
   background: #ffffff;
   border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 20px;
-  padding: 1.75rem;
-  box-shadow: 0 4px 16px rgba(180, 140, 100, 0.05);
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  border-radius: 14px;
+  padding: 2.25rem;
+  box-shadow: 0 4px 20px -5px rgba(20, 17, 15, 0.05);
+  box-sizing: border-box;
+}
+
+.reflectionPromptBox {
+  background: var(--bg-soft, #f5ece1);
+  border-left: 4px solid var(--accent-primary, #c97a1e);
+  padding: 1rem 1.25rem;
+  border-radius: 0 8px 8px 0;
+  margin-bottom: 1.5rem;
+}
+
+.reflectionPromptTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-primary, #c97a1e);
+  margin-bottom: 0.25rem;
+}
+
+.reflectionPromptText {
+  font-size: 0.95rem;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  line-height: 1.5;
 }
 
 .notesToolbar {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding-bottom: 0.85rem;
-  border-bottom: 1px solid var(--border-light, #ece4d7);
-}
-
-.notesToolsLeft {
-  display: flex;
   align-items: center;
-  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .timestampBtn {
-  background: var(--bg-soft, #f5ece1);
-  border: 1px solid var(--border-light, #ece4d7);
-  color: var(--accent-highlight-text, #8c531b);
-  border-radius: 8px;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: #ffffff;
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .timestampBtn:hover {
-  background: #ebd9c0;
+  background: var(--bg-soft, #f5ece1);
 }
 
-.notesStatusText {
-  font-size: 0.75rem;
-  color: var(--text-muted, #78716a);
+.notesAutoSaveBadge {
+  font-size: 0.8rem;
+  color: #16a34a;
+  font-weight: 600;
 }
 
 .notesTextarea {
   width: 100%;
-  min-height: 240px;
+  min-height: 300px;
+  padding: 1.25rem;
   border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 12px;
-  padding: 1rem;
+  border-radius: 10px;
   font-family: inherit;
   font-size: 0.95rem;
+  line-height: 1.65;
   color: var(--text-primary, #14110f);
   background: var(--bg-card-muted, #fdfbf7);
-  line-height: 1.6;
   resize: vertical;
   outline: none;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
 }
 
 .notesTextarea:focus {
   border-color: var(--accent-primary, #c97a1e);
   background: #ffffff;
-  box-shadow: 0 0 0 3px var(--accent-highlight, #f6edde);
 }
 
 .notesFooter {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   font-size: 0.8rem;
   color: var(--text-muted, #78716a);
+  margin-top: 0.75rem;
 }
 
 .exportNotesBtn {
-  background: transparent;
-  border: 1px solid var(--border-light, #ece4d7);
-  color: var(--text-secondary, #4a443d);
-  border-radius: 8px;
-  padding: 0.35rem 0.75rem;
-  font-size: 0.78rem;
+  background: none;
+  border: none;
+  color: var(--accent-primary, #c97a1e);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.exportNotesBtn:hover {
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
+  text-decoration: underline;
+  padding: 0;
+  font-size: 0.8rem;
 }
 
 /* =========================================================================
-   9. Activity Stage: Knowledge Check (Quiz Engine)
+   6. TASK 4: KNOWLEDGE CHECK (QUIZ ENGINE - 1 QUESTION AT A TIME)
    ========================================================================= */
-.quizWorkspaceCard {
+.quizIntroCard {
+  width: 100%;
   background: #ffffff;
   border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 20px;
-  padding: 2rem;
-  box-shadow: 0 4px 18px rgba(180, 140, 100, 0.06);
-}
-
-.quizIntroBox {
+  border-radius: 14px;
+  padding: 3.5rem 2rem;
   text-align: center;
-  max-width: 580px;
-  margin: 1rem auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.25rem;
+  box-shadow: 0 4px 20px -5px rgba(20, 17, 15, 0.05);
+  box-sizing: border-box;
 }
 
 .quizHeroIcon {
-  width: 64px;
-  height: 64px;
-  border-radius: 20px;
-  background: #fdf2e2;
-  color: #c97a1e;
-  border: 1px solid #fae1c3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2rem;
+  font-size: 3rem;
+  margin-bottom: 1rem;
 }
 
 .quizMetaPills {
   display: flex;
-  align-items: center;
   justify-content: center;
   gap: 1rem;
+  margin: 1.75rem 0 2rem;
   flex-wrap: wrap;
 }
 
 .metaPill {
   background: var(--bg-soft, #f5ece1);
-  padding: 0.4rem 0.85rem;
+  padding: 0.5rem 1rem;
   border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.85rem;
   color: var(--text-secondary, #4a443d);
 }
 
 .metaPillStrong {
-  color: var(--accent-primary, #c97a1e);
   font-weight: 700;
+  color: var(--text-primary, #14110f);
 }
 
-.questionNavigatorRow {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.75rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border-light, #ece4d7);
-}
-
-.qNavPill {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid var(--border-light, #ece4d7);
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-secondary, #4a443d);
-  font-size: 0.85rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-
-.qNavPillActive {
-  background: var(--accent-primary, #c97a1e) !important;
-  color: #ffffff !important;
-  border-color: var(--accent-primary, #c97a1e) !important;
-}
-
-.qNavPillAnswered {
+.quizActiveCard {
+  width: 100%;
   background: #ffffff;
-  border-color: #c97a1e;
-  color: #c97a1e;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 14px;
+  padding: 2.5rem;
+  box-shadow: 0 4px 20px -5px rgba(20, 17, 15, 0.05);
+  box-sizing: border-box;
 }
 
-.activeQuestionCard {
+.questionIndicatorBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--accent-primary, #c97a1e);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .questionPrompt {
-  font-size: 1.15rem;
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.45rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
-  margin-bottom: 1.25rem;
+  margin: 0 0 1.75rem;
   line-height: 1.4;
 }
 
 .optionsList {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
+  width: 100%;
 }
 
 .optionCard {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 1rem 1.25rem;
-  border-radius: 14px;
-  border: 1px solid var(--border-light, #ece4d7);
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
+  gap: 1rem;
+  padding: 1.15rem 1.25rem;
+  border: 1.5px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  background: var(--bg-card-muted, #fdfbf7);
   cursor: pointer;
-  font-size: 0.95rem;
   transition: all 0.15s ease;
+  user-select: none;
+  font-size: 0.95rem;
+  color: var(--text-primary, #14110f);
 }
 
 .optionCard:hover {
-  background: var(--accent-highlight, #f6edde);
-  border-color: #ebd9c0;
+  border-color: var(--accent-primary, #c97a1e);
+  background: #ffffff;
+  transform: translateY(-1px);
 }
 
 .optionCardSelected {
-  background: var(--accent-highlight, #f6edde) !important;
-  border-color: var(--accent-primary, #c97a1e) !important;
+  border-color: var(--accent-primary, #c97a1e);
+  background: var(--accent-highlight, #f6edde);
   box-shadow: 0 0 0 1px var(--accent-primary, #c97a1e);
-  font-weight: 600;
 }
 
 .optionRadioCircle {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  border: 2px solid #b8b0a5;
+  border: 2px solid var(--border-light, #ece4d7);
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -895,72 +682,84 @@
 
 .optionCardSelected .optionRadioCircle {
   border-color: var(--accent-primary, #c97a1e);
-  background: var(--accent-primary, #c97a1e);
 }
 
 .optionRadioDot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: #ffffff;
-}
-
-.quizNavActions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 1.75rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--border-light, #ece4d7);
+  background: var(--accent-primary, #c97a1e);
 }
 
 /* =========================================================================
-   10. Activity Stage: Step Completion Celebration
+   7. TASK 5: QUIZ RESULT SCREEN
    ========================================================================= */
-.completionWorkspace {
+.resultCard {
+  width: 100%;
   background: #ffffff;
   border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 24px;
-  padding: 3rem 2rem;
+  border-radius: 14px;
+  padding: 3.5rem 2rem;
   text-align: center;
-  max-width: 680px;
-  margin: 1rem auto;
-  box-shadow: 0 10px 30px -5px rgba(180, 140, 100, 0.09);
-  position: relative;
-  overflow: hidden;
+  box-shadow: 0 4px 20px -5px rgba(20, 17, 15, 0.05);
+  box-sizing: border-box;
+}
+
+.scoreBadge {
+  font-size: 2.75rem;
+  font-weight: 800;
+  margin: 0.5rem 0 1rem;
+}
+
+.scoreBadgePassed {
+  color: #15803d;
+}
+
+.scoreBadgeFailed {
+  color: #b91c1c;
+}
+
+/* =========================================================================
+   8. TASK 6: STEP / MODULE COMPLETE CELEBRATION
+   ========================================================================= */
+.completionCard {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 16px;
+  padding: 3.5rem 2.5rem;
+  text-align: center;
+  box-shadow: 0 12px 32px -8px rgba(180, 140, 100, 0.15);
+  box-sizing: border-box;
 }
 
 .trophyBadge {
-  width: 80px;
-  height: 80px;
-  border-radius: 24px;
-  background: linear-gradient(135deg, #fef3c7, #fde68a);
-  border: 2px solid #f59e0b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.5rem;
-  margin: 0 auto 1.5rem;
-  animation: bounce 1.5s infinite alternate;
+  font-size: 3.5rem;
+  margin-bottom: 1rem;
+  animation: bounce 1s infinite alternate;
 }
 
 @keyframes bounce {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-8px); }
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-8px);
+  }
 }
 
 .completionTitle {
-  font-family: var(--font-serif, serif);
-  font-size: 2rem;
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 2.2rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
-  margin: 0 0 0.5rem 0;
+  margin: 0 0 0.5rem;
 }
 
 .completionSubtitle {
-  font-size: 1rem;
+  font-size: 1.05rem;
   color: var(--text-secondary, #4a443d);
-  max-width: 500px;
+  max-width: 540px;
   margin: 0 auto 2rem;
   line-height: 1.5;
 }
@@ -968,9 +767,9 @@
 .milestonesList {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.75rem;
   max-width: 440px;
-  margin: 0 auto 2rem;
+  margin: 0 auto 2.5rem;
   text-align: left;
 }
 
@@ -978,287 +777,273 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
-  background: var(--bg-soft, #f5ece1);
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
-.milestoneCheck {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #dcfce7;
-  color: #15803d;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: 800;
-  flex-shrink: 0;
-}
-
-/* =========================================================================
-   11. Right Context Panel
-   ========================================================================= */
-.rightSidebar {
-  width: 320px;
-  background: #ffffff;
-  border-left: 1px solid var(--border-light, #ece4d7);
-  display: flex;
-  flex-direction: column;
-  padding: 1.25rem;
-  gap: 1.25rem;
-  flex-shrink: 0;
-  position: sticky;
-  top: 64px;
-  height: calc(100vh - 64px);
-  overflow-y: auto;
-  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s ease;
-  z-index: 15;
-}
-
-.rightSidebarCollapsed {
-  width: 0;
-  overflow: hidden;
-  padding: 0;
-  border-left: none;
-}
-
-.contextCard {
-  background: var(--bg-card-muted, #fdfbf7);
-  border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 16px;
-  padding: 1.15rem;
-}
-
-.contextCardTitle {
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted, #78716a);
-  margin: 0 0 0.85rem 0;
-}
-
-.checklistItems {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-.checkItem {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
   color: var(--text-secondary, #4a443d);
 }
 
-.checkItemDone {
-  color: var(--text-primary, #14110f);
-  font-weight: 600;
+.milestoneCheck {
+  color: #16a34a;
+  font-weight: 800;
+  font-size: 1.1rem;
 }
 
 /* =========================================================================
-   12. Sticky Bottom Navigation Bar
+   9. STRICT TWO-BUTTON BOTTOM NAVIGATION BAR (Coursera style)
    ========================================================================= */
 .stickyBottomBar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 64px;
+  height: 68px;
   background: #ffffff;
   border-top: 1px solid var(--border-light, #ece4d7);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 2rem;
-  z-index: 50;
-  box-shadow: 0 -4px 14px rgba(20, 17, 15, 0.04);
+  z-index: 40;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.04);
+  box-sizing: border-box;
 }
 
-.bottomNavLeft {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.bottomNavRight {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.prevBtn {
-  background: transparent;
-  border: 1px solid var(--border-light, #ece4d7);
-  color: var(--text-secondary, #4a443d);
-  border-radius: 10px;
-  padding: 0.55rem 1rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
+.prevActionBtn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
+  padding: 0.65rem 1.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
   transition: all 0.15s ease;
 }
 
-.prevBtn:hover:not(:disabled) {
-  background: var(--bg-soft, #f5ece1);
-  color: var(--text-primary, #14110f);
+.prevActionBtn:hover:not(:disabled) {
+  background: #ede1d2;
 }
 
-.prevBtn:disabled {
-  opacity: 0.4;
-  cursor: default;
+.prevActionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.primaryContinueBtn {
-  background: var(--accent-primary, #c97a1e);
-  color: #ffffff;
-  border: none;
-  border-radius: 10px;
-  padding: 0.55rem 1.35rem;
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
+.autoSaveIndicator {
+  font-size: 0.8rem;
+  color: var(--text-muted, #78716a);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.continueActionBtn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  box-shadow: 0 4px 14px rgba(201, 122, 30, 0.28);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 0.5rem;
+  padding: 0.75rem 1.75rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
   text-decoration: none;
+  box-shadow: 0 2px 8px rgba(201, 122, 30, 0.25);
+  transition: all 0.15s ease;
 }
 
-.primaryContinueBtn:hover {
+.continueActionBtn:hover:not(:disabled) {
   background: var(--accent-primary-hover, #b46b18);
   transform: translateY(-1px);
 }
 
-.saveIndicator {
-  font-size: 0.75rem;
-  color: var(--text-muted, #78716a);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+.continueActionBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* =========================================================================
-   13. Lock Gate Styles
+   10. COURSE OUTLINE DRAWER (SLIDE-IN ON DEMAND)
    ========================================================================= */
-.lockCard {
-  background: #ffffff;
-  border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 24px;
-  padding: 3.5rem 2rem;
-  text-align: center;
-  max-width: 640px;
-  margin: 3rem auto;
-  box-shadow: 0 10px 30px -5px rgba(180, 140, 100, 0.08);
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 17, 15, 0.45);
+  z-index: 90;
+  backdrop-filter: blur(2px);
+  transition: opacity 0.2s ease;
 }
 
-.lockIconWrap {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: #fef2f2;
-  color: #dc2626;
+.drawerPanel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 90vw;
+  background: #ffffff;
+  z-index: 100;
+  box-shadow: -8px 0 35px rgba(20, 17, 15, 0.12);
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawerHeader {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.drawerTitle {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0 0 0.3rem;
+}
+
+.drawerSubtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted, #78716a);
+  margin: 0;
+}
+
+.drawerCloseBtn {
+  background: var(--bg-soft, #f5ece1);
+  border: none;
+  font-size: 1.1rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 1.5rem;
-  font-size: 2rem;
+  color: var(--text-secondary, #4a443d);
 }
 
-.lockBadge {
-  display: inline-block;
-  padding: 4px 14px;
-  border-radius: 9999px;
-  background: #fee2e2;
-  color: #991b1b;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 1rem;
+.drawerCloseBtn:hover {
+  background: #ede1d2;
+  color: var(--text-primary, #14110f);
 }
 
-.lockTitle {
-  font-family: var(--font-serif, serif);
-  font-size: 1.85rem;
+.drawerBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.drawerStepCard {
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.drawerStepCardActive {
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 1px var(--accent-primary, #c97a1e);
+}
+
+.drawerStepHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  background: var(--bg-card-muted, #fdfbf7);
+  text-decoration: none;
+  color: inherit;
+}
+
+.drawerStepTitle {
+  font-size: 0.88rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
-  margin: 0 0 0.75rem;
 }
 
-.lockMessage {
+.drawerSubTasksList {
+  padding: 0.5rem 1rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border-top: 1px dashed var(--border-light, #ece4d7);
+}
+
+.drawerSubTaskItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
   color: var(--text-secondary, #4a443d);
-  font-size: 0.95rem;
-  line-height: 1.6;
-  margin: 0 0 1.5rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
 }
 
-.lockDetailBox {
+.drawerSubTaskItem:hover {
+  background: var(--bg-soft, #f5ece1);
+}
+
+.drawerSubTaskItemActive {
+  color: var(--accent-primary, #c97a1e);
+  font-weight: 700;
+  background: var(--accent-highlight, #f6edde);
+}
+
+.drawerLockedCard {
+  padding: 0.85rem 1rem;
   background: var(--bg-soft, #f5ece1);
   border: 1px solid var(--border-light, #ece4d7);
   border-radius: 12px;
-  padding: 1rem;
-  margin-bottom: 2rem;
-  font-size: 0.88rem;
-  color: var(--text-secondary, #4a443d);
-  text-align: left;
+  opacity: 0.75;
+}
+
+.drawerLockedReason {
+  font-size: 0.75rem;
+  color: var(--text-muted, #78716a);
+  margin-top: 0.25rem;
 }
 
 /* =========================================================================
-   14. Animations & Media Queries
+   11. SKELETON LOADERS
    ========================================================================= */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+.skeleton {
+  background: linear-gradient(90deg, #f0eae1 25%, #fcf9f5 50%, #f0eae1 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
 
-@keyframes moveWatermark {
-  0%   { top: 10%; left: 10%; }
-  25%  { top: 10%; left: 50%; }
-  50%  { top: 75%; left: 50%; }
-  75%  { top: 75%; left: 10%; }
-  100% { top: 10%; left: 10%; }
-}
-
-@media (max-width: 1100px) {
-  .rightSidebar {
-    display: none;
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
   }
-}
-
-@media (max-width: 768px) {
-  .leftSidebar {
-    position: fixed;
-    top: 64px;
-    bottom: 64px;
-    left: 0;
-    width: 280px;
-    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
-  }
-
-  .centerWorkspace {
-    padding: 1rem 1rem 5rem;
-  }
-
-  .stepMainTitle {
-    font-size: 1.65rem;
-  }
-
-  .breadcrumbCourse,
-  .progressMeterWrap {
-    display: none;
-  }
-
-  .stickyBottomBar {
-    padding: 0 1rem;
+  100% {
+    background-position: -200% 0;
   }
 }

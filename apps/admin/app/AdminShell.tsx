@@ -10,6 +10,7 @@ interface UserData {
   email: string;
   name: string;
   role: string;
+  permissions?: string[];
 }
 
 // Inline SVGs for the sidebar and topbar

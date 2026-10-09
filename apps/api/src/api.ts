@@ -52,7 +52,12 @@ function writeJson(res: any, statusCode: number, payload: any): void {
 
 async function bootstrapServer() {
   if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_MODE === 'mock') {
-    console.warn('[API WARNING] PAYMENT_MODE=mock running in production environment. Ensure Stripe keys are set before real customer transactions.');
+    // Revert commit 2cb737d relaxation. The guard is intentional:
+    // if PAYMENT_MODE=mock deploys to production by accident, Stripe test-mode
+    // checkout means REAL customer PII is saved with ZERO payment captured
+    // (Stripe test tokens never charge). Fail boot loudly so the engineer
+    // deploying notices at build/preview time, not after 20 free enrollments.
+    throw new Error('FATAL: PAYMENT_MODE=mock refuses to start in production. Set real Stripe env vars or PAYMENT_MODE=live.');
   }
 
   if (!cachedServer) {
@@ -198,22 +203,11 @@ export default async (req: any, res: any) => {
       res.once('close', done);
       res.once('error', fail);
       if (safetyFired) { done(); return; }
-      try {
-        const rawMatched = req?.headers?.['x-matched-path'] || req?.headers?.['x-forwarded-uri'] || req?.headers?.['x-invoke-path'];
-        let targetPath = typeof rawMatched === 'string' ? rawMatched : (req.url || '/');
-        const qIdx = req.url && typeof req.url === 'string' ? req.url.indexOf('?') : -1;
-        const query = qIdx !== -1 ? req.url.slice(qIdx) : (targetPath.includes('?') ? targetPath.slice(targetPath.indexOf('?')) : '');
-        targetPath = targetPath.split('?')[0];
-
-        if (targetPath === '/api/index' || targetPath === '/api/index/' || targetPath === '/api' || targetPath === '/api/') {
-          targetPath = '/';
-        } else if (targetPath.startsWith('/api/')) {
-          targetPath = targetPath.slice(4) || '/';
-        }
-
-        req.url = targetPath + query;
-        req.originalUrl = req.url;
-      } catch {}
+      // NOTE: req.url + req.originalUrl normalization already runs in the
+      // outer index.js entry handler (L90-L111). Do NOT duplicate it here.
+      // A second normalization pass on URLs that have already been stripped
+      // of their /api prefix mangles POST /auth/... etc. routes that share
+      // a prefix pattern with the rewrite engine's internal synthetic path.
       app(req, res, (err: any) => {
         if (safetyFired) { done(); return; }
         if (err) return fail(err);

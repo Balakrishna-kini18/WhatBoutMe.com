@@ -14,6 +14,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res: any = exception.getResponse();
+
+      // Pass through Terminus health-check payloads directly with full status indicators
+      if (res && typeof res === 'object' && (res.details || res.info || (res.status && res.error && typeof res.error === 'object'))) {
+        if (response.headersSent) {
+          return;
+        }
+        response.status(status).json(res);
+        return;
+      }
       
       if (typeof res === 'string') {
         message = res;

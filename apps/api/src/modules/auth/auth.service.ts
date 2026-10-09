@@ -389,7 +389,7 @@ export class AuthService {
               select: {
                 name: true, status: true, programId: true,
                 program: {
-                  select: { title: true }
+                  select: { title: true, status: true }
                 }
               }
             }

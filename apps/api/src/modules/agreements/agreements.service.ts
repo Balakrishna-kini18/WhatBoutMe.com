@@ -914,7 +914,7 @@ export class AgreementsService {
     return this.prisma.signedAgreement.findMany({
       where: { templateId },
       include: {
-        user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        user: { select: { id: true, email: true, name: true } },
         version: { select: { id: true, version: true, publishedAt: true } },
       },
       orderBy: { signedAt: 'desc' },

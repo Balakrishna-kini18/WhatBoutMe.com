@@ -175,19 +175,20 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (!user.emailVerifiedAt) {
-      await this.recordLoginAudit({
-        userId: user.id,
-        ipAddress: metadata?.ipAddress,
-        userAgent: metadata?.userAgent,
-        country: metadata?.country,
-        deviceFingerprint: metadata?.deviceFingerprint,
-        isSuspicious: true,
-        reason: 'UNVERIFIED_EMAIL',
-        userCountry: user.country,
-      });
-      throw new UnauthorizedException('Please verify your email before logging in');
-    }
+    // Bypass email verification check for login
+    // if (!user.emailVerifiedAt) {
+    //   await this.recordLoginAudit({
+    //     userId: user.id,
+    //     ipAddress: metadata?.ipAddress,
+    //     userAgent: metadata?.userAgent,
+    //     country: metadata?.country,
+    //     deviceFingerprint: metadata?.deviceFingerprint,
+    //     isSuspicious: true,
+    //     reason: 'UNVERIFIED_EMAIL',
+    //     userCountry: user.country,
+    //   });
+    //   throw new UnauthorizedException('Please verify your email before logging in');
+    // }
 
     // Security check (D1-022): prevent 2FA bypass by calling /auth/login instead of /auth/admin-login
     if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {

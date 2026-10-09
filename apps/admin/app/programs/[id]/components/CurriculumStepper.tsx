@@ -38,7 +38,11 @@ export default function CurriculumStepper({
         </div>
         <span
           className={`${styles.stepLabel} ${
-            currentPhase === 1 ? styles.stepLabelActive : ""
+            currentPhase === 1
+              ? styles.stepLabelActive
+              : isPhase1Done
+              ? styles.stepLabelCompleted
+              : ""
           }`}
         >
           Basic Details
@@ -72,7 +76,11 @@ export default function CurriculumStepper({
         </div>
         <span
           className={`${styles.stepLabel} ${
-            currentPhase === 2 ? styles.stepLabelActive : ""
+            currentPhase === 2
+              ? styles.stepLabelActive
+              : isPhase2Done
+              ? styles.stepLabelCompleted
+              : ""
           }`}
         >
           Modules

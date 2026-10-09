@@ -284,26 +284,88 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           =================================================================== */}
       <header className={styles.wizardTopBar}>
         <div className={styles.breadcrumbs}>
-          <Link href="/programs" className={styles.backLink}>
-            <span>&larr;</span>
-            <span>Programs</span>
-          </Link>
-          <span className={styles.breadcrumbDivider}>/</span>
-          <span className={styles.breadcrumbCurrent}>
-            {programData?.title || "Curriculum Builder"}
-          </span>
-          <span className={styles.breadcrumbDivider}>/</span>
-          <span style={{ color: "var(--accent-primary)", fontWeight: 700, fontSize: "0.82rem" }}>
-            {wizardStep === "COURSE_SETUP" && "Course Setup"}
-            {wizardStep === "MODULE_LIST" && "Modules List"}
-            {wizardStep === "MODULE_DETAILS" && `Module ${activeModule?.sequence || 1} Details`}
-            {wizardStep === "ADD_LESSON_CHOOSER" && "Add Lesson"}
-            {wizardStep === "ADD_VIDEO_LESSON" && "Upload Video"}
-            {wizardStep === "ADD_PDF_LESSON" && "Upload PDF"}
-            {wizardStep === "QUIZ_BUILDER" && "Quiz Builder"}
-            {wizardStep === "MODULE_PREVIEW" && "Student Preview"}
-            {wizardStep === "REVIEW_PUBLISH" && "Review & Publish"}
-          </span>
+          <button
+            type="button"
+            className={styles.backToProgramBtn}
+            onClick={() => {
+              if (
+                wizardStep === "ADD_LESSON_CHOOSER" ||
+                wizardStep === "ADD_VIDEO_LESSON" ||
+                wizardStep === "ADD_PDF_LESSON" ||
+                wizardStep === "QUIZ_BUILDER"
+              ) {
+                setWizardStep("MODULE_DETAILS");
+              } else if (wizardStep === "MODULE_DETAILS" || wizardStep === "MODULE_PREVIEW") {
+                setWizardStep("MODULE_LIST");
+              } else {
+                window.location.href = "/programs";
+              }
+            }}
+          >
+            <span aria-hidden="true">&larr;</span>
+            <span>Back to Program</span>
+          </button>
+
+          <nav className={styles.breadcrumbTrail} aria-label="Breadcrumbs">
+            <span className={styles.homeIcon} aria-label="Programs Home">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+            </span>
+            <span className={styles.pipeDivider} aria-hidden="true">|</span>
+            <Link href="/programs" className={styles.breadcrumbLink}>
+              Programs
+            </Link>
+            <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+            <span
+              className={styles.breadcrumbText}
+              onClick={() => setWizardStep("MODULE_LIST")}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setWizardStep("MODULE_LIST");
+              }}
+            >
+              {programData?.title || "Sigma batch"}
+            </span>
+            {activeModule && (
+              <>
+                <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+                <span
+                  className={styles.breadcrumbText}
+                  onClick={() => setWizardStep("MODULE_DETAILS")}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") setWizardStep("MODULE_DETAILS");
+                  }}
+                >
+                  Module {activeModule.sequence}: {activeModule.title || "HTML Basics"}
+                </span>
+              </>
+            )}
+            <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+            <span className={styles.breadcrumbActive}>
+              {wizardStep === "ADD_LESSON_CHOOSER"
+                ? "Add Content"
+                : wizardStep === "ADD_VIDEO_LESSON"
+                ? "Upload Video"
+                : wizardStep === "ADD_PDF_LESSON"
+                ? "Upload PDF"
+                : wizardStep === "QUIZ_BUILDER"
+                ? "Quiz Builder"
+                : wizardStep === "COURSE_SETUP"
+                ? "Basic Details"
+                : wizardStep === "MODULE_LIST"
+                ? "Modules"
+                : wizardStep === "MODULE_DETAILS"
+                ? "Module Details"
+                : wizardStep === "MODULE_PREVIEW"
+                ? "Student Preview"
+                : "Review & Publish"}
+            </span>
+          </nav>
         </div>
 
         <div className={styles.topBarActions}>
@@ -331,8 +393,8 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       <CurriculumStepper
         currentPhase={currentPhase}
         onSelectPhase={handleSelectPhase}
-        isPhase1Done={Boolean(programData?.title)}
-        isPhase2Done={steps.length > 0}
+        isPhase1Done={Boolean(programData?.title) || currentPhase > 1}
+        isPhase2Done={steps.length > 0 && wizardStep === "REVIEW_PUBLISH"}
       />
 
       {/* ===================================================================

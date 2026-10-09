@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import styles from "../curriculum.module.css";
-import { API_URL } from "../../../lib/api";
+import { API_URL, uploadFile, errorMessage } from "../../../lib/api";
 
 interface Step6AddVideoLessonProps {
   moduleTitle: string;
@@ -64,51 +64,74 @@ export default function Step6AddVideoLesson({
     try {
       let publicId = "";
       let finalDuration = durationSec;
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
       if (selectedFile) {
-        setUploadStatus("Preparing secure video streaming signature...");
-        setUploadProgress(10);
+        setUploadStatus("Uploading video asset...");
+        setUploadProgress(15);
 
-        const sigRes = await fetch(`${API_URL}/media/upload-signature`, { method: "POST" });
-        if (!sigRes.ok) throw new Error("Could not acquire video upload credentials");
-        const sigData = await sigRes.json();
+        let uploadedDirect = false;
+        try {
+          const sigRes = await fetch(`${API_URL}/media/upload-signature`, {
+            method: "POST",
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+          if (sigRes.ok) {
+            const sigData = await sigRes.json();
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+            formData.append("type", "authenticated");
+            formData.append("signature", sigData.signature);
+            formData.append("api_key", sigData.apiKey);
+            formData.append("timestamp", sigData.timestamp);
 
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-        formData.append("type", "authenticated");
-        formData.append("signature", sigData.signature);
-        formData.append("api_key", sigData.apiKey);
-        formData.append("timestamp", sigData.timestamp);
+            const xhr = new XMLHttpRequest();
+            const uploadRes = await new Promise((resolve, reject) => {
+              xhr.open("POST", sigData.uploadUrl);
+              xhr.upload.onprogress = (ev) => {
+                if (ev.lengthComputable) {
+                  setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+                  setUploadStatus(`Uploading video asset (${Math.round((ev.loaded / ev.total) * 100)}%)...`);
+                }
+              };
+              xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve(JSON.parse(xhr.responseText));
+                } else {
+                  reject(new Error("Video upload rejected by server"));
+                }
+              };
+              xhr.onerror = () => reject(new Error("Network error during video upload"));
+              xhr.send(formData);
+            });
 
-        const xhr = new XMLHttpRequest();
-        const uploadRes = await new Promise((resolve, reject) => {
-          xhr.open("POST", sigData.uploadUrl);
-          xhr.upload.onprogress = (ev) => {
-            if (ev.lengthComputable) {
-              setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
-              setUploadStatus(`Uploading video asset (${Math.round((ev.loaded / ev.total) * 100)}%)...`);
+            publicId = (uploadRes as any).public_id;
+            if ((uploadRes as any).duration) {
+              finalDuration = Math.round((uploadRes as any).duration);
             }
-          };
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(JSON.parse(xhr.responseText));
-            } else {
-              reject(new Error("Video upload rejected by server"));
-            }
-          };
-          xhr.onerror = () => reject(new Error("Network error during video upload"));
-          xhr.send(formData);
-        });
+            uploadedDirect = true;
+          }
+        } catch {
+          // Cloudinary direct upload failed or not configured, fallback to standard upload
+        }
 
-        publicId = (uploadRes as any).public_id;
-        if ((uploadRes as any).duration) {
-          finalDuration = Math.round((uploadRes as any).duration);
+        if (!uploadedDirect) {
+          setUploadStatus("Uploading video file to server...");
+          setUploadProgress(50);
+          const uploadedUrl = await uploadFile(selectedFile);
+          publicId = uploadedUrl;
+          setUploadProgress(100);
         }
       }
 
       setUploadStatus("Attaching video lesson to module...");
 
-      const token = localStorage.getItem("token");
+      const finalMediaUrl = publicId
+        ? (publicId.startsWith("http") || publicId.startsWith("/") ? publicId : `upload:${publicId}`)
+        : (videoPreviewUrl && !videoPreviewUrl.startsWith("blob:") ? videoPreviewUrl : `upload:video-${Date.now()}`);
+
       const res = await fetch(`${API_URL}/programs/steps/${moduleId}/lessons`, {
         method: "POST",
         headers: {
@@ -118,14 +141,15 @@ export default function Step6AddVideoLesson({
         body: JSON.stringify({
           title: title.trim(),
           type: "VIDEO",
-          mediaUrl: publicId ? `upload:${publicId}` : videoPreviewUrl,
-          durationSec: finalDuration,
-          description: description.trim() || undefined,
-          isFreePreview,
+          mediaUrl: finalMediaUrl,
+          durationSec: finalDuration ?? 0,
+          content: description.trim() || undefined,
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to save lesson to module");
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to save lesson to module"));
+      }
 
       onLessonSaved();
     } catch (err: any) {

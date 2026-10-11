@@ -81,9 +81,8 @@ function toCourse(program: Program, index: number): Course {
 export const MIN_COURSES = 4;
 
 /**
- * Courses shown on the website: the active programs managed in the admin
- * portal. If there are fewer than MIN_COURSES (or the API is unreachable), the
- * list is topped up with brochure courses that are not already covered.
+ * Courses shown on the website: the active programs managed dynamically
+ * in the database via the admin portal.
  */
 // The API rate-limits requests, so programs are fetched at most once every
 // REFRESH_MS and the last good answer is reused if a later fetch fails.
@@ -134,28 +133,15 @@ async function fetchActivePrograms(): Promise<Program[]> {
 }
 
 /**
- * Every course on the website: the four from whatboutme.com first (each
- * taking its price, enrol link and any edited details from a matching admin
- * program), followed by the admin programs that have no match.
+ * Courses shown on the website: dynamically fetched from active programs
+ * managed in the backend database.
  */
 export async function getCourses(): Promise<Course[]> {
   const programs = await getActivePrograms();
   const validPrograms = (Array.isArray(programs) ? programs : []).filter(
     (p): p is Program => Boolean(p && typeof p === "object" && p.slug && p.title)
   );
-  const apiCourses = validPrograms.map((program, index) => toCourse(program, index));
-  if (apiCourses.length >= MIN_COURSES) {
-    return apiCourses;
-  }
-  const existingSlugs = new Set(apiCourses.map((c) => c.slug));
-  const brochureCourses: Course[] = COURSES
-    .filter((b) => Boolean(b && b.slug && !existingSlugs.has(b.slug)))
-    .map((b) => ({
-      ...b,
-      category: BROCHURE_CATEGORY[b.slug] || "Course",
-      points: [...(b.points ?? [])],
-    }));
-  return [...apiCourses, ...brochureCourses];
+  return validPrograms.map((program, index) => toCourse(program, index));
 }
 
 export const enrolUrl = (programId: string) =>

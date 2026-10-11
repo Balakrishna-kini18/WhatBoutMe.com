@@ -717,9 +717,7 @@ export class EnrollmentsService {
             id: true,
             title: true,
             slug: true,
-            priceINR: true,
-            priceUSD: true,
-            priceAED: true,
+            price: true,
           },
         },
         batch: {

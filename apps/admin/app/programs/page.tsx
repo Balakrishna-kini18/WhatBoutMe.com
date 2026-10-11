@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
+import pstyles from "./programs.module.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
@@ -20,6 +21,7 @@ interface Program {
   description: string | null;
   price: number;
   isActive: boolean;
+  status?: string;
   _count?: {
     steps: number;
   };
@@ -30,11 +32,21 @@ const slugify = (text: string) =>
 
 export default function ProgramsPage() {
   const router = useRouter();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Search & Filtering
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+
+  // Modals & Menus
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
   // Form states
   const [title, setTitle] = useState("");
@@ -42,7 +54,6 @@ export default function ProgramsPage() {
   const [price, setPrice] = useState("");
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
-  // Shown on the public website; saved inside the description text
   const [duration, setDuration] = useState("");
   const [audience, setAudience] = useState("");
   const [inPerson, setInPerson] = useState("");
@@ -55,6 +66,21 @@ export default function ProgramsPage() {
 
   useEffect(() => {
     fetchPrograms();
+  }, []);
+
+  // Keyboard shortcut listener for quick search (⌘K or /)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === "/" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   const fetchPrograms = async () => {
@@ -109,10 +135,11 @@ export default function ProgramsPage() {
     setPoints("");
     setFormError("");
     setIsModalOpen(true);
+    setActiveDropdown(null);
   };
 
   const handleDeleteProgram = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this program?")) return;
+    if (!confirm("Are you sure you want to delete this program? This will remove all associated modules, lessons, and student progress.")) return;
     try {
       const res = await fetch(`${API_URL}/programs/${id}`, {
         method: "DELETE",
@@ -121,11 +148,7 @@ export default function ProgramsPage() {
         fetchPrograms();
       } else {
         const errorData = await res.json().catch(() => null);
-        if (res.status === 403) {
-          alert("You do not have permission to delete programs.");
-        } else {
-          alert(`Failed to delete program: ${errorData?.message || res.statusText}`);
-        }
+        alert(`Failed to delete program: ${errorData?.message || res.statusText}`);
       }
     } catch (e) {
       console.error("Failed to delete program", e);
@@ -138,7 +161,6 @@ export default function ProgramsPage() {
     setFormError("");
     setIsSaving(true);
 
-    // Only the fields the API accepts; website details travel in the description
     const payload = {
       title: title.trim(),
       description: formatCourseInfo({
@@ -152,9 +174,9 @@ export default function ProgramsPage() {
         points: points.split("\n"),
       }),
       price: parseFloat(price) || 0,
-      // slug and active flag are only set on creation: the slug stays fixed so
-      // existing links keep working, and the API ignores isActive on update
-      ...(editingProgramId ? { isActive, status: isActive ? "PUBLISHED" : "DRAFT" } : { slug: slugify(title), isActive, status: isActive ? "PUBLISHED" : "DRAFT" }),
+      ...(editingProgramId
+        ? { isActive, status: isActive ? "PUBLISHED" : "DRAFT" }
+        : { slug: slugify(title), isActive, status: isActive ? "PUBLISHED" : "DRAFT" }),
     };
 
     try {
@@ -174,10 +196,10 @@ export default function ProgramsPage() {
         if (editingProgramId) {
           fetchPrograms();
         } else {
+          // Immediately route to the new Curriculum Authoring Studio!
           router.push(`/programs/${savedProgram.id}`);
         }
       } else {
-        // the API wraps errors as { error: { code, message } }
         const data = await res.json().catch(() => null);
         const raw = data?.error?.message ?? data?.message;
         const message = Array.isArray(raw) ? raw.join(", ") : raw;
@@ -191,107 +213,370 @@ export default function ProgramsPage() {
     }
   };
 
+  // Filtered Programs Logic
+  const filteredPrograms = programs.filter((p) => {
+    const info = parseCourseInfo(p.description);
+    const matchesSearch =
+      p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const matchesCategory =
+      categoryFilter === "ALL" || (info.type && info.type.toUpperCase() === categoryFilter.toUpperCase());
+
+    const matchesStatus =
+      statusFilter === "ALL" ||
+      (statusFilter === "ACTIVE" && p.isActive) ||
+      (statusFilter === "HIDDEN" && !p.isActive);
+
+    return matchesSearch && matchesCategory && matchesStatus;
+  });
+
+  // Summary Metrics
+  const totalPrograms = programs.length;
+  const activeProgramsCount = programs.filter((p) => p.isActive).length;
+  const totalStepsCount = programs.reduce((acc, p) => acc + (p._count?.steps || 0), 0);
+  const avgPrice = totalPrograms > 0
+    ? Math.round(programs.reduce((acc, p) => acc + (p.price || 0), 0) / totalPrograms)
+    : 0;
+
   return (
-    <div className={styles.dashboard}>
-      <header className={styles.header}>
-        <div className={styles.headerText}>
-          <h1 className={styles.title}>Programs & Curriculum</h1>
-          <p className={styles.subtitle}>Create a program, then build its curriculum with modules and learning content.</p>
+    <div className={pstyles.container}>
+      {/* 1. Header & Primary Studio Action */}
+      <div className={pstyles.headerWrap}>
+        <div className={pstyles.titleArea}>
+          <h1>Programs &amp; Curriculum Studio</h1>
+          <p>Design, organize, and publish high-performance learning tracks and certification paths</p>
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.primaryBtn} onClick={openCreateModal}>
-            + Create Program
+
+        <div className={pstyles.headerActions}>
+          <button className={pstyles.primaryCreateBtn} onClick={openCreateModal}>
+            <span>+</span>
+            <span>New Course Track</span>
           </button>
         </div>
-      </header>
+      </div>
 
-      <section className={styles.tableSection}>
-        <div className={styles.sectionHeader}>
-          <h2>All Programs</h2>
+      {/* 2. Quick Metrics Bar */}
+      <div className={pstyles.metricsGrid}>
+        <div className={pstyles.metricCard}>
+          <div className={pstyles.metricIcon}>🎓</div>
+          <div className={pstyles.metricInfo}>
+            <span className={pstyles.metricValue}>{totalPrograms}</span>
+            <span className={pstyles.metricLabel}>Total Courses</span>
+          </div>
         </div>
-        
-        <div className={styles.tableWrapper}>
+
+        <div className={pstyles.metricCard}>
+          <div className={pstyles.metricIcon}>✨</div>
+          <div className={pstyles.metricInfo}>
+            <span className={pstyles.metricValue}>{activeProgramsCount}</span>
+            <span className={pstyles.metricLabel}>Active &amp; Published</span>
+          </div>
+        </div>
+
+        <div className={pstyles.metricCard}>
+          <div className={pstyles.metricIcon}>📑</div>
+          <div className={pstyles.metricInfo}>
+            <span className={pstyles.metricValue}>{totalStepsCount}</span>
+            <span className={pstyles.metricLabel}>Total Modules</span>
+          </div>
+        </div>
+
+        <div className={pstyles.metricCard}>
+          <div className={pstyles.metricIcon}>🏷️</div>
+          <div className={pstyles.metricInfo}>
+            <span className={pstyles.metricValue}>${avgPrice}</span>
+            <span className={pstyles.metricLabel}>Avg Course Price</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Search & Control Bar */}
+      <div className={pstyles.controlBar}>
+        <div className={pstyles.searchWrap}>
+          <span className={pstyles.searchIcon}>🔍</span>
+          <input
+            ref={searchInputRef}
+            type="text"
+            className={pstyles.searchInput}
+            placeholder="Search by title, syllabus, or topic..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <span className={pstyles.shortcutBadge}>⌘K</span>
+        </div>
+
+        <div className={pstyles.filtersGroup}>
+          <div className={pstyles.filterPills}>
+            {["ALL", "CERTIFICATION", "CORPORATE", "SINGLE SESSION"].map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`${pstyles.filterPill} ${categoryFilter === cat ? pstyles.filterPillActive : ""}`}
+                onClick={() => setCategoryFilter(cat)}
+              >
+                {cat === "ALL" ? "All Tracks" : cat.charAt(0) + cat.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+
+          <div className={pstyles.filterPills}>
+            <button
+              type="button"
+              className={`${pstyles.filterPill} ${statusFilter === "ALL" ? pstyles.filterPillActive : ""}`}
+              onClick={() => setStatusFilter("ALL")}
+            >
+              All Status
+            </button>
+            <button
+              type="button"
+              className={`${pstyles.filterPill} ${statusFilter === "ACTIVE" ? pstyles.filterPillActive : ""}`}
+              onClick={() => setStatusFilter("ACTIVE")}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              className={`${pstyles.filterPill} ${statusFilter === "HIDDEN" ? pstyles.filterPillActive : ""}`}
+              onClick={() => setStatusFilter("HIDDEN")}
+            >
+              Hidden
+            </button>
+          </div>
+
+          <div className={pstyles.viewModeToggle}>
+            <button
+              type="button"
+              className={`${pstyles.viewModeBtn} ${viewMode === "grid" ? pstyles.viewModeBtnActive : ""}`}
+              onClick={() => setViewMode("grid")}
+              title="Grid cards view"
+            >
+              ⊞
+            </button>
+            <button
+              type="button"
+              className={`${pstyles.viewModeBtn} ${viewMode === "table" ? pstyles.viewModeBtnActive : ""}`}
+              onClick={() => setViewMode("table")}
+              title="Dense table view"
+            >
+              ☰
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Content Area: Grid View or Dense Table View */}
+      {isLoading ? (
+        <div className={pstyles.cardsGrid}>
+          {[1, 2, 3, 4, 5, 6].map((idx) => (
+            <div key={idx} className="skeleton" style={{ height: 320, borderRadius: 20 }} />
+          ))}
+        </div>
+      ) : filteredPrograms.length === 0 ? (
+        <div className={pstyles.emptyState}>
+          <div className={pstyles.emptyIcon}>📚</div>
+          <h3 className={pstyles.emptyTitle}>No matching programs found</h3>
+          <p className={pstyles.emptyDesc}>
+            {searchQuery
+              ? `No curriculum matches "${searchQuery}". Try adjusting your search query or filters.`
+              : "Start by authoring your first luxury learning curriculum track."}
+          </p>
+          <button className={pstyles.primaryCreateBtn} onClick={openCreateModal}>
+            + Create New Course
+          </button>
+        </div>
+      ) : viewMode === "grid" ? (
+        <div className={pstyles.cardsGrid}>
+          {filteredPrograms.map((prog) => {
+            const info = parseCourseInfo(prog.description);
+            return (
+              <div key={prog.id} className={pstyles.programCard}>
+                {/* Visual Banner Header */}
+                <div className={pstyles.cardMediaHeader}>
+                  {info.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={info.image} alt={prog.title} className={pstyles.cardMediaImage} />
+                  )}
+                  <div className={pstyles.cardMediaOverlay} />
+
+                  <div className={pstyles.cardHeaderBadges}>
+                    <span className={pstyles.typeBadge}>{info.type || "Certification"}</span>
+                    <span className={pstyles.statusIndicator}>
+                      <span className={prog.isActive ? pstyles.dotActive : pstyles.dotHidden} />
+                      <span>{prog.isActive ? "Published" : "Draft"}</span>
+                    </span>
+                  </div>
+
+                  <span className={pstyles.priceTag}>
+                    {prog.price ? `$${prog.price}` : "Complimentary"}
+                  </span>
+                </div>
+
+                {/* Card Body */}
+                <div className={pstyles.cardBody}>
+                  <h3 className={pstyles.cardTitle}>{prog.title}</h3>
+                  <p className={pstyles.cardDescription}>
+                    {info.summary || "No course summary provided yet."}
+                  </p>
+
+                  {/* Metadata Chips */}
+                  <div className={pstyles.cardMetaGrid}>
+                    <div className={pstyles.metaItem}>
+                      <span className={pstyles.metaValue}>{prog._count?.steps ?? 0}</span>
+                      <span className={pstyles.metaLabel}>Modules</span>
+                    </div>
+                    <div className={pstyles.metaItem}>
+                      <span className={pstyles.metaValue}>{info.duration || "Self-Paced"}</span>
+                      <span className={pstyles.metaLabel}>Duration</span>
+                    </div>
+                    <div className={pstyles.metaItem}>
+                      <span className={pstyles.metaValue}>{info.audience || "All"}</span>
+                      <span className={pstyles.metaLabel}>Audience</span>
+                    </div>
+                  </div>
+
+                  {/* Direct Actions */}
+                  <div className={pstyles.cardActions}>
+                    <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn}>
+                      <span>Open Curriculum Studio</span>
+                      <span>&rarr;</span>
+                    </Link>
+
+                    <button
+                      type="button"
+                      className={pstyles.iconMenuBtn}
+                      onClick={() => toggleDropdown(prog.id)}
+                      title="More Actions"
+                    >
+                      •••
+                    </button>
+                  </div>
+
+                  {/* Dropdown Menu */}
+                  {activeDropdown === prog.id && (
+                    <div className={pstyles.actionDropdown}>
+                      <Link href={`/programs/${prog.id}`} className={pstyles.dropdownItem}>
+                        <span>🛠 Open Studio</span>
+                      </Link>
+                      <button
+                        type="button"
+                        className={pstyles.dropdownItem}
+                        onClick={() => openEditModal(prog)}
+                      >
+                        <span>⚙ Edit Settings</span>
+                      </button>
+                      <a
+                        href={`http://localhost:3000/programs/${prog.id}/steps`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={pstyles.dropdownItem}
+                      >
+                        <span>👁 Preview on LMS</span>
+                      </a>
+                      <button
+                        type="button"
+                        className={`${pstyles.dropdownItem} ${pstyles.dropdownItemDanger}`}
+                        onClick={() => handleDeleteProgram(prog.id)}
+                      >
+                        <span>🗑 Delete Track</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Dense Table View */
+        <div style={{ background: "#ffffff", border: "1px solid var(--border-light)", borderRadius: 16, overflow: "hidden" }}>
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Program Title</th>
+                <th>Course Title</th>
                 <th>Type</th>
                 <th>Price</th>
-                <th>Steps/Modules</th>
+                <th>Modules</th>
                 <th>Status</th>
-                <th className={styles.alignRight}>Action</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} style={{textAlign: "center", padding: "20px"}}>Loading programs from database...</td>
-                </tr>
-              ) : programs.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{textAlign: "center", padding: "20px"}}>No programs found. Create one!</td>
-                </tr>
-              ) : programs.map((prog) => (
+              {filteredPrograms.map((prog) => (
                 <tr key={prog.id}>
                   <td>
-                    <span className={styles.cellUserName}>{prog.title}</span>
+                    <Link
+                      href={`/programs/${prog.id}`}
+                      style={{ fontWeight: 700, color: "var(--text-primary)", textDecoration: "none" }}
+                    >
+                      {prog.title}
+                    </Link>
                   </td>
-                  <td><span className={styles.cellTextMuted}>{parseCourseInfo(prog.description).type || "Course"}</span></td>
-                  <td><span className={styles.cellText}>${prog.price}</span></td>
-                  <td><span className={styles.cellText}>{prog._count?.steps ?? "--"}</span></td>
+                  <td>{parseCourseInfo(prog.description).type || "Course"}</td>
+                  <td>${prog.price}</td>
+                  <td>{prog._count?.steps ?? 0} Steps</td>
                   <td>
                     <span className={`${styles.statusChip} ${prog.isActive ? styles.active : styles.locked}`}>
-                      {prog.isActive ? "Active" : "Hidden"}
+                      {prog.isActive ? "Published" : "Draft"}
                     </span>
                   </td>
-                  <td className={styles.alignRight} style={{ position: 'relative' }}>
-                    <button 
-                      className={styles.iconActionBtn} 
-                      title="More Actions"
-                      onClick={() => toggleDropdown(prog.id)}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="5" cy="12" r="2"></circle>
-                        <circle cx="12" cy="12" r="2"></circle>
-                        <circle cx="19" cy="12" r="2"></circle>
-                      </svg>
-                    </button>
-                    {activeDropdown === prog.id && (
-                      <div className={styles.actionDropdown}>
-                        <Link href={`/programs/${prog.id}`} className={styles.dropdownItem} style={{display: 'block', textDecoration: 'none'}}>Edit Curriculum (Steps)</Link>
-                        <button className={styles.dropdownItem} onClick={() => openEditModal(prog)}>Edit Program Settings</button>
-                        <button className={`${styles.dropdownItem} ${styles.textDanger}`} onClick={() => handleDeleteProgram(prog.id)}>Delete Program</button>
-                      </div>
-                    )}
+                  <td style={{ textAlign: "right" }}>
+                    <div style={{ display: "inline-flex", gap: "6px" }}>
+                      <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn} style={{ padding: "0.4rem 0.8rem", fontSize: "0.8rem" }}>
+                        Studio &rarr;
+                      </Link>
+                      <button
+                        className={pstyles.iconMenuBtn}
+                        style={{ width: 32, height: 32 }}
+                        onClick={() => openEditModal(prog)}
+                        title="Edit Settings"
+                      >
+                        ⚙
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </section>
+      )}
 
-      {/* CREATE PROGRAM MODAL */}
+      {/* CREATE & EDIT PROGRAM MODAL */}
       {isModalOpen && (
         <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
-          <div className={styles.modalContent} style={{ maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div
+            className={styles.modalContent}
+            style={{ maxWidth: "680px", maxHeight: "90vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className={styles.modalHeader}>
-              <h2>{editingProgramId ? "Edit Program" : "Create New Program"}</h2>
-              {!editingProgramId && (
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Step 1 of 2 · Website details. Step 2 adds the LMS content: modules, videos and quizzes.</p>
-              )}
-              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}>×</button>
+              <div>
+                <h2>{editingProgramId ? "Edit Course Settings" : "Create New Program Track"}</h2>
+                <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                  Step 1 captures catalog metadata. The Curriculum Studio allows authoring videos, PDFs, and quizzes inline.
+                </p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}>
+                ×
+              </button>
             </div>
-            
+
             <form className={styles.modalForm} onSubmit={handleSaveProgram}>
               <div className={styles.formGroup}>
                 <label>Program Title</label>
-                <input type="text" placeholder="e.g. 11 Steps to U" required value={title} onChange={(e) => setTitle(e.target.value)} />
+                <input
+                  type="text"
+                  placeholder="e.g. 11 Steps to U Certification"
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
               </div>
-              
+
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
-                  <label>Type</label>
+                  <label>Curriculum Type</label>
                   <select value={type} onChange={(e) => setType(e.target.value)}>
                     <option>Certification</option>
                     <option>Corporate</option>
@@ -299,68 +584,72 @@ export default function ProgramsPage() {
                   </select>
                 </div>
                 <div className={styles.formGroup}>
-                  <label>Price (USD)</label>
-                  <input type="number" placeholder="1999" value={price} onChange={(e) => setPrice(e.target.value)} />
+                  <label>Tuition / Price (USD)</label>
+                  <input
+                    type="number"
+                    placeholder="1999"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                  />
                 </div>
               </div>
 
               <div className={styles.formGroup}>
-                <label>Short Description</label>
-                <textarea rows={3} placeholder="Briefly describe what this program covers..." value={description} onChange={(e) => setDescription(e.target.value)}></textarea>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '1rem' }}>
-                <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Website Details</h3>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Shown on the course card and course page of the public website. All optional.</p>
-              </div>
-
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label>Duration</label>
-                  <input type="text" placeholder="e.g. 3 days" value={duration} onChange={(e) => setDuration(e.target.value)} />
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Who It Is For</label>
-                  <input type="text" placeholder="e.g. Individuals · Teams · Leaders" value={audience} onChange={(e) => setAudience(e.target.value)} />
-                </div>
+                <label>Course Overview &amp; Summary</label>
+                <textarea
+                  rows={3}
+                  placeholder="A transformative leadership journey designed for executives..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
               </div>
 
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
-                  <label>In Person</label>
-                  <input type="text" placeholder="e.g. 3 days · 6 hrs/day" value={inPerson} onChange={(e) => setInPerson(e.target.value)} />
+                  <label>Estimated Duration</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 12 Masterclasses"
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                  />
                 </div>
                 <div className={styles.formGroup}>
-                  <label>Online</label>
-                  <input type="text" placeholder="e.g. 1 hour, delivered live" value={online} onChange={(e) => setOnline(e.target.value)} />
+                  <label>Target Audience</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Leaders, Teams"
+                    value={audience}
+                    onChange={(e) => setAudience(e.target.value)}
+                  />
                 </div>
               </div>
 
               <div className={styles.formGroup}>
-                <label>Cover Image</label>
-                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  {image && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={image} alt="" style={{ width: '56px', height: '42px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border-light)' }} />
-                  )}
-                  <input type="url" placeholder="Upload an image, or paste a link" value={image} onChange={(e) => setImage(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
-                  <label className={styles.secondaryBtn} style={{ cursor: 'pointer', margin: 0, whiteSpace: 'nowrap' }}>
-                    {isUploading ? "Uploading..." : "Upload"}
+                <label>Course Cover Image URL</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    type="text"
+                    placeholder="https://... or upload an asset"
+                    value={image}
+                    onChange={(e) => setImage(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <label className={styles.secondaryBtn} style={{ cursor: "pointer", margin: 0 }}>
+                    {isUploading ? "Uploading..." : "Browse"}
                     <input
                       type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      disabled={isUploading}
-                      style={{ display: 'none' }}
+                      accept="image/*"
+                      style={{ display: "none" }}
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        e.target.value = "";
                         if (!file) return;
-                        setFormError("");
                         setIsUploading(true);
                         try {
-                          setImage(await uploadFile(file));
-                        } catch (err) {
-                          setFormError(err instanceof Error ? err.message : "Could not upload the image.");
+                          const url = await uploadFile(file);
+                          setImage(url);
+                        } catch (err: any) {
+                          alert(err.message || "Failed to upload image");
                         } finally {
                           setIsUploading(false);
                         }
@@ -371,33 +660,44 @@ export default function ProgramsPage() {
               </div>
 
               <div className={styles.formGroup}>
-                <label>What It Covers (one point per line)</label>
-                <textarea rows={4} placeholder={"11 modules, each closing with a short quiz\nA final exam drawn from the full programme"} value={points} onChange={(e) => setPoints(e.target.value)}></textarea>
+                <label>Core Learning Objectives (one per line)</label>
+                <textarea
+                  rows={3}
+                  placeholder="Master strategic emotional regulation&#10;Lead with ethical resilience&#10;Build self-sustaining team trust"
+                  value={points}
+                  onChange={(e) => setPoints(e.target.value)}
+                />
               </div>
 
-              {/* The API only reads the active flag when a program is created */}
-              {!editingProgramId && (
-                <div className={styles.formGroup} style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid var(--border-light)', paddingTop: '1rem' }}>
-                  <input type="checkbox" id="isActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} style={{ width: 'auto' }} />
-                  <label htmlFor="isActive" style={{ margin: 0 }}>Active (visible on the public website)</label>
-                </div>
-              )}
+              <div className={styles.formGroup}>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    onChange={(e) => setIsActive(e.target.checked)}
+                  />
+                  <span style={{ fontWeight: 600 }}>Publish to Learner Catalog immediately</span>
+                </label>
+              </div>
 
-              {formError && (
-                <p role="alert" style={{ margin: 0, padding: '0.75rem 1rem', borderRadius: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.85rem' }}>{formError}</p>
-              )}
+              {formError && <p className={styles.formError}>{formError}</p>}
 
               <div className={styles.modalFooter}>
-                <button type="button" className={styles.secondaryBtn} onClick={() => setIsModalOpen(false)}>Cancel</button>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </button>
                 <button type="submit" className={styles.primaryBtn} disabled={isSaving}>
-                  {isSaving ? "Saving..." : editingProgramId ? "Save Program" : "Create & Add Curriculum"}
+                  {isSaving ? "Saving..." : editingProgramId ? "Update Settings" : "Create & Author Curriculum →"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

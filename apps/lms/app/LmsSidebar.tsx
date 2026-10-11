@@ -48,7 +48,7 @@ export default function LmsSidebar() {
 
   const handleSignOut = () => signOutEverywhere();
 
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/sso") {
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/sso" || pathname.startsWith("/steps/")) {
     return null;
   }
 
@@ -89,9 +89,15 @@ export default function LmsSidebar() {
     </nav>
     <aside className={styles.sidebar}>
       <div className={styles.logo}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/logo-dark.png" alt="whatboutme" />
+        <Link href="/" style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>whataboutme</span>
+            <span style={{ fontSize: '1.1rem' }}>💛</span>
+          </div>
+          <span style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>LEARNER PORTAL</span>
+        </Link>
       </div>
+
 
       <Link href="/profile" className={styles.userProfile}>
         <span className={styles.avatarWrap}>

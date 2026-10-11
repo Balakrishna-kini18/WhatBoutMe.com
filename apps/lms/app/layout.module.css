@@ -207,6 +207,22 @@
   color: var(--text-primary);
 }
 
+.authMain {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--bg-main);
+}
+
+.classroomMain {
+  margin-left: 0;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--bg-main);
+  overflow-x: hidden;
+}
+
 .mainContent {
   margin-left: 280px;
   flex: 1;
@@ -475,4 +491,17 @@
   .appContainer:has(:is(input:not([type="checkbox"], [type="radio"]), textarea):focus) .mainContent {
     padding-bottom: 1rem;
   }
+}
+
+.classroomMain {
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  background-color: var(--bg-main, #faf6f0);
 }

@@ -1,28 +1,42 @@
-:root {
-  /* The public website's theme (cream, ink and gold; see its globals.css),
-     so the learner side looks like the same product. The admin keeps its
-     own blue theme. */
-  --bg-main: #fffbf3; /* cream */
-  --bg-soft: #f3eee6; /* sand */
-  --bg-card: #ffffff;
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
 
-  /* Primary accents. The primary is deep gold, not the bright gold: it is
-     used both as text and behind white button text, and stays readable. */
-  --accent-primary: #a9670f; /* gold-deep */
-  --accent-primary-hover: #8a530a;
-  --accent-secondary: #efa944; /* gold */
-  --accent-highlight: #fbeed2; /* cream-deep, for active states */
+:root {
+  /* WhatBoutMe Brand Palette (Cream, Ivory, Deep Ink, Golden Amber) */
+  --bg-main: #faf6f0;           /* cream */
+  --bg-soft: #f5ece1;           /* sand */
+  --bg-card: #ffffff;
+  --bg-card-muted: #fdfbf7;
+  --bg-sidebar: #faf7f2;
+
+  /* Primary accents */
+  --accent-primary: #c97a1e;       /* warm golden ochre */
+  --accent-primary-hover: #b46b18;
+  --accent-secondary: #efa944;     /* gold */
+  --accent-secondary-light: #fbeed2;
+  --accent-highlight: #f6edde;     /* cream-deep, for active states */
+  --accent-highlight-text: #8c531b;
 
   /* Typography */
-  --text-primary: #14110f; /* ink */
-  --text-secondary: #4a443d; /* ink-soft */
+  --text-primary: #14110f;         /* ink */
+  --text-secondary: #4a443d;       /* ink-soft */
+  --text-muted: #78716a;
   --text-disabled: #cfc8bd;
 
+  /* Fonts */
+  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-playfair), 'Playfair Display', Georgia, Cambria, serif;
+  --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
+
   /* Borders and shadows */
-  --border-light: #e8e1d5;
-  --shadow-sm: 0 1px 2px 0 rgba(20, 17, 15, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(20, 17, 15, 0.05), 0 2px 4px -1px rgba(20, 17, 15, 0.03);
-  --shadow-card: 0 10px 30px -5px rgba(20, 17, 15, 0.06);
+  --border-light: #ece4d7;
+  --border-focus: #c97a1e;
+  --border-subtle: rgba(20, 17, 15, 0.07);
+
+  --shadow-sm: 0 1px 3px rgba(20, 17, 15, 0.04), 0 1px 2px rgba(20, 17, 15, 0.02);
+  --shadow-md: 0 4px 12px -2px rgba(180, 140, 100, 0.08), 0 2px 6px -1px rgba(20, 17, 15, 0.04);
+  --shadow-card: 0 8px 24px -4px rgba(180, 140, 100, 0.08), 0 2px 8px -2px rgba(20, 17, 15, 0.03);
+  --shadow-card-hover: 0 16px 36px -6px rgba(180, 140, 100, 0.12), 0 4px 12px -2px rgba(20, 17, 15, 0.04);
+  --shadow-dropdown: 0 14px 34px -4px rgba(60, 45, 30, 0.12), 0 4px 12px rgba(20, 17, 15, 0.05);
 
   /* Status colours */
   --status-success: #15803d;
@@ -32,18 +46,24 @@
   --status-error: #b91c1c;
   --status-error-bg: #fee2e2;
 
-  /* One scale for every screen: text sizes, radii and control height */
+  /* Scale */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.25rem;
   --text-xl: 1.5rem;
   --text-2xl: 1.875rem;
+  --text-3xl: 2.25rem;
+
+  --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-pill: 9999px;
+
   --control-height: 2.75rem;
-  /* height of the phone top bar; the chat page sizes itself against it */
   --topbar-h: 3rem;
 }
 
@@ -52,15 +72,15 @@ body {
   padding: 0;
   background-color: var(--bg-main);
   color: var(--text-primary);
-  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.5;
   min-height: 100vh;
   min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Phones: the whole interface one step smaller (16px -> 15px base); sizes
-   and spacing are in rem, so everything shrinks together */
 @media (max-width: 639px) {
   html {
     font-size: 93.75%;
@@ -71,7 +91,6 @@ body {
   box-sizing: border-box;
 }
 
-/* form controls take the page font instead of the browser default */
 button, input, select, textarea {
   font-family: inherit;
 }
@@ -81,19 +100,57 @@ button, input, select, textarea {
   outline-offset: 2px;
 }
 
-/* Base headings */
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
   margin-top: 0;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-/* Glassmorphism utility to card utility */
+::selection {
+  background: var(--accent-secondary);
+  color: #14110f;
+}
+
+/* Glassmorphism utility */
 .glass {
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: 20px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  box-shadow: 0 4px 20px -2px rgba(180, 140, 100, 0.08);
+}
+
+/* Skeleton Loading Shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f0e9df 25%, #faf6f0 50%, #f0e9df 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  border-radius: var(--radius-sm);
+}
+
+/* Fade In Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Hide sidebar on auth pages */
@@ -103,30 +160,11 @@ body.auth-page-active aside {
 
 body.auth-page-active div[class*="mainContent"] {
   margin-left: 0 !important;
-  padding: 0 !important;
 }
 
-/* Printing (certificates): drop the app chrome and use the whole page */
-@page {
-  size: A4 landscape;
-  margin: 0;
-}
-
-@media print {
-  aside,
-  header {
-    display: none !important;
-  }
-
+/* On phones the bottom tab bar floats; make room so the page never scrolls behind it */
+@media (max-width: 768px) {
   body {
-    background: #ffffff;
-  }
-
-  main,
-  div[class*="mainWrapper"],
-  div[class*="content"] {
-    margin: 0 !important;
-    padding: 0 !important;
-    max-width: none !important;
+    padding-bottom: 5rem;
   }
 }

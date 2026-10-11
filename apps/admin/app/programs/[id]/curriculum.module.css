@@ -1,0 +1,1321 @@
+/* =========================================================================
+   WhatBoutMe Admin - Guided Curriculum Builder Wizard Styles
+   Design Language: Warm Ivory (#faf6f0), Sand (#f5ece1), Deep Ink (#14110f),
+   Golden Amber (#c97a1e), Elevated White Cards (#ffffff).
+   Reference Flow: 9-Step Guided Setup (Course Setup -> Modules -> Lessons -> Preview -> Publish)
+   ========================================================================= */
+
+.wizardContainer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: var(--bg-main, #faf6f0);
+  color: var(--text-primary, #14110f);
+  padding: 1.25rem 2.25rem 6rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* =========================================================================
+   1. Wizard Top Bar & Breadcrumbs
+   ========================================================================= */
+.wizardTopBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.25rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.backToProgramBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-primary, #14110f);
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.45rem 0.95rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(20, 17, 15, 0.03);
+}
+
+.backToProgramBtn:hover {
+  background: var(--bg-soft, #f5ece1);
+  border-color: #d8cdbe;
+}
+
+.breadcrumbTrail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #78716a);
+  flex-wrap: wrap;
+}
+
+.homeIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted, #78716a);
+}
+
+.pipeDivider {
+  color: #d4cbbe;
+  margin: 0 0.1rem;
+  font-weight: 300;
+}
+
+.breadcrumbLink {
+  color: var(--text-muted, #78716a);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.breadcrumbLink:hover {
+  color: var(--text-primary, #14110f);
+}
+
+.breadcrumbChevron {
+  color: #a8a29e;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.breadcrumbText {
+  color: var(--text-muted, #78716a);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.breadcrumbText:hover {
+  color: var(--text-primary, #14110f);
+}
+
+.breadcrumbActive {
+  color: var(--text-primary, #14110f);
+  font-weight: 700;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-secondary, #4a443d);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  background: var(--bg-soft, #f5ece1);
+  transition: all 0.15s ease;
+}
+
+.backLink:hover {
+  background: #ede1d2;
+  color: var(--text-primary, #14110f);
+}
+
+.breadcrumbRoot {
+  color: var(--text-muted, #78716a);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.breadcrumbDivider {
+  color: var(--text-disabled, #cfc8bd);
+}
+
+.breadcrumbCurrent {
+  color: var(--text-primary, #14110f);
+  font-weight: 700;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topBarActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.statusBadge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.previewLmsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.previewLmsLink:hover {
+  background: var(--bg-soft, #f5ece1);
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+}
+
+/* =========================================================================
+   2. Horizontal Stepper Header (3 Phases / Progressive Stages)
+   ========================================================================= */
+.stepperContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.75rem auto 2.25rem;
+  width: 100%;
+  max-width: 680px;
+}
+
+.stepNode {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0.4rem 0.6rem;
+  border-radius: 9999px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.stepNode:hover .stepCircle {
+  border-color: #d97706;
+}
+
+.stepCircle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid #ded6cb;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #8c827a;
+  transition: all 0.2s ease;
+}
+
+.stepCircleActive {
+  background: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.16);
+}
+
+.stepCircleCompleted {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+.stepLabel {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: #8c827a;
+  white-space: nowrap;
+}
+
+.stepLabelActive {
+  color: var(--text-primary, #14110f);
+  font-weight: 700;
+}
+
+.stepLabelCompleted {
+  color: var(--text-primary, #14110f);
+  font-weight: 600;
+}
+
+.stepLine {
+  flex: 1;
+  height: 2px;
+  background: #e5dcd0;
+  margin: 0 0.85rem;
+  min-width: 48px;
+  max-width: 110px;
+  transition: background 0.2s ease;
+}
+
+.stepLineActive {
+  background: #d97706;
+}
+
+/* =========================================================================
+   3. Wizard Main Card Container
+   ========================================================================= */
+.cardSurface {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 18px;
+  padding: 2.75rem 3rem 2.5rem;
+  box-shadow: 0 4px 24px -4px rgba(20, 17, 15, 0.05);
+  box-sizing: border-box;
+  animation: fadeIn 0.25s ease-out;
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cardHeaderArea {
+  margin-bottom: 2rem;
+}
+
+.stepEyebrow {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #d97706;
+  margin-bottom: 0.45rem;
+}
+
+.stepTitle {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 2.15rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0 0 0.45rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.stepSubtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary, #6b635b);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* =========================================================================
+   4. STEP 1: Course Setup (Two Column Grid)
+   ========================================================================= */
+.twoColLayout {
+  display: grid;
+  grid-templateColumns: 1fr 340px;
+  gap: 2.5rem;
+  align-items: start;
+}
+
+@media (max-width: 992px) {
+  .twoColLayout {
+    grid-templateColumns: 1fr;
+  }
+}
+
+.formGroup {
+  margin-bottom: 1.5rem;
+}
+
+.formLabel {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin-bottom: 0.45rem;
+}
+
+.formLabelOptional {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted, #78716a);
+  margin-left: 4px;
+}
+
+.formInput {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  background: var(--bg-card-muted, #fdfbf7);
+  font-size: 0.92rem;
+  color: var(--text-primary, #14110f);
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+
+.formInput:focus {
+  border-color: var(--accent-primary, #c97a1e);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.12);
+}
+
+.formTextarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  background: var(--bg-card-muted, #fdfbf7);
+  font-size: 0.92rem;
+  color: var(--text-primary, #14110f);
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.formTextarea:focus {
+  border-color: var(--accent-primary, #c97a1e);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.12);
+}
+
+.formSelect {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  background: var(--bg-card-muted, #fdfbf7);
+  font-size: 0.92rem;
+  color: var(--text-primary, #14110f);
+  outline: none;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.formSelect:focus {
+  border-color: var(--accent-primary, #c97a1e);
+  background: #ffffff;
+}
+
+/* Course Cover Image Upload Box */
+.coverUploadBox {
+  border: 2px dashed var(--border-light, #ece4d7);
+  border-radius: 14px;
+  padding: 1.75rem 1rem;
+  background: var(--bg-card-muted, #fdfbf7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 180px;
+  position: relative;
+  overflow: hidden;
+}
+
+.coverUploadBox:hover {
+  border-color: var(--accent-primary, #c97a1e);
+  background: var(--bg-soft, #f5ece1);
+}
+
+.uploadCloudIcon {
+  font-size: 2.2rem;
+  color: var(--accent-primary, #c97a1e);
+  margin-bottom: 0.5rem;
+}
+
+.uploadTitle {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin-bottom: 0.25rem;
+}
+
+.uploadHint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #78716a);
+}
+
+.coverPreviewImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.coverOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 17, 15, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.coverUploadBox:hover .coverOverlay {
+  opacity: 1;
+}
+
+/* =========================================================================
+   5. STEP 2 & 4: Modules List & Compact Module Cards
+   ========================================================================= */
+.moduleListHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.moduleCountBadge {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent-primary, #c97a1e);
+  background: var(--accent-highlight, #f6edde);
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+}
+
+/* Empty State Card */
+.emptyStateCard {
+  border: 2px dashed var(--border-light, #ece4d7);
+  border-radius: 16px;
+  padding: 4rem 2rem;
+  text-align: center;
+  background: var(--bg-card-muted, #fdfbf7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.emptyStateIcon {
+  font-size: 3.5rem;
+  margin-bottom: 1rem;
+  color: var(--accent-primary, #c97a1e);
+}
+
+.emptyStateTitle {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  color: var(--text-primary, #14110f);
+}
+
+.emptyStateDesc {
+  color: var(--text-secondary, #4a443d);
+  max-width: 440px;
+  margin: 0 auto 1.75rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+/* Module Item Card */
+.modulesStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.moduleItemCard {
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: all 0.15s ease;
+}
+
+.moduleItemCard:hover {
+  border-color: #d8cdbe;
+  box-shadow: 0 4px 14px rgba(20, 17, 15, 0.04);
+}
+
+.moduleLeftInfo {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex: 1;
+}
+
+.moduleSeqCircle {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-soft, #f5ece1);
+  color: var(--accent-primary, #c97a1e);
+  font-weight: 800;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.moduleMetaCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.moduleCardTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+}
+
+.moduleStatsRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #78716a);
+}
+
+.moduleRightActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.manageContentBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.15rem;
+  border-radius: 8px;
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+  border: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.manageContentBtn:hover {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  border-color: var(--accent-primary, #c97a1e);
+}
+
+.secondaryActionBtn {
+  background: none;
+  border: 1px solid var(--border-light, #ece4d7);
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.secondaryActionBtn:hover {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+}
+
+.deleteItemBtn {
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.deleteItemBtn:hover {
+  background: #fee2e2;
+}
+
+/* =========================================================================
+   6. STEP 5: Add Lesson Card-based Chooser
+   ========================================================================= */
+.chooserGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+  margin: 1.75rem 0 1.5rem;
+}
+
+.chooserCard {
+  border: 1.5px solid var(--border-light, #e7decb);
+  border-radius: 14px;
+  padding: 1.4rem 1.4rem 1.5rem;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  user-select: none;
+  min-height: 152px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.chooserCard:hover {
+  border-color: #d97706;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(217, 119, 6, 0.12);
+}
+
+.chooserCardSelected {
+  border-color: #d97706;
+  background: #fffdfa;
+  box-shadow: 0 0 0 1px #d97706;
+}
+
+.chooserCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+  width: 100%;
+}
+
+.chooserBadge {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chooserRadioEmpty {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid #d4cbbe;
+  background: #ffffff;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.chooserRadioActive {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #d97706;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.chooserRadioActiveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97706;
+}
+
+.chooserTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0 0 0.35rem;
+}
+
+.chooserDesc {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #6b635b);
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Info Callout Box */
+.infoCallout {
+  background: #fdfaf6;
+  border: 1px solid #eedec9;
+  border-radius: 12px;
+  padding: 1.15rem 1.4rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.infoCalloutIcon {
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.infoCalloutContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.infoCalloutTitle {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+}
+
+.infoCalloutDesc {
+  font-size: 0.83rem;
+  color: #57534e;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Footer Action Buttons */
+.chooserFooterRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2rem;
+  padding-top: 0.5rem;
+}
+
+.chooserCancelBtn {
+  background: #ffffff;
+  border: 1px solid #ded6cb;
+  color: #2e2823;
+  border-radius: 8px;
+  padding: 0.65rem 1.5rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chooserCancelBtn:hover {
+  background: #f7f2ea;
+  border-color: #c4b9aa;
+}
+
+.chooserPrimaryBtn {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.6rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.15s ease;
+}
+
+.chooserPrimaryBtn:hover {
+  background: #b45309;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.25);
+}
+
+@media (max-width: 1024px) {
+  .chooserGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .cardSurface {
+    padding: 2.25rem 2rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .wizardContainer {
+    padding: 1rem 1rem 4rem;
+  }
+  .chooserGrid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  .cardSurface {
+    padding: 1.5rem 1.25rem;
+    border-radius: 14px;
+  }
+  .stepTitle {
+    font-size: 1.65rem;
+  }
+  .stepperContainer {
+    max-width: 100%;
+  }
+  .stepLine {
+    min-width: 24px;
+    margin: 0 0.4rem;
+  }
+  .stepLabel {
+    font-size: 0.75rem;
+  }
+  .chooserFooterRow {
+    flex-direction: column-reverse;
+    gap: 0.85rem;
+    align-items: stretch;
+  }
+  .chooserCancelBtn,
+  .chooserPrimaryBtn {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+/* =========================================================================
+   7. STEP 6: Video & File Upload Stage
+   ========================================================================= */
+.uploadCardArea {
+  border: 2px dashed var(--border-light, #ece4d7);
+  border-radius: 16px;
+  padding: 3rem 2rem;
+  text-align: center;
+  background: var(--bg-card-muted, #fdfbf7);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 1.75rem;
+}
+
+.uploadCardArea:hover {
+  border-color: var(--accent-primary, #c97a1e);
+  background: var(--bg-soft, #f5ece1);
+}
+
+.progressBarContainer {
+  margin: 1.5rem 0;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+}
+
+.progressTrack {
+  height: 8px;
+  background: var(--bg-soft, #f5ece1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent-primary, #c97a1e);
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
+/* Toggle Switch */
+.switchToggleWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.switchInput {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  appearance: none;
+  background: var(--border-light, #ece4d7);
+  border-radius: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.switchInput:checked {
+  background: var(--accent-primary, #c97a1e);
+}
+
+.switchInput::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.2s ease;
+}
+
+.switchInput:checked::before {
+  transform: translateX(20px);
+}
+
+/* =========================================================================
+   8. STEP 7: Quiz Builder (Questions & Parameters)
+   ========================================================================= */
+.quizParamsGrid {
+  display: grid;
+  grid-templateColumns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: var(--bg-soft, #f5ece1);
+  border-radius: 14px;
+}
+
+.questionTypePillBar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.questionTypePill {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  padding: 0.4rem 0.85rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.questionTypePill:hover {
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+}
+
+.questionCard {
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 14px;
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+  background: #ffffff;
+}
+
+.optionItemRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.correctRadio {
+  accent-color: #15803d;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* =========================================================================
+   9. STEP 8: Student Module Preview Stage
+   ========================================================================= */
+.previewStageCard {
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 16px;
+  background: var(--bg-card-muted, #fdfbf7);
+  padding: 2rem;
+}
+
+.previewLessonsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1.5rem;
+}
+
+.previewLessonRow {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lockedBadge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted, #78716a);
+  background: var(--bg-soft, #f5ece1);
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* =========================================================================
+   10. STEP 9: Final Review & Publish
+   ========================================================================= */
+.reviewGrid {
+  display: grid;
+  grid-templateColumns: 1.3fr 1fr;
+  gap: 2.5rem;
+  align-items: start;
+}
+
+@media (max-width: 992px) {
+  .reviewGrid {
+    grid-templateColumns: 1fr;
+  }
+}
+
+.coursePreviewHeroCard {
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 4px 20px -4px rgba(20, 17, 15, 0.05);
+}
+
+.courseCoverBanner {
+  width: 100%;
+  height: 180px;
+  background: linear-gradient(135deg, #14110f 0%, #2e2621 100%);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  overflow: hidden;
+}
+
+.courseBannerImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.courseBannerOverlay {
+  position: absolute;
+  bottom: 1rem;
+  left: 1.25rem;
+  right: 1.25rem;
+}
+
+.courseReviewDetails {
+  padding: 1.75rem;
+}
+
+.publishSettingsBox {
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 16px;
+  padding: 1.75rem;
+  background: #ffffff;
+}
+
+.radioSettingOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1.5px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  margin-bottom: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.radioSettingOption:hover {
+  border-color: var(--accent-primary, #c97a1e);
+}
+
+.radioOptionSelected {
+  border-color: var(--accent-primary, #c97a1e);
+  background: var(--bg-card-muted, #fdfbf7);
+}
+
+/* =========================================================================
+   11. Sticky Wizard Bottom Actions Bar
+   ========================================================================= */
+.stickyBottomBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 72px;
+  background: #ffffff;
+  border-top: 1px solid var(--border-light, #ece4d7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  z-index: 50;
+  box-shadow: 0 -4px 16px rgba(20, 17, 15, 0.04);
+  box-sizing: border-box;
+}
+
+.btnBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.4rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btnBack:hover {
+  background: #ede1d2;
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.85rem;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(201, 122, 30, 0.28);
+  transition: all 0.15s ease;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--accent-primary-hover, #b46b18);
+  transform: translateY(-1px);
+}
+
+.btnPrimary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Modal Dialog */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 17, 15, 0.45);
+  backdrop-filter: blur(3px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modalCard {
+  background: #ffffff;
+  border-radius: 18px;
+  width: 520px;
+  max-width: 95vw;
+  box-shadow: 0 20px 45px rgba(20, 17, 15, 0.15);
+  border: 1px solid var(--border-light, #ece4d7);
+  overflow: hidden;
+  animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scaleUp {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.modalHeader {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modalTitle {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.modalCloseBtn {
+  background: var(--bg-soft, #f5ece1);
+  border: none;
+  font-size: 1.2rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #4a443d);
+}
+
+.modalCloseBtn:hover {
+  background: #ede1d2;
+  color: var(--text-primary, #14110f);
+}
+
+.modalBody {
+  padding: 1.5rem;
+}
+
+.modalFooter {
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid var(--border-light, #ece4d7);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  background: var(--bg-card-muted, #fdfbf7);
+}

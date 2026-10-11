@@ -14,8 +14,8 @@
   --accent-primary-active: #9f5b12;
   --accent-secondary: #efa944;     /* Radiant Gold */
   --accent-secondary-light: #fbeed2; /* Soft Cream Gold */
-  --accent-highlight: #f6edde;     /* Warm Sand / Peach highlight for active nav items */
-  --accent-highlight-text: #8c531b;/* Warm brown text for active states */
+  --accent-highlight: #f4ecdf;     /* Refined warm highlight for active nav items */
+  --accent-highlight-text: #14110f;/* Deep ink text for active states */
 
   /* Ink & Typography */
   --text-primary: #14110f;         /* Deep Ink */
@@ -188,3 +188,28 @@ body.login-page-active div[class*="mainWrapper"] {
     max-width: none !important;
   }
 }
+
+/* =========================================================================
+   Dark Theme Token Overrides
+   ========================================================================= */
+html.dark {
+  --bg-main: #141210;
+  --bg-soft: #1e1b17;
+  --bg-card: #1c1916;
+  --bg-card-muted: #24201c;
+  --bg-sidebar: #181512;
+
+  --accent-primary: #e08b2d;
+  --accent-primary-hover: #efa944;
+  --accent-highlight: #282119;
+  --accent-highlight-text: #f7ede0;
+
+  --text-primary: #f5efe8;
+  --text-secondary: #c7beaf;
+  --text-muted: #8c8273;
+  --text-disabled: #544c42;
+
+  --border-light: #2c2720;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+}
+

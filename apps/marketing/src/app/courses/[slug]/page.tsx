@@ -31,10 +31,16 @@ export default async function CoursePage({ params }: Props) {
     { label: "In person", value: course.inPerson },
     { label: "Online", value: course.online },
     { label: "For", value: course.meta },
-    { label: "Price", value: course.price ? formatPrice(course.price) : "" },
+    {
+      label: "Price",
+      value:
+        typeof course.price === "number" && !isNaN(course.price) && course.price > 0
+          ? formatPrice(course.price)
+          : "",
+    },
   ].filter((f) => f.value);
 
-  const others = courses.filter((c) => c.slug !== course.slug).slice(0, 3);
+  const others = courses.filter((c) => c && c.slug && c.slug !== course.slug).slice(0, 3);
 
   return (
     <main className="relative min-h-screen bg-cream text-ink">
@@ -54,15 +60,17 @@ export default async function CoursePage({ params }: Props) {
           {/* about the course */}
           <div>
             <div className="relative aspect-[16/9] overflow-hidden rounded-3xl">
-              <Image
-                src={course.image}
-                alt={course.alt}
-                fill
-                priority
-                unoptimized={!isOptimisable(course.image)}
-                sizes="(max-width: 1024px) 100vw, 720px"
-                className="object-cover"
-              />
+              {course.image && (
+                <Image
+                  src={course.image}
+                  alt={course.alt || course.title || "Course"}
+                  fill
+                  priority
+                  unoptimized={!isOptimisable(course.image)}
+                  sizes="(max-width: 1024px) 100vw, 720px"
+                  className="object-cover"
+                />
+              )}
             </div>
 
             <h1 className="mt-8 text-2xl font-bold sm:text-3xl tracking-tight md:text-5xl">
@@ -72,7 +80,7 @@ export default async function CoursePage({ params }: Props) {
               {course.body}
             </p>
 
-            {course.points.length > 0 && (
+            {(course.points?.length ?? 0) > 0 && (
               <>
                 <h2 className="mt-10 text-xl font-bold tracking-tight md:text-2xl">
                   What It Covers

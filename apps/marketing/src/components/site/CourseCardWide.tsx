@@ -12,17 +12,21 @@ export default function CourseCardWide({ course }: { course: Course }) {
       className="group grid h-full overflow-hidden rounded-3xl border border-line bg-white transition-[box-shadow,transform] duration-300 sm:hover:shadow-[0_24px_48px_-28px_rgba(20,17,15,0.4)] active:scale-[0.985] sm:grid-cols-[42%_1fr]"
     >
       <span className="relative block min-h-48 overflow-hidden sm:min-h-full">
-        <Image
-          src={course.image}
-          alt={course.alt}
-          fill
-          unoptimized={!isOptimisable(course.image)}
-          sizes="(max-width: 640px) 100vw, 280px"
-          className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
-        />
-        <span className="absolute left-4 top-4 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">
-          {course.duration}
-        </span>
+        {course.image && (
+          <Image
+            src={course.image}
+            alt={course.alt || course.title || "Course"}
+            fill
+            unoptimized={!isOptimisable(course.image)}
+            sizes="(max-width: 640px) 100vw, 280px"
+            className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
+          />
+        )}
+        {course.duration && (
+          <span className="absolute left-4 top-4 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">
+            {course.duration}
+          </span>
+        )}
       </span>
 
       <span className="flex flex-col p-6">
@@ -39,7 +43,9 @@ export default function CourseCardWide({ course }: { course: Course }) {
         </span>
         <span className="mt-5 flex items-center justify-between gap-3">
           <span className="text-lg font-bold tracking-tight">
-            {course.price ? formatPrice(course.price) : ""}
+            {typeof course.price === "number" && !isNaN(course.price) && course.price > 0
+              ? formatPrice(course.price)
+              : ""}
           </span>
           <span className="flex items-center gap-2 rounded-full bg-cream-deep px-5 py-2.5 text-sm font-medium text-ink transition-colors duration-200 group-hover:bg-gold max-sm:bg-gold">
             View Details

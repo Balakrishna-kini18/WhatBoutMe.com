@@ -15,17 +15,21 @@ export default function CourseCard({ course }: { course: Course }) {
       className="group flex h-full w-full flex-col overflow-hidden rounded-3xl border border-line bg-white text-left transition-[box-shadow,transform] duration-300 sm:hover:shadow-[0_24px_48px_-28px_rgba(20,17,15,0.4)] active:scale-[0.985]"
     >
       <span className="relative block aspect-[4/3] overflow-hidden">
-        <Image
-          src={course.image}
-          alt={course.alt}
-          fill
-          unoptimized={!isOptimisable(course.image)}
-          sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 360px"
-          className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
-        />
-        <span className="absolute left-4 top-4 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">
-          {course.duration}
-        </span>
+        {course.image && (
+          <Image
+            src={course.image}
+            alt={course.alt || course.title || "Course"}
+            fill
+            unoptimized={!isOptimisable(course.image)}
+            sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 360px"
+            className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
+          />
+        )}
+        {course.duration && (
+          <span className="absolute left-4 top-4 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">
+            {course.duration}
+          </span>
+        )}
       </span>
 
       <span className="flex flex-1 flex-col p-5">

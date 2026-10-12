@@ -244,9 +244,16 @@ export default function AgreementTemplateDetailPage({
   if (!template) {
     return (
       <div className={styles.dashboard}>
+        <div style={{ marginBottom: "0.25rem" }}>
+          <Link href="/agreements" className={styles.backLink}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>Back to Agreements</span>
+          </Link>
+        </div>
         <header className={styles.header}>
           <div className={styles.headerText}>
-            <Link href="/agreements" className={styles.backLink}>← Back to Agreements</Link>
             <h1 className={styles.title}>Template Not Found</h1>
           </div>
         </header>
@@ -258,30 +265,33 @@ export default function AgreementTemplateDetailPage({
 
   return (
     <div className={styles.dashboard}>
+      <div style={{ marginBottom: "0.25rem" }}>
+        <Link href="/agreements" className={styles.backLink}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Back to Agreements</span>
+        </Link>
+      </div>
+
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <Link href="/agreements" className={styles.backLink}>← Back to Agreements</Link>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <h1 className={styles.title}>{template.title}</h1>
             {activeVersion ? (
-              <span style={{
-                background: "#dcfce7",
-                color: "#15803d",
-                padding: "0.25rem 0.75rem",
-                borderRadius: "16px",
-                fontSize: "0.85rem",
-                fontWeight: 700
-              }}>
+              <span className={styles.correctBadge} style={{ fontSize: "0.8rem", padding: "0.25rem 0.65rem" }}>
                 Active: {activeVersion.version}
               </span>
             ) : (
               <span style={{
                 background: "#fef3c7",
                 color: "#b45309",
-                padding: "0.25rem 0.75rem",
-                borderRadius: "16px",
-                fontSize: "0.85rem",
-                fontWeight: 600
+                padding: "0.25rem 0.65rem",
+                borderRadius: "9999px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center"
               }}>
                 No Live Version
               </span>
@@ -304,57 +314,49 @@ export default function AgreementTemplateDetailPage({
               setPublishNewVersion(false);
               setIsVersionModalOpen(true);
             }}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
           >
-            + Create New Version
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Create New Version</span>
           </button>
         </div>
       </header>
 
       {statusMsg && (
-        <div style={{
-          background: statusMsg.type === "success" ? "#ecfdf5" : "#fee2e2",
-          border: `1px solid ${statusMsg.type === "success" ? "#10b981" : "#ef4444"}`,
-          color: statusMsg.type === "success" ? "#047857" : "#b91c1c",
-          padding: "1rem",
-          borderRadius: "8px",
-          marginBottom: "1.5rem",
-          fontSize: "0.9rem"
-        }}>
-          {statusMsg.text}
+        <div className={statusMsg.type === "success" ? styles.alertSuccess : styles.alertError}>
+          {statusMsg.type === "success" ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          )}
+          <span>{statusMsg.text}</span>
         </div>
       )}
 
       {/* TABS */}
-      <div style={{ display: "flex", gap: "1rem", borderBottom: "1px solid var(--border-light)", marginBottom: "1.5rem" }}>
+      <div className={styles.tabsContainer}>
         <button
           onClick={() => setActiveTab("versions")}
-          style={{
-            background: "none",
-            border: "none",
-            padding: "0.75rem 1.5rem",
-            fontSize: "0.95rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            borderBottom: activeTab === "versions" ? "3px solid var(--accent-primary)" : "3px solid transparent",
-            color: activeTab === "versions" ? "var(--text-primary)" : "var(--text-secondary)"
-          }}
+          className={`${styles.tabBtn} ${activeTab === "versions" ? styles.tabBtnActive : ""}`}
         >
-          Version History ({versions.length})
+          <span>Version History</span>
+          <span className={styles.pointsBadge}>{versions.length}</span>
         </button>
         <button
           onClick={() => setActiveTab("signed")}
-          style={{
-            background: "none",
-            border: "none",
-            padding: "0.75rem 1.5rem",
-            fontSize: "0.95rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            borderBottom: activeTab === "signed" ? "3px solid var(--accent-primary)" : "3px solid transparent",
-            color: activeTab === "signed" ? "var(--text-primary)" : "var(--text-secondary)"
-          }}
+          className={`${styles.tabBtn} ${activeTab === "signed" ? styles.tabBtnActive : ""}`}
         >
-          Signed Records &amp; Audit ({signedRecords.length})
+          <span>Signed Records &amp; Audit</span>
+          <span className={styles.pointsBadge}>{signedRecords.length}</span>
         </button>
       </div>
 
@@ -604,43 +606,32 @@ export default function AgreementTemplateDetailPage({
 
       {/* CREATE NEW VERSION MODAL */}
       {isVersionModalOpen && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          padding: "1rem"
-        }}>
-          <div style={{
-            background: "var(--bg-card)",
-            borderRadius: "16px",
-            width: "100%",
-            maxWidth: "750px",
-            maxHeight: "90vh",
-            overflowY: "auto",
-            padding: "2rem",
-            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
-            border: "1px solid var(--border-light)"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-              <h2 style={{ margin: 0, fontSize: "1.3rem", fontWeight: 800 }}>Create New Agreement Version</h2>
+        <div className={styles.modalOverlay} onClick={() => !isSubmitting && setIsVersionModalOpen(false)}>
+          <div className={styles.modalContent} style={{ maxWidth: "700px" }} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <h2>Create New Agreement Version</h2>
+                <p className={styles.modalIntro}>Draft and publish legally immutable terms for this curriculum</p>
+              </div>
               <button
                 type="button"
+                className={styles.closeBtn}
                 onClick={() => setIsVersionModalOpen(false)}
-                style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "var(--text-secondary)" }}
+                disabled={isSubmitting}
+                aria-label="Close modal"
               >
-                ×
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
 
-            <form onSubmit={handleCreateVersion} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-              <div style={{ display: "flex", gap: "1rem" }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                    Version Tag *
+            <form onSubmit={handleCreateVersion} className={styles.modalForm}>
+              <div className={styles.formRow}>
+                <div className={styles.formGroup} style={{ flex: 1 }}>
+                  <label>
+                    Version Tag <span style={{ color: "#ef4444" }}>*</span>
                   </label>
                   <input
                     type="text"
@@ -648,71 +639,47 @@ export default function AgreementTemplateDetailPage({
                     value={newVersionString}
                     onChange={(e) => setNewVersionString(e.target.value)}
                     required
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      borderRadius: "8px",
-                      border: "1px solid var(--border-light)",
-                      background: "var(--bg-main)"
-                    }}
                   />
                 </div>
-                <div style={{ flex: 2 }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                    Changelog / Revision Summary
+                <div className={styles.formGroup} style={{ flex: 2 }}>
+                  <label>
+                    Changelog / Revision Summary <span className={styles.optionalLabel}>(Optional)</span>
                   </label>
                   <input
                     type="text"
                     placeholder="Describe legal or clause updates in this release..."
                     value={newVersionChangelog}
                     onChange={(e) => setNewVersionChangelog(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      borderRadius: "8px",
-                      border: "1px solid var(--border-light)",
-                      background: "var(--bg-main)"
-                    }}
                   />
                 </div>
               </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                  Contract Terms &amp; Conditions (Markdown or Plain Text) *
+              <div className={styles.formGroup}>
+                <label>
+                  Contract Terms &amp; Conditions (Markdown or Plain Text) <span style={{ color: "#ef4444" }}>*</span>
                 </label>
                 <textarea
                   rows={10}
                   value={newVersionContent}
                   onChange={(e) => setNewVersionContent(e.target.value)}
                   required
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-light)",
-                    background: "var(--bg-main)",
-                    fontFamily: "inherit",
-                    fontSize: "0.9rem",
-                    resize: "vertical"
-                  }}
                 />
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", padding: "0.5rem 0" }}>
                 <input
                   type="checkbox"
                   id="publishNew"
                   checked={publishNewVersion}
                   onChange={(e) => setPublishNewVersion(e.target.checked)}
-                  style={{ width: "18px", height: "18px", cursor: "pointer" }}
+                  style={{ width: "16px", height: "16px", cursor: "pointer", accentColor: "var(--accent-primary)" }}
                 />
-                <label htmlFor="publishNew" style={{ fontSize: "0.9rem", fontWeight: 600, cursor: "pointer" }}>
+                <label htmlFor="publishNew" style={{ fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", color: "var(--text-primary)" }}>
                   Publish immediately (activates this version for learners and archives previous live version)
                 </label>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", marginTop: "1rem" }}>
+              <div className={styles.modalFooter}>
                 <button
                   type="button"
                   className={styles.secondaryBtn}
@@ -735,62 +702,46 @@ export default function AgreementTemplateDetailPage({
 
       {/* VIEW CONTENT MODAL */}
       {viewingVersion && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          padding: "1rem"
-        }}>
-          <div style={{
-            background: "var(--bg-card)",
-            borderRadius: "16px",
-            width: "100%",
-            maxWidth: "700px",
-            maxHeight: "85vh",
-            display: "flex",
-            flexDirection: "column",
-            padding: "2rem",
-            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
-            border: "1px solid var(--border-light)"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <div className={styles.modalOverlay} onClick={() => setViewingVersion(null)}>
+          <div className={styles.modalContent} style={{ maxWidth: "700px" }} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
               <div>
-                <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>
-                  Agreement Terms — {viewingVersion.version}
-                </h2>
-                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                <h2>Agreement Terms — {viewingVersion.version}</h2>
+                <p className={styles.modalIntro}>
                   Status: <strong>{viewingVersion.status}</strong> • {viewingVersion.publishedAt ? `Published on ${new Date(viewingVersion.publishedAt).toLocaleDateString()}` : "Draft"}
-                </span>
+                </p>
               </div>
               <button
                 type="button"
+                className={styles.closeBtn}
                 onClick={() => setViewingVersion(null)}
-                style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "var(--text-secondary)" }}
+                aria-label="Close modal"
               >
-                ×
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
 
             <div style={{
-              flex: 1,
+              maxHeight: "55vh",
               overflowY: "auto",
-              background: "var(--bg-main)",
-              padding: "1.5rem",
+              background: "var(--bg-soft)",
+              padding: "1.25rem",
               borderRadius: "8px",
               border: "1px solid var(--border-light)",
-              fontSize: "0.9rem",
+              fontSize: "0.875rem",
               lineHeight: 1.6,
               whiteSpace: "pre-wrap",
-              fontFamily: "inherit"
+              fontFamily: "inherit",
+              color: "var(--text-primary)",
+              marginBottom: "1rem"
             }}>
               {viewingVersion.content}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1rem" }}>
+            <div className={styles.modalFooter}>
               <button
                 type="button"
                 className={styles.secondaryBtn}

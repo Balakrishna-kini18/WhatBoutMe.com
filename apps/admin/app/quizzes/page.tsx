@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
+import { ActionMenu, StatusBadge } from "../components";
 
 interface QuizListItem {
   id: string;
@@ -79,21 +80,60 @@ export default function QuizzesPage() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          <Link href="/quizzes/create" className={styles.primaryBtn} style={{ textDecoration: "none" }}>
-            + Create Quiz
+          <Link
+            href="/quizzes/create"
+            className={styles.primaryBtn}
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Create Quiz</span>
           </Link>
         </div>
       </header>
 
       {actionError && (
-        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ⚠️ {actionError}
+        <div style={{
+          backgroundColor: "#fef2f2",
+          border: "1px solid #fecaca",
+          color: "#991b1b",
+          padding: "12px 16px",
+          borderRadius: "8px",
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          fontSize: "0.88rem"
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>{actionError}</span>
         </div>
       )}
 
       {actionSuccess && (
-        <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ✓ {actionSuccess}
+        <div style={{
+          backgroundColor: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          color: "#166534",
+          padding: "12px 16px",
+          borderRadius: "8px",
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          fontSize: "0.88rem"
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+          <span>{actionSuccess}</span>
         </div>
       )}
 
@@ -118,14 +158,14 @@ export default function QuizzesPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "30px" }}>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
                     Loading quizzes from database...
                   </td>
                 </tr>
               ) : quizzes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "30px" }}>
-                    No quizzes found. Click <strong>+ Create Quiz</strong> to add a step assessment.
+                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
+                    No quizzes found. Click <strong>Create Quiz</strong> to add a step assessment.
                   </td>
                 </tr>
               ) : (
@@ -141,7 +181,7 @@ export default function QuizzesPage() {
                       </span>
                     </td>
                     <td>
-                      <span style={{ fontWeight: 600, color: "#166534" }}>{quiz.passMark}</span>
+                      <StatusBadge status={quiz.passMark} tone="completed" />
                     </td>
                     <td>
                       <span className={styles.cellText}>{quiz.maxAttempts ?? 3} attempts</span>
@@ -153,39 +193,35 @@ export default function QuizzesPage() {
                       <span className={styles.cellTextMuted}>{quiz.updated}</span>
                     </td>
                     <td className={styles.alignRight}>
-                      <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-                        <Link
-                          href={`/quizzes/${quiz.id}/edit`}
-                          style={{
-                            padding: "4px 10px",
-                            fontSize: "0.8rem",
-                            borderRadius: "4px",
-                            border: "1px solid #cbd5e1",
-                            backgroundColor: "white",
-                            color: "#0f172a",
-                            textDecoration: "none",
-                            fontWeight: 600,
-                          }}
-                        >
-                          Edit
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteQuiz(quiz.id, quiz.step)}
-                          style={{
-                            padding: "4px 8px",
-                            fontSize: "0.8rem",
-                            borderRadius: "4px",
-                            border: "1px solid #fca5a5",
-                            backgroundColor: "#fff1f2",
-                            color: "#9f1239",
-                            cursor: "pointer",
-                          }}
-                          title="Delete Quiz"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      <ActionMenu
+                        ariaLabel={`Actions for ${quiz.step}`}
+                        items={[
+                          {
+                            label: "Edit Quiz & Questions",
+                            href: `/quizzes/${quiz.id}/edit`,
+                            icon: (
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            ),
+                          },
+                          {
+                            label: "Delete Quiz",
+                            danger: true,
+                            dividerAbove: true,
+                            onClick: () => handleDeleteQuiz(quiz.id, quiz.step),
+                            icon: (
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                <line x1="10" y1="11" x2="10" y2="17" />
+                                <line x1="14" y1="11" x2="14" y2="17" />
+                              </svg>
+                            ),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))

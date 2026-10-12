@@ -299,6 +299,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchShortcut, setSearchShortcut] = useState("Ctrl K");
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -331,6 +332,16 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     // Ensure the interface remains consistently in light mode
     localStorage.removeItem("admin_theme");
     document.documentElement.classList.remove("dark");
+
+    // Platform detection for search shortcut
+    if (typeof window !== "undefined") {
+      const isMac =
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
+        /Macintosh|Mac OS X/.test(navigator.userAgent);
+      if (isMac) {
+        setSearchShortcut("⌘K");
+      }
+    }
   }, [pathname, router]);
 
   // Keyboard shortcut for command palette (Ctrl+K / Cmd+K) and Escape handler
@@ -467,7 +478,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
         { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
         { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
-        { label: "Resources", href: "/programs", icon: <Icons.Resources />, perm: "manage_curriculum" },
       ],
     },
     {
@@ -611,7 +621,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                   setSearchModalOpen(true);
                 }
               }}
-              aria-label="Quick search (press Ctrl+K to open)"
+              aria-label={`Quick search (press ${searchShortcut} to open)`}
             >
               <span className={styles.searchIcon}><Icons.Search /></span>
               <input
@@ -622,7 +632,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 tabIndex={-1}
               />
               <div className={styles.searchShortcut} aria-hidden="true">
-                <kbd className={styles.keycap}>Ctrl K</kbd>
+                <kbd className={styles.keycap}>{searchShortcut}</kbd>
               </div>
             </div>
           </div>

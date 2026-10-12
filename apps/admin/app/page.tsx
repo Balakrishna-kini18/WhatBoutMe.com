@@ -1,74 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import styles from "./page.module.css";
 import Link from "next/link";
 import Image from "next/image";
+import { ActionMenu } from "./components";
 
-// Crisp SVG Icons
+// Crisp outline SVG icons conforming to WhatBoutMe design standard
 const Icons = {
   Export: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  ),
+  Check: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
   Plus: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
   Users: () => (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
-  Layers: () => (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  Batches: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="12 2 2 7 12 12 22 7 12 2" />
       <polyline points="2 17 12 22 22 17" />
       <polyline points="2 12 12 17 22 12" />
     </svg>
   ),
   Dollar: () => (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="1" x2="12" y2="23" />
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
     </svg>
   ),
   Certificate: () => (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-    </svg>
-  ),
-  DocumentBadge: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-    </svg>
-  ),
-  ProgramBadge: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="12" r="6" />
-      <circle cx="12" cy="12" r="2" />
-    </svg>
-  ),
-  ActivityBadge: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="7" />
+      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
     </svg>
   ),
   ArrowRight: () => (
@@ -78,21 +60,56 @@ const Icons = {
     </svg>
   ),
   More: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="1.5" />
       <circle cx="19" cy="12" r="1.5" />
       <circle cx="5" cy="12" r="1.5" />
     </svg>
   ),
-  ChevronDown: () => (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
+  Calendar: () => (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
+  UserCheck: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <polyline points="17 11 19 13 23 9" />
     </svg>
   ),
 };
 
-// Default high-fidelity dataset matching Roweena's studio shown in marketing redesign
-const fallbackEnrolments = [
+interface LearnerItem {
+  id: string;
+  name: string;
+  email: string;
+  program: string;
+  status: string;
+  date: string;
+  initial: string;
+  isPhoto?: boolean;
+  photoUrl?: string;
+}
+
+interface UserSession {
+  id: string;
+  name?: string;
+  email?: string;
+  role?: string;
+}
+
+interface DropdownPosition {
+  top: number;
+  right: number;
+  openUpwards: boolean;
+}
+
+// Canonical high-fidelity dataset for offline fallback matching project baseline
+const fallbackEnrolments: LearnerItem[] = [
   {
     id: "enr-1",
     name: "Gagan",
@@ -100,19 +117,15 @@ const fallbackEnrolments = [
     program: "11 Steps to You",
     status: "Active",
     date: "Oct 9, 2026",
-    avatarBg: "#dbeafe",
-    avatarColor: "#1d4ed8",
     initial: "G",
   },
   {
     id: "enr-2",
-    name: "gagan jj",
+    name: "Gagan JJ",
     email: "test@example.com",
     program: "Vision Board Workshop",
     status: "Active",
     date: "Oct 8, 2026",
-    avatarBg: "#dbeafe",
-    avatarColor: "#1d4ed8",
     initial: "G",
   },
   {
@@ -122,8 +135,6 @@ const fallbackEnrolments = [
     program: "11 Steps to You",
     status: "Active",
     date: "Oct 8, 2026",
-    avatarBg: "#fce7f3",
-    avatarColor: "#be185d",
     initial: "B",
   },
   {
@@ -133,6 +144,7 @@ const fallbackEnrolments = [
     program: "Corporate Program",
     status: "Active",
     date: "Oct 7, 2026",
+    initial: "R",
     isPhoto: true,
     photoUrl: "/brand/roweena.png",
   },
@@ -143,8 +155,6 @@ const fallbackEnrolments = [
     program: "Vision Board Workshop",
     status: "Active",
     date: "Oct 6, 2026",
-    avatarBg: "#ede9fe",
-    avatarColor: "#6d28d9",
     initial: "N",
   },
 ];
@@ -152,8 +162,22 @@ const fallbackEnrolments = [
 export default function AdminDashboard() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
+  const [exported, setExported] = useState(false);
 
+  // Load current administrator profile from local storage session
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        setCurrentUser(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.warn("Failed to parse stored user session", e);
+    }
+  }, []);
+
+  // Fetch real admin dashboard summary from backend API
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
@@ -169,7 +193,7 @@ export default function AdminDashboard() {
           setDashboardData(data);
         }
       } catch (e) {
-        console.error("Dashboard fetch error (using brand fallback):", e);
+        console.error("Dashboard fetch error (using baseline fallback):", e);
       } finally {
         setLoading(false);
       }
@@ -178,314 +202,394 @@ export default function AdminDashboard() {
     fetchDashboardData();
   }, []);
 
-  const totalLearners = dashboardData?.totalLearners ?? 7;
-  const totalBatches = dashboardData?.totalBatches ?? 1;
-  const totalRevenue = dashboardData?.mockRevenue ?? "$28,500";
-  const certificatesIssued = dashboardData?.certificatesIssued ?? 3;
+  // Metrics from legitimate API contract or graceful baseline defaults
+  const totalLearners = dashboardData?.totalLearners ?? 0;
+  const totalBatches = dashboardData?.totalBatches ?? 0;
+  const totalRevenue = dashboardData?.mockRevenue ?? "$0";
+  const certificatesIssued = dashboardData?.certificatesIssued ?? 0;
 
-  const enrolmentsList =
-    dashboardData?.recentEnrolments && dashboardData.recentEnrolments.length > 0
-      ? dashboardData.recentEnrolments.map((u: any, idx: number) => ({
+  const enrolmentsList: LearnerItem[] = loading
+    ? []
+    : dashboardData?.recentEnrolments && dashboardData.recentEnrolments.length > 0
+      ? dashboardData.recentEnrolments.map((u: any) => ({
           id: u.id,
           name: u.name || "Learner",
           email: u.email,
           program: u.cohort || u.programTitle || "11 Steps to You",
           status: u.status === "ACTIVE" || !u.status ? "Active" : u.status,
-          date: u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Oct 9, 2026",
-          avatarBg: idx % 2 === 0 ? "#dbeafe" : "#fce7f3",
-          avatarColor: idx % 2 === 0 ? "#1d4ed8" : "#be185d",
+          date: u.createdAt
+            ? new Date(u.createdAt).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "Oct 9, 2026",
           initial: (u.name || u.email || "L")[0].toUpperCase(),
         }))
-      : fallbackEnrolments;
+      : [];
+
+  // Real, dynamic program distribution computed directly from live enrolments
+  const programDistribution = (() => {
+    if (!enrolmentsList || enrolmentsList.length === 0) return [];
+    const counts: Record<string, number> = {};
+    enrolmentsList.forEach((e) => {
+      const prog = e.program || "General Enrolment";
+      counts[prog] = (counts[prog] || 0) + 1;
+    });
+    const total = enrolmentsList.length;
+    // Brand-derived palette: Primary Amber, Warm Gold, Deep Charcoal, Muted Stone
+    const brandColors = ["#c97a1e", "#d8a86a", "#2c2825", "#8c8275", "#a39887"];
+    return Object.entries(counts).map(([name, count], index) => ({
+      name,
+      count,
+      percentage: Math.round((count / total) * 100),
+      color: brandColors[index % brandColors.length],
+    }));
+  })();
+
+  // Time-of-day greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+  };
+
+  // Formatted date string
+  const formattedToday = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date());
+
+  // Functional CSV export of enrolments report
+  const handleExportReport = () => {
+    if (!enrolmentsList || enrolmentsList.length === 0) return;
+    const headers = ["Learner Name", "Email", "Program", "Status", "Enrolled Date"];
+    const rows = enrolmentsList.map((item) => [
+      `"${(item.name || "").replace(/"/g, '""')}"`,
+      `"${(item.email || "").replace(/"/g, '""')}"`,
+      `"${(item.program || "").replace(/"/g, '""')}"`,
+      `"${(item.status || "").replace(/"/g, '""')}"`,
+      `"${(item.date || "").replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute(
+      "download",
+      `whatboutme-enrolments-${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setExported(true);
+    setTimeout(() => setExported(false), 2500);
+  };
+
+  // SVG Donut slice calculation (radius = 38, circumference ≈ 238.76)
+  const donutRadius = 38;
+  const donutCircumference = 2 * Math.PI * donutRadius;
+  let accumulatedOffset = 0;
 
   return (
     <div className={styles.dashboardContainer}>
       {/* ===================================================================
-          Hero Banner with Warm Organic Wave & Brand Script
+          1. Header & Welcome Command Section (No role badge per design refinement)
           =================================================================== */}
-      <section className={styles.heroBanner}>
-        {/* Abstract Silk Wave Background */}
-        <div className={styles.heroRibbonBg} aria-hidden="true">
-          <svg viewBox="0 0 800 320" fill="none" preserveAspectRatio="none" className={styles.ribbonSvg}>
-            <path
-              d="M100 280C240 320 380 230 490 140C600 50 680 40 800 100V0H0V220C40 240 70 270 100 280Z"
-              fill="url(#goldGradient)"
-              opacity="0.35"
-            />
-            <path
-              d="M320 320C460 290 560 170 650 90C720 30 760 10 800 0V320H320Z"
-              fill="url(#sandGradient)"
-              opacity="0.25"
-            />
-            <defs>
-              <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#f7e1b5" />
-                <stop offset="60%" stopColor="#edd09b" />
-                <stop offset="100%" stopColor="#f3ddb3" />
-              </linearGradient>
-              <linearGradient id="sandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#f9f3ea" />
-                <stop offset="100%" stopColor="#edd8ba" />
-              </linearGradient>
-            </defs>
-          </svg>
+      <header className={styles.welcomeBar}>
+        <div className={styles.welcomeInfo}>
+          <div className={styles.welcomeMetaRow}>
+            <span className={styles.welcomeDateBadge}>
+              <Icons.Calendar />
+              <span>{formattedToday}</span>
+            </span>
+          </div>
+          <h1 className={styles.welcomeHeading}>
+            {getGreeting()}, {currentUser?.name || "Roweena Britto"}
+          </h1>
+          <p className={styles.welcomeSubtext}>
+            Operational summary across active programs, cohorts, and student registrations.
+          </p>
         </div>
 
-        <div className={styles.heroContentWrap}>
-          {/* Left Greeting */}
-          <div className={styles.greetingBlock}>
-            <span className={styles.greetingIntro}>Good morning,</span>
-            <h1 className={styles.greetingTitle}>
-              <span className={styles.titleSuperAdmin}>Super Admin </span>
-              <span className={styles.titleRoweena}>Roweena</span>
-            </h1>
-            <p className={styles.greetingDesc}>
-              Track your programs, enrolments, and revenue metrics.
-              <br />
-              Manage batches, content, and grow your learning community.
-            </p>
-          </div>
-
-          {/* Right Script & Actions */}
-          <div className={styles.heroRightBlock}>
-            {/* Elegant Script Quote */}
-            <div className={styles.scriptCallout}>
-              <span className={styles.scriptText}>
-                Empowering Minds for a Brighter Tomorrow ♡
-              </span>
-            </div>
-
-            {/* CTA Buttons */}
-            <div className={styles.heroActionBtns}>
-              <button type="button" className={styles.exportReportBtn}>
-                <Icons.Export />
-                <span>Export Report</span>
-              </button>
-              <Link href="/batches/create" className={styles.createBatchBtn}>
-                <Icons.Plus />
-                <span>Create Batch</span>
-              </Link>
-            </div>
-          </div>
+        <div className={styles.welcomeActions}>
+          <button
+            type="button"
+            className={styles.exportBtn}
+            onClick={handleExportReport}
+            aria-label="Export Enrolments Report as CSV"
+          >
+            {exported ? <Icons.Check /> : <Icons.Export />}
+            <span>{exported ? "Exported CSV" : "Export Report"}</span>
+          </button>
+          <Link href="/batches?create=1" className={styles.createBatchBtn}>
+            <Icons.Plus />
+            <span>Create Batch</span>
+          </Link>
         </div>
-      </section>
+      </header>
 
       {/* ===================================================================
-          4 Stat Cards
+          2. Data-First KPI Cards (Restrained, Accurate, No Fake Trends)
           =================================================================== */}
-      <section className={styles.statCardsGrid}>
-        {/* Card 1: Total Learners */}
-        <div className={styles.statCard}>
-          <div className={styles.statCardHeader}>
-            <div className={`${styles.statIconBox} ${styles.iconBoxPeach}`}>
+      <section className={styles.kpiGrid} aria-label="Dashboard Metrics">
+        {/* Metric 1: Total Learners */}
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Total Learners</span>
+            <div className={styles.kpiIconBox}>
               <Icons.Users />
             </div>
-            <button type="button" className={styles.cardMenuBtn} aria-label="Menu">
-              <Icons.More />
-            </button>
           </div>
-          <div className={styles.statCardBody}>
-            <span className={styles.statLabel}>Total Learners</span>
-            <div className={styles.statNumberRow}>
-              <span className={styles.statValue}>{loading ? "..." : totalLearners}</span>
-              <span className={styles.statBadgeGreen}>↑ 12%</span>
-            </div>
-            <div className={styles.statFooterRow}>
-              <span className={styles.statSubtext}>Active learners in your programs</span>
-              {/* Mini Sparkline Bar Chart */}
-              <div className={`${styles.miniSparkline} ${styles.sparklinePeach}`}>
-                <span style={{ height: "40%" }} />
-                <span style={{ height: "70%" }} />
-                <span style={{ height: "55%" }} />
-                <span style={{ height: "85%" }} />
-                <span style={{ height: "100%" }} />
-              </div>
-            </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {loading ? "—" : totalLearners.toLocaleString()}
+            </span>
           </div>
-        </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Registered student accounts</span>
+          </div>
+        </article>
 
-        {/* Card 2: Total Batches */}
-        <div className={styles.statCard}>
-          <div className={styles.statCardHeader}>
-            <div className={`${styles.statIconBox} ${styles.iconBoxLavender}`}>
-              <Icons.Layers />
-            </div>
-            <button type="button" className={styles.cardMenuBtn} aria-label="Menu">
-              <Icons.More />
-            </button>
-          </div>
-          <div className={styles.statCardBody}>
-            <span className={styles.statLabel}>Total Batches</span>
-            <div className={styles.statNumberRow}>
-              <span className={styles.statValue}>{loading ? "..." : totalBatches}</span>
-              <span className={styles.statBadgeGreen}>↑ 0%</span>
-            </div>
-            <div className={styles.statFooterRow}>
-              <span className={styles.statSubtext}>Across all programs</span>
-              {/* Mini Sparkline Bar Chart */}
-              <div className={`${styles.miniSparkline} ${styles.sparklineLavender}`}>
-                <span style={{ height: "30%" }} />
-                <span style={{ height: "50%" }} />
-                <span style={{ height: "45%" }} />
-                <span style={{ height: "75%" }} />
-                <span style={{ height: "90%" }} />
-              </div>
+        {/* Metric 2: Total Batches */}
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Active Batches</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Batches />
             </div>
           </div>
-        </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {loading ? "—" : totalBatches.toLocaleString()}
+            </span>
+          </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Current & upcoming cohorts</span>
+          </div>
+        </article>
 
-        {/* Card 3: Total Revenue */}
-        <div className={styles.statCard}>
-          <div className={styles.statCardHeader}>
-            <div className={`${styles.statIconBox} ${styles.iconBoxGold}`}>
+        {/* Metric 3: Total Revenue */}
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Total Revenue</span>
+            <div className={styles.kpiIconBox}>
               <Icons.Dollar />
             </div>
-            <button type="button" className={styles.cardMenuBtn} aria-label="Menu">
-              <Icons.More />
-            </button>
           </div>
-          <div className={styles.statCardBody}>
-            <span className={styles.statLabel}>Total Revenue</span>
-            <div className={styles.statNumberRow}>
-              <span className={styles.statValue}>{loading ? "..." : totalRevenue}</span>
-              <span className={styles.statBadgeGreen}>↑ 8%</span>
-            </div>
-            <div className={styles.statFooterRow}>
-              <span className={styles.statSubtext}>From program enrolments</span>
-              {/* Mini Sparkline Bar Chart */}
-              <div className={`${styles.miniSparkline} ${styles.sparklineGold}`}>
-                <span style={{ height: "45%" }} />
-                <span style={{ height: "65%" }} />
-                <span style={{ height: "50%" }} />
-                <span style={{ height: "80%" }} />
-                <span style={{ height: "100%" }} />
-              </div>
-            </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>{loading ? "—" : totalRevenue}</span>
           </div>
-        </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Program enrolment revenue</span>
+          </div>
+        </article>
 
-        {/* Card 4: Certificates Issued */}
-        <div className={styles.statCard}>
-          <div className={styles.statCardHeader}>
-            <div className={`${styles.statIconBox} ${styles.iconBoxMint}`}>
+        {/* Metric 4: Certificates Issued */}
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Certificates Issued</span>
+            <div className={styles.kpiIconBox}>
               <Icons.Certificate />
             </div>
-            <button type="button" className={styles.cardMenuBtn} aria-label="Menu">
-              <Icons.More />
-            </button>
           </div>
-          <div className={styles.statCardBody}>
-            <span className={styles.statLabel}>Certificates Issued</span>
-            <div className={styles.statNumberRow}>
-              <span className={styles.statValue}>{loading ? "..." : certificatesIssued}</span>
-              <span className={styles.statBadgeGreen}>↑ 100%</span>
-            </div>
-            <div className={styles.statFooterRow}>
-              <span className={styles.statSubtext}>This month</span>
-              {/* Mini Sparkline Bar Chart */}
-              <div className={`${styles.miniSparkline} ${styles.sparklineMint}`}>
-                <span style={{ height: "35%" }} />
-                <span style={{ height: "55%" }} />
-                <span style={{ height: "70%" }} />
-                <span style={{ height: "60%" }} />
-                <span style={{ height: "95%" }} />
-              </div>
-            </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {loading ? "—" : certificatesIssued.toLocaleString()}
+            </span>
           </div>
-        </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Credentials awarded to date</span>
+          </div>
+        </article>
       </section>
 
       {/* ===================================================================
-          Main Two-Column Section: Recent Enrolments + Side Cards
+          3. Main Operational Grid: Recent Enrolments + Program Distribution
           =================================================================== */}
-      <div className={styles.mainDashboardGrid}>
+      <div className={styles.mainGrid}>
         {/* Left Column: Recent Enrolments Table */}
-        <section className={styles.enrolmentsCard}>
-          <div className={styles.cardHeader}>
-            <div className={styles.headerTitleGroup}>
-              <div className={styles.badgeIconWrap}>
-                <Icons.DocumentBadge />
-              </div>
-              <div>
-                <h2 className={styles.cardTitleSerif}>Recent Enrolments</h2>
-                <p className={styles.cardSubtitle}>Latest users who have enrolled in your programs.</p>
-              </div>
+        <section className={styles.enrolmentsSection} aria-label="Recent Enrolments">
+          <div className={styles.sectionHeaderBar}>
+            <div className={styles.sectionTitleGroup}>
+              <h2 className={styles.sectionTitle}>Recent Enrolments</h2>
+              <p className={styles.sectionSubtitle}>
+                Latest learner registrations across active programs
+              </p>
             </div>
-            <Link href="/users" className={styles.viewAllBtn}>
+            <Link href="/users" className={styles.viewAllLink}>
               <span>View All</span>
               <Icons.ArrowRight />
             </Link>
           </div>
 
-          <div className={styles.tableResponsiveWrap}>
-            <table className={styles.brandTable}>
+          <div className={styles.tableContainer}>
+            <table className={styles.enrolmentsTable}>
+              <colgroup>
+                <col className={styles.colLearner} />
+                <col className={styles.colEmail} />
+                <col className={styles.colProgram} />
+                <col className={styles.colStatus} />
+                <col className={styles.colDate} />
+                <col className={styles.colActions} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th>LEARNER</th>
-                  <th>EMAIL</th>
-                  <th>PROGRAM</th>
-                  <th>STATUS</th>
-                  <th>ENROLLED ON</th>
-                  <th style={{ textAlign: "right" }}>ACTIONS</th>
+                  <th scope="col">Learner</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Program</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Enrolled On</th>
+                  <th scope="col" style={{ textAlign: "right" }}>
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  // Skeleton Rows
-                  [1, 2, 3, 4, 5].map((i) => (
-                    <tr key={i} className={styles.skeletonRow}>
-                      <td><div className="skeleton" style={{ height: 32, width: 140, borderRadius: 9999 }} /></td>
-                      <td><div className="skeleton" style={{ height: 18, width: 180 }} /></td>
-                      <td><div className="skeleton" style={{ height: 18, width: 130 }} /></td>
-                      <td><div className="skeleton" style={{ height: 24, width: 70, borderRadius: 9999 }} /></td>
-                      <td><div className="skeleton" style={{ height: 18, width: 90 }} /></td>
-                      <td style={{ textAlign: "right" }}><div className="skeleton" style={{ height: 20, width: 20, marginLeft: "auto", borderRadius: 4 }} /></td>
+                  [1, 2, 3, 4].map((i) => (
+                    <tr key={i} className={styles.tableRow}>
+                      <td>
+                        <div className={styles.learnerCell}>
+                          <div
+                            className="skeleton"
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: "50%",
+                              flexShrink: 0,
+                            }}
+                          />
+                          <div
+                            className="skeleton"
+                            style={{
+                              height: 14,
+                              width: 100,
+                              borderRadius: 4,
+                            }}
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <div
+                          className="skeleton"
+                          style={{
+                            height: 14,
+                            width: 140,
+                            borderRadius: 4,
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <div
+                          className="skeleton"
+                          style={{
+                            height: 14,
+                            width: 110,
+                            borderRadius: 4,
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <div
+                          className="skeleton"
+                          style={{
+                            height: 20,
+                            width: 55,
+                            borderRadius: 999,
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <div
+                          className="skeleton"
+                          style={{
+                            height: 14,
+                            width: 80,
+                            borderRadius: 4,
+                          }}
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div
+                          className="skeleton"
+                          style={{
+                            height: 16,
+                            width: 16,
+                            borderRadius: 4,
+                            marginLeft: "auto",
+                          }}
+                        />
+                      </td>
                     </tr>
                   ))
+                ) : enrolmentsList.length === 0 ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className={styles.emptyStateSmall}>
+                        <span>No recent enrolments recorded.</span>
+                      </div>
+                    </td>
+                  </tr>
                 ) : (
-                  enrolmentsList.map((item: any) => (
+                  enrolmentsList.map((item) => (
                     <tr key={item.id} className={styles.tableRow}>
                       {/* Learner */}
                       <td>
                         <div className={styles.learnerCell}>
-                          {item.isPhoto ? (
-                            <div className={styles.avatarPhotoWrap}>
+                          {item.isPhoto && item.photoUrl ? (
+                            <div className={styles.avatarPhoto}>
                               <Image
                                 src={item.photoUrl}
                                 alt={item.name}
-                                width={32}
-                                height={32}
+                                width={28}
+                                height={28}
                                 className={styles.avatarImg}
                               />
                             </div>
                           ) : (
-                            <div
-                              className={styles.avatarCircle}
-                              style={{ backgroundColor: item.avatarBg, color: item.avatarColor }}
-                            >
+                            <div className={styles.avatarInitials} aria-hidden="true">
                               {item.initial}
                             </div>
                           )}
-                          <span className={styles.learnerName}>{item.name}</span>
+                          <span className={styles.learnerName} title={item.name}>
+                            {item.name}
+                          </span>
                         </div>
                       </td>
 
                       {/* Email */}
                       <td>
-                        <span className={styles.emailText}>{item.email}</span>
+                        <span className={styles.emailText} title={item.email}>
+                          {item.email}
+                        </span>
                       </td>
 
                       {/* Program */}
                       <td>
-                        <span className={styles.programText}>{item.program}</span>
+                        <span className={styles.programText} title={item.program}>
+                          {item.program}
+                        </span>
                       </td>
 
                       {/* Status */}
                       <td>
-                        <div className={styles.statusPillActive}>
+                        <span
+                          className={
+                            item.status === "Active"
+                              ? styles.statusBadgeActive
+                              : styles.statusBadgePending
+                          }
+                        >
                           <span className={styles.statusDot} />
-                          <span>Active</span>
-                        </div>
+                          <span>{item.status}</span>
+                        </span>
                       </td>
 
                       {/* Enrolled On */}
@@ -495,35 +599,35 @@ export default function AdminDashboard() {
 
                       {/* Actions */}
                       <td style={{ textAlign: "right" }}>
-                        <div className={styles.actionMenuWrap}>
-                          <button
-                            type="button"
-                            className={styles.rowActionBtn}
-                            onClick={() =>
-                              setActiveActionMenu(activeActionMenu === item.id ? null : item.id)
-                            }
-                            aria-label="Actions"
-                          >
-                            <Icons.More />
-                          </button>
-                          {activeActionMenu === item.id && (
-                            <div className={styles.rowDropdown}>
-                              <Link href="/users" className={styles.rowDropdownItem}>
-                                View Profile
-                              </Link>
-                              <Link href="/batches" className={styles.rowDropdownItem}>
-                                Batch Details
-                              </Link>
-                              <button
-                                type="button"
-                                className={styles.rowDropdownItem}
-                                onClick={() => setActiveActionMenu(null)}
-                              >
-                                Send Message
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <ActionMenu
+                          ariaLabel={`Actions for ${item.name}`}
+                          items={[
+                            {
+                              label: "View Profile",
+                              href: item.id.startsWith("enr-")
+                                ? "/users"
+                                : `/users/${item.id}`,
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                  <circle cx="12" cy="7" r="4" />
+                                </svg>
+                              ),
+                            },
+                            {
+                              label: "Batch Details",
+                              href: "/batches",
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                  <line x1="16" y1="2" x2="16" y2="6" />
+                                  <line x1="8" y1="2" x2="8" y2="6" />
+                                  <line x1="3" y1="10" x2="21" y2="10" />
+                                </svg>
+                              ),
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))
@@ -533,182 +637,190 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        {/* Right Column: Donut Chart + Recent Activity */}
+        {/* Right Column: Program Distribution & Genuine Activity */}
         <div className={styles.sideColumn}>
-          {/* Card 1: Program Enrolments Donut Chart */}
-          <div className={styles.sideCard}>
-            <div className={styles.cardHeader}>
-              <div className={styles.headerTitleGroup}>
-                <div className={styles.badgeIconWrap}>
-                  <Icons.ProgramBadge />
-                </div>
-                <h2 className={styles.cardTitleSerifSmall}>Program Enrolments</h2>
-              </div>
-              <div className={styles.periodSelectPill}>
-                <span>This Month</span>
-                <Icons.ChevronDown />
+          {/* Card 1: Program Enrolments Distribution */}
+          <section className={styles.sideCard} aria-label="Program Distribution">
+            <div className={styles.sideHeader}>
+              <div className={styles.sideTitleGroup}>
+                <h2 className={styles.sideTitle}>Program Enrolments</h2>
+                <p className={styles.sideSubtitle}>Distribution across enrolled programs</p>
               </div>
             </div>
 
-            <div className={styles.donutCardBody}>
-              {/* Donut Chart Visualization */}
-              <div className={styles.donutChartWrap}>
-                <svg viewBox="0 0 120 120" className={styles.donutSvg}>
-                  {/* Segment 4: Other Programs (0%) */}
-                  <circle cx="60" cy="60" r="46" fill="transparent" stroke="#e8e2d7" strokeWidth="16" />
-                  
-                  {/* Segment 1: 11 Steps to You (4 / 7 = 57.1%) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="46"
-                    fill="transparent"
-                    stroke="#c97a1e"
-                    strokeWidth="16"
-                    strokeDasharray="165 289"
-                    strokeDashoffset="0"
-                    transform="rotate(-90 60 60)"
-                  />
+            {loading ? (
+              <div className={styles.donutCardBody}>
+                {/* Skeleton Donut */}
+                <div className={styles.donutWrapper}>
+                  <svg viewBox="0 0 96 96" className={styles.donutSvg}>
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r={donutRadius}
+                      fill="none"
+                      stroke="#f2ede4"
+                      strokeWidth="12"
+                    />
+                  </svg>
+                  <div className={styles.donutCenter}>
+                    <span className={styles.donutTotal}>—</span>
+                    <span className={styles.donutTotalLabel}>Total</span>
+                  </div>
+                </div>
 
-                  {/* Segment 2: Vision Board Workshop (2 / 7 = 28.6%) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="46"
-                    fill="transparent"
-                    stroke="#e6b87d"
-                    strokeWidth="16"
-                    strokeDasharray="83 289"
-                    strokeDashoffset="-165"
-                    transform="rotate(-90 60 60)"
-                  />
-
-                  {/* Segment 3: Corporate Program (1 / 7 = 14.3%) */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="46"
-                    fill="transparent"
-                    stroke="#ded1bf"
-                    strokeWidth="16"
-                    strokeDasharray="41 289"
-                    strokeDashoffset="-248"
-                    transform="rotate(-90 60 60)"
-                  />
-                </svg>
-                {/* Center Total Count */}
-                <div className={styles.donutCenterLabel}>
-                  <span className={styles.donutCenterValue}>7</span>
-                  <span className={styles.donutCenterSub}>Total</span>
+                {/* Skeleton Legend */}
+                <div className={styles.programLegendList}>
+                  {[1, 2].map((idx) => (
+                    <div key={idx} className={styles.legendRow}>
+                      <div className={styles.legendLeft}>
+                        <div
+                          className="skeleton"
+                          style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0 }}
+                        />
+                        <div
+                          className="skeleton"
+                          style={{ width: 110, height: 12, borderRadius: 4 }}
+                        />
+                      </div>
+                      <div className={styles.legendRight}>
+                        <div
+                          className="skeleton"
+                          style={{ width: 45, height: 12, borderRadius: 4 }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-
-              {/* Legend List */}
-              <div className={styles.donutLegendList}>
-                <div className={styles.legendRow}>
-                  <div className={styles.legendLeft}>
-                    <span className={styles.legendDot} style={{ backgroundColor: "#c97a1e" }} />
-                    <span className={styles.legendName}>11 Steps to You</span>
+            ) : programDistribution.length === 0 ? (
+              <div className={styles.emptyStateSmall}>
+                <span>No program enrolment data available.</span>
+              </div>
+            ) : (
+              <div className={styles.donutCardBody}>
+                {/* SVG Donut Chart */}
+                <div className={styles.donutWrapper}>
+                  <svg viewBox="0 0 96 96" className={styles.donutSvg}>
+                    {/* Background track */}
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r={donutRadius}
+                      fill="none"
+                      stroke="#f2ede4"
+                      strokeWidth="12"
+                    />
+                    {/* Dynamic Segments */}
+                    {programDistribution.map((item) => {
+                      const strokeDash =
+                        (item.percentage / 100) * donutCircumference;
+                      const offset = accumulatedOffset;
+                      accumulatedOffset += strokeDash;
+                      return (
+                        <circle
+                          key={item.name}
+                          cx="48"
+                          cy="48"
+                          r={donutRadius}
+                          fill="none"
+                          stroke={item.color}
+                          strokeWidth="12"
+                          strokeDasharray={`${strokeDash} ${donutCircumference}`}
+                          strokeDashoffset={-offset}
+                        />
+                      );
+                    })}
+                  </svg>
+                  {/* Center Total Count */}
+                  <div className={styles.donutCenter}>
+                    <span className={styles.donutTotal}>{enrolmentsList.length}</span>
+                    <span className={styles.donutTotalLabel}>Total</span>
                   </div>
-                  <span className={styles.legendCount}>4</span>
                 </div>
 
-                <div className={styles.legendRow}>
-                  <div className={styles.legendLeft}>
-                    <span className={styles.legendDot} style={{ backgroundColor: "#e6b87d" }} />
-                    <span className={styles.legendName}>Vision Board Workshop</span>
-                  </div>
-                  <span className={styles.legendCount}>2</span>
-                </div>
-
-                <div className={styles.legendRow}>
-                  <div className={styles.legendLeft}>
-                    <span className={styles.legendDot} style={{ backgroundColor: "#ded1bf" }} />
-                    <span className={styles.legendName}>Corporate Program</span>
-                  </div>
-                  <span className={styles.legendCount}>1</span>
-                </div>
-
-                <div className={styles.legendRow}>
-                  <div className={styles.legendLeft}>
-                    <span className={styles.legendDot} style={{ backgroundColor: "#cbd5e1" }} />
-                    <span className={styles.legendName}>Other Programs</span>
-                  </div>
-                  <span className={styles.legendCount}>0</span>
+                {/* Legend List */}
+                <div className={styles.programLegendList}>
+                  {programDistribution.map((item) => (
+                    <div key={item.name} className={styles.legendRow}>
+                      <div className={styles.legendLeft}>
+                        <span
+                          className={styles.legendDot}
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span className={styles.legendName} title={item.name}>
+                          {item.name}
+                        </span>
+                      </div>
+                      <div className={styles.legendRight}>
+                        <span className={styles.legendCount}>{item.count}</span>
+                        <span className={styles.legendPercent}>({item.percentage}%)</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
-          </div>
+            )}
+          </section>
 
           {/* Card 2: Recent Activity Timeline */}
-          <div className={styles.sideCard}>
-            <div className={styles.cardHeader}>
-              <div className={styles.headerTitleGroup}>
-                <div className={styles.badgeIconWrap}>
-                  <Icons.ActivityBadge />
-                </div>
-                <h2 className={styles.cardTitleSerifSmall}>Recent Activity</h2>
+          <section className={styles.sideCard} aria-label="Recent Activity">
+            <div className={styles.sideHeader}>
+              <div className={styles.sideTitleGroup}>
+                <h2 className={styles.sideTitle}>Recent Activity</h2>
+                <p className={styles.sideSubtitle}>Verified platform enrolment events</p>
               </div>
-              <Link href="/batches" className={styles.viewAllBtnSmall}>
+              <Link href="/users" className={styles.viewAllLink}>
                 <span>View All</span>
                 <Icons.ArrowRight />
               </Link>
             </div>
 
-            <div className={styles.timelineList}>
-              {/* Activity 1 */}
-              <div className={styles.timelineItem}>
-                <div className={styles.timelineIconCol}>
-                  <div className={styles.timelineBulletIcon}>
-                    <Icons.Users />
+            {loading ? (
+              <div className={styles.timelineList}>
+                {[1, 2, 3].map((idx) => (
+                  <div key={idx} className={styles.timelineItem}>
+                    <div
+                      className="skeleton"
+                      style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0 }}
+                    />
+                    <div className={styles.timelineContent} style={{ flex: 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <div className="skeleton" style={{ width: 110, height: 12, borderRadius: 4 }} />
+                        <div className="skeleton" style={{ width: 60, height: 10, borderRadius: 4 }} />
+                      </div>
+                      <div className="skeleton" style={{ width: 160, height: 10, borderRadius: 4 }} />
+                    </div>
                   </div>
-                  <div className={styles.timelineLine} />
-                </div>
-                <div className={styles.timelineContentCol}>
-                  <div className={styles.timelineHeaderRow}>
-                    <h4 className={styles.timelineTitle}>New enrolment</h4>
-                    <span className={styles.timelineTime}>2 hours ago</span>
-                  </div>
-                  <p className={styles.timelineDesc}>Gagan enrolled in 11 Steps to You</p>
-                </div>
+                ))}
               </div>
-
-              {/* Activity 2 */}
-              <div className={styles.timelineItem}>
-                <div className={styles.timelineIconCol}>
-                  <div className={styles.timelineBulletIcon}>
-                    <Icons.Layers />
-                  </div>
-                  <div className={styles.timelineLine} />
-                </div>
-                <div className={styles.timelineContentCol}>
-                  <div className={styles.timelineHeaderRow}>
-                    <h4 className={styles.timelineTitle}>Batch created</h4>
-                    <span className={styles.timelineTime}>5 hours ago</span>
-                  </div>
-                  <p className={styles.timelineDesc}>New batch started for 11 Steps to You</p>
-                </div>
+            ) : enrolmentsList.length === 0 ? (
+              <div className={styles.emptyStateSmall}>
+                <span>No recent activity recorded.</span>
               </div>
-
-              {/* Activity 3 */}
-              <div className={styles.timelineItem}>
-                <div className={styles.timelineIconCol}>
-                  <div className={styles.timelineBulletIcon}>
-                    <Icons.Dollar />
+            ) : (
+              <div className={styles.timelineList}>
+                {enrolmentsList.slice(0, 4).map((item) => (
+                  <div key={item.id} className={styles.timelineItem}>
+                    <div className={styles.timelineIconCol}>
+                      <Icons.UserCheck />
+                    </div>
+                    <div className={styles.timelineContent}>
+                      <div className={styles.timelineTop}>
+                        <h3 className={styles.timelineTitle}>Learner Enrolment</h3>
+                        <span className={styles.timelineTime}>{item.date}</span>
+                      </div>
+                      <p className={styles.timelineDesc}>
+                        {item.name} enrolled in {item.program}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className={styles.timelineContentCol}>
-                  <div className={styles.timelineHeaderRow}>
-                    <h4 className={styles.timelineTitle}>Payment received</h4>
-                    <span className={styles.timelineTime}>1 day ago</span>
-                  </div>
-                  <p className={styles.timelineDesc}>$1,500 from gagan jj</p>
-                </div>
+                ))}
               </div>
-            </div>
-          </div>
+            )}
+          </section>
         </div>
       </div>
+
     </div>
   );
 }

@@ -2,8 +2,38 @@
 
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
-import Link from "next/link";
 import { API_URL } from "../lib/api";
+
+const Icons = {
+  Export: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  ),
+  CreditCard: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </svg>
+  ),
+  Refresh: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  ),
+  Users: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+};
 
 export default function RevenuePage() {
   const [data, setData] = useState<any>(null);
@@ -27,59 +57,105 @@ export default function RevenuePage() {
     }
   };
 
+  const handleExportCSV = () => {
+    if (!data?.transactions?.length) return;
+    const headers = ["Transaction ID", "Learner", "Amount", "Status", "Date"];
+    const rows = data.transactions.map((t: any) => [
+      t.description || t.id,
+      t.user,
+      t.amount,
+      t.status,
+      t.date,
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((r: any[]) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `revenue_report_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className={styles.dashboard}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Revenue</h1>
-          <p className={styles.subtitle}>Overview of sales, MRR, and recent transactions.</p>
+          <h1 className={styles.title}>Revenue &amp; Finance</h1>
+          <p className={styles.subtitle}>
+            Financial analytics, recurring income streams, and verified enrolment transactions.
+          </p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.secondaryBtn}>Export CSV</button>
+          <button
+            type="button"
+            className={styles.secondaryBtn}
+            onClick={handleExportCSV}
+            aria-label="Export transactions CSV"
+          >
+            <Icons.Export />
+            <span>Export CSV</span>
+          </button>
         </div>
       </header>
 
-      <div className={styles.statsGrid}>
-        <div className={styles.statCard}>
-          <div className={styles.statHeader}>
-            <h3>Total Revenue</h3>
-            <span className={styles.statIcon}>💳</span>
-          </div>
-          <div className={styles.statBody}>
-            <p className={styles.statValue}>{data ? data.totalRevenue : "..."}</p>
-            <div className={styles.statTrendWrapper}>
-              <span className={styles.statTrendPositive}>All Time</span>
+      {/* KPI Stats Cards */}
+      <section className={styles.kpiGrid} style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.75rem" }} aria-label="Revenue Metrics">
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Total Revenue</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.CreditCard />
             </div>
           </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statHeader}>
-            <h3>Monthly Recurring (MRR)</h3>
-            <span className={styles.statIcon}>🔄</span>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {isLoading ? "—" : data?.totalRevenue ?? "$0"}
+            </span>
           </div>
-          <div className={styles.statBody}>
-            <p className={styles.statValue}>{data ? data.mrr : "..."}</p>
-            <div className={styles.statTrendWrapper}>
-              <span className={styles.statTrendNeutral}>Estimated</span>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>All-time platform revenue</span>
+          </div>
+        </article>
+
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Monthly Recurring (MRR)</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Refresh />
             </div>
           </div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statHeader}>
-            <h3>Active Subscribers</h3>
-            <span className={styles.statIcon}>👥</span>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {isLoading ? "—" : data?.mrr ?? "$0"}
+            </span>
           </div>
-          <div className={styles.statBody}>
-            <p className={styles.statValue}>{data ? data.activeSubscribers : "..."}</p>
-            <div className={styles.statTrendWrapper}>
-              <span className={styles.statTrendPositive}>Paid Users</span>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Active recurring program revenue</span>
+          </div>
+        </article>
+
+        <article className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Active Subscribers</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Users />
             </div>
           </div>
-        </div>
-      </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {isLoading ? "—" : data?.activeSubscribers ?? "0"}
+            </span>
+          </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Paid enrolment accounts</span>
+          </div>
+        </article>
+      </section>
 
+      {/* Transactions Section */}
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
           <h2>Recent Transactions</h2>
@@ -89,7 +165,7 @@ export default function RevenuePage() {
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Transaction ID</th>
+                <th>Transaction Reference</th>
                 <th>Learner</th>
                 <th>Amount</th>
                 <th>Status</th>
@@ -99,27 +175,39 @@ export default function RevenuePage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} style={{textAlign: "center", padding: "20px"}}>Loading transactions...</td>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
+                    Loading transactions...
+                  </td>
                 </tr>
-              ) : !data || data.transactions.length === 0 ? (
+              ) : !data || !data.transactions || data.transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{textAlign: "center", padding: "20px"}}>No transactions found.</td>
-                </tr>
-              ) : data.transactions.map((tx: any) => (
-                <tr key={tx.id}>
-                  <td>
-                    <span className={styles.cellText}>{tx.description}</span>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
+                    No transactions recorded yet.
                   </td>
-                  <td><span className={styles.cellUserName}>{tx.user}</span></td>
-                  <td><span className={styles.cellText}>{tx.amount}</span></td>
-                  <td>
-                    <span className={`${styles.statusChip} ${styles[tx.status.toLowerCase()] || styles.active}`}>
-                      {tx.status}
-                    </span>
-                  </td>
-                  <td><span className={styles.cellTextMuted}>{tx.date}</span></td>
                 </tr>
-              ))}
+              ) : (
+                data.transactions.map((tx: any) => (
+                  <tr key={tx.id}>
+                    <td>
+                      <span className={styles.cellText}>{tx.description || tx.id}</span>
+                    </td>
+                    <td>
+                      <span className={styles.cellUserName}>{tx.user}</span>
+                    </td>
+                    <td>
+                      <span className={styles.cellText} style={{ fontWeight: 600 }}>{tx.amount}</span>
+                    </td>
+                    <td>
+                      <span className={`${styles.statusChip} ${styles[tx.status?.toLowerCase()] || styles.active}`}>
+                        {tx.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={styles.cellTextMuted}>{tx.date}</span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import { API_URL, errorMessage } from "../lib/api";
+import { CustomSelect } from "../components";
 
 interface Batch {
   id: string;
@@ -351,7 +352,7 @@ export default function OralAssessmentsPage() {
   return (
     <div className={styles.dashboard}>
       <header className={styles.header}>
-        <div>
+        <div className={styles.headerText}>
           <h1 className={styles.title}>Oral Assessments & Rubrics</h1>
           <p className={styles.subtitle}>
             Conduct live competency interviews, score rubric categories, and issue qualitative evaluation feedback.
@@ -363,156 +364,195 @@ export default function OralAssessmentsPage() {
             className={styles.primaryBtn}
             onClick={handleOpenScheduleModal}
             disabled={!selectedBatchId}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
           >
-            + Schedule Oral Assessment
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Schedule Oral Assessment</span>
           </button>
         </div>
       </header>
 
       {pageError && (
-        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ⚠️ {pageError}
+        <div style={{
+          backgroundColor: "#fef2f2",
+          border: "1px solid #fecaca",
+          color: "#991b1b",
+          padding: "12px 16px",
+          borderRadius: "8px",
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          fontSize: "0.88rem"
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>{pageError}</span>
         </div>
       )}
 
       {pageSuccess && (
-        <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ✓ {pageSuccess}
+        <div style={{
+          backgroundColor: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          color: "#166534",
+          padding: "12px 16px",
+          borderRadius: "8px",
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          fontSize: "0.88rem"
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+          <span>{pageSuccess}</span>
         </div>
       )}
 
       {/* Cohort Selector */}
-      <div style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "12px", background: "white", padding: "12px 16px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-        <label style={{ fontWeight: 600, fontSize: "0.875rem", color: "#475569" }}>
-          Select Cohort / Batch:
+      <div style={{
+        marginBottom: "1.5rem",
+        display: "flex",
+        alignItems: "center",
+        gap: "14px",
+        background: "var(--bg-card)",
+        padding: "14px 18px",
+        borderRadius: "12px",
+        border: "1px solid var(--border-light)",
+        boxShadow: "var(--shadow-sm)",
+        flexWrap: "wrap"
+      }}>
+        <label htmlFor="cohort-select" style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+          Cohort / Batch:
         </label>
-        <select
+        <CustomSelect
+          id="cohort-select"
           value={selectedBatchId}
-          onChange={(e) => setSelectedBatchId(e.target.value)}
+          onChange={setSelectedBatchId}
           disabled={loadingBatches}
-          style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.875rem", minWidth: "260px" }}
-        >
-          {batches.map((batch) => (
-            <option key={batch.id} value={batch.id}>
-              {batch.name} {batch.program?.title ? `(${batch.program.title})` : ""}
-            </option>
-          ))}
-        </select>
-        <span style={{ fontSize: "0.85rem", color: "#64748b" }}>
-          {assessments.length} oral assessment record(s) in this batch
+          minWidth="280px"
+          ariaLabel="Select Cohort or Batch"
+          options={batches.map((batch) => ({
+            value: batch.id,
+            label: `${batch.name}${batch.program?.title ? ` (${batch.program.title})` : ""}`,
+          }))}
+        />
+        <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+          {assessments.length} assessment record{assessments.length !== 1 ? "s" : ""} in this cohort
         </span>
       </div>
 
       {/* Assessments Table */}
-      <div className={styles.tableContainer}>
-        {loadingAssessments ? (
-          <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
-            Loading oral assessments from backend...
-          </div>
-        ) : assessments.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
-            No oral assessments found for this batch. Click <strong>+ Schedule Oral Assessment</strong> to assign one to an enrolled learner.
-          </div>
-        ) : (
-          <table className={styles.table}>
+      <section className={styles.tableSection}>
+        <div className={styles.sectionHeader}>
+          <h2>Oral Assessments Queue</h2>
+        </div>
+
+        <div className={styles.tableWrapper}>
+          <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>LEARNER</th>
-                <th>SCHEDULED DATE</th>
-                <th>ASSESSOR</th>
-                <th>OVERALL SCORE</th>
-                <th>STATUS</th>
-                <th>GRADED AT</th>
-                <th style={{ textAlign: "right" }}>ACTIONS</th>
+                <th>Learner</th>
+                <th>Scheduled Date</th>
+                <th>Assessor</th>
+                <th>Overall Score</th>
+                <th>Status</th>
+                <th>Graded At</th>
+                <th className={styles.alignRight}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {assessments.map((a) => {
-                const learnerName = a.enrolment?.user?.name || "Enrolled Learner";
-                const learnerEmail = a.enrolment?.user?.email || "";
-                const assessorName = a.assessor?.name || "Unassigned";
+              {loadingAssessments ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
+                    Loading oral assessments from backend...
+                  </td>
+                </tr>
+              ) : assessments.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
+                    No oral assessments found for this batch. Click <strong>Schedule Oral Assessment</strong> to assign one to an enrolled learner.
+                  </td>
+                </tr>
+              ) : (
+                assessments.map((a) => {
+                  const learnerName = a.enrolment?.user?.name || "Enrolled Learner";
+                  const learnerEmail = a.enrolment?.user?.email || "";
+                  const assessorName = a.assessor?.name || "Unassigned";
+                  const statusClass = a.status === "PASSED" ? styles.passed : a.status === "FAILED" ? styles.failed : styles.scheduled;
 
-                return (
-                  <tr key={a.id}>
-                    <td>
-                      <div className={styles.userInfo}>
-                        <div className={styles.userAvatar}>
-                          {learnerName.charAt(0).toUpperCase()}
-                        </div>
+                  return (
+                    <tr key={a.id}>
+                      <td>
                         <div>
-                          <strong>{learnerName}</strong>
-                          <span className={styles.userEmail}>{learnerEmail}</span>
+                          <span className={styles.cellUserName}>{learnerName}</span>
+                          {learnerEmail && <div className={styles.cellUserEmail}>{learnerEmail}</div>}
                         </div>
-                      </div>
-                    </td>
-                    <td>
-                      {a.scheduledDate ? new Date(a.scheduledDate).toLocaleDateString() : "TBD"}
-                    </td>
-                    <td>
-                      <span style={{ fontSize: "0.85rem", color: "#334155" }}>{assessorName}</span>
-                    </td>
-                    <td>
-                      {a.overallScore !== null ? (
-                        <span style={{ fontWeight: 700, fontSize: "0.95rem", color: a.overallScore >= 75 ? "#166534" : "#991b1b" }}>
-                          {a.overallScore}%
+                      </td>
+                      <td>
+                        <span className={styles.cellText}>
+                          {a.scheduledDate ? new Date(a.scheduledDate).toLocaleDateString() : "TBD"}
                         </span>
-                      ) : (
-                        <span style={{ color: "#94a3b8", fontSize: "0.85rem" }}>Ungraded</span>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className={styles.statusBadge}
-                        data-status={
-                          a.status === "PASSED" ? "success" : a.status === "FAILED" ? "error" : "warning"
-                        }
-                      >
-                        {a.status}
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                        {a.gradedAt ? new Date(a.gradedAt).toLocaleDateString() : "—"}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenGrading(a)}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: "6px",
-                          fontSize: "0.8rem",
-                          fontWeight: 600,
-                          backgroundColor: "#0f172a",
-                          color: "white",
-                          border: "none",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {a.status === "SCHEDULED" ? "Grade Assessment" : "Re-evaluate"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td>
+                        <span className={styles.cellText}>{assessorName}</span>
+                      </td>
+                      <td>
+                        {a.overallScore !== null ? (
+                          <span style={{ fontWeight: 700, fontSize: "0.95rem", color: a.overallScore >= 75 ? "#166534" : "#991b1b" }}>
+                            {a.overallScore}%
+                          </span>
+                        ) : (
+                          <span className={styles.cellTextMuted}>Ungraded</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`${styles.statusChip} ${statusClass}`}>
+                          {a.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={styles.cellTextMuted}>
+                          {a.gradedAt ? new Date(a.gradedAt).toLocaleDateString() : "—"}
+                        </span>
+                      </td>
+                      <td className={styles.alignRight}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenGrading(a)}
+                          className={styles.secondaryBtnSmall}
+                        >
+                          {a.status === "SCHEDULED" ? "Grade Assessment" : "Re-evaluate"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
-        )}
-      </div>
+        </div>
+      </section>
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           GRADING MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {gradingAssessment && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modal} style={{ maxWidth: "680px", maxHeight: "90vh", overflowY: "auto" }}>
+          <div className={styles.modalContent} style={{ maxWidth: "680px" }}>
             <div className={styles.modalHeader}>
               <div>
-                <h2 style={{ fontSize: "1.25rem", margin: 0 }}>
-                  Oral Competency Evaluation
-                </h2>
-                <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "#64748b" }}>
+                <h2>Oral Competency Evaluation</h2>
+                <p className={styles.modalIntro}>
                   Learner: {gradingAssessment.enrolment?.user?.name || "Learner"} ({gradingAssessment.enrolment?.user?.email})
                 </p>
               </div>
@@ -521,181 +561,190 @@ export default function OralAssessmentsPage() {
                 className={styles.closeBtn}
                 onClick={() => setGradingAssessment(null)}
                 disabled={submittingGrade}
+                aria-label="Close modal"
               >
-                ✕
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
               </button>
             </div>
 
-            <form onSubmit={handleSubmitGrade}>
-              <div className={styles.modalBody}>
-                {gradeModalError && (
-                  <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "10px", borderRadius: "6px", marginBottom: "1rem", fontSize: "0.85rem" }}>
-                    {gradeModalError}
-                  </div>
-                )}
+            <form onSubmit={handleSubmitGrade} className={styles.modalForm}>
+              {gradeModalError && (
+                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "10px 14px", borderRadius: "8px", fontSize: "0.85rem" }}>
+                  {gradeModalError}
+                </div>
+              )}
 
-                {/* Rubric Category Scores */}
-                <div style={{ marginBottom: "1.5rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <h3 style={{ fontSize: "1rem", margin: 0, fontWeight: 700 }}>
-                      Rubric Scoring Criteria
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={handleAddRubricItem}
-                      style={{ fontSize: "0.75rem", padding: "4px 8px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}
+              {/* Rubric Category Scores */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <h3 style={{ fontSize: "0.95rem", margin: 0, fontWeight: 700, color: "var(--text-primary)" }}>
+                    Rubric Scoring Criteria
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={handleAddRubricItem}
+                    className={styles.secondaryBtnSmall}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span>Add Criterion</span>
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {rubricScores.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-light)",
+                        backgroundColor: "var(--bg-main)",
+                      }}
                     >
-                      + Add Criterion
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {rubricScores.map((item, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: "8px",
-                          border: "1px solid #e2e8f0",
-                          backgroundColor: "#f8fafc",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                          <input
-                            type="text"
-                            value={item.rubricCategory}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRubricScores((prev) => {
-                                const target = prev[idx];
-                                if (!target) return prev;
-                                const next = [...prev];
-                                next[idx] = {
-                                  ...target,
-                                  rubricCategory: val,
-                                };
-                                return next;
-                              });
-                            }}
-                            style={{ fontWeight: 600, fontSize: "0.85rem", border: "none", background: "transparent", color: "#1e293b", width: "70%" }}
-                            required
-                          />
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <input
-                              type="number"
-                              min={0}
-                              max={item.maxScore}
-                              value={item.score}
-                              onChange={(e) => handleScoreChange(idx, parseInt(e.target.value, 10) || 0)}
-                              style={{ width: "50px", padding: "4px", textAlign: "center", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                              required
-                            />
-                            <span style={{ fontSize: "0.85rem", color: "#64748b" }}>/ {item.maxScore}</span>
-                            {rubricScores.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRubricItem(idx)}
-                                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", marginLeft: "4px" }}
-                                title="Remove criterion"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                         <input
                           type="text"
-                          placeholder="Optional category observation or constructive feedback..."
-                          value={item.feedback || ""}
-                          onChange={(e) => handleFeedbackChange(idx, e.target.value)}
-                          style={{ width: "100%", padding: "4px 8px", fontSize: "0.8rem", borderRadius: "4px", border: "1px solid #e2e8f0", background: "white" }}
+                          value={item.rubricCategory}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setRubricScores((prev) => {
+                              const target = prev[idx];
+                              if (!target) return prev;
+                              const next = [...prev];
+                              next[idx] = {
+                                ...target,
+                                rubricCategory: val,
+                              };
+                              return next;
+                            });
+                          }}
+                          style={{ fontWeight: 600, fontSize: "0.88rem", border: "none", background: "transparent", color: "var(--text-primary)", width: "70%" }}
+                          required
                         />
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <input
+                            type="number"
+                            min={0}
+                            max={item.maxScore}
+                            value={item.score}
+                            onChange={(e) => handleScoreChange(idx, parseInt(e.target.value, 10) || 0)}
+                            style={{ width: "52px", padding: "4px 8px", textAlign: "center", borderRadius: "6px", border: "1px solid var(--border-light)", background: "var(--bg-card)" }}
+                            required
+                          />
+                          <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {item.maxScore}</span>
+                          {rubricScores.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRubricItem(idx)}
+                              className={styles.dangerBtnSmall}
+                              style={{ padding: "4px 6px", marginLeft: "4px" }}
+                              title="Remove criterion"
+                              aria-label="Remove criterion"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                              </svg>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Real-time score calculator */}
-                  <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f1f5f9", borderRadius: "6px" }}>
-                    <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#475569" }}>
-                      Aggregate Rubric Score:
+                      <input
+                        type="text"
+                        placeholder="Optional category observation or constructive feedback..."
+                        value={item.feedback || ""}
+                        onChange={(e) => handleFeedbackChange(idx, e.target.value)}
+                        style={{ width: "100%", padding: "6px 10px", fontSize: "0.82rem", borderRadius: "6px", border: "1px solid var(--border-light)", background: "var(--bg-card)" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Real-time score calculator */}
+                <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "8px" }}>
+                  <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    Aggregate Rubric Score:
+                  </span>
+                  <strong style={{ fontSize: "1.05rem", color: calculatedPercent >= 75 ? "#166534" : "#991b1b" }}>
+                    {totalEarned} / {totalPossible} ({calculatedPercent}%)
+                  </strong>
+                </div>
+              </div>
+
+              {/* Pass / Fail Verdict */}
+              <div style={{ padding: "14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
+                <label style={{ display: "block", fontWeight: 700, fontSize: "0.88rem", marginBottom: "8px", color: "var(--text-primary)" }}>
+                  Assessment Outcome Verdict *
+                </label>
+                <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="passedVerdict"
+                      checked={passed}
+                      onChange={() => setPassed(true)}
+                      style={{ accentColor: "#16a34a", width: "16px", height: "16px" }}
+                    />
+                    <span style={{ fontSize: "0.88rem", color: "#166534", fontWeight: 600 }}>
+                      Pass — Meets Competency Standards
                     </span>
-                    <strong style={{ fontSize: "1.1rem", color: calculatedPercent >= 75 ? "#166534" : "#991b1b" }}>
-                      {totalEarned} / {totalPossible} ({calculatedPercent}%)
-                    </strong>
-                  </div>
-                </div>
-
-                {/* Pass / Fail Verdict */}
-                <div style={{ marginBottom: "1.25rem", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                  <label style={{ display: "block", fontWeight: 600, fontSize: "0.85rem", marginBottom: "8px" }}>
-                    Assessment Outcome Verdict <span style={{ color: "#ef4444" }}>*</span>
                   </label>
-                  <div style={{ display: "flex", gap: "20px" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                      <input
-                        type="radio"
-                        name="passedVerdict"
-                        checked={passed}
-                        onChange={() => setPassed(true)}
-                        style={{ accentColor: "#16a34a" }}
-                      />
-                      <span style={{ fontSize: "0.9rem", color: "#166534", fontWeight: 600 }}>
-                        ✓ PASS — Meets Competency Standards
-                      </span>
-                    </label>
 
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                      <input
-                        type="radio"
-                        name="passedVerdict"
-                        checked={!passed}
-                        onChange={() => setPassed(false)}
-                        style={{ accentColor: "#dc2626" }}
-                      />
-                      <span style={{ fontSize: "0.9rem", color: "#991b1b", fontWeight: 600 }}>
-                        ✕ RETRY — Prerequisite Competencies Incomplete
-                      </span>
-                    </label>
-                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="passedVerdict"
+                      checked={!passed}
+                      onChange={() => setPassed(false)}
+                      style={{ accentColor: "#dc2626", width: "16px", height: "16px" }}
+                    />
+                    <span style={{ fontSize: "0.88rem", color: "#991b1b", fontWeight: 600 }}>
+                      Retry — Prerequisite Competencies Incomplete
+                    </span>
+                  </label>
                 </div>
+              </div>
 
-                {/* Trainer Notes */}
-                <div className={styles.formGroup} style={{ marginBottom: "1.25rem" }}>
-                  <label htmlFor="notes" style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                    Trainer Qualitative Feedback & Notes <span style={{ color: "#ef4444" }}>*</span>
+              {/* Trainer Notes */}
+              <div className={styles.formGroup}>
+                <label htmlFor="notes">
+                  Trainer Qualitative Feedback &amp; Notes *
+                </label>
+                <textarea
+                  id="notes"
+                  rows={3}
+                  placeholder="Enter comprehensive qualitative feedback regarding the learner's reflection, core competencies, and verbal articulation..."
+                  value={trainerNotes}
+                  onChange={(e) => setTrainerNotes(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Retry Guidance (Mandatory if !passed) */}
+              {!passed && (
+                <div className={styles.formGroup}>
+                  <label htmlFor="retry" style={{ color: "#991b1b" }}>
+                    Retry Remediation Guidance *
                   </label>
                   <textarea
-                    id="notes"
-                    rows={3}
-                    className={styles.formInput}
-                    placeholder="Enter comprehensive qualitative feedback regarding the learner's reflection, core competencies, and verbal articulation..."
-                    value={trainerNotes}
-                    onChange={(e) => setTrainerNotes(e.target.value)}
-                    required
-                    style={{ width: "100%", marginTop: "4px" }}
+                    id="retry"
+                    rows={2}
+                    placeholder="Specify required remediation, steps to review, or exercises before the rescheduled oral assessment..."
+                    value={retryGuidance}
+                    onChange={(e) => setRetryGuidance(e.target.value)}
+                    required={!passed}
+                    style={{ borderColor: "#fecaca" }}
                   />
                 </div>
-
-                {/* Retry Guidance (Mandatory if !passed) */}
-                {!passed && (
-                  <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
-                    <label htmlFor="retry" style={{ fontWeight: 600, fontSize: "0.85rem", color: "#991b1b" }}>
-                      Retry Remediation Guidance <span style={{ color: "#ef4444" }}>*</span>
-                    </label>
-                    <textarea
-                      id="retry"
-                      rows={2}
-                      className={styles.formInput}
-                      placeholder="Specify required remediation, steps to review, or exercises before the rescheduled oral assessment..."
-                      value={retryGuidance}
-                      onChange={(e) => setRetryGuidance(e.target.value)}
-                      required={!passed}
-                      style={{ width: "100%", marginTop: "4px", borderColor: "#fca5a5" }}
-                    />
-                  </div>
-                )}
-              </div>
+              )}
 
               <div className={styles.modalFooter}>
                 <button
@@ -724,59 +773,58 @@ export default function OralAssessmentsPage() {
          ───────────────────────────────────────────────────────────────────────────── */}
       {isScheduleModalOpen && (
         <div className={styles.modalOverlay}>
-          <div className={styles.modal} style={{ maxWidth: "480px" }}>
+          <div className={styles.modalContent} style={{ maxWidth: "480px" }}>
             <div className={styles.modalHeader}>
-              <h2 style={{ fontSize: "1.25rem", margin: 0 }}>
-                Schedule Oral Assessment
-              </h2>
+              <div>
+                <h2>Schedule Oral Assessment</h2>
+                <p className={styles.modalIntro}>Assign an oral competency interview to an enrolled learner.</p>
+              </div>
               <button
                 type="button"
                 className={styles.closeBtn}
                 onClick={() => setIsScheduleModalOpen(false)}
                 disabled={submittingSchedule}
+                aria-label="Close modal"
               >
-                ✕
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
               </button>
             </div>
 
-            <form onSubmit={handleSubmitSchedule}>
-              <div className={styles.modalBody}>
-                {scheduleModalError && (
-                  <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "10px", borderRadius: "6px", marginBottom: "1rem", fontSize: "0.85rem" }}>
-                    {scheduleModalError}
-                  </div>
-                )}
-
-                <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
-                  <label style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                    Select Enrolled Learner <span style={{ color: "#ef4444" }}>*</span>
-                  </label>
-                  <select
-                    value={selectedEnrolmentId}
-                    onChange={(e) => setSelectedEnrolmentId(e.target.value)}
-                    required
-                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "4px" }}
-                  >
-                    {batchEnrolments.map((enr) => (
-                      <option key={enr.id} value={enr.id}>
-                        {enr.user?.name || "Learner"} ({enr.user?.email || "No email"}) — {enr.status}
-                      </option>
-                    ))}
-                  </select>
+            <form onSubmit={handleSubmitSchedule} className={styles.modalForm}>
+              {scheduleModalError && (
+                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "10px 14px", borderRadius: "8px", fontSize: "0.85rem" }}>
+                  {scheduleModalError}
                 </div>
+              )}
 
-                <div className={styles.formGroup}>
-                  <label htmlFor="schedDate" style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                    Scheduled Date & Time (Optional)
-                  </label>
-                  <input
-                    id="schedDate"
-                    type="datetime-local"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "4px" }}
-                  />
-                </div>
+              <div className={styles.formGroup}>
+                <label>Select Enrolled Learner *</label>
+                <CustomSelect
+                  value={selectedEnrolmentId}
+                  onChange={setSelectedEnrolmentId}
+                  fullWidth
+                  ariaLabel="Select Enrolled Learner"
+                  placeholder="Choose an enrolled learner..."
+                  options={batchEnrolments.map((enr) => ({
+                    value: enr.id,
+                    label: `${enr.user?.name || "Learner"} (${enr.user?.email || "No email"}) — ${enr.status}`,
+                  }))}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label htmlFor="schedDate">
+                  Scheduled Date &amp; Time <span className={styles.optionalLabel}>(Optional)</span>
+                </label>
+                <input
+                  id="schedDate"
+                  type="datetime-local"
+                  value={scheduledDate}
+                  onChange={(e) => setScheduledDate(e.target.value)}
+                />
               </div>
 
               <div className={styles.modalFooter}>

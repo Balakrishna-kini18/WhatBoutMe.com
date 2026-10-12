@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import styles from "../page.module.css";
 import { API_URL, errorMessage } from "../lib/api";
+import { CustomSelect } from "../components";
 
 interface TrainerInfo {
   id: string;
@@ -346,7 +347,11 @@ export default function MeetingsPage() {
         </div>
         <div className={styles.headerActions}>
           <button className={styles.primaryBtn} onClick={openModal}>
-            + Schedule Session
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Schedule Session</span>
           </button>
         </div>
       </header>
@@ -362,47 +367,41 @@ export default function MeetingsPage() {
         }}
       >
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+          <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600 }}>
             Type:
           </span>
-          <select
+          <CustomSelect
+            ariaLabel="Filter meetings by type"
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value as any)}
-            style={{
-              padding: "0.4rem 0.75rem",
-              borderRadius: "6px",
-              border: "1px solid var(--border-light)",
-              fontSize: "0.85rem",
-            }}
-          >
-            <option value="ALL">All Types</option>
-            <option value="GROUP_COHORT">Group / Cohort</option>
-            <option value="ONE_ON_ONE">1-on-1 Coaching</option>
-          </select>
+            onChange={(val) => setFilterType(val as any)}
+            minWidth="165px"
+            options={[
+              { value: "ALL", label: "All Types" },
+              { value: "GROUP_COHORT", label: "Group / Cohort" },
+              { value: "ONE_ON_ONE", label: "1-on-1 Coaching" },
+            ]}
+          />
         </div>
 
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+          <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 600 }}>
             Status:
           </span>
-          <select
+          <CustomSelect
+            ariaLabel="Filter meetings by status"
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as any)}
-            style={{
-              padding: "0.4rem 0.75rem",
-              borderRadius: "6px",
-              border: "1px solid var(--border-light)",
-              fontSize: "0.85rem",
-            }}
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="SCHEDULED">Scheduled Only</option>
-            <option value="CANCELLED">Cancelled Only</option>
-          </select>
+            onChange={(val) => setFilterStatus(val as any)}
+            minWidth="165px"
+            options={[
+              { value: "ALL", label: "All Statuses" },
+              { value: "SCHEDULED", label: "Scheduled Only" },
+              { value: "CANCELLED", label: "Cancelled Only" },
+            ]}
+          />
         </div>
 
-        <div style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-          Local Timezone: <strong>{localTimezone}</strong> (Timestamps stored in UTC)
+        <div style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-muted)", background: "var(--bg-soft)", padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light)" }}>
+          Local Timezone: <strong style={{ color: "var(--text-primary)" }}>{localTimezone}</strong> (Timestamps stored in UTC)
         </div>
       </div>
 
@@ -411,12 +410,12 @@ export default function MeetingsPage() {
           <h2>Scheduled Sessions ({filteredMeetings.length})</h2>
         </div>
         <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
-          <table className={styles.adminTable} style={{ tableLayout: "auto", minWidth: "1100px" }}>
+          <table className={styles.adminTable} style={{ tableLayout: "auto", minWidth: "1050px" }}>
             <thead>
               <tr>
                 <th>Session</th>
                 <th>Type</th>
-                <th>Course & Cohort</th>
+                <th>Course &amp; Cohort</th>
                 <th>Host Trainer / Learner</th>
                 <th>Capacity</th>
                 <th>When (Local)</th>
@@ -428,13 +427,13 @@ export default function MeetingsPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={9} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
                     Loading sessions...
                   </td>
                 </tr>
               ) : filteredMeetings.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={9} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
                     No matching sessions found.
                   </td>
                 </tr>
@@ -446,23 +445,17 @@ export default function MeetingsPage() {
                     </td>
                     <td>
                       <span
+                        className={styles.statusChip}
                         style={{
-                          display: "inline-block",
-                          padding: "0.2rem 0.5rem",
-                          borderRadius: "4px",
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          background:
-                            m.sessionType === "ONE_ON_ONE" ? "#ede9fe" : "#e0f2fe",
-                          color:
-                            m.sessionType === "ONE_ON_ONE" ? "#6d28d9" : "#0369a1",
+                          background: m.sessionType === "ONE_ON_ONE" ? "var(--accent-highlight)" : "var(--bg-soft)",
+                          color: m.sessionType === "ONE_ON_ONE" ? "var(--accent-primary)" : "var(--text-secondary)",
                         }}
                       >
                         {m.sessionType === "ONE_ON_ONE" ? "1-on-1" : "Cohort"}
                       </span>
                     </td>
                     <td>
-                      <span className={styles.cellText}>
+                      <span className={styles.cellText} style={{ fontWeight: 600 }}>
                         {m.batch?.program?.title || "—"}
                       </span>
                       <div className={styles.cellTextMuted}>{m.batch?.name || "—"}</div>
@@ -495,9 +488,16 @@ export default function MeetingsPage() {
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "4px",
+                            textDecoration: "none",
+                            fontSize: "0.82rem",
                           }}
                         >
-                          Join Meeting ↗
+                          <span>Join Meeting</span>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
                         </a>
                       ) : (
                         <span className={styles.cellTextMuted}>None</span>
@@ -505,62 +505,51 @@ export default function MeetingsPage() {
                     </td>
                     <td>
                       <span
-                        style={{
-                          display: "inline-block",
-                          padding: "0.2rem 0.5rem",
-                          borderRadius: "4px",
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          background:
-                            m.status === "SCHEDULED"
-                              ? "#ecfdf5"
-                              : m.status === "CANCELLED"
-                              ? "#fef2f2"
-                              : "#f3f4f6",
-                          color:
-                            m.status === "SCHEDULED"
-                              ? "#047857"
-                              : m.status === "CANCELLED"
-                              ? "#b91c1c"
-                              : "#4b5563",
-                        }}
+                        className={`${styles.statusChip} ${
+                          m.status === "SCHEDULED"
+                            ? styles.active
+                            : m.status === "CANCELLED"
+                            ? styles.cancelled
+                            : styles.draft
+                        }`}
                       >
                         {m.status}
                       </span>
                     </td>
                     <td className={styles.alignRight}>
-                      {m.status !== "CANCELLED" && (
-                        <>
-                          {m.hostUrl && (
-                            <a
-                              href={m.hostUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className={styles.dropdownItem}
-                              style={{ width: "auto", display: "inline-block", marginRight: "6px", color: "var(--accent-primary)", fontWeight: 600, textDecoration: "none" }}
-                              title="Start session as host"
+                      <div style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
+                        {m.status !== "CANCELLED" && (
+                          <>
+                            {m.hostUrl && (
+                              <a
+                                href={m.hostUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={styles.primaryBtnSmall}
+                                title="Start session as host"
+                              >
+                                Start
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              className={styles.secondaryBtnSmall}
+                              onClick={() => handleCancel(m.id)}
+                              title="Cancel session with reason"
                             >
-                              Start
-                            </a>
-                          )}
-                          <button
-                            className={`${styles.dropdownItem} ${styles.textDanger}`}
-                            style={{ width: "auto", display: "inline-block", marginRight: "6px" }}
-                            onClick={() => handleCancel(m.id)}
-                            title="Cancel session with reason"
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      )}
-                      <button
-                        className={styles.dropdownItem}
-                        style={{ width: "auto", display: "inline-block", color: "#6b7280" }}
-                        onClick={() => handleDelete(m.id)}
-                        title="Delete session"
-                      >
-                        Delete
-                      </button>
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          className={styles.dangerBtnSmall}
+                          onClick={() => handleDelete(m.id)}
+                          title="Delete session"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -636,13 +625,12 @@ export default function MeetingsPage() {
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Course / Program</label>
-                  <select
-                    required
+                  <CustomSelect
                     value={course}
-                    onChange={(e) => {
-                      setCourse(e.target.value);
+                    onChange={(val) => {
+                      setCourse(val);
                       const matching = batches.filter(
-                        (b) => getProgramTitle(b) === e.target.value,
+                        (b) => getProgramTitle(b) === val,
                       );
                       setCohort(
                         sessionType === "ONE_ON_ONE"
@@ -650,34 +638,34 @@ export default function MeetingsPage() {
                           : ALL_COHORTS,
                       );
                     }}
-                  >
-                    {courses.length === 0 && (
-                      <option value="">No courses with active cohorts</option>
-                    )}
-                    {courses.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                    fullWidth
+                    ariaLabel="Course or Program"
+                    placeholder="Select course..."
+                    options={
+                      courses.length === 0
+                        ? [{ value: "", label: "No courses with active cohorts", disabled: true }]
+                        : courses.map((c) => ({ value: c, label: c }))
+                    }
+                  />
                 </div>
 
                 <div className={styles.formGroup}>
                   <label>Cohort / Batch</label>
-                  <select
-                    required
+                  <CustomSelect
                     value={cohort}
-                    onChange={(e) => setCohort(e.target.value)}
-                  >
-                    {sessionType === "GROUP_COHORT" && (
-                      <option value={ALL_COHORTS}>All cohorts of this course</option>
-                    )}
-                    {cohorts.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} (Cap: {b.capacity || 50})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setCohort(val)}
+                    fullWidth
+                    ariaLabel="Cohort or Batch"
+                    options={[
+                      ...(sessionType === "GROUP_COHORT"
+                        ? [{ value: ALL_COHORTS, label: "All cohorts of this course" }]
+                        : []),
+                      ...cohorts.map((b) => ({
+                        value: b.id,
+                        label: `${b.name} (Cap: ${b.capacity || 50})`,
+                      })),
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -701,33 +689,34 @@ export default function MeetingsPage() {
               <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Host Trainer (Optional)</label>
-                  <select
+                  <CustomSelect
                     value={hostTrainerId}
-                    onChange={(e) => setHostTrainerId(e.target.value)}
-                  >
-                    <option value="">Default (Batch Manager / Signed-in)</option>
-                    {availableTrainers.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setHostTrainerId(val)}
+                    fullWidth
+                    ariaLabel="Host Trainer"
+                    options={[
+                      { value: "", label: "Default (Batch Manager / Signed-in)" },
+                      ...availableTrainers.map((t) => ({ value: t.id, label: t.label })),
+                    ]}
+                  />
                 </div>
 
                 {sessionType === "ONE_ON_ONE" ? (
                   <div className={styles.formGroup}>
                     <label>Dedicated Learner</label>
-                    <select
+                    <CustomSelect
                       value={learnerId}
-                      onChange={(e) => setLearnerId(e.target.value)}
-                    >
-                      <option value="">Select Enrolled Learner (or open slot)</option>
-                      {enrolledLearners.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.name} ({l.email})
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => setLearnerId(val)}
+                      fullWidth
+                      ariaLabel="Dedicated Learner"
+                      options={[
+                        { value: "", label: "Select Enrolled Learner (or open slot)" },
+                        ...enrolledLearners.map((l) => ({
+                          value: l.id,
+                          label: `${l.name} (${l.email})`,
+                        })),
+                      ]}
+                    />
                   </div>
                 ) : (
                   <div className={styles.formGroup}>

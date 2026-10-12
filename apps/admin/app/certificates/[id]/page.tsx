@@ -62,9 +62,19 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
           <p>Choose &quot;Save as PDF&quot; in the print dialog to download it.</p>
         </div>
         <div className={styles.actions}>
-          <Link href="/certificates" className={styles.secondary}>Back</Link>
-          <button type="button" className={styles.primary} onClick={() => window.print()}>
-            Print or Save PDF
+          <Link href="/certificates" className={styles.secondary} style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>Back</span>
+          </Link>
+          <button type="button" className={styles.primary} onClick={() => window.print()} style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            <span>Print or Save PDF</span>
           </button>
         </div>
       </div>

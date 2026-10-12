@@ -370,7 +370,9 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
 
         <div className={styles.topBarActions}>
           <span className={styles.statusBadge}>
-            <span>✓</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
             <span>Cloud Synced</span>
           </span>
 
@@ -381,7 +383,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
             className={styles.previewLmsLink}
             title="Preview student LMS view"
           >
-            <span>👁</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
             <span>Preview in LMS</span>
           </a>
         </div>

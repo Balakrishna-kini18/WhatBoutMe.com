@@ -130,15 +130,37 @@ export default function Step9ReviewPublish({
                 </h4>
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.88rem" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#15803d" }}>
-                    <span>✓</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
                     <span>Basic program details &amp; pricing configured</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, color: steps.length > 0 ? "#15803d" : "#b45309" }}>
-                    <span>{steps.length > 0 ? "✓" : "⚠️"}</span>
+                    {steps.length > 0 ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                    )}
                     <span>{steps.length} Course modules established</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, color: totalLessons > 0 ? "#15803d" : "#b45309" }}>
-                    <span>{totalLessons > 0 ? "✓" : "⚠️"}</span>
+                    {totalLessons > 0 ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                    )}
                     <span>{totalLessons} Lessons attached across curriculum</span>
                   </div>
                 </div>
@@ -248,8 +270,8 @@ export default function Step9ReviewPublish({
             {isPublishing
               ? "Updating Publication..."
               : status === "PUBLISHED"
-              ? "Publish Course 🚀"
-              : "Save as Draft ✓"}
+              ? "Publish Course"
+              : "Save as Draft"}
           </button>
         </div>
       </form>
@@ -258,9 +280,13 @@ export default function Step9ReviewPublish({
       {isSuccessModalOpen && (
         <div className={styles.modalOverlay} onClick={() => setIsSuccessModalOpen(false)}>
           <div className={styles.modalCard} onClick={(e) => e.stopPropagation()} style={{ textAlign: "center", padding: "2.5rem" }}>
-            <div style={{ fontSize: "3.5rem", marginBottom: "0.5rem" }}>🎉</div>
-            <h3 style={{ fontFamily: "var(--font-serif)", fontSize: "1.75rem", margin: "0 0 0.5rem", color: "#15803d" }}>
-              {status === "PUBLISHED" ? "Course Published Successfully!" : "Course Saved as Draft!"}
+            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#dcfce7", color: "#15803d", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h3 style={{ fontFamily: "var(--font-serif)", fontSize: "1.5rem", margin: "0 0 0.5rem", color: "var(--text-primary)" }}>
+              {status === "PUBLISHED" ? "Course Published Successfully" : "Course Saved as Draft"}
             </h3>
             <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", lineHeight: 1.5, margin: "0 auto 1.75rem", maxWidth: 400 }}>
               {status === "PUBLISHED"
@@ -273,9 +299,13 @@ export default function Step9ReviewPublish({
                 target="_blank"
                 rel="noreferrer"
                 className={styles.secondaryActionBtn}
-                style={{ padding: "0.75rem 1.25rem" }}
+                style={{ padding: "0.75rem 1.25rem", display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
               >
-                👁 View in LMS
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                View in LMS
               </a>
               <button
                 type="button"

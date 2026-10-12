@@ -42,25 +42,34 @@
 }
 
 .primaryCreateBtn {
-  background: var(--text-primary, #14110f);
+  background: var(--accent-primary, #c97a1e);
   color: #ffffff;
-  border: none;
-  border-radius: 12px;
-  padding: 0.75rem 1.4rem;
-  font-size: 0.9rem;
+  border: 1px solid var(--accent-primary, #c97a1e);
+  border-radius: 8px;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.85rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 8px rgba(20, 17, 15, 0.12);
+  text-decoration: none;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(20, 17, 15, 0.05);
 }
 
 .primaryCreateBtn:hover {
-  background: var(--accent-primary, #c97a1e);
+  background: var(--accent-primary-hover, #b86d17);
+  border-color: var(--accent-primary-hover, #b86d17);
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(201, 122, 30, 0.25);
+  box-shadow: 0 4px 12px rgba(201, 122, 30, 0.22);
+}
+
+.primaryCreateBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Quick Metrics Bar */
@@ -149,7 +158,7 @@
   background: var(--bg-main, #faf6f0);
   border: 1px solid var(--border-light, #ece4d7);
   border-radius: 10px;
-  padding: 0.65rem 3rem 0.65rem 2.5rem;
+  padding: 0.65rem 3.8rem 0.65rem 2.5rem;
   font-size: 0.88rem;
   color: var(--text-primary, #14110f);
   outline: none;
@@ -291,6 +300,23 @@
   height: 100%;
   object-fit: cover;
   opacity: 0.85;
+}
+
+.cardMediaFallback {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f7efe6 0%, #ebe0d0 100%);
+  color: var(--accent-primary, #c97a1e);
+}
+
+.fallbackIcon {
+  opacity: 0.35;
 }
 
 .cardMediaOverlay {

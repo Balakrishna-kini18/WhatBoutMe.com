@@ -34,7 +34,13 @@ export default function CurriculumStepper({
               : ""
           }`}
         >
-          {isPhase1Done && currentPhase !== 1 ? "✓" : "1"}
+          {isPhase1Done && currentPhase !== 1 ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            "1"
+          )}
         </div>
         <span
           className={`${styles.stepLabel} ${
@@ -72,7 +78,13 @@ export default function CurriculumStepper({
               : ""
           }`}
         >
-          {isPhase2Done && currentPhase !== 2 ? "✓" : "2"}
+          {isPhase2Done && currentPhase !== 2 ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            "2"
+          )}
         </div>
         <span
           className={`${styles.stepLabel} ${

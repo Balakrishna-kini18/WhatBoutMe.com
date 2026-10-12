@@ -215,7 +215,13 @@ export default function Step6AddVideoLesson({
           {/* Left Column: Video Dropzone & Preview */}
           <div>
             <label className={styles.uploadCardArea}>
-              <div className={styles.uploadCloudIcon}>☁</div>
+              <div className={styles.uploadCloudIcon} style={{ color: "var(--accent-primary)" }}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </div>
               <h3 className={styles.uploadTitle}>
                 {selectedFile ? selectedFile.name : "Upload Video Lecture"}
               </h3>
@@ -330,7 +336,7 @@ export default function Step6AddVideoLesson({
             disabled={isSaving}
             className={styles.btnPrimary}
           >
-            {isSaving ? "Saving Lesson..." : "Save Lesson ✓"}
+            {isSaving ? "Saving Lesson..." : "Save Lesson"}
           </button>
         </div>
       </form>

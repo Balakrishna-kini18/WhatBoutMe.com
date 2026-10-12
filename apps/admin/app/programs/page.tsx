@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
 import { uploadFile } from "../lib/api";
+import { CustomSelect, ActionMenu } from "../components";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -30,12 +31,23 @@ interface Program {
 const slugify = (text: string) =>
   text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
 
+const getCourseImageUrl = (rawUrl?: string | null): string => {
+  if (!rawUrl) return "";
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("/")) {
+    return trimmed;
+  }
+  return `/${trimmed}`;
+};
+
 export default function ProgramsPage() {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   // Search & Filtering
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,7 +58,6 @@ export default function ProgramsPage() {
   // Modals & Menus
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
 
   // Form states
   const [title, setTitle] = useState("");
@@ -63,15 +74,41 @@ export default function ProgramsPage() {
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [searchShortcut, setSearchShortcut] = useState("Ctrl K");
 
   useEffect(() => {
     fetchPrograms();
+    if (typeof window !== "undefined") {
+      const isMac =
+        /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
+        /Macintosh|Mac OS X/.test(navigator.userAgent);
+      if (isMac) {
+        setSearchShortcut("⌘K");
+      }
+    }
   }, []);
 
-  // Keyboard shortcut listener for quick search (⌘K or /)
+  // Lock background scroll and listen for Escape key when modal is open
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isModalOpen]);
+
+  // Keyboard shortcut listener for quick search (⌘K / Ctrl K or /)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         searchInputRef.current?.focus();
       } else if (e.key === "/" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) {
@@ -97,10 +134,6 @@ export default function ProgramsPage() {
     }
   };
 
-  const toggleDropdown = (id: string) => {
-    setActiveDropdown(activeDropdown === id ? null : id);
-  };
-
   const openEditModal = (prog: Program) => {
     const info = parseCourseInfo(prog.description);
     setEditingProgramId(prog.id);
@@ -117,7 +150,6 @@ export default function ProgramsPage() {
     setPoints(info.points.join("\n"));
     setFormError("");
     setIsModalOpen(true);
-    setActiveDropdown(null);
   };
 
   const openCreateModal = () => {
@@ -135,7 +167,6 @@ export default function ProgramsPage() {
     setPoints("");
     setFormError("");
     setIsModalOpen(true);
-    setActiveDropdown(null);
   };
 
   const handleDeleteProgram = async (id: string) => {
@@ -153,7 +184,6 @@ export default function ProgramsPage() {
     } catch (e) {
       console.error("Failed to delete program", e);
     }
-    setActiveDropdown(null);
   };
 
   const handleSaveProgram = async (e: FormEvent) => {
@@ -249,8 +279,21 @@ export default function ProgramsPage() {
         </div>
 
         <div className={pstyles.headerActions}>
-          <button className={pstyles.primaryCreateBtn} onClick={openCreateModal}>
-            <span>+</span>
+          <button className={styles.primaryBtn} onClick={openCreateModal}>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
             <span>New Course Track</span>
           </button>
         </div>
@@ -259,7 +302,12 @@ export default function ProgramsPage() {
       {/* 2. Quick Metrics Bar */}
       <div className={pstyles.metricsGrid}>
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>🎓</div>
+          <div className={pstyles.metricIcon}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+          </div>
           <div className={pstyles.metricInfo}>
             <span className={pstyles.metricValue}>{totalPrograms}</span>
             <span className={pstyles.metricLabel}>Total Courses</span>
@@ -267,7 +315,12 @@ export default function ProgramsPage() {
         </div>
 
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>✨</div>
+          <div className={pstyles.metricIcon}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </div>
           <div className={pstyles.metricInfo}>
             <span className={pstyles.metricValue}>{activeProgramsCount}</span>
             <span className={pstyles.metricLabel}>Active &amp; Published</span>
@@ -275,7 +328,13 @@ export default function ProgramsPage() {
         </div>
 
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>📑</div>
+          <div className={pstyles.metricIcon}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+          </div>
           <div className={pstyles.metricInfo}>
             <span className={pstyles.metricValue}>{totalStepsCount}</span>
             <span className={pstyles.metricLabel}>Total Modules</span>
@@ -283,7 +342,12 @@ export default function ProgramsPage() {
         </div>
 
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>🏷️</div>
+          <div className={pstyles.metricIcon}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="1" x2="12" y2="23" />
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+            </svg>
+          </div>
           <div className={pstyles.metricInfo}>
             <span className={pstyles.metricValue}>${avgPrice}</span>
             <span className={pstyles.metricLabel}>Avg Course Price</span>
@@ -294,7 +358,12 @@ export default function ProgramsPage() {
       {/* 3. Search & Control Bar */}
       <div className={pstyles.controlBar}>
         <div className={pstyles.searchWrap}>
-          <span className={pstyles.searchIcon}>🔍</span>
+          <span className={pstyles.searchIcon} aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
           <input
             ref={searchInputRef}
             type="text"
@@ -303,7 +372,7 @@ export default function ProgramsPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <span className={pstyles.shortcutBadge}>⌘K</span>
+          <span className={pstyles.shortcutBadge}>{searchShortcut}</span>
         </div>
 
         <div className={pstyles.filtersGroup}>
@@ -350,16 +419,27 @@ export default function ProgramsPage() {
               className={`${pstyles.viewModeBtn} ${viewMode === "grid" ? pstyles.viewModeBtnActive : ""}`}
               onClick={() => setViewMode("grid")}
               title="Grid cards view"
+              aria-label="Grid cards view"
             >
-              ⊞
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+              </svg>
             </button>
             <button
               type="button"
               className={`${pstyles.viewModeBtn} ${viewMode === "table" ? pstyles.viewModeBtnActive : ""}`}
               onClick={() => setViewMode("table")}
               title="Dense table view"
+              aria-label="Dense table view"
             >
-              ☰
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
             </button>
           </div>
         </div>
@@ -369,20 +449,29 @@ export default function ProgramsPage() {
       {isLoading ? (
         <div className={pstyles.cardsGrid}>
           {[1, 2, 3, 4, 5, 6].map((idx) => (
-            <div key={idx} className="skeleton" style={{ height: 320, borderRadius: 20 }} />
+            <div key={idx} className="skeleton" style={{ height: 320, borderRadius: 12 }} />
           ))}
         </div>
       ) : filteredPrograms.length === 0 ? (
         <div className={pstyles.emptyState}>
-          <div className={pstyles.emptyIcon}>📚</div>
+          <div className={pstyles.emptyIcon}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+          </div>
           <h3 className={pstyles.emptyTitle}>No matching programs found</h3>
           <p className={pstyles.emptyDesc}>
             {searchQuery
               ? `No curriculum matches "${searchQuery}". Try adjusting your search query or filters.`
               : "Start by authoring your first luxury learning curriculum track."}
           </p>
-          <button className={pstyles.primaryCreateBtn} onClick={openCreateModal}>
-            + Create New Course
+          <button className={styles.primaryBtn} onClick={openCreateModal}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Create New Course</span>
           </button>
         </div>
       ) : viewMode === "grid" ? (
@@ -393,9 +482,33 @@ export default function ProgramsPage() {
               <div key={prog.id} className={pstyles.programCard}>
                 {/* Visual Banner Header */}
                 <div className={pstyles.cardMediaHeader}>
-                  {info.image && (
+                  {info.image && !failedImages[prog.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={info.image} alt={prog.title} className={pstyles.cardMediaImage} />
+                    <img
+                      src={getCourseImageUrl(info.image)}
+                      alt={prog.title}
+                      className={pstyles.cardMediaImage}
+                      onError={() =>
+                        setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
+                      }
+                    />
+                  ) : (
+                    <div className={pstyles.cardMediaFallback} aria-hidden="true">
+                      <svg
+                        width="38"
+                        height="38"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={pstyles.fallbackIcon}
+                      >
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                      </svg>
+                    </div>
                   )}
                   <div className={pstyles.cardMediaOverlay} />
 
@@ -439,49 +552,61 @@ export default function ProgramsPage() {
                   <div className={pstyles.cardActions}>
                     <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn}>
                       <span>Open Curriculum Studio</span>
-                      <span>&rarr;</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                        <polyline points="12 5 19 12 12 19" />
+                      </svg>
                     </Link>
 
-                    <button
-                      type="button"
-                      className={pstyles.iconMenuBtn}
-                      onClick={() => toggleDropdown(prog.id)}
-                      title="More Actions"
-                    >
-                      •••
-                    </button>
+                    <ActionMenu
+                      ariaLabel={`More actions for ${prog.title}`}
+                      items={[
+                        {
+                          label: "Open Studio",
+                          href: `/programs/${prog.id}`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Edit Settings",
+                          onClick: () => openEditModal(prog),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Preview on LMS",
+                          href: `http://localhost:3000/programs/${prog.id}/steps`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                              <polyline points="15 3 21 3 21 9" />
+                              <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Delete Track",
+                          danger: true,
+                          dividerAbove: true,
+                          onClick: () => handleDeleteProgram(prog.id),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          ),
+                        },
+                      ]}
+                    />
                   </div>
-
-                  {/* Dropdown Menu */}
-                  {activeDropdown === prog.id && (
-                    <div className={pstyles.actionDropdown}>
-                      <Link href={`/programs/${prog.id}`} className={pstyles.dropdownItem}>
-                        <span>🛠 Open Studio</span>
-                      </Link>
-                      <button
-                        type="button"
-                        className={pstyles.dropdownItem}
-                        onClick={() => openEditModal(prog)}
-                      >
-                        <span>⚙ Edit Settings</span>
-                      </button>
-                      <a
-                        href={`http://localhost:3000/programs/${prog.id}/steps`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={pstyles.dropdownItem}
-                      >
-                        <span>👁 Preview on LMS</span>
-                      </a>
-                      <button
-                        type="button"
-                        className={`${pstyles.dropdownItem} ${pstyles.dropdownItemDanger}`}
-                        onClick={() => handleDeleteProgram(prog.id)}
-                      >
-                        <span>🗑 Delete Track</span>
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
             );
@@ -489,7 +614,7 @@ export default function ProgramsPage() {
         </div>
       ) : (
         /* Dense Table View */
-        <div style={{ background: "#ffffff", border: "1px solid var(--border-light)", borderRadius: 16, overflow: "hidden" }}>
+        <div style={{ background: "#ffffff", border: "1px solid var(--border-light)", borderRadius: 12, overflow: "hidden" }}>
           <table className={styles.adminTable}>
             <thead>
               <tr>
@@ -502,41 +627,129 @@ export default function ProgramsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredPrograms.map((prog) => (
-                <tr key={prog.id}>
-                  <td>
-                    <Link
-                      href={`/programs/${prog.id}`}
-                      style={{ fontWeight: 700, color: "var(--text-primary)", textDecoration: "none" }}
-                    >
-                      {prog.title}
-                    </Link>
-                  </td>
-                  <td>{parseCourseInfo(prog.description).type || "Course"}</td>
-                  <td>${prog.price}</td>
-                  <td>{prog._count?.steps ?? 0} Steps</td>
-                  <td>
-                    <span className={`${styles.statusChip} ${prog.isActive ? styles.active : styles.locked}`}>
-                      {prog.isActive ? "Published" : "Draft"}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    <div style={{ display: "inline-flex", gap: "6px" }}>
-                      <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn} style={{ padding: "0.4rem 0.8rem", fontSize: "0.8rem" }}>
-                        Studio &rarr;
-                      </Link>
-                      <button
-                        className={pstyles.iconMenuBtn}
-                        style={{ width: 32, height: 32 }}
-                        onClick={() => openEditModal(prog)}
-                        title="Edit Settings"
-                      >
-                        ⚙
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filteredPrograms.map((prog) => {
+                const info = parseCourseInfo(prog.description);
+                const imageUrl = getCourseImageUrl(info.image);
+                const hasValidImage = imageUrl && !failedImages[prog.id];
+                return (
+                  <tr key={prog.id}>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div
+                          style={{
+                            width: "38px",
+                            height: "38px",
+                            borderRadius: "8px",
+                            overflow: "hidden",
+                            background: "linear-gradient(135deg, #f5ece1 0%, #ebe0d0 100%)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            border: "1px solid rgba(223, 208, 187, 0.6)",
+                          }}
+                        >
+                          {hasValidImage ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={imageUrl}
+                              alt={prog.title}
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              onError={() =>
+                                setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
+                              }
+                            />
+                          ) : (
+                            <svg
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              style={{ color: "var(--accent-primary, #c97a1e)", opacity: 0.6 }}
+                            >
+                              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                            </svg>
+                          )}
+                        </div>
+                        <Link
+                          href={`/programs/${prog.id}`}
+                          style={{ fontWeight: 600, color: "var(--text-primary)", textDecoration: "none" }}
+                        >
+                          {prog.title}
+                        </Link>
+                      </div>
+                    </td>
+                    <td>{info.type || "Course"}</td>
+                    <td>${prog.price}</td>
+                    <td>{prog._count?.steps ?? 0} Steps</td>
+                    <td>
+                      <span className={`${styles.statusChip} ${prog.isActive ? styles.active : styles.locked}`}>
+                        {prog.isActive ? "Published" : "Draft"}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                        <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn} style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}>
+                          Studio &rarr;
+                        </Link>
+                        <ActionMenu
+                          ariaLabel={`Actions for ${prog.title}`}
+                          items={[
+                            {
+                              label: "Open Studio",
+                              href: `/programs/${prog.id}`,
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                </svg>
+                              ),
+                            },
+                            {
+                              label: "Edit Settings",
+                              onClick: () => openEditModal(prog),
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="3" />
+                                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                                </svg>
+                              ),
+                            },
+                            {
+                              label: "Preview on LMS",
+                              href: `http://localhost:3000/programs/${prog.id}/steps`,
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                  <polyline points="15 3 21 3 21 9" />
+                                  <line x1="10" y1="14" x2="21" y2="3" />
+                                </svg>
+                              ),
+                            },
+                            {
+                              label: "Delete Track",
+                              danger: true,
+                              dividerAbove: true,
+                              onClick: () => handleDeleteProgram(prog.id),
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                              ),
+                            },
+                          ]}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -547,140 +760,205 @@ export default function ProgramsPage() {
         <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
           <div
             className={styles.modalContent}
-            style={{ maxWidth: "680px", maxHeight: "90vh", overflowY: "auto" }}
+            style={{ maxWidth: "740px" }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="program-modal-title"
           >
             <div className={styles.modalHeader}>
               <div>
-                <h2>{editingProgramId ? "Edit Course Settings" : "Create New Program Track"}</h2>
-                <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                <h2 id="program-modal-title">
+                  {editingProgramId ? "Edit Course Settings" : "Create New Program Track"}
+                </h2>
+                <p className={styles.modalIntro}>
                   Step 1 captures catalog metadata. The Curriculum Studio allows authoring videos, PDFs, and quizzes inline.
                 </p>
               </div>
-              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setIsModalOpen(false)}
+                aria-label="Close dialog"
+              >
                 ×
               </button>
             </div>
 
-            <form className={styles.modalForm} onSubmit={handleSaveProgram}>
-              <div className={styles.formGroup}>
-                <label>Program Title</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 11 Steps to U Certification"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formRow}>
+            <form
+              onSubmit={handleSaveProgram}
+              style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}
+            >
+              <div className={styles.modalBody}>
                 <div className={styles.formGroup}>
-                  <label>Curriculum Type</label>
-                  <select value={type} onChange={(e) => setType(e.target.value)}>
-                    <option>Certification</option>
-                    <option>Corporate</option>
-                    <option>Single Session</option>
-                  </select>
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Tuition / Price (USD)</label>
-                  <input
-                    type="number"
-                    placeholder="1999"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>Course Overview &amp; Summary</label>
-                <textarea
-                  rows={3}
-                  placeholder="A transformative leadership journey designed for executives..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label>Estimated Duration</label>
+                  <label>
+                    Program Title <span style={{ color: "var(--status-error)" }}>*</span>
+                  </label>
                   <input
                     type="text"
-                    placeholder="e.g. 12 Masterclasses"
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
+                    placeholder="e.g. 11 Steps to U Certification"
+                    required
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
                   />
                 </div>
-                <div className={styles.formGroup}>
-                  <label>Target Audience</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Leaders, Teams"
-                    value={audience}
-                    onChange={(e) => setAudience(e.target.value)}
-                  />
-                </div>
-              </div>
 
-              <div className={styles.formGroup}>
-                <label>Course Cover Image URL</label>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <input
-                    type="text"
-                    placeholder="https://... or upload an asset"
-                    value={image}
-                    onChange={(e) => setImage(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <label className={styles.secondaryBtn} style={{ cursor: "pointer", margin: 0 }}>
-                    {isUploading ? "Uploading..." : "Browse"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      style={{ display: "none" }}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setIsUploading(true);
-                        try {
-                          const url = await uploadFile(file);
-                          setImage(url);
-                        } catch (err: any) {
-                          alert(err.message || "Failed to upload image");
-                        } finally {
-                          setIsUploading(false);
-                        }
-                      }}
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>
+                      Curriculum Type <span style={{ color: "var(--status-error)" }}>*</span>
+                    </label>
+                    <CustomSelect
+                      value={type}
+                      onChange={(val) => setType(val)}
+                      options={[
+                        { value: "Certification", label: "Certification" },
+                        { value: "Corporate", label: "Corporate" },
+                        { value: "Single Session", label: "Single Session" },
+                      ]}
+                      fullWidth
+                      ariaLabel="Curriculum Type"
                     />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Tuition / Price (USD)</label>
+                    <input
+                      type="number"
+                      placeholder="1999"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Course Overview &amp; Summary</label>
+                  <textarea
+                    rows={3}
+                    placeholder="A transformative leadership journey designed for executives..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Estimated Duration</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 12 Masterclasses"
+                      value={duration}
+                      onChange={(e) => setDuration(e.target.value)}
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Target Audience</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Leaders, Teams"
+                      value={audience}
+                      onChange={(e) => setAudience(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Course Cover Image</label>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      placeholder="https://... or upload an asset"
+                      value={image}
+                      onChange={(e) => setImage(e.target.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <label
+                      className={styles.secondaryBtn}
+                      style={{ cursor: "pointer", margin: 0, padding: "0.55rem 1rem", fontSize: "0.85rem" }}
+                    >
+                      {isUploading ? "Uploading..." : "Browse"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setIsUploading(true);
+                          try {
+                            const url = await uploadFile(file);
+                            setImage(url);
+                          } catch (err: any) {
+                            alert(err.message || "Failed to upload image");
+                          } finally {
+                            setIsUploading(false);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {image && (
+                    <div
+                      style={{
+                        marginTop: "8px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "8px 12px",
+                        background: "var(--bg-soft)",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-light)",
+                      }}
+                    >
+                      <img
+                        src={getCourseImageUrl(image)}
+                        alt="Preview"
+                        style={{ width: "48px", height: "36px", objectFit: "cover", borderRadius: "4px" }}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: "0.78rem",
+                          color: "var(--text-secondary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Preview: {image}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Core Learning Objectives (one per line)</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Master strategic emotional regulation&#10;Lead with ethical resilience&#10;Build self-sustaining team trust"
+                    value={points}
+                    onChange={(e) => setPoints(e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={isActive}
+                      onChange={(e) => setIsActive(e.target.checked)}
+                      style={{ accentColor: "var(--accent-primary)" }}
+                    />
+                    <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>
+                      Publish to Learner Catalog immediately
+                    </span>
                   </label>
                 </div>
-              </div>
 
-              <div className={styles.formGroup}>
-                <label>Core Learning Objectives (one per line)</label>
-                <textarea
-                  rows={3}
-                  placeholder="Master strategic emotional regulation&#10;Lead with ethical resilience&#10;Build self-sustaining team trust"
-                  value={points}
-                  onChange={(e) => setPoints(e.target.value)}
-                />
+                {formError && <p className={styles.formError}>{formError}</p>}
               </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={isActive}
-                    onChange={(e) => setIsActive(e.target.checked)}
-                  />
-                  <span style={{ fontWeight: 600 }}>Publish to Learner Catalog immediately</span>
-                </label>
-              </div>
-
-              {formError && <p className={styles.formError}>{formError}</p>}
 
               <div className={styles.modalFooter}>
                 <button

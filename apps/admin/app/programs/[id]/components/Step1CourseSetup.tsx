@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import styles from "../curriculum.module.css";
 import { uploadFile } from "../../../lib/api";
+import { CustomSelect } from "../../../components";
+import { parseCourseInfo } from "../../courseInfo";
 
 interface Step1CourseSetupProps {
   programData: any;
@@ -24,13 +26,20 @@ export default function Step1CourseSetup({
   onSaveAndContinue,
   isSaving,
 }: Step1CourseSetupProps) {
+  const courseInfo = parseCourseInfo(programData?.description);
+  const rawInitialThumb = programData?.thumbnailUrl || courseInfo.image || "";
+  const initialThumb =
+    rawInitialThumb.startsWith("http://") || rawInitialThumb.startsWith("https://") || rawInitialThumb.startsWith("/")
+      ? rawInitialThumb
+      : rawInitialThumb ? `/${rawInitialThumb}` : "";
+
   const [title, setTitle] = useState(programData?.title || "");
   const [description, setDescription] = useState(programData?.description || "");
   const [shortDescription, setShortDescription] = useState(
-    programData?.shortDescription || programData?.description?.slice(0, 120) || ""
+    programData?.shortDescription || courseInfo.summary?.slice(0, 120) || programData?.description?.slice(0, 120) || ""
   );
-  const [thumbnailUrl, setThumbnailUrl] = useState(programData?.thumbnailUrl || "");
-  const [category, setCategory] = useState(programData?.category || "Leadership & Mindset");
+  const [thumbnailUrl, setThumbnailUrl] = useState(initialThumb);
+  const [category, setCategory] = useState(programData?.category || courseInfo.type || "Leadership & Mindset");
   const [level, setLevel] = useState(programData?.level || "Beginner");
   const [price, setPrice] = useState<number>(programData?.price ?? 1999);
   const [hasCertificate, setHasCertificate] = useState(programData?.hasCertificate ?? true);
@@ -182,7 +191,12 @@ export default function Step1CourseSetup({
                 {thumbnailUrl ? (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={thumbnailUrl} alt="Course Cover Preview" className={styles.coverPreviewImg} />
+                    <img
+                      src={thumbnailUrl}
+                      alt="Course Cover Preview"
+                      className={styles.coverPreviewImg}
+                      onError={() => setThumbnailUrl("")}
+                    />
                     <div className={styles.coverOverlay}>Click to Replace Image</div>
                   </>
                 ) : (
@@ -205,31 +219,35 @@ export default function Step1CourseSetup({
 
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Category</label>
-              <select
+              <CustomSelect
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className={styles.formSelect}
-              >
-                <option value="Leadership & Mindset">Leadership &amp; Mindset</option>
-                <option value="Web Development">Web Development</option>
-                <option value="UI/UX & Product Design">UI/UX &amp; Product Design</option>
-                <option value="Business Strategy">Business Strategy</option>
-                <option value="Personal Growth">Personal Growth</option>
-              </select>
+                onChange={setCategory}
+                fullWidth
+                ariaLabel="Select Category"
+                options={[
+                  { value: "Leadership & Mindset", label: "Leadership & Mindset" },
+                  { value: "Web Development", label: "Web Development" },
+                  { value: "UI/UX & Product Design", label: "UI/UX & Product Design" },
+                  { value: "Business Strategy", label: "Business Strategy" },
+                  { value: "Personal Growth", label: "Personal Growth" },
+                ]}
+              />
             </div>
 
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Skill Level</label>
-              <select
+              <CustomSelect
                 value={level}
-                onChange={(e) => setLevel(e.target.value)}
-                className={styles.formSelect}
-              >
-                <option value="Beginner">Beginner</option>
-                <option value="Intermediate">Intermediate</option>
-                <option value="Advanced">Advanced</option>
-                <option value="All Levels">All Levels</option>
-              </select>
+                onChange={setLevel}
+                fullWidth
+                ariaLabel="Select Skill Level"
+                options={[
+                  { value: "Beginner", label: "Beginner" },
+                  { value: "Intermediate", label: "Intermediate" },
+                  { value: "Advanced", label: "Advanced" },
+                  { value: "All Levels", label: "All Levels" },
+                ]}
+              />
             </div>
           </div>
         </div>

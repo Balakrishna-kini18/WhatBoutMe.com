@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
+import { CustomSelect } from "../../../../../components";
 
 export default function ReconciliationPage({ params }: { params: Promise<{ id: string, sessionId: string }> }) {
   const resolvedParams = use(params);
@@ -202,18 +203,17 @@ export default function ReconciliationPage({ params }: { params: Promise<{ id: s
                 </div>
                 
                 <label>Select Enrolled Learner</label>
-                <select 
-                  required
+                <CustomSelect
                   value={resolveData.enrolmentId}
-                  onChange={(e) => setResolveData(prev => ({ ...prev, enrolmentId: e.target.value }))}
-                >
-                  <option value="">-- Choose Learner --</option>
-                  {enrolments.map(enrol => (
-                    <option key={enrol.id} value={enrol.id}>
-                      {enrol.user?.name} ({enrol.user?.email})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setResolveData(prev => ({ ...prev, enrolmentId: val }))}
+                  fullWidth
+                  ariaLabel="Select Enrolled Learner"
+                  placeholder="-- Choose Learner --"
+                  options={enrolments.map(enrol => ({
+                    value: enrol.id,
+                    label: `${enrol.user?.name || "Learner"} (${enrol.user?.email || "No email"})`,
+                  }))}
+                />
               </div>
               {resolveData.error && (
                 <p style={{ color: '#b91c1c', background: '#fef2f2', padding: '0.5rem', borderRadius: '4px' }}>

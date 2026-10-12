@@ -33,13 +33,19 @@ export default function InvoicesPage() {
           <p className={styles.subtitle}>Manage auto-generated and manual invoices.</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.primaryBtn}>+ Create Invoice</button>
+          <button className={styles.primaryBtn}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Create Invoice</span>
+          </button>
         </div>
       </header>
 
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
-          <h2>All Invoices</h2>
+          <h2>All Invoices ({invoices.length})</h2>
         </div>
         
         <div className={styles.tableWrapper}>
@@ -57,26 +63,26 @@ export default function InvoicesPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} style={{textAlign: "center", padding: "20px"}}>Loading invoices...</td>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>Loading invoices...</td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{textAlign: "center", padding: "20px"}}>No invoices found.</td>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>No invoices found.</td>
                 </tr>
               ) : invoices.map((inv) => (
                 <tr key={inv.id}>
-                  <td><span className={styles.cellText}>{inv.invoiceNumber}</span></td>
+                  <td><span className={styles.cellText} style={{ fontWeight: 600 }}>{inv.invoiceNumber}</span></td>
                   <td><span className={styles.cellUserName}>{inv.client}</span></td>
                   <td><span className={styles.cellText}>{inv.amount}</span></td>
                   <td><span className={styles.cellTextMuted}>{inv.date}</span></td>
                   <td>
-                    <span className={`${styles.statusChip} ${inv.status === 'Paid' ? styles.completed : styles.pending}`}>
+                    <span className={`${styles.statusChip} ${inv.status?.toLowerCase() === 'paid' ? styles.completed : styles.pending}`}>
                       {inv.status}
                     </span>
                   </td>
                   <td className={styles.alignRight}>
-                    <button className={styles.iconActionBtn} title="Download PDF">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{opacity: 0.6}}>
+                    <button className={styles.iconActionBtn} title="Download PDF" aria-label="Download invoice PDF">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                         <polyline points="14 2 14 8 20 8"></polyline>
                         <line x1="16" y1="13" x2="8" y2="13"></line>

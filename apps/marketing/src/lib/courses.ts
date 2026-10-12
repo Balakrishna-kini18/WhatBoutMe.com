@@ -52,26 +52,28 @@ function brochureFor(program: Program): Brochure | undefined {
 function toCourse(program: Program, index: number): Course {
   const info = parseCourseInfo(program.description);
   const brochure = brochureFor(program);
-  const cover = brochure ?? COURSES[index % COURSES.length];
+  const cover = brochure ?? (COURSES.length > 0 ? COURSES[index % COURSES.length] : undefined);
+  const image = info.image || cover?.image || "";
+  const alt = info.image ? (program.title || "Course") : (cover?.alt ?? program.title ?? "Course");
 
   return {
-    slug: program.slug,
-    title: program.title,
+    slug: program.slug || `program-${index}`,
+    title: program.title || "Untitled Course",
     category: info.type || (brochure && BROCHURE_CATEGORY[brochure.slug]) || "Course",
     duration: info.duration || brochure?.duration || info.type || "Course",
     meta: info.audience || brochure?.meta || "",
-    image: info.image || cover.image,
-    alt: info.image ? program.title : cover.alt,
+    image,
+    alt,
     flagship: brochure?.flagship ?? false,
     body: info.summary || brochure?.body || "",
     inPerson: info.inPerson || brochure?.inPerson || "",
     online: info.online || brochure?.online || "",
-    points: info.points.length ? info.points : [...(brochure?.points ?? [])],
+    points: info.points?.length ? info.points : [...(brochure?.points ?? [])],
     sections: brochure?.sections,
     gallery: brochure?.gallery,
     links: brochure?.links,
     programId: program.id,
-    price: program.price,
+    price: typeof program.price === "number" && !isNaN(program.price) ? program.price : undefined,
   };
 }
 
@@ -79,9 +81,8 @@ function toCourse(program: Program, index: number): Course {
 export const MIN_COURSES = 4;
 
 /**
- * Courses shown on the website: the active programs managed in the admin
- * portal. If there are fewer than MIN_COURSES (or the API is unreachable), the
- * list is topped up with brochure courses that are not already covered.
+ * Courses shown on the website: the active programs managed dynamically
+ * in the database via the admin portal.
  */
 // The API rate-limits requests, so programs are fetched at most once every
 // REFRESH_MS and the last good answer is reused if a later fetch fails.
@@ -115,9 +116,14 @@ async function fetchActivePrograms(): Promise<Program[]> {
       signal: AbortSignal.timeout(4000),
     });
     if (res.ok) {
-      const programs = ((await res.json()) as Program[]).filter((p) => p.isActive);
-      cached = { programs, at: Date.now() };
-      return programs;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const programs = data.filter(
+          (p): p is Program => Boolean(p && typeof p === "object" && p.isActive && p.slug)
+        );
+        cached = { programs, at: Date.now() };
+        return programs;
+      }
     }
   } catch {
     // API offline: fall through
@@ -127,25 +133,15 @@ async function fetchActivePrograms(): Promise<Program[]> {
 }
 
 /**
- * Every course on the website: the four from whatboutme.com first (each
- * taking its price, enrol link and any edited details from a matching admin
- * program), followed by the admin programs that have no match.
+ * Courses shown on the website: dynamically fetched from active programs
+ * managed in the backend database.
  */
 export async function getCourses(): Promise<Course[]> {
   const programs = await getActivePrograms();
-  const apiCourses = programs.map((program, index) => toCourse(program, index));
-  if (apiCourses.length >= MIN_COURSES) {
-    return apiCourses;
-  }
-  const existingSlugs = new Set(apiCourses.map((c) => c.slug));
-  const brochureCourses: Course[] = COURSES
-    .filter((b) => !existingSlugs.has(b.slug))
-    .map((b) => ({
-      ...b,
-      category: BROCHURE_CATEGORY[b.slug] || "Course",
-      points: [...b.points],
-    }));
-  return [...apiCourses, ...brochureCourses];
+  const validPrograms = (Array.isArray(programs) ? programs : []).filter(
+    (p): p is Program => Boolean(p && typeof p === "object" && p.slug && p.title)
+  );
+  return validPrograms.map((program, index) => toCourse(program, index));
 }
 
 export const enrolUrl = (programId: string) =>

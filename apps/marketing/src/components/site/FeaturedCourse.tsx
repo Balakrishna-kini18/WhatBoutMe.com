@@ -6,11 +6,13 @@ import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
 
 /** Banner at the top of the courses page. */
 export default function FeaturedCourse({ course }: { course?: Course }) {
-  if (!course) return null;
+  if (!course || !course.slug) return null;
   const facts = [
     course.duration,
     course.meta,
-    course.price ? formatPrice(course.price) : "",
+    typeof course.price === "number" && !isNaN(course.price) && course.price > 0
+      ? formatPrice(course.price)
+      : "",
   ].filter(Boolean);
 
   return (
@@ -19,20 +21,24 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
         <h2 className="text-2xl font-bold sm:text-3xl leading-[1.1] tracking-tight md:text-[2.75rem]">
           {course.title}
         </h2>
-        <p className="mt-4 line-clamp-3 max-w-xl leading-relaxed text-cream/70 md:text-lg">
-          {course.body}
-        </p>
+        {course.body && (
+          <p className="mt-4 line-clamp-3 max-w-xl leading-relaxed text-cream/70 md:text-lg">
+            {course.body}
+          </p>
+        )}
 
-        <ul className="mt-6 flex flex-wrap gap-2">
-          {facts.map((fact) => (
-            <li
-              key={fact}
-              className="rounded-full border border-cream/20 px-4 py-1.5 text-sm text-cream/85"
-            >
-              {fact}
-            </li>
-          ))}
-        </ul>
+        {facts.length > 0 && (
+          <ul className="mt-6 flex flex-wrap gap-2">
+            {facts.map((fact) => (
+              <li
+                key={fact}
+                className="rounded-full border border-cream/20 px-4 py-1.5 text-sm text-cream/85"
+              >
+                {fact}
+              </li>
+            ))}
+          </ul>
+        )}
 
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -54,15 +60,17 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
       </div>
 
       <div className="relative min-h-64 lg:min-h-full">
-        <Image
-          src={course.image}
-          alt={course.alt}
-          fill
-          priority
-          unoptimized={!isOptimisable(course.image)}
-          sizes="(max-width: 1024px) 100vw, 620px"
-          className="object-cover"
-        />
+        {course.image && (
+          <Image
+            src={course.image}
+            alt={course.alt || course.title || "Featured course"}
+            fill
+            priority
+            unoptimized={!isOptimisable(course.image)}
+            sizes="(max-width: 1024px) 100vw, 620px"
+            className="object-cover"
+          />
+        )}
       </div>
     </div>
   );

@@ -200,8 +200,12 @@ export default function MessagesPage() {
                     }
                   }}
                 />
-                <button type="submit" className={styles.send} disabled={sending || !draft.trim()}>
-                  {sending ? "Sending..." : "Send"}
+                <button type="submit" className={styles.send} disabled={sending || !draft.trim()} style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                  <span>{sending ? "Sending..." : "Send"}</span>
                 </button>
               </form>
             </>

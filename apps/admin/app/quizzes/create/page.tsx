@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { API_URL, errorMessage } from "../../lib/api";
+import { CustomSelect } from "../../components";
 
 function QuizForm() {
   const router = useRouter();
@@ -98,6 +99,18 @@ function QuizForm() {
     const newQ = [...questions];
     if (newQ[qIndex]) newQ[qIndex].options.push({ text: "", isCorrect: false });
     setQuestions(newQ);
+  };
+
+  const removeOption = (qIndex: number, oIndex: number) => {
+    const newQ = [...questions];
+    if (newQ[qIndex] && newQ[qIndex].options.length > 2) {
+      const removedWasCorrect = newQ[qIndex].options[oIndex]?.isCorrect;
+      newQ[qIndex].options.splice(oIndex, 1);
+      if (removedWasCorrect && newQ[qIndex].options[0]) {
+        newQ[qIndex].options[0].isCorrect = true;
+      }
+      setQuestions(newQ);
+    }
   };
 
   const updateOptionText = (qIndex: number, oIndex: number, text: string) => {
@@ -198,14 +211,18 @@ function QuizForm() {
 
   return (
     <div className={styles.dashboard}>
+      <div style={{ marginBottom: "0.25rem" }}>
+        <Link href="/quizzes" className={styles.backLink}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Back to Quizzes</span>
+        </Link>
+      </div>
+
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-            <Link href="/quizzes" style={{ textDecoration: "none", color: "var(--primary)", fontSize: "1.2rem" }}>
-              ← Back
-            </Link>
-            <h1 className={styles.title}>Create Assessment (Quiz)</h1>
-          </div>
+          <h1 className={styles.title}>Create Assessment (Quiz)</h1>
           <p className={styles.subtitle}>
             Build step knowledge checks with customizable passing criteria, cooldown timers, and question banks.
           </p>
@@ -213,96 +230,152 @@ function QuizForm() {
       </header>
 
       {formError && (
-        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1.5rem" }}>
-          ⚠️ {formError}
+        <div className={styles.alertError}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>{formError}</span>
         </div>
       )}
 
       <form onSubmit={handleSubmit} className={styles.quizFormCard}>
-        <div className={styles.formRow}>
-          <div className={styles.formGroup} style={{ flex: 1.5 }}>
-            <label>Select Program</label>
-            <select
-              value={selectedProgramId}
-              onChange={(e) => {
-                setSelectedProgramId(e.target.value);
-                setSelectedStepId("");
-              }}
-              required
-            >
-              <option value="">Select a program...</option>
-              {programs.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className={styles.formGroup} style={{ flex: 1.5 }}>
-            <label>Link to Step / Lesson</label>
-            <select
-              value={selectedStepId}
-              onChange={(e) => setSelectedStepId(e.target.value)}
-              required
-              disabled={!selectedProgramId}
-            >
-              <option value="">
-                {selectedProgramId ? "Select a step..." : "Select program first"}
-              </option>
-              {steps.map((s) => (
-                <option key={s.id} value={s.id}>
-                  Step {s.sequence}: {s.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className={styles.formGroup} style={{ maxWidth: "160px" }}>
-            <label>Passing Score (%)</label>
-            <input
-              type="number"
-              min="1"
-              max="100"
-              value={passMark}
-              onChange={(e) => setPassMark(parseInt(e.target.value, 10) || 75)}
-              required
-            />
-          </div>
-          <div className={styles.formGroup} style={{ maxWidth: "140px" }}>
-            <label>Max Retries</label>
-            <input
-              type="number"
-              min="1"
-              value={maxAttempts}
-              onChange={(e) => setMaxAttempts(parseInt(e.target.value, 10) || 3)}
-              required
-            />
-          </div>
-          <div className={styles.formGroup} style={{ maxWidth: "150px" }}>
-            <label>Cooldown (Hours)</label>
-            <input
-              type="number"
-              min="0"
-              value={cooldownHours}
-              onChange={(e) => setCooldownHours(parseInt(e.target.value, 10) || 0)}
-              required
-            />
+        {/* SECTION 1: CURRICULUM TARGET */}
+        <div style={{ marginBottom: "1.75rem" }}>
+          <h2 className={styles.quizSectionTitle} style={{ marginBottom: "0.35rem" }}>Curriculum Target</h2>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 1rem 0" }}>
+            Assign this quiz to a specific program track and curriculum step.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
+            <div className={styles.formGroup}>
+              <label>Select Program <span style={{ color: "#ef4444" }}>*</span></label>
+              <CustomSelect
+                value={selectedProgramId}
+                onChange={(val) => {
+                  setSelectedProgramId(val);
+                  setSelectedStepId("");
+                }}
+                fullWidth
+                ariaLabel="Select Program"
+                placeholder="Select a program..."
+                options={programs.map((p) => ({
+                  value: p.id,
+                  label: p.title,
+                }))}
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Link to Step / Lesson <span style={{ color: "#ef4444" }}>*</span></label>
+              <CustomSelect
+                value={selectedStepId}
+                onChange={setSelectedStepId}
+                fullWidth
+                ariaLabel="Link to Step or Lesson"
+                placeholder={selectedProgramId ? "Select a step..." : "Select program first"}
+                disabled={!selectedProgramId}
+                options={steps.map((s) => ({
+                  value: s.id,
+                  label: `Step ${s.sequence}: ${s.title}`,
+                }))}
+              />
+            </div>
           </div>
         </div>
 
-        <div style={{ marginTop: "2.5rem" }}>
-          <h2 className={styles.quizSectionTitle}>Initial Questions</h2>
+        {/* SECTION 2: ASSESSMENT RULES */}
+        <div style={{ marginBottom: "2rem", borderTop: "1px solid var(--border-light)", paddingTop: "1.5rem" }}>
+          <h2 className={styles.quizSectionTitle} style={{ marginBottom: "0.35rem" }}>Assessment Rules</h2>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 1rem 0" }}>
+            Configure passing threshold, attempt limits, cooldown lockouts, and randomized pooling.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "1rem" }}>
+            <div className={styles.formGroup}>
+              <label>Passing Score (%) <span style={{ color: "#ef4444" }}>*</span></label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={passMark}
+                onChange={(e) => setPassMark(parseInt(e.target.value, 10) || 75)}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Max Retries <span style={{ color: "#ef4444" }}>*</span></label>
+              <input
+                type="number"
+                min="1"
+                value={maxAttempts}
+                onChange={(e) => setMaxAttempts(parseInt(e.target.value, 10) || 3)}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Cooldown (Hours) <span style={{ color: "#ef4444" }}>*</span></label>
+              <input
+                type="number"
+                min="0"
+                value={cooldownHours}
+                onChange={(e) => setCooldownHours(parseInt(e.target.value, 10) || 0)}
+                required
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Question Pool Size</label>
+              <input
+                type="number"
+                min="1"
+                placeholder="All questions"
+                value={questionPoolSize}
+                onChange={(e) => setQuestionPoolSize(e.target.value === "" ? "" : Number(e.target.value))}
+              />
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                Optional: Randomly sampled subset
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION 3: AUTHORED QUESTIONS */}
+        <div style={{ borderTop: "1px solid var(--border-light)", paddingTop: "1.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+            <div>
+              <h2 className={styles.quizSectionTitle} style={{ margin: 0 }}>Authored Questions</h2>
+              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0.25rem 0 0 0" }}>
+                Draft initial questions for the quiz pool. Radio buttons mark the correct answers.
+              </p>
+            </div>
+          </div>
 
           {questions.map((q, qIdx) => (
-            <div key={qIdx} className={styles.questionCard}>
+            <div key={qIdx} className={styles.questionCard} style={{ marginTop: "1rem" }}>
               <div className={styles.questionHeader}>
-                <h3>Question {qIdx + 1}</h3>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span style={{
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    background: "var(--accent-highlight)",
+                    color: "var(--accent-primary)",
+                    padding: "0.15rem 0.5rem",
+                    borderRadius: "4px"
+                  }}>
+                    Q{qIdx + 1}
+                  </span>
+                  <h3 style={{ margin: 0 }}>Question Prompt</h3>
+                </div>
                 {questions.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeQuestion(qIdx)}
                     className={styles.removeBtn}
+                    aria-label={`Remove question ${qIdx + 1}`}
                   >
-                    Remove
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                    <span>Remove Question</span>
                   </button>
                 )}
               </div>
@@ -310,25 +383,25 @@ function QuizForm() {
               <div className={styles.formGroup}>
                 <input
                   type="text"
-                  placeholder="Enter question prompt..."
+                  placeholder="Enter question prompt (e.g. Which tool fosters resilience in Step 3?)..."
                   value={q.text}
                   onChange={(e) => updateQuestionText(qIdx, e.target.value)}
                   required
                 />
               </div>
 
-              <div style={{ marginTop: "1.5rem" }}>
+              <div style={{ marginTop: "1.25rem" }}>
                 <p
                   style={{
                     fontSize: "0.75rem",
                     fontWeight: 700,
                     color: "var(--text-secondary)",
-                    marginBottom: "0.75rem",
+                    marginBottom: "0.5rem",
                     textTransform: "uppercase",
                     letterSpacing: "0.05em",
                   }}
                 >
-                  Options (Radio marks correct answer)
+                  Answer Options (Select the correct option)
                 </p>
                 {q.options.map((opt, oIdx) => (
                   <div key={oIdx} className={styles.optionRow}>
@@ -338,7 +411,8 @@ function QuizForm() {
                       checked={opt.isCorrect}
                       onChange={() => setCorrectOption(qIdx, oIdx)}
                       className={styles.optionRadio}
-                      title="Correct option"
+                      title="Mark as correct option"
+                      aria-label={`Mark option ${oIdx + 1} as correct`}
                     />
                     <input
                       type="text"
@@ -348,6 +422,20 @@ function QuizForm() {
                       className={styles.optionInput}
                       required
                     />
+                    {q.options.length > 2 && (
+                      <button
+                        type="button"
+                        onClick={() => removeOption(qIdx, oIdx)}
+                        className={styles.removeOptionBtn}
+                        title="Remove option"
+                        aria-label={`Remove option ${oIdx + 1}`}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 ))}
                 <button
@@ -355,18 +443,26 @@ function QuizForm() {
                   onClick={() => addOption(qIdx)}
                   className={styles.addOptionBtn}
                 >
-                  + Add Option
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span>Add Option</span>
                 </button>
               </div>
             </div>
           ))}
 
           <button type="button" onClick={addQuestion} className={styles.dashedAddBtn}>
-            + Add New Question
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Add New Question</span>
           </button>
         </div>
 
-        <div className={styles.modalFooter} style={{ marginTop: "3rem" }}>
+        <div className={styles.modalFooter} style={{ marginTop: "2.5rem", borderTop: "1px solid var(--border-light)", paddingTop: "1.25rem" }}>
           <button
             type="button"
             className={styles.secondaryBtn}

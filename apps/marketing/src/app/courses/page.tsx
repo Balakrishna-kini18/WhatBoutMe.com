@@ -7,7 +7,7 @@ import FeaturedCourse from "@/components/site/FeaturedCourse";
 import PurchaseNotice from "@/components/site/PurchaseNotice";
 import PromoBanner from "@/components/site/PromoBanner";
 import { getSiteContent } from "@/lib/siteContent";
-import { getCourses } from "@/lib/courses";
+import { getCourses, type Course } from "@/lib/courses";
 
 export const metadata: Metadata = {
   title: "Courses & Workshops — whatboutme",
@@ -17,8 +17,13 @@ export const metadata: Metadata = {
 
 export default async function CoursesPage() {
   const [courses, { promo }] = await Promise.all([getCourses(), getSiteContent()]);
+  const validCourses = Array.isArray(courses)
+    ? courses.filter(
+        (c): c is Course => Boolean(c && typeof c === "object" && c.slug && c.title)
+      )
+    : [];
   // the flagship leads the page; otherwise the first course does
-  const featured = courses.find((c) => c.flagship) ?? courses[0];
+  const featured = validCourses.find((c) => c.flagship) ?? validCourses[0];
 
   return (
     <main className="relative min-h-screen bg-cream text-ink">
@@ -49,7 +54,7 @@ export default async function CoursesPage() {
         <h2 className="mb-6 mt-16 text-center text-2xl font-bold tracking-tight md:text-3xl">
           Browse All Courses
         </h2>
-        <CoursesGrid courses={courses} />
+        <CoursesGrid courses={validCourses} />
       </section>
 
       <Footer />

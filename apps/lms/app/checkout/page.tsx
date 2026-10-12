@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import styles from "../login/auth.module.css";
 import { SITE_URL } from "../lib/site";
+import { parseCourseInfo } from "../lib/courseInfo";
 
 function CheckoutContent() {
   const router = useRouter();
@@ -25,7 +26,7 @@ function CheckoutContent() {
     }
 
     if (programId) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs`)
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs`)
         .then((res) => res.json())
         .then((data) => {
           const p = data.find((x: any) => x.id === programId);
@@ -103,18 +104,85 @@ function CheckoutContent() {
     );
   }
 
+  const courseInfo = parseCourseInfo(program.description);
+
   return (
     <div className={styles.authContainer}>
-      <div className={styles.authCard} style={{ maxWidth: "500px" }}>
+      <div className={styles.authCard} style={{ maxWidth: "520px" }}>
         <h1 className={styles.logo}>Checkout</h1>
         <h2 style={{ fontSize: "1.2rem", marginBottom: "1.5rem" }}>Order Summary</h2>
 
         <div style={{ background: "var(--bg-soft)", padding: "1.5rem", borderRadius: "12px", textAlign: "left", marginBottom: "1.5rem", border: "1px solid var(--border-light)" }}>
-          <h3 style={{ margin: "0 0 0.5rem 0", color: "var(--text-primary)" }}>{program.title}</h3>
-          <p style={{ margin: "0 0 1rem 0", color: "var(--text-secondary)", fontSize: "0.9rem" }}>{program.description || "A comprehensive learning journey."}</p>
+          {courseInfo?.image && (
+            <div style={{ width: "100%", height: "160px", borderRadius: "8px", overflow: "hidden", marginBottom: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-light)" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={courseInfo.image}
+                alt={program.title}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                onError={(e) => {
+                  if (e.currentTarget.parentElement) {
+                    e.currentTarget.parentElement.style.display = "none";
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", marginBottom: "0.5rem" }}>
+            <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: "1.25rem", fontWeight: 700 }}>{program.title}</h3>
+            {courseInfo?.type && (
+              <span style={{ fontSize: "0.75rem", fontWeight: 600, padding: "3px 10px", borderRadius: "9999px", background: "var(--accent-highlight)", color: "var(--accent-highlight-text)", border: "1px solid var(--border-light)", whiteSpace: "nowrap" }}>
+                {courseInfo.type}
+              </span>
+            )}
+          </div>
+
+          <p style={{ margin: "0 0 1rem 0", color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.55 }}>
+            {courseInfo?.summary || "A comprehensive learning journey."}
+          </p>
+
+          {(courseInfo?.duration || courseInfo?.audience || courseInfo?.inPerson || courseInfo?.online) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" }}>
+              {courseInfo.duration && (
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", background: "var(--bg-card)", padding: "3px 8px", borderRadius: "6px", border: "1px solid var(--border-light)" }}>
+                  ⏱ {courseInfo.duration}
+                </span>
+              )}
+              {courseInfo.audience && (
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", background: "var(--bg-card)", padding: "3px 8px", borderRadius: "6px", border: "1px solid var(--border-light)" }}>
+                  🎯 {courseInfo.audience}
+                </span>
+              )}
+              {courseInfo.inPerson && (
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", background: "var(--bg-card)", padding: "3px 8px", borderRadius: "6px", border: "1px solid var(--border-light)" }}>
+                  📍 In person: {courseInfo.inPerson}
+                </span>
+              )}
+              {courseInfo.online && (
+                <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", background: "var(--bg-card)", padding: "3px 8px", borderRadius: "6px", border: "1px solid var(--border-light)" }}>
+                  💻 Online: {courseInfo.online}
+                </span>
+              )}
+            </div>
+          )}
+
+          {courseInfo?.points && courseInfo.points.length > 0 && (
+            <div style={{ marginBottom: "1rem", padding: "0.75rem 1rem", background: "var(--bg-card)", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", marginBottom: "0.4rem" }}>
+                What it covers
+              </div>
+              <ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                {courseInfo.points.map((pt, idx) => (
+                  <li key={idx} style={{ marginBottom: idx === courseInfo.points.length - 1 ? 0 : "0.25rem" }}>{pt}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px dashed var(--border-light)", paddingTop: "1rem" }}>
-            <strong>Total Due:</strong>
-            <h2 style={{ margin: 0, color: "var(--accent-primary)" }}>${program.price}</h2>
+            <strong style={{ color: "var(--text-primary)" }}>Total Due:</strong>
+            <h2 style={{ margin: 0, color: "var(--accent-primary)", fontSize: "1.6rem", fontWeight: 700 }}>${program.price}</h2>
           </div>
         </div>
 

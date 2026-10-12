@@ -79,6 +79,23 @@ export default function EditQuizPage({
     loadQuizData();
   }, [quizId]);
 
+  useEffect(() => {
+    if (isAddQuestionModalOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape" && !savingQuestion) {
+          setIsAddQuestionModalOpen(false);
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.body.style.overflow = originalOverflow;
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [isAddQuestionModalOpen, savingQuestion]);
+
   async function loadQuizData() {
     setLoading(true);
     setPageError(null);
@@ -298,9 +315,17 @@ export default function EditQuizPage({
 
   return (
     <div className={styles.dashboard}>
+      <div style={{ marginBottom: "0.25rem" }}>
+        <Link href="/quizzes" className={styles.backLink}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Back to Quizzes</span>
+        </Link>
+      </div>
+
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <Link href="/quizzes" className={styles.backLink}>← Back to Quizzes</Link>
           <h1 className={styles.title}>
             Edit Assessment: {quiz.step ? `Step ${quiz.step.sequence}: ${quiz.step.title}` : `Quiz #${quiz.id}`}
           </h1>
@@ -311,14 +336,22 @@ export default function EditQuizPage({
       </header>
 
       {pageError && (
-        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ⚠️ {pageError}
+        <div className={styles.alertError}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>{pageError}</span>
         </div>
       )}
 
       {pageSuccess && (
-        <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ✓ {pageSuccess}
+        <div className={styles.alertSuccess}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span>{pageSuccess}</span>
         </div>
       )}
 
@@ -331,7 +364,7 @@ export default function EditQuizPage({
                 <h2 style={{ margin: 0, fontSize: "1.25rem" }}>
                   Questions ({questions.length})
                 </h2>
-                <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "#64748b" }}>
+                <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
                   Questions administered to learners upon reaching this step.
                 </p>
               </div>
@@ -339,55 +372,52 @@ export default function EditQuizPage({
                 type="button"
                 className={styles.primaryBtn}
                 onClick={() => setIsAddQuestionModalOpen(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
               >
-                + Add Question
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>Add Question</span>
               </button>
             </div>
 
             {questions.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px", color: "#64748b", background: "#f8fafc", borderRadius: "8px" }}>
-                No questions in this quiz yet. Click <strong>+ Add Question</strong> to author questions.
+              <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", background: "var(--bg-soft)", borderRadius: "8px" }}>
+                No questions in this quiz yet. Click <strong>Add Question</strong> to author questions.
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 {questions.map((q, idx) => (
                   <div
                     key={q.id}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "8px",
-                      padding: "1.25rem",
-                      backgroundColor: "white",
-                    }}
+                    className={styles.questionCard}
+                    style={{ margin: 0 }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-                      <strong style={{ fontSize: "0.95rem", color: "#1e293b", flex: 1 }}>
+                      <strong style={{ fontSize: "0.95rem", color: "var(--text-primary)", flex: 1 }}>
                         {idx + 1}. {q.text}
                       </strong>
                       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                        <span style={{ fontSize: "0.75rem", backgroundColor: "#f1f5f9", padding: "2px 8px", borderRadius: "4px", color: "#475569" }}>
+                        <span className={styles.pointsBadge}>
                           {q.points || 1} pt{q.points !== 1 ? "s" : ""}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleDeleteQuestion(q.id)}
-                          style={{
-                            padding: "2px 8px",
-                            fontSize: "0.75rem",
-                            borderRadius: "4px",
-                            border: "1px solid #fca5a5",
-                            backgroundColor: "#fff1f2",
-                            color: "#9f1239",
-                            cursor: "pointer",
-                          }}
+                          className={styles.removeBtn}
                         >
-                          Delete
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                          <span>Delete</span>
                         </button>
                       </div>
                     </div>
 
                     {q.explanation && (
-                      <p style={{ fontSize: "0.8rem", color: "#64748b", fontStyle: "italic", margin: "0 0 10px" }}>
+                      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic", margin: "0 0 10px" }}>
                         Explanation: {q.explanation}
                       </p>
                     )}
@@ -400,16 +430,24 @@ export default function EditQuizPage({
                             padding: "6px 12px",
                             borderRadius: "6px",
                             fontSize: "0.85rem",
-                            border: opt.isCorrect ? "1px solid #86efac" : "1px solid #e2e8f0",
-                            backgroundColor: opt.isCorrect ? "#f0fdf4" : "#f8fafc",
-                            color: opt.isCorrect ? "#166534" : "#334155",
+                            border: opt.isCorrect ? "1px solid #86efac" : "1px solid var(--border-light)",
+                            backgroundColor: opt.isCorrect ? "#f0fdf4" : "var(--bg-soft)",
+                            color: opt.isCorrect ? "#166534" : "var(--text-primary)",
                             fontWeight: opt.isCorrect ? 600 : 400,
                             display: "flex",
                             justifyContent: "space-between",
+                            alignItems: "center",
                           }}
                         >
                           <span>{opt.text}</span>
-                          {opt.isCorrect && <span>✓ Correct Option</span>}
+                          {opt.isCorrect && (
+                            <span className={styles.correctBadge}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              <span>Correct Option</span>
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -517,111 +555,125 @@ export default function EditQuizPage({
 
       {/* Add Question Modal */}
       {isAddQuestionModalOpen && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modal} style={{ maxWidth: "600px" }}>
+        <div className={styles.modalOverlay} onClick={() => !savingQuestion && setIsAddQuestionModalOpen(false)}>
+          <div className={styles.modalContent} style={{ maxWidth: "620px" }} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2 style={{ fontSize: "1.25rem", margin: 0 }}>Add Quiz Question</h2>
+              <div>
+                <h2>Add Quiz Question</h2>
+                <p className={styles.modalIntro}>Create a new question prompt with points and verified options</p>
+              </div>
               <button
                 type="button"
                 className={styles.closeBtn}
                 onClick={() => setIsAddQuestionModalOpen(false)}
                 disabled={savingQuestion}
+                aria-label="Close modal"
               >
-                ✕
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
 
-            <form onSubmit={handleCreateQuestionSubmit}>
+            <form onSubmit={handleCreateQuestionSubmit} className={styles.modalForm}>
               <div className={styles.modalBody}>
                 {questionError && (
-                  <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "10px", borderRadius: "6px", marginBottom: "1rem", fontSize: "0.85rem" }}>
-                    {questionError}
+                  <div className={styles.alertError} style={{ margin: 0 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>{questionError}</span>
                   </div>
                 )}
 
-                <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
-                  <label style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                <div className={styles.formGroup}>
+                  <label>
                     Question Prompt <span style={{ color: "#ef4444" }}>*</span>
                   </label>
                   <textarea
                     rows={2}
-                    className={styles.formInput}
                     placeholder="Enter the question text (e.g. Which tool fosters resilience in Step 3?)..."
                     value={newQuestionText}
                     onChange={(e) => setNewQuestionText(e.target.value)}
                     required
-                    style={{ width: "100%", marginTop: "4px" }}
                   />
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "1rem" }}>
+                <div className={styles.formRow}>
                   <div className={styles.formGroup}>
-                    <label style={{ fontWeight: 600, fontSize: "0.85rem" }}>Points</label>
+                    <label>Points</label>
                     <input
                       type="number"
                       min={1}
                       value={newQuestionPoints}
                       onChange={(e) => setNewQuestionPoints(parseInt(e.target.value, 10) || 1)}
-                      className={styles.formInput}
-                      style={{ width: "100%", marginTop: "4px" }}
                     />
                   </div>
                   <div className={styles.formGroup}>
-                    <label style={{ fontWeight: 600, fontSize: "0.85rem" }}>Explanation (Optional)</label>
+                    <label>
+                      Explanation <span className={styles.optionalLabel}>(Optional)</span>
+                    </label>
                     <input
                       type="text"
                       placeholder="Why this answer is correct..."
                       value={newQuestionExplanation}
                       onChange={(e) => setNewQuestionExplanation(e.target.value)}
-                      className={styles.formInput}
-                      style={{ width: "100%", marginTop: "4px" }}
                     />
                   </div>
                 </div>
 
                 {/* Options Editor */}
-                <div style={{ marginBottom: "1rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                    <label style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                      Answer Options (select the radio for the correct option) <span style={{ color: "#ef4444" }}>*</span>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                      Answer Options (radio selects correct answer) <span style={{ color: "#ef4444" }}>*</span>
                     </label>
                     <button
                       type="button"
                       onClick={handleAddOption}
-                      style={{ fontSize: "0.75rem", padding: "2px 8px", borderRadius: "4px", border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}
+                      className={styles.addOptionBtn}
                     >
-                      + Add Option
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      <span>Add Option</span>
                     </button>
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                     {newOptions.map((opt, idx) => (
-                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div key={idx} className={styles.optionRow}>
                         <input
                           type="radio"
                           name="correctOption"
                           checked={opt.isCorrect}
                           onChange={() => handleSetCorrectOption(idx)}
                           title="Mark as correct answer"
-                          style={{ accentColor: "#16a34a", width: "16px", height: "16px" }}
+                          className={styles.optionRadio}
                         />
                         <input
                           type="text"
                           placeholder={`Option ${idx + 1}`}
                           value={opt.text}
                           onChange={(e) => handleOptionTextChange(idx, e.target.value)}
-                          className={styles.formInput}
+                          className={styles.optionInput}
                           required
-                          style={{ flex: 1 }}
                         />
                         {newOptions.length > 2 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveOption(idx)}
-                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer" }}
+                            className={styles.removeBtn}
                             title="Remove option"
                           >
-                            ✕
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
                           </button>
                         )}
                       </div>

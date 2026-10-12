@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
 import { API_URL } from "../lib/api";
+import { CustomSelect, ActionMenu } from "../components";
 
 interface Lead {
   id: string;
@@ -66,11 +67,18 @@ export default function LeadsPage() {
           <p className={styles.subtitle}>Messages sent from the contact form on the public website.</p>
         </div>
         <div className={styles.headerActions}>
-          <div className={styles.formGroup} style={{ minWidth: "180px" }}>
-            <select aria-label="Filter by status" value={filter} onChange={(e) => setFilter(e.target.value)}>
-              <option value="ALL">All statuses</option>
-              {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)" }}>Status:</span>
+            <CustomSelect
+              ariaLabel="Filter enquiries by status"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: "ALL", label: "All statuses" },
+                ...STATUSES.map((s) => ({ value: s.value, label: s.label })),
+              ]}
+              minWidth="150px"
+            />
           </div>
         </div>
       </header>
@@ -93,27 +101,58 @@ export default function LeadsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>Loading enquiries...</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>Loading enquiries...</td></tr>
               ) : visible.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: "center", padding: "20px" }}>No enquiries here yet.</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>No enquiries found.</td></tr>
               ) : visible.map((lead) => (
                 <tr key={lead.id}>
                   <td><span className={styles.cellUserName}>{lead.name}</span></td>
                   <td>
-                    <a href={`mailto:${lead.email}`} className={styles.cellText} style={{ display: "block" }}>{lead.email}</a>
+                    <a href={`mailto:${lead.email}`} className={styles.cellText} style={{ display: "block", color: "var(--accent-primary)", textDecoration: "none" }}>{lead.email}</a>
                     {lead.phone && <span className={styles.cellTextMuted}>{lead.phone}</span>}
                   </td>
-                  <td style={{ maxWidth: "340px", whiteSpace: "normal" }}><span className={styles.cellText}>{lead.message || "—"}</span></td>
+                  <td style={{ maxWidth: "340px", whiteSpace: "normal" }}>
+                    <span className={styles.cellText} style={{ lineHeight: 1.45 }}>{lead.message || "—"}</span>
+                  </td>
                   <td><span className={styles.cellTextMuted}>{new Date(lead.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span></td>
                   <td>
-                    <div className={styles.formGroup}>
-                      <select aria-label={`Status for ${lead.name}`} value={lead.status} onChange={(e) => setStatus(lead.id, e.target.value)} style={{ padding: "0.4rem 0.6rem" }}>
-                        {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                    </div>
+                    <CustomSelect
+                      size="sm"
+                      ariaLabel={`Status for ${lead.name}`}
+                      value={lead.status}
+                      onChange={(val) => setStatus(lead.id, val)}
+                      options={STATUSES.map((s) => ({ value: s.value, label: s.label }))}
+                      minWidth="135px"
+                    />
                   </td>
                   <td className={styles.alignRight}>
-                    <button className={`${styles.dropdownItem} ${styles.textDanger}`} style={{ width: "auto" }} onClick={() => remove(lead.id)}>Delete</button>
+                    <ActionMenu
+                      ariaLabel={`Actions for ${lead.name}`}
+                      items={[
+                        {
+                          label: `Email ${lead.name}`,
+                          href: `mailto:${lead.email}`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                              <polyline points="22,6 12,13 2,6" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Delete Enquiry",
+                          danger: true,
+                          dividerAbove: true,
+                          onClick: () => remove(lead.id),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          ),
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}

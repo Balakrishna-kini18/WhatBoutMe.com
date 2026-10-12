@@ -4,6 +4,7 @@ import { useEffect, useState, use, Fragment } from "react";
 import styles from "../../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../lib/api";
+import { CustomSelect } from "../../components";
 
 interface EnrolmentOption {
   id: string;
@@ -342,14 +343,22 @@ export default function UserDetailPage({
       </header>
 
       {actionError && (
-        <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ⚠️ {actionError}
+        <div className={styles.alertError}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>{actionError}</span>
         </div>
       )}
 
       {actionSuccess && (
-        <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", color: "#166534", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-          ✓ {actionSuccess}
+        <div className={styles.alertSuccess}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span>{actionSuccess}</span>
         </div>
       )}
 
@@ -359,17 +368,16 @@ export default function UserDetailPage({
           <label style={{ fontWeight: 600, fontSize: "0.875rem", color: "#475569" }}>
             Select Enrolment:
           </label>
-          <select
+          <CustomSelect
             value={selectedEnrolmentId}
-            onChange={(e) => setSelectedEnrolmentId(e.target.value)}
-            style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.875rem", minWidth: "280px" }}
-          >
-            {user.enrolments.map((enr) => (
-              <option key={enr.id} value={enr.id}>
-                {enr.batch?.program?.title || "Program"} — {enr.batch?.name || "Batch"} ({enr.status})
-              </option>
-            ))}
-          </select>
+            onChange={setSelectedEnrolmentId}
+            minWidth="280px"
+            ariaLabel="Select Enrolment"
+            options={user.enrolments.map((enr) => ({
+              value: enr.id,
+              label: `${enr.batch?.program?.title || "Program"} — ${enr.batch?.name || "Batch"} (${enr.status})`,
+            }))}
+          />
           <span style={{ fontSize: "0.875rem", color: "#64748b" }}>
             Status: <strong style={{ textTransform: "uppercase" }}>{selectedEnrolment?.status}</strong>
           </span>

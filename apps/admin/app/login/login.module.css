@@ -1,11 +1,11 @@
-/* Same layout as the website's sign-in card, in the admin's blue palette. */
+/* Same layout as the website's sign-in card, in the brand's warm gold palette. */
 .page {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
   padding: 1rem;
-  background: #0b1730;
+  background: #14110f;
   color: var(--text-primary);
 }
 
@@ -28,9 +28,10 @@
   padding: 2rem;
   overflow: hidden;
   border-radius: 1.75rem;
-  background: linear-gradient(150deg, #93c5fd 0%, #2563eb 45%, #1e3a8a 100%);
-  color: #ffffff;
+  background: linear-gradient(150deg, #f8cf86 0%, #efa944 45%, #c9802a 100%);
+  color: #14110f;
 }
+
 
 .glowTop,
 .glowBottom {

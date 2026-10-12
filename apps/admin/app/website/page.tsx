@@ -26,9 +26,6 @@ const EMPTY: SiteContent = {
   promo: { enabled: false, text: "", linkLabel: "", linkUrl: "" },
 };
 
-const card: React.CSSProperties = { padding: "1.75rem", marginBottom: "1.5rem" };
-const hint: React.CSSProperties = { margin: "0.25rem 0 1.25rem", fontSize: "0.8rem", color: "var(--text-secondary)" };
-
 function ImageField({ label, value, onChange }: { label: string; value: string; onChange: (url: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -51,20 +48,27 @@ function ImageField({ label, value, onChange }: { label: string; value: string; 
   return (
     <div className={styles.formGroup}>
       <label>{label}</label>
-      <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.25rem" }}>
         {value && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={value} alt="" style={{ width: "72px", height: "72px", objectFit: "cover", borderRadius: "10px", border: "1px solid var(--border-light)" }} />
         )}
-        <label className={styles.secondaryBtn} style={{ cursor: "pointer", margin: 0 }}>
-          {busy ? "Uploading..." : value ? "Replace Image" : "Upload Image"}
+        <label className={styles.secondaryBtn} style={{ cursor: "pointer", margin: 0, display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <span>{busy ? "Uploading..." : value ? "Replace Image" : "Upload Image"}</span>
           <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={onFile} disabled={busy} style={{ display: "none" }} />
         </label>
         {value && (
-          <button type="button" className={styles.textButton} onClick={() => onChange("")}>Remove</button>
+          <button type="button" className={styles.dangerBtnSmall} onClick={() => onChange("")}>
+            Remove
+          </button>
         )}
       </div>
-      {error && <span style={{ color: "#b91c1c", fontSize: "0.8rem" }}>{error}</span>}
+      {error && <span style={{ color: "var(--status-error)", fontSize: "0.8rem", marginTop: "4px" }}>{error}</span>}
     </div>
   );
 }
@@ -140,7 +144,11 @@ export default function WebsiteContentPage() {
   };
 
   if (isLoading) {
-    return <div className={styles.dashboard}><p style={{ color: "var(--text-secondary)" }}>Loading website content...</p></div>;
+    return (
+      <div className={styles.dashboard}>
+        <p style={{ color: "var(--text-secondary)", padding: "2rem" }}>Loading website content...</p>
+      </div>
+    );
   }
 
   return (
@@ -151,17 +159,57 @@ export default function WebsiteContentPage() {
           <p className={styles.subtitle}>Text and images on the public website. Anything left blank keeps the website&apos;s built-in content.</p>
         </div>
         <div className={styles.headerActions}>
-          <button type="submit" className={styles.primaryBtn} disabled={isSaving}>{isSaving ? "Saving..." : "Save Changes"}</button>
+          <button
+            type="submit"
+            className={styles.primaryBtn}
+            disabled={isSaving}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            <span>{isSaving ? "Saving..." : "Save Changes"}</span>
+          </button>
         </div>
       </header>
 
       {message && (
-        <p role="status" style={{ margin: "0 0 1.5rem", padding: "0.75rem 1rem", borderRadius: "8px", fontSize: "0.9rem", background: message.ok ? "var(--status-success-bg)" : "var(--status-error-bg)", color: message.ok ? "var(--status-success)" : "var(--status-error)" }}>{message.text}</p>
+        <div
+          role="status"
+          style={{
+            margin: "0 0 1.5rem",
+            padding: "12px 16px",
+            borderRadius: "8px",
+            fontSize: "0.88rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            background: message.ok ? "var(--status-success-bg)" : "var(--status-error-bg)",
+            color: message.ok ? "var(--status-success)" : "var(--status-error)",
+            border: `1px solid ${message.ok ? "#bbf7d0" : "#fecaca"}`
+          }}
+        >
+          {message.ok ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          )}
+          <span>{message.text}</span>
+        </div>
       )}
 
-      <section className={styles.tableSection} style={card}>
-        <h2 style={{ margin: 0 }}>Home Page Banner</h2>
-        <p style={hint}>The first screen visitors see.</p>
+      <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
+        <h2 style={{ margin: "0 0 0.35rem 0", fontSize: "1.15rem", fontWeight: 700 }}>Home Page Banner</h2>
+        <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>The first screen visitors see.</p>
         <div className={styles.modalForm}>
           <div className={styles.formGroup}>
             <label>Small Label</label>
@@ -185,12 +233,12 @@ export default function WebsiteContentPage() {
         </div>
       </section>
 
-      <section className={styles.tableSection} style={card}>
-        <h2 style={{ margin: 0 }}>Promotional Banner</h2>
-        <p style={hint}>A highlighted strip under the home page banner and on the courses page, for an offer or announcement.</p>
+      <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
+        <h2 style={{ margin: "0 0 0.35rem 0", fontSize: "1.15rem", fontWeight: 700 }}>Promotional Banner</h2>
+        <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>A highlighted strip under the home page banner and on the courses page, for an offer or announcement.</p>
         <div className={styles.modalForm}>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.9rem", fontWeight: 600 }}>
-            <input type="checkbox" checked={content.promo.enabled} onChange={(e) => setPromo("enabled", e.target.checked)} style={{ width: "1.1rem", height: "1.1rem" }} />
+          <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.88rem", fontWeight: 600, cursor: "pointer" }}>
+            <input type="checkbox" checked={content.promo.enabled} onChange={(e) => setPromo("enabled", e.target.checked)} style={{ width: "16px", height: "16px", accentColor: "var(--accent-primary)" }} />
             Show the banner on the website
           </label>
           <div className={styles.formGroup}>
@@ -210,23 +258,34 @@ export default function WebsiteContentPage() {
         </div>
       </section>
 
-      <section className={styles.tableSection} style={card}>
-        <h2 style={{ margin: 0 }}>About Page</h2>
-        <p style={hint}>The facilitator photo on the About page and the home page panel.</p>
+      <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
+        <h2 style={{ margin: "0 0 0.35rem 0", fontSize: "1.15rem", fontWeight: 700 }}>About Page</h2>
+        <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>The facilitator photo on the About page and the home page panel.</p>
         <div className={styles.modalForm}>
           <ImageField label="Facilitator Photo" value={content.about.image} onChange={(url) => setContent((c) => ({ ...c, about: { image: url } }))} />
         </div>
       </section>
 
-      <section className={styles.tableSection} style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
-          <h2 style={{ margin: 0 }}>Testimonials</h2>
-          <button type="button" className={styles.secondaryBtn} onClick={() => setContent((c) => ({ ...c, testimonials: [...c.testimonials, { quote: "", name: "", role: "" }] }))}>+ Add Testimonial</button>
+      <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", marginBottom: "0.35rem" }}>
+          <h2 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Testimonials</h2>
+          <button
+            type="button"
+            className={styles.secondaryBtnSmall}
+            onClick={() => setContent((c) => ({ ...c, testimonials: [...c.testimonials, { quote: "", name: "", role: "" }] }))}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Add Testimonial</span>
+          </button>
         </div>
-        <p style={hint}>Use real quotes only. With none added, the website hides the testimonials section.</p>
+        <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Use real quotes only. With none added, the website hides the testimonials section.</p>
         <div className={styles.modalForm}>
           {content.testimonials.map((t, i) => (
-            <div key={i} style={{ border: "1px solid var(--border-light)", borderRadius: "12px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div key={i} style={{ border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem", background: "var(--bg-main)" }}>
               <div className={styles.formGroup}>
                 <label>Quote</label>
                 <textarea rows={3} value={t.quote} onChange={(e) => setTestimonial(i, "quote", e.target.value)} />
@@ -241,21 +300,36 @@ export default function WebsiteContentPage() {
                   <input type="text" value={t.role} onChange={(e) => setTestimonial(i, "role", e.target.value)} />
                 </div>
               </div>
-              <button type="button" className={styles.textButton} style={{ alignSelf: "flex-end" }} onClick={() => setContent((c) => ({ ...c, testimonials: c.testimonials.filter((_, n) => n !== i) }))}>Remove</button>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button type="button" className={styles.dangerBtnSmall} onClick={() => setContent((c) => ({ ...c, testimonials: c.testimonials.filter((_, n) => n !== i) }))}>
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
         </div>
       </section>
 
-      <section className={styles.tableSection} style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
-          <h2 style={{ margin: 0 }}>Questions (FAQ)</h2>
-          <button type="button" className={styles.secondaryBtn} onClick={() => setContent((c) => ({ ...c, faqs: [...c.faqs, { q: "", a: "" }] }))}>+ Add Question</button>
+      <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", marginBottom: "0.35rem" }}>
+          <h2 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Questions (FAQ)</h2>
+          <button
+            type="button"
+            className={styles.secondaryBtnSmall}
+            onClick={() => setContent((c) => ({ ...c, faqs: [...c.faqs, { q: "", a: "" }] }))}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Add Question</span>
+          </button>
         </div>
-        <p style={hint}>With none added, the website shows its built-in questions.</p>
+        <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>With none added, the website shows its built-in questions.</p>
         <div className={styles.modalForm}>
           {content.faqs.map((f, i) => (
-            <div key={i} style={{ border: "1px solid var(--border-light)", borderRadius: "12px", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div key={i} style={{ border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem", background: "var(--bg-main)" }}>
               <div className={styles.formGroup}>
                 <label>Question</label>
                 <input type="text" value={f.q} onChange={(e) => setFaq(i, "q", e.target.value)} />
@@ -264,15 +338,19 @@ export default function WebsiteContentPage() {
                 <label>Answer</label>
                 <textarea rows={2} value={f.a} onChange={(e) => setFaq(i, "a", e.target.value)} />
               </div>
-              <button type="button" className={styles.textButton} style={{ alignSelf: "flex-end" }} onClick={() => setContent((c) => ({ ...c, faqs: c.faqs.filter((_, n) => n !== i) }))}>Remove</button>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button type="button" className={styles.dangerBtnSmall} onClick={() => setContent((c) => ({ ...c, faqs: c.faqs.filter((_, n) => n !== i) }))}>
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
         </div>
       </section>
 
-      <section className={styles.tableSection} style={card}>
-        <h2 style={{ margin: 0 }}>Contact Details</h2>
-        <p style={hint}>Shown in the website footer.</p>
+      <section className={styles.tableSection} style={{ padding: "1.75rem" }}>
+        <h2 style={{ margin: "0 0 0.35rem 0", fontSize: "1.15rem", fontWeight: 700 }}>Contact Details</h2>
+        <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Shown in the website footer.</p>
         <div className={styles.formRow}>
           <div className={styles.formGroup}>
             <label>Email</label>

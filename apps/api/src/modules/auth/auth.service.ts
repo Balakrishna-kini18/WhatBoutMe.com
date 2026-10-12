@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -12,6 +13,7 @@ import { Role, EnrolmentStatus, ContentStatus, AttemptStatus } from '@prisma/cli
 import { SignupDto } from './dto/index.js';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
+import { EmailService } from '../email/email.service.js';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -36,10 +38,13 @@ export interface DeviceSessionMetadata {
 
 @Injectable()
 export class AuthService {
+  private readonly otpCache = new Map<string, { code: string; expiresAt: number }>();
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    private cacheHelper: CacheHelperService
+    private cacheHelper: CacheHelperService,
+    @Optional() private emailService?: EmailService,
   ) {}
 
   /**
@@ -309,6 +314,16 @@ export class AuthService {
       throw new ConflictException('An account with this email already exists');
     }
 
+    // If OTP code is provided, verify it against the cache
+    if (data.otp) {
+      const trimmedOtp = data.otp.trim();
+      const cached = this.otpCache.get(normalizedEmail);
+      if (!cached || cached.expiresAt < Date.now() || cached.code !== trimmedOtp) {
+        throw new BadRequestException('Invalid or expired verification code');
+      }
+      this.otpCache.delete(normalizedEmail);
+    }
+
     // A mobile number may belong to one account only, so it can be used to sign in
     const phone = data.phone?.trim() ? this.normalizePhone(data.phone) : null;
     if (phone) {
@@ -334,7 +349,7 @@ export class AuthService {
           timezone: data.timezone?.trim() || null,
           passwordHash,
           role: Role.USER,
-          emailVerifiedAt: null,
+          emailVerifiedAt: data.otp ? new Date() : null,
         },
       });
     } catch (err: any) {
@@ -353,6 +368,39 @@ export class AuthService {
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours expiry
       },
     });
+
+    if (this.emailService) {
+      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
+      // 1. Send Welcome Email
+      this.emailService
+        .sendTemplateEmail({
+          to: user.email,
+          subject: 'Welcome to WhatBoutMe!',
+          template: 'SignupWelcomeEmail',
+          props: {
+            firstName,
+            loginUrl: `${lmsUrl}/login`,
+          },
+        })
+        .catch((e: any) => console.warn('[AuthService] Welcome email error:', e?.message));
+
+      // 2. Only send link verification email if not already verified via OTP
+      if (!user.emailVerifiedAt) {
+        const verificationUrl = `${lmsUrl}/verify-email?token=${verificationToken}`;
+        this.emailService
+          .sendTemplateEmail({
+            to: user.email,
+            subject: 'Verify your email address - WhatBoutMe',
+            template: 'EmailVerificationEmail',
+            props: {
+              firstName,
+              verificationUrl,
+            },
+          })
+          .catch((e: any) => console.warn('[AuthService] Verification email error:', e?.message));
+      }
+    }
 
     // Enrol user in default batches for the selected programs with payment/agreement gating
     const enrolledPrograms = [];
@@ -414,7 +462,32 @@ export class AuthService {
     if (data.programIds && data.programIds.length > 0) {
       await this.cacheHelper.invalidateNamespace('batches');
     }
+
+    const sessionId = randomUUID();
+    const refreshPayload = { sub: user.id, sessionId };
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      secret: process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret',
+      expiresIn: '7d',
+    });
+    const tokenHash = await bcrypt.hash(refreshToken, 10);
+    await this.createDeviceSession(user.id, user.role, tokenHash, {}, sessionId);
+
+    const accessPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      permissions: Array.from(new Set([
+        ...(user.permissions || []),
+        ...getRolePermissions(user.role),
+      ])),
+      companyId: user.companyId,
+      sessionId,
+    };
+    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
     return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -1161,9 +1234,22 @@ export class AuthService {
       },
     });
 
-    // NOTE: When D2 implements email queue workers, enqueue job here.
-    // Provider-neutral abstraction ensures no external vendor dependency is hardcoded.
-    // Raw token is not returned in API response and not logged.
+    if (this.emailService) {
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001';
+      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Learner';
+      const resetUrl = `${siteUrl}/reset-password?token=${rawToken}`;
+      this.emailService
+        .sendTemplateEmail({
+          to: user.email,
+          subject: 'Reset your password - WhatBoutMe',
+          template: 'PasswordResetEmail',
+          props: {
+            firstName,
+            resetUrl,
+          },
+        })
+        .catch((e: any) => console.warn('[AuthService] Password reset email error:', e?.message));
+    }
 
     return genericResponse;
   }
@@ -1547,4 +1633,120 @@ export class AuthService {
       },
     };
   }
+
+  /**
+   * Send One-Time Password (OTP) via Email
+   */
+  async sendEmailOtp(email: string) {
+    const normalizedEmail = email?.trim()?.toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      throw new BadRequestException('Valid email is required');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    // Generate 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Store in cache with 10-minute TTL
+    this.otpCache.set(normalizedEmail, {
+      code: otpCode,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    if (this.emailService) {
+      const firstName = user?.name ? (user.name.split(' ')[0] || user.name) : 'Learner';
+      await this.emailService
+        .sendTemplateEmail({
+          to: normalizedEmail,
+          subject: `Your WhatBoutMe security code is ${otpCode}`,
+          template: 'OneTimeOtpEmail',
+          props: {
+            firstName,
+            otpCode,
+          },
+        })
+        .catch((e: any) => console.warn('[AuthService] OTP email error:', e?.message));
+    }
+
+    return { success: true, message: 'OTP sent successfully to email' };
+  }
+
+  /**
+   * Verify One-Time Password (OTP) from Email
+   */
+  async verifyEmailOtp(email: string, code: string) {
+    const normalizedEmail = email?.trim()?.toLowerCase();
+    const trimmedCode = code?.trim();
+    if (!normalizedEmail || !trimmedCode) {
+      throw new BadRequestException('Email and OTP code are required');
+    }
+
+    const cached = this.otpCache.get(normalizedEmail);
+
+    if (!cached || cached.expiresAt < Date.now() || cached.code !== trimmedCode) {
+      throw new BadRequestException('Invalid or expired OTP code');
+    }
+
+    // Invalidate OTP after successful verification
+    this.otpCache.delete(normalizedEmail);
+
+    return { success: true, message: 'OTP verified successfully' };
+  }
+
+  /**
+   * Send One-Time Password (OTP) for Learner Signup via Email
+   */
+  async sendSignupOtp(email: string, name?: string, rawPhone?: string) {
+    const normalizedEmail = email?.trim()?.toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      throw new BadRequestException('Valid email is required');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+    if (existing) {
+      throw new ConflictException('An account with this email already exists');
+    }
+
+    if (rawPhone?.trim()) {
+      const phone = this.normalizePhone(rawPhone);
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone, deletedAt: null },
+      });
+      if (phoneTaken) {
+        throw new ConflictException('An account with this mobile number already exists');
+      }
+    }
+
+    // Generate 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Store in cache with 10-minute TTL
+    this.otpCache.set(normalizedEmail, {
+      code: otpCode,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    if (this.emailService) {
+      const firstName = name?.trim() ? (name.trim().split(' ')[0] || name.trim()) : 'Learner';
+      await this.emailService
+        .sendTemplateEmail({
+          to: normalizedEmail,
+          subject: `Your WhatBoutMe security code is ${otpCode}`,
+          template: 'OneTimeOtpEmail',
+          props: {
+            firstName,
+            otpCode,
+          },
+        })
+        .catch((e: any) => console.warn('[AuthService] Signup OTP email error:', e?.message));
+    }
+
+    return { success: true, message: 'Verification code sent to your email' };
+  }
 }
+

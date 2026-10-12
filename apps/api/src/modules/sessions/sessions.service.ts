@@ -35,6 +35,7 @@ import { AttendanceService } from './attendance.service.js';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { EmailService } from '../email/email.service.js';
 
 @Injectable()
 export class SessionsService {
@@ -52,6 +53,8 @@ export class SessionsService {
     @Optional()
     @InjectQueue('meeting-sync')
     private readonly meetingSyncQueue?: Queue,
+    @Optional()
+    private readonly emailService?: EmailService,
   ) {}
 
   /**
@@ -1212,6 +1215,35 @@ export class SessionsService {
       });
     } catch (err: any) {
       this.logger.warn(`Failed to create booking notification: ${err.message}`);
+    }
+
+    if (this.emailService) {
+      try {
+        const learner = await this.prisma.user.findUnique({
+          where: { id: learnerId },
+          select: { name: true, email: true },
+        });
+        if (learner?.email) {
+          const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+          this.emailService
+            .sendTemplateEmail({
+              to: learner.email,
+              subject: `Session Booking Confirmed: ${session.title}`,
+              template: 'SessionBookingConfirmationEmail',
+              props: {
+                firstName: learner.name?.split(' ')[0] || 'Learner',
+                sessionTitle: session.title,
+                instructorName: session.hostTrainer?.name || 'Your Trainer',
+                date: new Date(session.startTime).toLocaleDateString(),
+                time: new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                joinUrl: session.joinUrl || `${lmsUrl}/sessions/${sessionId}`,
+              },
+            })
+            .catch((e: any) => this.logger.warn(`Failed to send session booking email: ${e.message}`));
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to process session booking email: ${err.message}`);
+      }
     }
 
     return booking;

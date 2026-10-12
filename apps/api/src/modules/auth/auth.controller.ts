@@ -7,22 +7,28 @@ import { Roles } from '../../common/decorators/roles.decorator.js';
 import {
   LoginDto,
   SignupDto,
+  SendSignupOtpDto,
   RefreshDto,
   EmailVerificationDto,
   PasswordResetRequestDto,
   PasswordResetConfirmDto,
   TotpSetupDto,
   TotpVerifyDto,
+  OtpSendDto,
+  OtpVerifyDto,
 } from './dto/index.js';
 export {
   LoginDto,
   SignupDto,
+  SendSignupOtpDto,
   RefreshDto,
   EmailVerificationDto,
   PasswordResetRequestDto,
   PasswordResetConfirmDto,
   TotpSetupDto,
   TotpVerifyDto,
+  OtpSendDto,
+  OtpVerifyDto,
 };
 
 // Strict limit for the endpoints that take a password. Applied per endpoint,
@@ -53,6 +59,15 @@ export class AuthController {
       deviceFingerprint,
       country,
     });
+  }
+
+  /**
+   * Request Signup Email OTP: POST /auth/signup/send-otp
+   */
+  @Public()
+  @Post('signup/send-otp')
+  sendSignupOtp(@Body() body: SendSignupOtpDto) {
+    return this.authService.sendSignupOtp(body.email, body.name, body.phone);
   }
 
   /**
@@ -102,6 +117,24 @@ export class AuthController {
   confirmPasswordReset(@Body() body: PasswordResetConfirmDto) {
     const newPassword = body.newPassword || body.password || '';
     return this.authService.confirmPasswordReset(body.token, newPassword);
+  }
+
+  /**
+   * Send Email OTP: POST /auth/otp/send
+   */
+  @Public()
+  @Post('otp/send')
+  sendOtp(@Body() body: OtpSendDto) {
+    return this.authService.sendEmailOtp(body.email);
+  }
+
+  /**
+   * Verify Email OTP: POST /auth/otp/verify
+   */
+  @Public()
+  @Post('otp/verify')
+  verifyOtp(@Body() body: OtpVerifyDto) {
+    return this.authService.verifyEmailOtp(body.email, body.code);
   }
 
   /**

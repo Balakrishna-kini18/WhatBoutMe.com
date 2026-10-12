@@ -20,6 +20,7 @@ import {
   OBJECT_STORAGE_PROVIDER,
   type IObjectStorageProvider,
 } from '../../common/interfaces/object-storage-provider.interface.js';
+import { EmailService } from '../email/email.service.js';
 
 @Injectable()
 export class CertificatesService {
@@ -32,6 +33,8 @@ export class CertificatesService {
     @Optional()
     @Inject(OBJECT_STORAGE_PROVIDER)
     private readonly objectStorage?: IObjectStorageProvider,
+    @Optional()
+    private readonly emailService?: EmailService,
   ) {}
 
   /**
@@ -374,6 +377,34 @@ export class CertificatesService {
         },
       },
     });
+
+    if (this.emailService) {
+      try {
+        const enrolment = await this.prisma.enrolment.findUnique({
+          where: { id: certificate.enrolmentId },
+          include: { user: true, program: true },
+        });
+        if (enrolment?.user?.email) {
+          const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+          this.emailService
+            .sendTemplateEmail({
+              to: enrolment.user.email,
+              subject: `Certificate Issued: ${enrolment.program?.title || 'Program'}`,
+              template: 'CertificateIssuedEmail',
+              props: {
+                firstName: enrolment.user.name?.split(' ')[0] || 'Learner',
+                programName: enrolment.program?.title || 'Course',
+                issueDate: now.toLocaleDateString(),
+                certificateUrl: issuedCert.pdfUrl || `${lmsUrl}/certificates/${issuedCert.id}`,
+                verificationUrl: `${lmsUrl}/verify/${code}`,
+              },
+            })
+            .catch((e: any) => this.logger.warn(`Failed to send certificate email: ${e.message}`));
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to process certificate email: ${err.message}`);
+      }
+    }
 
     return issuedCert;
   }

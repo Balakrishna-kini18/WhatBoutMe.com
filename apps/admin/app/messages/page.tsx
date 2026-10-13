@@ -26,6 +26,14 @@ const learnerOf = (c: Conversation) =>
 const initials = (name = "?") =>
   name.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
+const getAuthHeaders = (): Record<string, string> => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
 /** Shared inbox: every learner conversation, with replies sent as the signed-in staff member. */
 export default function MessagesPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -40,11 +48,20 @@ export default function MessagesPage() {
 
   const loadConversations = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/messages/conversations`);
+      const res = await fetch(`${API_URL}/messages/conversations`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load the inbox"));
       // a conversation whose learner account was deleted has nobody to show or reply to
       const all: Conversation[] = await res.json();
-      setConversations(all.filter((c) => c.participants.some((p) => p.role === "USER")));
+      const seen = new Set<string>();
+      const unique = all
+        .filter((c) => c.participants.some((p) => p.role === "USER"))
+        .filter((c) => {
+          const learnerId = learnerOf(c)?.id || c.id;
+          if (seen.has(learnerId)) return false;
+          seen.add(learnerId);
+          return true;
+        });
+      setConversations(unique);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the inbox");
@@ -55,7 +72,7 @@ export default function MessagesPage() {
 
   const loadMessages = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`${API_URL}/messages/conversations/${id}`);
+      const res = await fetch(`${API_URL}/messages/conversations/${id}`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load the conversation"));
       setMessages(await res.json());
       // opening it marked the learner's messages as read
@@ -101,7 +118,7 @@ export default function MessagesPage() {
     try {
       const res = await fetch(`${API_URL}/messages/conversations/${activeId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ content }),
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not send the message"));

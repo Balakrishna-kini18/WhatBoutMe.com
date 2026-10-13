@@ -8,7 +8,7 @@ import {
   Post,
   Request,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, NotificationChannel } from '@prisma/client';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -103,7 +103,17 @@ export class MessagesController {
       include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });
 
-    const ids = [...new Set(conversations.flatMap((c) => c.participantIds))];
+    // Deduplicate conversations having identical participants:
+    // keep the one with the latest messages or most recent update
+    const seen = new Set<string>();
+    const uniqueConversations = conversations.filter((c) => {
+      const key = [...c.participantIds].sort().join(':');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const ids = [...new Set(uniqueConversations.flatMap((c) => c.participantIds))];
     const users = await this.prisma.user.findMany({
       where: { id: { in: ids } },
       select: { id: true, name: true, email: true, role: true },
@@ -111,7 +121,7 @@ export class MessagesController {
     const byId = new Map(users.map((u) => [u.id, u]));
 
     return Promise.all(
-      conversations.map(async (c) => ({
+      uniqueConversations.map(async (c) => ({
         id: c.id,
         participants: c.participantIds
           .map((id) => byId.get(id))
@@ -121,7 +131,7 @@ export class MessagesController {
           ? { content: c.messages[0].content, createdAt: c.messages[0].createdAt, senderId: c.messages[0].senderId }
           : null,
         unread: await this.prisma.message.count({
-          where: { conversationId: c.id, read: false, senderId: { not: me.sub } },
+          where: { conversationId: c.id, read: false, senderId: { not: me.sub || me.id } },
         }),
       })),
     );
@@ -131,15 +141,19 @@ export class MessagesController {
   @Post('support')
   async support(@Request() req: any) {
     const me = req.user;
+    const myId = me.sub || me.id;
+
+    // Check if an existing conversation with this learner already exists (picking the one with messages first)
     const existing = await this.prisma.conversation.findFirst({
-      where: { participantIds: { has: me.sub } },
-      orderBy: { createdAt: 'asc' },
+      where: { participantIds: { has: myId } },
+      orderBy: [{ updatedAt: 'desc' }],
+      include: { _count: { select: { messages: true } } },
     });
     if (existing) return { id: existing.id };
 
     // the cohort manager if there is one, otherwise the first admin
     const enrolment = await this.prisma.enrolment.findFirst({
-      where: { userId: me.sub },
+      where: { userId: myId },
       include: { batch: true },
     });
     const coachId =
@@ -152,8 +166,19 @@ export class MessagesController {
       )?.id;
     if (!coachId) throw new NotFoundException('No programme team member is available yet');
 
+    // Double check before creating to prevent race condition duplicates
+    const checkAgain = await this.prisma.conversation.findFirst({
+      where: {
+        AND: [
+          { participantIds: { has: myId } },
+          { participantIds: { has: coachId } },
+        ],
+      },
+    });
+    if (checkAgain) return { id: checkAgain.id };
+
     const created = await this.prisma.conversation.create({
-      data: { participantIds: [me.sub, coachId] },
+      data: { participantIds: [myId, coachId] },
     });
     return { id: created.id };
   }
@@ -161,11 +186,12 @@ export class MessagesController {
   @Get('conversations/:id')
   async messages(@Param('id') id: string, @Request() req: any) {
     const me = req.user;
+    const myId = me.sub || me.id;
     await this.conversationFor(id, me);
 
     // opening a conversation marks the other side's messages as read
     await this.prisma.message.updateMany({
-      where: { conversationId: id, read: false, senderId: { not: me.sub } },
+      where: { conversationId: id, read: false, senderId: { not: myId } },
       data: { read: true },
     });
 
@@ -177,7 +203,7 @@ export class MessagesController {
     return messages.map((m) => ({
       id: m.id,
       senderId: m.senderId,
-      senderName: m.sender.name || m.sender.email,
+      senderName: m.sender?.name || m.sender?.email || 'Unknown',
       content: m.content,
       createdAt: m.createdAt,
     }));
@@ -186,13 +212,47 @@ export class MessagesController {
   @Post('conversations/:id')
   async send(@Param('id') id: string, @Body() body: SendMessageDto, @Request() req: any) {
     const me = req.user;
-    await this.conversationFor(id, me);
+    const myId = me.sub || me.id;
+    const conversation = await this.conversationFor(id, me);
 
     const message = await this.prisma.message.create({
-      data: { conversationId: id, senderId: me.sub, content: body.content.trim() },
+      data: { conversationId: id, senderId: myId, content: body.content.trim() },
+      include: { sender: { select: { name: true, email: true } } },
     });
+
     // keeps the conversation at the top of the inbox
     await this.prisma.conversation.update({ where: { id }, data: { updatedAt: new Date() } });
-    return { id: message.id, senderId: message.senderId, content: message.content, createdAt: message.createdAt };
+
+    // Ensure sender is recorded in participantIds
+    if (!conversation.participantIds.includes(myId)) {
+      await this.prisma.conversation.update({
+        where: { id },
+        data: { participantIds: { push: myId } },
+      });
+    }
+
+    // In-app notifications for other participants
+    const senderName = message.sender?.name || message.sender?.email || 'Someone';
+    const otherParticipantIds = conversation.participantIds.filter((pid: string) => pid !== myId);
+    for (const recipientId of otherParticipantIds) {
+      await this.prisma.notification.create({
+        data: {
+          userId: recipientId,
+          type: 'CHAT_MESSAGE',
+          channel: NotificationChannel.IN_APP,
+          template: `New message from ${senderName}: ${body.content.trim().slice(0, 100)}`,
+          deliveryStatus: 'DELIVERED',
+          sentAt: new Date(),
+        },
+      }).catch(() => {});
+    }
+
+    return {
+      id: message.id,
+      senderId: message.senderId,
+      senderName,
+      content: message.content,
+      createdAt: message.createdAt,
+    };
   }
 }

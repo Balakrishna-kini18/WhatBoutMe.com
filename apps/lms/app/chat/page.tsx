@@ -92,10 +92,24 @@ export default function ChatPage() {
           fetch(`${API_URL}/notifications/mine`, { headers: authHeaders() }),
           fetch(`${API_URL}/auth/me`, { headers: authHeaders() }),
         ]);
-        if (list.ok) setConversations(await list.json());
         if (noticeRes.ok) setNotices(await noticeRes.json());
         if (meRes.ok) setSessions((await meRes.json()).upcomingSessions || []);
-        if (supportId) {
+
+        if (list.ok) {
+          const convList: Conversation[] = await list.json();
+          setConversations(convList);
+          const preferredConv = (supportId && convList.find((c) => c.id === supportId && c.lastMessage))
+            || convList.find((c) => c.lastMessage)
+            || (supportId && convList.find((c) => c.id === supportId))
+            || convList[0];
+          const initialId = preferredConv?.id || supportId;
+          if (initialId) {
+            setActiveId(initialId);
+            await loadMessages(initialId);
+          } else {
+            setError("Messaging is not available yet. Please try again later.");
+          }
+        } else if (supportId) {
           setActiveId(supportId);
           await loadMessages(supportId);
         } else {
@@ -208,10 +222,20 @@ export default function ChatPage() {
     }
   };
 
-  const visibleContacts = conversations.filter((c) => {
-    const name = (c.participants.find((p) => p.id !== me)?.name || "").toLowerCase();
-    return name.includes(contactQuery.trim().toLowerCase());
-  });
+  const visibleContacts = useMemo(() => {
+    const seen = new Set<string>();
+    return conversations
+      .filter((c) => {
+        const otherId = c.participants.find((p) => p.id !== me)?.id || c.id;
+        if (seen.has(otherId)) return false;
+        seen.add(otherId);
+        return true;
+      })
+      .filter((c) => {
+        const name = (c.participants.find((p) => p.id !== me)?.name || "").toLowerCase();
+        return name.includes(contactQuery.trim().toLowerCase());
+      });
+  }, [conversations, me, contactQuery]);
 
   return (
     <div className={`${styles.container} ${infoOpen ? styles.withInfo : ""} ${threadOpen ? styles.threadOpen : ""}`}>

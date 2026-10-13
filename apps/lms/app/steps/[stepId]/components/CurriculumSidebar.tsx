@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import styles from "../step.module.css";
 import { StepProgressionItem, getLockMessage } from "../../../lib/api";
+import { StepIcons } from "./StepIcons";
 
 interface CurriculumSidebarProps {
   programTitle: string;
@@ -356,7 +357,7 @@ export default function CurriculumSidebar({
               title="Close Curriculum Sidebar"
               aria-label="Close Curriculum Sidebar"
             >
-              ✕
+              <StepIcons.Close size={14} />
             </button>
           </div>
 

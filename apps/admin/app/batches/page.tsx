@@ -40,6 +40,17 @@ function BatchesContent() {
   const [programs, setPrograms] = useState<{ id: string; title: string }[]>([]);
   const [managers, setManagers] = useState<{ id: string; name: string; email: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentUserRole, setCurrentUserRole] = useState("USER");
+  const isManager = currentUserRole === "MANAGER" || currentUserRole === "TEACHER";
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("user") || "{}");
+      setCurrentUserRole(stored.role || "USER");
+    } catch {
+      setCurrentUserRole("USER");
+    }
+  }, []);
 
   // result of "Issue Certificates": what happened, and who was left out
   const [issueResult, setIssueResult] = useState<{
@@ -74,10 +85,10 @@ function BatchesContent() {
 
   // Auto-open modal if ?create=1 or ?action=create is present in URL
   useEffect(() => {
-    if (searchParams.get("create") === "1" || searchParams.get("action") === "create") {
+    if (!isManager && (searchParams.get("create") === "1" || searchParams.get("action") === "create")) {
       openCreateModal();
     }
-  }, [searchParams]);
+  }, [searchParams, isManager]);
 
   useEffect(() => {
     if (isModalOpen || confirmBatch) {
@@ -330,30 +341,34 @@ function BatchesContent() {
     <div className={styles.dashboardContainer}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Batches & Cohorts</h1>
+          <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches & Cohorts"}</h1>
           <p className={styles.subtitle}>
-            Organize learners into groups and schedule live sessions.
+            {isManager
+              ? "View and manage sessions, attendance, and learners in your cohorts."
+              : "Organize learners into groups and schedule live sessions."}
           </p>
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.primaryBtn} onClick={openCreateModal}>
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>Create Batch</span>
-          </button>
-        </div>
+        {!isManager && (
+          <div className={styles.headerActions}>
+            <button className={styles.primaryBtn} onClick={openCreateModal}>
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>Create Batch</span>
+            </button>
+          </div>
+        )}
       </header>
 
       {issueResult && (
@@ -580,109 +595,165 @@ function BatchesContent() {
                         style={{ minWidth: "240px" }}
                       >
                         <div className={styles.rowActions}>
-                          <button
-                            type="button"
-                            className={styles.rowActionBtn}
-                            disabled={issuingId !== null}
-                            onClick={() => setConfirmBatch(batch)}
-                          >
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.75"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
+                          {!isManager && (
+                            <button
+                              type="button"
+                              className={styles.rowActionBtn}
+                              disabled={issuingId !== null}
+                              onClick={() => setConfirmBatch(batch)}
                             >
-                              <circle cx="12" cy="8" r="6" />
-                              <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                            </svg>
-                            <span>
-                              {issuingId === batch.id
-                                ? "Issuing..."
-                                : "Issue Certificates"}
-                            </span>
-                          </button>
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.75"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <circle cx="12" cy="8" r="6" />
+                                <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                              </svg>
+                              <span>
+                                {issuingId === batch.id
+                                  ? "Issuing..."
+                                  : "Issue Certificates"}
+                              </span>
+                            </button>
+                          )}
                           <ActionMenu
                             ariaLabel={`Actions for ${batch.name}`}
-                            items={[
-                              {
-                                label: "Edit Schedule",
-                                icon: (
-                                  <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.75"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden="true"
-                                  >
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                  </svg>
-                                ),
-                                onClick: () => openEditModal(batch),
-                              },
-                              {
-                                label: "Manage Sessions & Attendance",
-                                icon: (
-                                  <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.75"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden="true"
-                                  >
-                                    <rect
-                                      x="3"
-                                      y="4"
-                                      width="18"
-                                      height="18"
-                                      rx="2"
-                                      ry="2"
-                                    />
-                                    <line x1="16" y1="2" x2="16" y2="6" />
-                                    <line x1="8" y1="2" x2="8" y2="6" />
-                                    <line x1="3" y1="10" x2="21" y2="10" />
-                                  </svg>
-                                ),
-                                href: `/batches/${batch.id}/sessions`,
-                              },
-                              {
-                                label: "Delete Batch",
-                                icon: (
-                                  <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.75"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden="true"
-                                  >
-                                    <polyline points="3 6 5 6 21 6" />
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                    <line x1="10" y1="11" x2="10" y2="17" />
-                                    <line x1="14" y1="11" x2="14" y2="17" />
-                                  </svg>
-                                ),
-                                danger: true,
-                                dividerAbove: true,
-                                onClick: () => handleDeleteBatch(batch.id),
-                              },
-                            ]}
+                            items={
+                              isManager
+                                ? [
+                                    {
+                                      label: "Manage Sessions & Attendance",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <rect
+                                            x="3"
+                                            y="4"
+                                            width="18"
+                                            height="18"
+                                            rx="2"
+                                            ry="2"
+                                          />
+                                          <line x1="16" y1="2" x2="16" y2="6" />
+                                          <line x1="8" y1="2" x2="8" y2="6" />
+                                          <line x1="3" y1="10" x2="21" y2="10" />
+                                        </svg>
+                                      ),
+                                      href: `/batches/${batch.id}/sessions`,
+                                    },
+                                    {
+                                      label: "View Schedule",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        </svg>
+                                      ),
+                                      onClick: () => openEditModal(batch),
+                                    },
+                                  ]
+                                : [
+                                    {
+                                      label: "Edit Schedule",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        </svg>
+                                      ),
+                                      onClick: () => openEditModal(batch),
+                                    },
+                                    {
+                                      label: "Manage Sessions & Attendance",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <rect
+                                            x="3"
+                                            y="4"
+                                            width="18"
+                                            height="18"
+                                            rx="2"
+                                            ry="2"
+                                          />
+                                          <line x1="16" y1="2" x2="16" y2="6" />
+                                          <line x1="8" y1="2" x2="8" y2="6" />
+                                          <line x1="3" y1="10" x2="21" y2="10" />
+                                        </svg>
+                                      ),
+                                      href: `/batches/${batch.id}/sessions`,
+                                    },
+                                    {
+                                      label: "Delete Batch",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <polyline points="3 6 5 6 21 6" />
+                                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                          <line x1="10" y1="11" x2="10" y2="17" />
+                                          <line x1="14" y1="11" x2="14" y2="17" />
+                                        </svg>
+                                      ),
+                                      danger: true,
+                                      dividerAbove: true,
+                                      onClick: () => handleDeleteBatch(batch.id),
+                                    },
+                                  ]
+                            }
                           />
                         </div>
                       </td>

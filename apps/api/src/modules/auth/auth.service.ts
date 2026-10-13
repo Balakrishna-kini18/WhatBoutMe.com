@@ -1050,7 +1050,14 @@ export class AuthService {
     });
 
     if (!session || session.revokedAt || (session.expiresAt && session.expiresAt <= new Date())) {
-      throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
+      const isDeviceLimit = session?.revokedReason === 'DEVICE_LIMIT_EXCEEDED';
+      throw new UnauthorizedException({
+        message: isDeviceLimit
+          ? 'You were logged out because this account was logged in from another device'
+          : 'Session has expired or been revoked',
+        error: 'SESSION_REVOKED',
+        reason: session?.revokedReason || 'SESSION_REVOKED',
+      });
     }
 
     return session;
@@ -1067,6 +1074,7 @@ export class AuthService {
         data: { revokedAt: new Date(), revokedReason: 'LOGOUT' },
       });
       forgetSessions();
+      await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
 
       if (typeof (this.prisma as any).logAction === 'function') {
         await (this.prisma as any).logAction({
@@ -1078,6 +1086,7 @@ export class AuthService {
       }
     } else {
       forgetSessions();
+      await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
     }
 
     return { success: true, message: 'Logged out successfully' };
@@ -1134,11 +1143,37 @@ export class AuthService {
       },
     });
 
+    const parseUA = (ua?: string | null) => {
+      if (!ua) return { browser: 'Web Browser', os: 'Unknown OS', deviceType: 'desktop' };
+      const lower = ua.toLowerCase();
+      let browser = 'Web Browser';
+      if (lower.includes('edg/')) browser = 'Microsoft Edge';
+      else if (lower.includes('chrome/') && !lower.includes('edg/')) browser = 'Google Chrome';
+      else if (lower.includes('firefox/')) browser = 'Mozilla Firefox';
+      else if (lower.includes('safari/') && !lower.includes('chrome/')) browser = 'Apple Safari';
+      else if (lower.includes('opr/') || lower.includes('opera/')) browser = 'Opera';
+
+      let os = 'Unknown OS';
+      if (lower.includes('windows nt 10.0')) os = 'Windows 10/11';
+      else if (lower.includes('windows')) os = 'Windows';
+      else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
+      else if (lower.includes('android')) os = 'Android';
+      else if (lower.includes('iphone') || lower.includes('ipad')) os = 'iOS';
+      else if (lower.includes('linux')) os = 'Linux';
+
+      let deviceType: 'desktop' | 'mobile' | 'tablet' = 'desktop';
+      if (lower.includes('ipad') || lower.includes('tablet')) deviceType = 'tablet';
+      else if (lower.includes('mobile') || lower.includes('iphone') || lower.includes('android')) deviceType = 'mobile';
+
+      return { browser, os, deviceType };
+    };
+
     return sessions.map((s) => ({
       id: s.id,
       deviceFingerprint: s.deviceFingerprint,
       ipAddress: s.ipAddress,
       userAgent: s.userAgent,
+      deviceInfo: parseUA(s.userAgent),
       lastActive: s.lastActive,
       expiresAt: s.expiresAt,
       createdAt: s.createdAt,
@@ -1180,6 +1215,7 @@ export class AuthService {
     });
 
     forgetSessions();
+    await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
 
     if (typeof (this.prisma as any).logAction === 'function') {
       await (this.prisma as any).logAction({

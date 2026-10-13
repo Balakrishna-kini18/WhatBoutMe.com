@@ -16,6 +16,7 @@
         "CORS_ORIGIN",
         "WORKER_MODE",
         "PAYMENT_MODE",
+        "MAX_ACTIVE_SESSIONS",
         "REDIS_URL",
         "REDIS_HOST",
         "REDIS_PORT",

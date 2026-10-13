@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ShieldAlert } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField, { FIELD } from "@/components/site/PasswordField";
 import { continueToPortal, signIn, signOut } from "@/lib/auth";
@@ -23,6 +23,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deviceConflict, setDeviceConflict] = useState(false);
   const forPortal = useSyncExternalStore(subscribe, headingForPortal, notForPortal);
 
   // The learner portal has no sign-in of its own and sends people here.
@@ -30,7 +31,12 @@ export default function LoginPage() {
   // who is already signed in on this site straight back.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.has("signout")) {
+    const reason = params.get("reason");
+    if (reason === "DEVICE_LIMIT_EXCEEDED" || reason === "device_limit_exceeded") {
+      setDeviceConflict(true);
+      signOut();
+      window.history.replaceState(null, "", "/login");
+    } else if (params.has("signout")) {
       signOut();
       window.history.replaceState(null, "", "/login");
     } else if (localStorage.getItem("wbm_user")) {
@@ -84,7 +90,21 @@ export default function LoginPage() {
         Welcome Back
       </h1>
 
-      {forPortal && (
+      {deviceConflict && (
+        <div role="status" className="mt-5 rounded-2xl border border-amber-300 bg-amber-50/90 p-4 text-amber-950 shadow-sm">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+            <div className="text-left">
+              <p className="text-sm font-bold text-amber-900">Signed Out from Another Device</p>
+              <p className="mt-1 text-xs text-amber-800 leading-relaxed">
+                Your account was signed in from another browser or device. To prevent account sharing and safeguard your courses, WhatBoutMe permits only <strong>1 active device</strong> at a time. Please sign in below to continue on this device.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {forPortal && !deviceConflict && (
         <p role="status" className="mt-5 rounded-xl bg-cream-deep px-4 py-3 text-center text-sm text-ink">
           Sign in to see your courses and profile. No course yet? You can
           explore and pick one after signing in.

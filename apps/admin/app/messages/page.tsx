@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import page from "../page.module.css";
 import styles from "./messages.module.css";
 import { API_URL, errorMessage } from "../lib/api";
@@ -9,15 +9,42 @@ type Participant = { id: string; name: string; role: string };
 type Conversation = {
   id: string;
   participants: Participant[];
-  lastMessage: { content: string; createdAt: string; senderId: string } | null;
+  lastMessage: { content: string; createdAt: string; senderId: string; attachmentUrl?: string | null; read?: boolean } | null;
   unread: number;
+  isTyping?: boolean;
+  typingUser?: string | null;
 };
-type Message = { id: string; senderId: string; senderName: string; content: string; createdAt: string };
+type Message = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  attachmentUrl?: string | null;
+  read?: boolean;
+  createdAt: string;
+};
 
-const REFRESH_MS = 15_000;
+const REFRESH_MS = 4000;
+const QUICK_EMOJIS = ["😊", "👍", "❤️", "😂", "🙏", "🔥", "🎉", "👏", "😮", "🙌", "💯", "✨"];
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const formatDayLabel = (iso: string): string => {
+  const date = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
+  });
+};
 
 /** The learner in a conversation: the participant who is not staff. */
 const learnerOf = (c: Conversation) =>
@@ -29,12 +56,32 @@ const initials = (name = "?") =>
 const getAuthHeaders = (): Record<string, string> => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   return {
-    "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 };
 
-/** Shared inbox: every learner conversation, with replies sent as the signed-in staff member. */
+function playTone(freq1: number, freq2: number, duration: number) {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq1, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq2, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+  } catch {
+    // blocked or unavailable
+  }
+}
+
+/** Advanced WhatsApp-Grade Support Inbox for Admin & Managers */
 export default function MessagesPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -44,13 +91,29 @@ export default function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [myId, setMyId] = useState("");
+  const [isLearnerTyping, setIsLearnerTyping] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pendingFile, setPendingFile] = useState<{ url: string; name: string } | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevMsgCountRef = useRef(0);
+
+  const inFlightRef = useRef(false);
+
+  const isSafeUrl = (url?: string | null): boolean => {
+    if (!url) return false;
+    return /^https?:\/\//i.test(url) || url.startsWith('/uploads/');
+  };
 
   const loadConversations = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/messages/conversations`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load the inbox"));
-      // a conversation whose learner account was deleted has nobody to show or reply to
       const all: Conversation[] = await res.json();
       const seen = new Set<string>();
       const unique = all
@@ -71,58 +134,170 @@ export default function MessagesPage() {
   }, []);
 
   const loadMessages = useCallback(async (id: string) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
-      const res = await fetch(`${API_URL}/messages/conversations/${id}`, { headers: getAuthHeaders() });
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not load the conversation"));
-      setMessages(await res.json());
-      // opening it marked the learner's messages as read
-      setConversations((list) => list.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
+      const [msgRes, typingRes] = await Promise.all([
+        fetch(`${API_URL}/messages/conversations/${id}`, { headers: getAuthHeaders() }),
+        fetch(`${API_URL}/messages/conversations/${id}/typing`, { headers: getAuthHeaders() }).catch(() => null),
+      ]);
+      if (!msgRes.ok) throw new Error(await errorMessage(msgRes, "Could not load the conversation"));
+      const list: Message[] = await msgRes.json();
+
+      if (list.length > prevMsgCountRef.current && prevMsgCountRef.current > 0) {
+        const last = list[list.length - 1];
+        if (last && last.senderId !== myId && soundEnabled) {
+          playTone(600, 900, 0.12);
+        }
+      }
+      prevMsgCountRef.current = list.length;
+      setMessages(list);
+
+      if (typingRes && typingRes.ok) {
+        const activeTyping = await typingRes.json();
+        setIsLearnerTyping(Array.isArray(activeTyping) && activeTyping.length > 0);
+      }
+
+      setConversations((all) => all.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the conversation");
+    } finally {
+      inFlightRef.current = false;
     }
-  }, []);
+  }, [myId, soundEnabled]);
 
   useEffect(() => {
     try {
       setMyId(JSON.parse(localStorage.getItem("user") ?? "{}").id ?? "");
     } catch {
-      // no stored user: every bubble shows as the learner's
+      // no stored user
     }
     loadConversations();
   }, [loadConversations]);
 
-  // keep the inbox and the open conversation fresh without a page reload
+  // Adaptive thread polling with Page Visibility API & backoff
+  useEffect(() => {
+    if (!activeId) return;
+
+    let timer: NodeJS.Timeout;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.hidden) {
+        timer = setTimeout(poll, 25000);
+        return;
+      }
+      try {
+        await loadMessages(activeId);
+        timer = setTimeout(poll, 4000);
+      } catch {
+        timer = setTimeout(poll, 12000);
+      }
+    };
+
+    timer = setTimeout(poll, 4000);
+
+    const onVisibility = () => {
+      if (!document.hidden && activeId) {
+        loadMessages(activeId).catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [activeId, loadMessages]);
+
+  // Low frequency inbox list polling (every 20s when visible)
   useEffect(() => {
     const timer = window.setInterval(() => {
-      loadConversations();
-      if (activeId) loadMessages(activeId);
-    }, REFRESH_MS);
+      if (typeof document !== "undefined" && !document.hidden) {
+        loadConversations();
+      }
+    }, 20000);
     return () => window.clearInterval(timer);
-  }, [activeId, loadConversations, loadMessages]);
+  }, [loadConversations]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, activeId]);
+    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [messages.length, activeId, isLearnerTyping]);
 
   const open = (id: string) => {
     setActiveId(id);
     setMessages([]);
+    prevMsgCountRef.current = 0;
     loadMessages(id);
+  };
+
+  const handleDraftChange = (text: string) => {
+    setDraft(text);
+    if (!activeId) return;
+    fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ typing: true }),
+    }).catch(() => {});
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ typing: false }),
+      }).catch(() => {});
+    }, 3000);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/uploads`, {
+        method: "POST",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          ...getAuthHeaders(),
+        },
+        body: file,
+      });
+      if (!res.ok) throw new Error("Upload failed. Only images and documents allowed.");
+      const data = await res.json();
+      setPendingFile({ url: data.url, name: file.name });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const content = draft.trim();
-    if (!content || !activeId || sending) return;
+    const attachmentUrl = pendingFile?.url;
+    if ((!content && !attachmentUrl) || !activeId || sending) return;
+
     setSending(true);
     try {
       const res = await fetch(`${API_URL}/messages/conversations/${activeId}`, {
         method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ content }),
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          attachmentUrl: attachmentUrl || undefined,
+        }),
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not send the message"));
       setDraft("");
+      setPendingFile(null);
+      setEmojiOpen(false);
+      if (soundEnabled) playTone(800, 1200, 0.08);
       await Promise.all([loadMessages(activeId), loadConversations()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send the message");
@@ -131,16 +306,35 @@ export default function MessagesPage() {
     }
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!confirm("Are you sure you want to unsend this message?")) return;
+    try {
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+      await fetch(`${API_URL}/messages/conversations/${activeId}/messages/${msgId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+    } catch {
+      if (activeId) loadMessages(activeId);
+    }
+  };
+
+  const isImage = (url?: string | null) => {
+    if (!url) return false;
+    return /\.(jpe?g|png|webp|gif)$/i.test(url) || url.includes("cloudinary.com");
+  };
+
   const active = conversations.find((c) => c.id === activeId);
   const unreadTotal = conversations.reduce((sum, c) => sum + c.unread, 0);
+  const activeLearner = active ? learnerOf(active) : null;
 
   return (
     <div className={page.dashboard}>
       <header className={page.header}>
         <div className={page.headerText}>
-          <h1 className={page.title}>Support Inbox</h1>
+          <h1 className={page.title}>WhatsApp Support Inbox</h1>
           <p className={page.subtitle}>
-            Messages from learners. {unreadTotal > 0 ? `${unreadTotal} unread.` : "Nothing unread."}
+            Direct chat with learners. {unreadTotal > 0 ? `${unreadTotal} unread.` : "All caught up."}
           </p>
         </div>
       </header>
@@ -148,12 +342,13 @@ export default function MessagesPage() {
       {error && <p role="alert" className={styles.error}>{error}</p>}
 
       <div className={styles.inbox}>
+        {/* Left conversations list */}
         <ul className={styles.list} aria-label="Conversations">
           {loading ? (
             <li className={styles.placeholder}>Loading conversations...</li>
           ) : conversations.length === 0 ? (
             <li className={styles.placeholder}>
-              No conversations yet. They appear here when a learner sends a message from the portal.
+              No conversations yet. Messages from learners will appear here.
             </li>
           ) : (
             conversations.map((c) => {
@@ -169,7 +364,13 @@ export default function MessagesPage() {
                     <span className={styles.avatar} aria-hidden="true">{initials(learner?.name)}</span>
                     <span className={styles.itemText}>
                       <strong>{learner?.name ?? "Learner"}</strong>
-                      <span>{c.lastMessage?.content ?? "No messages yet"}</span>
+                      {c.isTyping ? (
+                        <span className={styles.typingItemBadge}>typing...</span>
+                      ) : (
+                        <span>
+                          {c.lastMessage?.attachmentUrl && !c.lastMessage.content ? "📎 Attachment" : c.lastMessage?.content ?? "No messages yet"}
+                        </span>
+                      )}
                     </span>
                     {c.unread > 0 && <span className={styles.unread} aria-label={`${c.unread} unread`}>{c.unread}</span>}
                   </button>
@@ -179,45 +380,210 @@ export default function MessagesPage() {
           )}
         </ul>
 
+        {/* Right thread window */}
         <section className={styles.thread}>
           {!active ? (
-            <p className={styles.placeholder}>Select a conversation to read and reply.</p>
+            <p className={styles.placeholder}>Select a learner from the inbox to read and reply.</p>
           ) : (
             <>
-              <div className={styles.threadHead}>
-                <h2>{learnerOf(active)?.name ?? "Learner"}</h2>
-                <p>{active.lastMessage ? `Last message ${when(active.lastMessage.createdAt)}` : "No messages yet"}</p>
+              <div className={styles.threadHead} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <h2>{activeLearner?.name ?? "Learner"}</h2>
+                  {isLearnerTyping ? (
+                    <span className={styles.typingStatus}>typing...</span>
+                  ) : (
+                    <span className={styles.onlineBadge}>
+                      <span className={styles.onlineDot} /> Online
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className={styles.toolBtn}
+                  onClick={() => setSoundEnabled((v) => !v)}
+                  title={soundEnabled ? "Mute chimes" : "Enable chimes"}
+                >
+                  {soundEnabled ? "🔔" : "🔕"}
+                </button>
               </div>
+
+              {/* Messages timeline with WhatsApp day grouping */}
               <div className={styles.messages} aria-live="polite">
                 {messages.length === 0 ? (
                   <p className={styles.placeholder}>No messages in this conversation yet.</p>
                 ) : (
-                  messages.map((m) => (
-                    <div key={m.id} className={`${styles.bubble} ${m.senderId === myId ? styles.mine : ""}`}>
-                      {m.content}
-                      <time dateTime={m.createdAt}>{m.senderId === myId ? "You" : m.senderName} · {when(m.createdAt)}</time>
-                    </div>
-                  ))
+                  messages.map((m, idx) => {
+                    const prevM = messages[idx - 1];
+                    const currentDate = new Date(m.createdAt).toDateString();
+                    const prevDate = prevM ? new Date(prevM.createdAt).toDateString() : null;
+                    const showDateDivider = currentDate !== prevDate;
+                    const isMine = m.senderId === myId;
+
+                    return (
+                      <div key={m.id}>
+                        {showDateDivider && (
+                          <div className={styles.dateDivider}>
+                            <span className={styles.dateBadge}>{formatDayLabel(m.createdAt)}</span>
+                          </div>
+                        )}
+
+                        <div className={`${styles.msgRow} ${isMine ? styles.mine : styles.theirs}`}>
+                          <div className={styles.msgContainer}>
+                            {isMine && (
+                              <div className={styles.msgActions}>
+                                <button
+                                  type="button"
+                                  className={styles.actionBtn}
+                                  title="Delete message"
+                                  onClick={() => handleDeleteMessage(m.id)}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
+
+                            <div className={`${styles.bubble} ${isMine ? styles.mine : ""}`}>
+                              {/* Attachment preview */}
+                              {m.attachmentUrl && isSafeUrl(m.attachmentUrl) && (
+                                <div className={styles.attachmentBox}>
+                                  {isImage(m.attachmentUrl) ? (
+                                    <div
+                                      className={styles.imgThumb}
+                                      onClick={() => setLightboxUrl(m.attachmentUrl!)}
+                                    >
+                                      <img src={m.attachmentUrl} alt="Attachment" loading="lazy" />
+                                    </div>
+                                  ) : (
+                                    <a
+                                      href={m.attachmentUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      download
+                                      className={styles.fileCard}
+                                    >
+                                      <span className={styles.fileIcon}>DOC</span>
+                                      <span>{m.attachmentUrl.split("/").pop() || "Document"}</span>
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+
+                              {m.content && <div>{m.content}</div>}
+
+                              <div className={styles.msgMeta}>
+                                <span>{clock(m.createdAt)}</span>
+                                {isMine && (
+                                  <span className={`${styles.ticks} ${m.read ? styles.tickRead : styles.tickSent}`}>
+                                    {m.read ? "✓✓" : "✓"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
+
+                {/* Animated wave dots when learner is typing */}
+                {isLearnerTyping && (
+                  <div className={styles.typingBubble}>
+                    <span className={styles.typingText}>{activeLearner?.name || "Learner"} is typing</span>
+                    <span className={styles.dot} />
+                    <span className={styles.dot} />
+                    <span className={styles.dot} />
+                  </div>
+                )}
+
                 <div ref={endRef} />
               </div>
+
+              {/* Emoji quick bar */}
+              {emojiOpen && (
+                <div className={styles.emojiBar}>
+                  {QUICK_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className={styles.emojiBtn}
+                      onClick={() => {
+                        setDraft((prev) => prev + emoji);
+                        handleDraftChange(draft + emoji);
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Pending upload banner */}
+              {(uploading || pendingFile) && (
+                <div className={styles.uploadBar}>
+                  <span>{uploading ? "Uploading attachment..." : `📎 Attached: ${pendingFile?.name}`}</span>
+                  {pendingFile && (
+                    <button
+                      type="button"
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit" }}
+                      onClick={() => setPendingFile(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Composer */}
               <form className={styles.composer} onSubmit={send}>
+                <button
+                  type="button"
+                  className={styles.toolBtn}
+                  onClick={() => setEmojiOpen((v) => !v)}
+                  title="Emoji"
+                >
+                  😊
+                </button>
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: "none" }}
+                  onChange={handleFileUpload}
+                  accept="image/*,application/pdf,.doc,.docx,.txt"
+                />
+
+                <button
+                  type="button"
+                  className={styles.toolBtn}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach file"
+                  disabled={uploading}
+                >
+                  📎
+                </button>
+
                 <textarea
                   aria-label="Reply"
-                  placeholder="Write a reply..."
+                  placeholder={pendingFile ? "Add a caption..." : "Write a reply... (Enter to send)"}
                   rows={1}
                   maxLength={4000}
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => handleDraftChange(e.target.value)}
                   onKeyDown={(e) => {
-                    // Enter sends, Shift+Enter adds a line
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       e.currentTarget.form?.requestSubmit();
                     }
                   }}
                 />
-                <button type="submit" className={styles.send} disabled={sending || !draft.trim()} style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+
+                <button
+                  type="submit"
+                  className={styles.send}
+                  disabled={sending || uploading || (!draft.trim() && !pendingFile)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -229,6 +595,14 @@ export default function MessagesPage() {
           )}
         </section>
       </div>
+
+      {/* Full screen photo lightbox */}
+      {lightboxUrl && (
+        <div className={styles.lightbox} onClick={() => setLightboxUrl(null)}>
+          <button type="button" className={styles.lightboxClose} onClick={() => setLightboxUrl(null)}>✕</button>
+          <img src={lightboxUrl} alt="Photo" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }

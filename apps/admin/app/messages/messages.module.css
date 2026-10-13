@@ -236,3 +236,344 @@
     height: 60vh;
   }
 }
+
+/* ==========================================================================
+   WHATSAPP-STYLE ADMIN MESSAGING ENHANCEMENTS
+   ========================================================================== */
+
+/* Date badge chips */
+.dateDivider {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 1rem 0 0.5rem;
+}
+
+.dateBadge {
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border-light);
+}
+
+/* Message rows and hover unsend */
+.msgRow {
+  display: flex;
+  position: relative;
+  width: 100%;
+}
+
+.msgRow.mine {
+  justify-content: flex-end;
+}
+
+.msgRow.theirs {
+  justify-content: flex-start;
+}
+
+.msgContainer {
+  position: relative;
+  display: flex;
+  max-width: min(72%, 580px);
+}
+
+.msgActions {
+  opacity: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+
+.mine .msgActions {
+  left: -2.2rem;
+}
+
+.theirs .msgActions {
+  right: -2.2rem;
+}
+
+.msgContainer:hover .msgActions {
+  opacity: 1;
+}
+
+.actionBtn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s ease;
+}
+
+.actionBtn:hover {
+  color: var(--status-error);
+  background: var(--bg-soft);
+  transform: scale(1.1);
+}
+
+/* Metadata: time + ticks */
+.msgMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+}
+
+.mine .msgMeta {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.theirs .msgMeta {
+  color: var(--text-secondary);
+}
+
+.ticks {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tickRead {
+  color: #34B7F1; /* WhatsApp double tick blue */
+}
+
+.tickSent {
+  opacity: 0.7;
+}
+
+/* Status dots and typing indicators */
+.onlineBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+}
+
+.onlineDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #25D366;
+  box-shadow: 0 0 6px rgba(37, 211, 102, 0.6);
+}
+
+.typingStatus {
+  color: #25D366;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.typingItemBadge {
+  color: #25D366 !important;
+  font-weight: 600 !important;
+}
+
+.typingBubble {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.55rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 0.25rem;
+}
+
+.typingText {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-right: 0.2rem;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #25D366;
+  opacity: 0.4;
+  animation: typingWave 1.4s infinite ease-in-out both;
+}
+
+.dot:nth-child(2) { animation-delay: -0.32s; }
+.dot:nth-child(3) { animation-delay: -0.16s; }
+.dot:nth-child(4) { animation-delay: 0s; }
+
+@keyframes typingWave {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
+  40% { transform: scale(1.15); opacity: 1; }
+}
+
+/* Attachments */
+.attachmentBox {
+  margin-bottom: 0.4rem;
+}
+
+.imgThumb {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.imgThumb img {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.fileCard {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.05);
+  text-decoration: none;
+  color: inherit;
+}
+
+.mine .fileCard {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
+.fileIcon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.mine .fileIcon {
+  background: white;
+  color: var(--accent-primary);
+}
+
+/* Emoji drawer */
+.emojiBar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-light);
+  overflow-x: auto;
+}
+
+.emojiBtn {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: 6px;
+  transition: transform 0.15s ease;
+  line-height: 1;
+}
+
+.emojiBtn:hover {
+  transform: scale(1.25);
+  background: var(--bg-soft);
+}
+
+/* Pending upload bar */
+.uploadBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 1rem;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--border-light);
+  font-size: 0.8rem;
+}
+
+.toolBtn {
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  width: var(--control-height);
+  height: var(--control-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.toolBtn:hover {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: var(--bg-soft);
+}
+
+/* Lightbox Modal */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.lightbox img {
+  max-width: 90vw;
+  max-height: 85vh;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  object-fit: contain;
+}
+
+.lightboxClose {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+

@@ -5,9 +5,11 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
 import { AgreementStatus, ContentStatus, EnrolmentStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { EmailService } from '../email/email.service.js';
 import {
   CreateAgreementTemplateDto,
   CreateTemplateVersionDto,
@@ -20,7 +22,10 @@ import {
 
 @Injectable()
 export class AgreementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
+  ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. AGREEMENT TEMPLATE MANAGEMENT
@@ -825,6 +830,24 @@ export class AgreementsService {
 
       return signedAgreement;
     });
+
+    if (this.emailService && user?.email) {
+      const recipientEmail = user.email;
+      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      this.emailService
+        .sendTemplateEmail({
+          to: recipientEmail,
+          subject: 'Agreement Signed Confirmation - WhatBoutMe',
+          template: 'AgreementSignedConfirmationEmail',
+          props: {
+            learnerName: result.typedName || user.name || 'Learner',
+            agreementTitle: template.title || 'Student Agreement',
+            signedAt: result.signedAt ? new Date(result.signedAt).toISOString() : new Date().toISOString(),
+            dashboardUrl: `${lmsUrl}/dashboard`,
+          },
+        })
+        .catch((e: any) => console.warn('[AgreementsService] Agreement email error:', e?.message));
+    }
 
     return {
       id: result.id,

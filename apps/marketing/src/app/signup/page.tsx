@@ -2,23 +2,26 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowRight, MailCheck } from "lucide-react";
+import { ArrowRight, ArrowLeft, ShieldCheck, CheckCircle2, RefreshCw, Edit3 } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField from "@/components/site/PasswordField";
 import SearchableSelect from "@/components/site/SearchableSelect";
 import { COUNTRIES, getTimezones, canonicalizeTimezone } from "@/lib/geo-data";
-import { signUp } from "@/lib/auth";
+import { signUp, sendSignupOtp, portalUrl, continueToPortal } from "@/lib/auth";
 
 export default function SignupPage() {
+  const [step, setStep] = useState<"details" | "otp" | "success">("details");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
-  const [country, setCountry] = useState("United Arab Emirates");
-  const [timezone, setTimezone] = useState("Asia/Dubai");
+  const [country, setCountry] = useState("India");
+  const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [submittedEmail, setSubmittedEmail] = useState("");
+  const [resendCountdown, setResendCountdown] = useState(0);
+  const [resendMessage, setResendMessage] = useState("");
 
   const timezones = useMemo(() => getTimezones(), []);
 
@@ -33,16 +36,26 @@ export default function SignupPage() {
     }
   }, []);
 
-  const onSubmit = async (e: FormEvent) => {
+  // Countdown timer for OTP resend
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCountdown]);
+
+  const onDetailsSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setResendMessage("");
 
     if (!name.trim()) {
       setError("Full Name is required.");
       return;
     }
-    if (!email.trim()) {
-      setError("Email Address is required.");
+    if (!email.trim() || !email.includes("@")) {
+      setError("A valid Email Address is required.");
       return;
     }
     if (!country.trim()) {
@@ -60,48 +73,217 @@ export default function SignupPage() {
 
     setBusy(true);
     try {
-      await signUp({
+      await sendSignupOtp({
         name: name.trim(),
         email: email.trim(),
-        ...(mobile.trim() ? { phone: mobile.trim() } : {}),
-        country: country.trim() || undefined,
-        timezone: timezone.trim() || undefined,
-        password,
+        phone: mobile.trim() || undefined,
       });
-      setSubmittedEmail(email.trim());
+      setStep("otp");
+      setResendCountdown(30);
+      setOtp("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the account.");
+      setError(err instanceof Error ? err.message : "Could not send verification code.");
+    } finally {
       setBusy(false);
     }
   };
 
-  if (submittedEmail) {
+  const onResendOtp = async () => {
+    if (resendCountdown > 0 || busy) return;
+    setError("");
+    setResendMessage("");
+    setBusy(true);
+    try {
+      await sendSignupOtp({
+        name: name.trim(),
+        email: email.trim(),
+        phone: mobile.trim() || undefined,
+      });
+      setResendCountdown(30);
+      setResendMessage("A new verification code has been sent to your email.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resend verification code.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onOtpSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setResendMessage("");
+
+    const cleanOtp = otp.trim();
+    if (cleanOtp.length !== 6) {
+      setError("Please enter the complete 6-digit code.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await signUp({
+        name: name.trim(),
+        email: email.trim(),
+        phone: mobile.trim() || undefined,
+        country: country.trim() || undefined,
+        timezone: timezone.trim() || undefined,
+        password,
+        otp: cleanOtp,
+      });
+
+      // Try automatic portal continuation if portal parameter was supplied in URL
+      if (!continueToPortal()) {
+        setStep("success");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not complete account creation.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (step === "success") {
     return (
       <AuthShell
-        headline="Verify Your Email"
-        subtitle="We've sent an activation link to your inbox."
+        headline="Account Created"
+        subtitle="Your email has been verified and your account is ready."
       >
         <div className="py-4 text-center">
-          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
-            <MailCheck className="h-8 w-8" />
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+            <CheckCircle2 className="h-8 w-8" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-            Check Your Inbox
+            Welcome, {name.trim().split(" ")[0]}!
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-soft">
-            We&apos;ve sent a verification link to{" "}
-            <strong className="font-semibold text-ink">{submittedEmail}</strong>.
-            Please click the link in your email to verify your account before logging in.
+            Your account (<strong className="font-semibold text-ink">{email.trim()}</strong>) is verified and active.
           </p>
           <div className="mt-8 space-y-3">
-            <Link
-              href="/login"
+            <a
+              href={portalUrl()}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
-              Proceed to Sign In
+              Continue to Learning Portal
+              <ArrowRight className="h-4 w-4" />
+            </a>
+            <Link
+              href="/courses"
+              className="block w-full py-2.5 text-center text-xs font-semibold text-ink-soft hover:text-ink"
+            >
+              Browse Courses
             </Link>
           </div>
         </div>
+      </AuthShell>
+    );
+  }
+
+  if (step === "otp") {
+    return (
+      <AuthShell
+        headline="Verify Your Email"
+        subtitle="Enter the 6-digit verification code sent to your email."
+        maxWidth="max-w-md"
+      >
+        <div className="text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
+            <ShieldCheck className="h-7 w-7" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
+            Enter Verification Code
+          </h1>
+          <p className="mt-2 text-xs leading-relaxed text-ink-soft">
+            We sent a 6-digit security code to your email address:
+          </p>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <span className="rounded-lg bg-sand px-3 py-1 font-mono text-xs font-semibold text-ink">
+              {email}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setStep("details");
+                setError("");
+                setResendMessage("");
+              }}
+              className="flex items-center gap-1 text-xs font-medium text-gold-deep hover:underline"
+            >
+              <Edit3 className="h-3 w-3" /> Edit
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={onOtpSubmit} className="mt-6 space-y-4">
+          <div>
+            <label htmlFor="otp" className="mb-1 block text-center text-xs font-medium text-ink">
+              6-Digit Code
+            </label>
+            <input
+              id="otp"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              autoComplete="one-time-code"
+              autoFocus
+              required
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="••••••"
+              className="h-14 w-full rounded-xl border border-sand bg-sand px-4 text-center font-mono text-2xl font-bold tracking-[0.4em] text-ink outline-none transition-colors placeholder:font-sans placeholder:tracking-widest placeholder:text-ink-soft/40 focus:border-gold-deep focus:bg-white"
+            />
+          </div>
+
+          {resendMessage && (
+            <p className="rounded-xl bg-emerald-50 px-3.5 py-2 text-center text-xs font-medium text-emerald-800">
+              {resendMessage}
+            </p>
+          )}
+
+          {error && (
+            <p role="alert" className="rounded-xl bg-red-50 px-3.5 py-2 text-center text-xs text-red-700">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={busy || otp.trim().length !== 6}
+            className="group flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink py-2.5 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink disabled:opacity-60"
+          >
+            {busy ? "Verifying & Creating Account…" : "Verify & Create Account"}
+            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+          </button>
+
+          <div className="flex items-center justify-between pt-2 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setStep("details");
+                setError("");
+                setResendMessage("");
+              }}
+              className="flex items-center gap-1 text-ink-soft hover:text-ink"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </button>
+
+            {resendCountdown > 0 ? (
+              <span className="text-ink-soft">
+                Resend code in <strong className="font-semibold text-ink">{resendCountdown}s</strong>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={onResendOtp}
+                disabled={busy}
+                className="flex items-center gap-1 font-semibold text-gold-deep hover:underline disabled:opacity-50"
+              >
+                <RefreshCw className="h-3 w-3" /> Resend Code
+              </button>
+            )}
+          </div>
+        </form>
       </AuthShell>
     );
   }
@@ -124,7 +306,7 @@ export default function SignupPage() {
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className="mt-4 space-y-3">
+      <form onSubmit={onDetailsSubmit} className="mt-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* Full Name */}
           <div>
@@ -171,10 +353,10 @@ export default function SignupPage() {
               inputMode="tel"
               autoComplete="tel"
               pattern="[+0-9][0-9 ()\-]{6,}"
-              title="Enter your mobile number with country code, for example +971 56 546 4014"
+              title="Enter your mobile number with country code, for example +91 9876543210"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
-              placeholder="+971 50 000 0000"
+              placeholder="+91 9876543210"
               className={INPUT_FIELD}
             />
           </div>
@@ -237,7 +419,7 @@ export default function SignupPage() {
           disabled={busy}
           className="group flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink py-2.5 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink disabled:opacity-60"
         >
-          {busy ? "Creating Account…" : "Create Account"}
+          {busy ? "Sending Verification Code…" : "Continue & Send Code"}
           <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
         </button>
       </form>

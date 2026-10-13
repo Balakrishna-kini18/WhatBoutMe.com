@@ -555,9 +555,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 className={styles.brandLogoImg}
               />
             </div>
-            <span style={{ display: "block", fontSize: "0.68rem", color: "var(--text-tertiary, #8c8275)", letterSpacing: "0.06em", marginTop: "2px", fontWeight: 600, textTransform: "uppercase" }}>
-              Admin Studio · Brain Health &amp; Resilience
-            </span>
           </Link>
 
           <Link href="/" className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Admin Home" title="WhatBoutMe Admin">

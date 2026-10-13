@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import styles from "../../../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../../lib/api";
+import { CustomSelect } from "../../../components";
 
 interface Session {
   id: string;
@@ -494,14 +495,17 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
 
               <div className={styles.formGroup}>
                 <label>Host Trainer (D1-043)</label>
-                <select value={hostTrainerId} onChange={(e) => setHostTrainerId(e.target.value)}>
-                  <option value="">-- Select Trainer --</option>
-                  {trainers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={hostTrainerId}
+                  onChange={setHostTrainerId}
+                  fullWidth
+                  ariaLabel="Host Trainer"
+                  placeholder="-- Select Trainer --"
+                  options={[
+                    { value: "", label: "-- Select Trainer --" },
+                    ...trainers.map((t) => ({ value: t.id, label: t.name })),
+                  ]}
+                />
               </div>
 
               <div className={styles.formRow}>
@@ -578,14 +582,20 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
 
               <div className={styles.formGroup}>
                 <label>Post-Session Quiz (Optional)</label>
-                <select value={quizId} onChange={(e) => setQuizId(e.target.value)}>
-                  <option value="">-- No Quiz --</option>
-                  {quizzes.map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.title || `Quiz ${q.id.substring(0, 6)}`}
-                    </option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={quizId}
+                  onChange={setQuizId}
+                  fullWidth
+                  ariaLabel="Post-Session Quiz"
+                  placeholder="-- No Quiz --"
+                  options={[
+                    { value: "", label: "-- No Quiz --" },
+                    ...quizzes.map((q) => ({
+                      value: q.id,
+                      label: q.title || `Quiz ${q.id.substring(0, 6)}`,
+                    })),
+                  ]}
+                />
               </div>
 
               {formError && (

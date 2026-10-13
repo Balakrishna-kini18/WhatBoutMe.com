@@ -1,0 +1,137 @@
+"use client";
+
+import React, { useState } from "react";
+import styles from "../curriculum.module.css";
+
+interface Step3CreateModuleModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  defaultSequence: number;
+  onCreateModule: (data: { title: string; description: string; sequence: number }) => Promise<void>;
+  isCreating: boolean;
+}
+
+export default function Step3CreateModuleModal({
+  isOpen,
+  onClose,
+  defaultSequence,
+  onCreateModule,
+  isCreating,
+}: Step3CreateModuleModalProps) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [sequence, setSequence] = useState<number>(defaultSequence);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      setError("Module title is required.");
+      return;
+    }
+    setError(null);
+
+    await onCreateModule({
+      title: title.trim(),
+      description: description.trim(),
+      sequence: Number(sequence) || defaultSequence,
+    });
+  };
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h3 className={styles.modalTitle}>Create New Module</h3>
+          <button
+            type="button"
+            className={styles.modalCloseBtn}
+            onClick={onClose}
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className={styles.modalBody}>
+            {error && (
+              <div
+                style={{
+                  background: "#fee2e2",
+                  color: "#991b1b",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  fontSize: "0.85rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Module Title <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <input
+                type="text"
+                required
+                autoFocus
+                placeholder="e.g. Module 1: Introduction to Web Development"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className={styles.formInput}
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Module Description</label>
+              <textarea
+                rows={3}
+                placeholder="What students will learn in this module..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className={styles.formTextarea}
+              />
+            </div>
+
+            <div className={styles.formGroup} style={{ marginBottom: 0 }}>
+              <label className={styles.formLabel}>Module Order</label>
+              <input
+                type="number"
+                min={1}
+                value={sequence}
+                onChange={(e) => setSequence(Number(e.target.value))}
+                className={styles.formInput}
+                style={{ maxWidth: 120 }}
+              />
+            </div>
+          </div>
+
+          <div className={styles.modalFooter}>
+            <button
+              type="button"
+              className={styles.secondaryActionBtn}
+              onClick={onClose}
+              disabled={isCreating}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              disabled={isCreating}
+              className={styles.btnPrimary}
+              style={{ padding: "0.6rem 1.4rem", fontSize: "0.88rem" }}
+            >
+              {isCreating ? "Creating..." : "Create Module"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

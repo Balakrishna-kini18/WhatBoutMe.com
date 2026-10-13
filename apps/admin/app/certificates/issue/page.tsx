@@ -49,9 +49,25 @@ export default function IssueCertificatesPage() {
           </p>
         </div>
         <div className={page.headerActions}>
-          <Link href="/certificates" className={page.secondaryBtn} style={{ textDecoration: "none" }}>Back</Link>
-          <button type="button" className={page.primaryBtn} disabled={!ready} onClick={() => window.print()}>
-            {people.length > 1 ? `Print or Save ${people.length} PDFs` : "Print or Save PDF"}
+          <Link href="/certificates" className={page.backLink} style={{ margin: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span>Back to Certificates</span>
+          </Link>
+          <button
+            type="button"
+            className={page.primaryBtn}
+            disabled={!ready}
+            onClick={() => window.print()}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            <span>{people.length > 1 ? `Print or Save ${people.length} PDFs` : "Print or Save PDF"}</span>
           </button>
         </div>
       </header>

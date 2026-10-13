@@ -39,13 +39,19 @@ export default function CoursesGrid({ courses }: { courses: Course[] }) {
         })}
       </div>
 
-      <ul className="mt-8 grid gap-5 lg:grid-cols-2">
-        {visible.map((course) => (
-          <li key={course.slug}>
-            <CourseCardWide course={course} />
-          </li>
-        ))}
-      </ul>
+      {courses.length === 0 ? (
+        <div className="mt-12 py-12 text-center text-ink/60">
+          <p className="text-lg">No courses available at this time.</p>
+        </div>
+      ) : (
+        <ul className="mt-8 grid gap-5 lg:grid-cols-2">
+          {visible.map((course) => (
+            <li key={course.slug}>
+              <CourseCardWide course={course} />
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }

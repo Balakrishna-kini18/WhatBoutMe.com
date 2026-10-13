@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { API_BASE_URL, LMS_URL, loginUser, signupUser } from "./api";
+import { API_BASE_URL, LMS_URL, loginUser, signupUser, sendSignupOtp as sendSignupOtpApi } from "./api";
 
 /** Signed-in learner, as returned by POST /auth/login. */
 export type SessionUser = {
@@ -63,7 +63,16 @@ export async function signIn(identifier: string, password: string) {
   storeSession(await loginUser(identifier, password));
 }
 
-/** Creates a learner account. Returns created user. Email verification is required before login. */
+/** Sends a 6-digit verification code to the learner's email before registration. */
+export async function sendSignupOtp(details: {
+  name?: string;
+  email: string;
+  phone?: string;
+}) {
+  return await sendSignupOtpApi(details);
+}
+
+/** Creates a learner account with verified OTP. Automatically stores session if tokens are returned. */
 export async function signUp(details: {
   name: string;
   email: string;
@@ -71,8 +80,17 @@ export async function signUp(details: {
   password: string;
   country?: string;
   timezone?: string;
+  otp?: string;
 }) {
-  return await signupUser(details);
+  const res = await signupUser(details);
+  if (res?.access_token && res?.user) {
+    storeSession({
+      access_token: res.access_token,
+      refresh_token: res.refresh_token,
+      user: res.user,
+    });
+  }
+  return res;
 }
 
 export function signOut() {

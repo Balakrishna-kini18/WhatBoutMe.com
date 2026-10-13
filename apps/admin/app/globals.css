@@ -1,45 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+
 :root {
-  /* Blue theme, shared by the admin and the learner portal. Keep the two
-     globals.css files in step so both apps look like one product. */
-  --bg-main: #f4f7fb;
-  --bg-soft: #f8fafc;
-  --bg-card: #ffffff;
+  /* WhatBoutMe Brand Palette — Warm Organic SaaS Theme */
+  --bg-main: #faf6f0;           /* Warm Sand / Ivory canvas */
+  --bg-soft: #f5ece1;           /* Soft Sand tint */
+  --bg-card: #ffffff;           /* Elevated Pure White card surface */
+  --bg-card-muted: #fdfbf7;     /* Light cream card tint */
+  --bg-sidebar: #faf7f2;        /* Elegant sidebar cream */
 
-  /* Primary accents */
-  --accent-primary: #1d4ed8;
-  --accent-primary-hover: #1e40af;
-  --accent-secondary: #60a5fa;
-  --accent-highlight: #eaf1ff; /* soft blue tint for active states */
+  /* Primary Brand Accents */
+  --accent-primary: #c97a1e;       /* Warm Golden Amber / Ochre CTA */
+  --accent-primary-hover: #b46b18; /* Deep Golden Amber hover */
+  --accent-primary-active: #9f5b12;
+  --accent-secondary: #efa944;     /* Radiant Gold */
+  --accent-secondary-light: #fbeed2; /* Soft Cream Gold */
+  --accent-highlight: #f4ecdf;     /* Refined warm highlight for active nav items */
+  --accent-highlight-text: #14110f;/* Deep ink text for active states */
 
-  /* Typography */
-  --text-primary: #0f172a;
-  --text-secondary: #64748b;
-  --text-disabled: #cbd5e1;
+  /* Ink & Typography */
+  --text-primary: #14110f;         /* Deep Ink */
+  --text-secondary: #4a443d;       /* Soft Ink */
+  --text-muted: #78716a;           /* Muted Tan / Gray */
+  --text-disabled: #b8b0a5;        /* Light sand disabled text */
 
-  /* Borders and shadows */
-  --border-light: #e2e8f0;
-  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.05), 0 2px 4px -1px rgba(15, 23, 42, 0.03);
-  --shadow-card: 0 10px 30px -5px rgba(15, 23, 42, 0.06);
+  /* Fonts */
+  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-playfair), 'Playfair Display', Georgia, Cambria, serif;
+  --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
 
-  /* Status colours */
+  /* Borders & Dividers */
+  --border-light: #ece4d7;         /* Soft warm sand border */
+  --border-focus: #c97a1e;         /* Focus border */
+  --border-subtle: rgba(20, 17, 15, 0.07);
+
+  /* Shadows — Warm, layered & soft */
+  --shadow-sm: 0 1px 3px rgba(20, 17, 15, 0.04), 0 1px 2px rgba(20, 17, 15, 0.02);
+  --shadow-md: 0 4px 12px -2px rgba(180, 140, 100, 0.08), 0 2px 6px -1px rgba(20, 17, 15, 0.04);
+  --shadow-card: 0 8px 24px -4px rgba(180, 140, 100, 0.08), 0 2px 8px -2px rgba(20, 17, 15, 0.03);
+  --shadow-card-hover: 0 16px 36px -6px rgba(180, 140, 100, 0.12), 0 4px 12px -2px rgba(20, 17, 15, 0.04);
+  --shadow-dropdown: 0 14px 34px -4px rgba(60, 45, 30, 0.12), 0 4px 12px rgba(20, 17, 15, 0.05);
+
+  /* Status Colors */
   --status-success: #15803d;
   --status-success-bg: #dcfce7;
   --status-warning: #b45309;
   --status-warning-bg: #fef3c7;
   --status-error: #b91c1c;
   --status-error-bg: #fee2e2;
+  --status-info: #0284c7;
+  --status-info-bg: #e0f2fe;
 
-  /* One scale for every screen: text sizes, radii and control height */
+  /* Card Category Accents (from marketing theme) */
+  --accent-peach: #fdf2e2;
+  --accent-peach-text: #9a5316;
+  --accent-lavender: #f3e8ff;
+  --accent-lavender-text: #7e22ce;
+  --accent-mint: #dcfce7;
+  --accent-mint-text: #15803d;
+  --accent-gold: #fef3c7;
+  --accent-gold-text: #b45309;
+
+  /* Sizing scale */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.25rem;
   --text-xl: 1.5rem;
   --text-2xl: 1.875rem;
+  --text-3xl: 2.25rem;
+
+  --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-pill: 9999px;
+
   --control-height: 2.75rem;
 }
 
@@ -48,18 +85,19 @@ body {
   padding: 0;
   background-color: var(--bg-main);
   color: var(--text-primary);
-  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
   box-sizing: border-box;
 }
 
-/* form controls take the page font instead of the browser default */
+/* Form controls take the page font instead of browser default */
 button, input, select, textarea {
   font-family: inherit;
 }
@@ -69,11 +107,51 @@ button, input, select, textarea {
   outline-offset: 2px;
 }
 
-/* Base headings */
+/* Headings default */
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
   margin-top: 0;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Selection highlight */
+::selection {
+  background: var(--accent-secondary);
+  color: #14110f;
+}
+
+/* Skeleton Loading Shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f0e9df 25%, #faf6f0 50%, #f0e9df 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  border-radius: var(--radius-sm);
+}
+
+/* Subtle animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Hide sidebar and topbar on login page demo */
@@ -82,7 +160,6 @@ body.login-page-active header {
   display: none !important;
 }
 
-body.login-page-active ._layout_mainWrapper__xxxxxx { /* Fallback */ }
 body.login-page-active div[class*="mainWrapper"] {
   margin-left: 0 !important;
 }
@@ -111,3 +188,28 @@ body.login-page-active div[class*="mainWrapper"] {
     max-width: none !important;
   }
 }
+
+/* =========================================================================
+   Dark Theme Token Overrides
+   ========================================================================= */
+html.dark {
+  --bg-main: #141210;
+  --bg-soft: #1e1b17;
+  --bg-card: #1c1916;
+  --bg-card-muted: #24201c;
+  --bg-sidebar: #181512;
+
+  --accent-primary: #e08b2d;
+  --accent-primary-hover: #efa944;
+  --accent-highlight: #282119;
+  --accent-highlight-text: #f7ede0;
+
+  --text-primary: #f5efe8;
+  --text-secondary: #c7beaf;
+  --text-muted: #8c8273;
+  --text-disabled: #544c42;
+
+  --border-light: #2c2720;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+}
+

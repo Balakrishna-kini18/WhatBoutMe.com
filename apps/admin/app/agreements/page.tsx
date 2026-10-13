@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
+import { CustomSelect, StatusBadge } from "../components";
 
 interface AgreementTemplate {
   id: string;
@@ -55,6 +56,23 @@ export default function AdminAgreementsPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Lock background scroll and listen for Escape key when modal is open
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isModalOpen]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -157,23 +175,36 @@ export default function AdminAgreementsPage() {
               resetForm();
               setIsModalOpen(true);
             }}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
           >
-            + Create Agreement Template
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Create Agreement Template</span>
           </button>
         </div>
       </header>
 
       {errorMsg && (
         <div style={{
-          background: "#fee2e2",
-          border: "1px solid #ef4444",
-          color: "#b91c1c",
-          padding: "1rem",
+          backgroundColor: "#fef2f2",
+          border: "1px solid #fecaca",
+          color: "#991b1b",
+          padding: "12px 16px",
           borderRadius: "8px",
-          marginBottom: "1.5rem",
-          fontSize: "0.9rem"
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          fontSize: "0.88rem"
         }}>
-          {errorMsg}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -198,20 +229,24 @@ export default function AdminAgreementsPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "2rem", color: "var(--text-secondary)" }}>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
                     Loading agreement templates...
                   </td>
                 </tr>
               ) : templates.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>
-                    <p style={{ margin: "0 0 1rem 0", fontSize: "1rem" }}>No agreement templates configured yet.</p>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
+                    <p style={{ margin: "0 0 1rem 0", fontSize: "0.95rem" }}>No agreement templates configured yet.</p>
                     <button
                       className={styles.secondaryBtn}
-                      style={{ margin: "0 auto" }}
+                      style={{ margin: "0 auto", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
                       onClick={() => setIsModalOpen(true)}
                     >
-                      + Create First Agreement Template
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                      </svg>
+                      <span>Create First Agreement Template</span>
                     </button>
                   </td>
                 </tr>
@@ -220,55 +255,48 @@ export default function AdminAgreementsPage() {
                   const publishedVersion = tpl.versions?.find((v) => v.status === "PUBLISHED");
                   return (
                     <tr key={tpl.id}>
-                      <td style={{ fontWeight: 600 }}>{tpl.program?.title || "Unknown Program"}</td>
                       <td>
-                        <strong>{tpl.title}</strong>
+                        <span className={styles.cellUserName}>{tpl.program?.title || "Unknown Program"}</span>
+                      </td>
+                      <td>
+                        <span className={styles.cellText} style={{ fontWeight: 600 }}>{tpl.title}</span>
                         {tpl.description && (
-                          <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                          <div className={styles.cellTextMuted}>
                             {tpl.description}
                           </div>
                         )}
                       </td>
                       <td>
                         {publishedVersion ? (
-                          <span style={{
-                            background: "#dcfce7",
-                            color: "#15803d",
-                            padding: "0.25rem 0.6rem",
-                            borderRadius: "12px",
-                            fontSize: "0.8rem",
-                            fontWeight: 700
-                          }}>
-                            {publishedVersion.version} (Active)
-                          </span>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                              {publishedVersion.version}
+                            </span>
+                            <StatusBadge status="ACTIVE" />
+                          </div>
                         ) : (
-                          <span style={{
-                            background: "#fef3c7",
-                            color: "#b45309",
-                            padding: "0.25rem 0.6rem",
-                            borderRadius: "12px",
-                            fontSize: "0.8rem",
-                            fontWeight: 600
-                          }}>
-                            Draft Only
-                          </span>
+                          <StatusBadge status="DRAFT" />
                         )}
                       </td>
-                      <td>{tpl._count?.versions ?? tpl.versions?.length ?? 0} versions</td>
                       <td>
-                        <strong style={{ color: "var(--accent-primary)" }}>
+                        <span className={styles.cellText}>{tpl._count?.versions ?? tpl.versions?.length ?? 0} versions</span>
+                      </td>
+                      <td>
+                        <strong style={{ color: "var(--accent-primary)", fontWeight: 700 }}>
                           {tpl._count?.signedAgreements ?? 0}
                         </strong>{" "}
-                        signed
+                        <span className={styles.cellTextMuted}>signed</span>
                       </td>
-                      <td style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                        {new Date(tpl.createdAt).toLocaleDateString()}
+                      <td>
+                        <span className={styles.cellTextMuted}>
+                          {new Date(tpl.createdAt).toLocaleDateString()}
+                        </span>
                       </td>
                       <td className={styles.alignRight}>
                         <Link
                           href={`/agreements/${tpl.id}`}
-                          className={styles.secondaryBtn}
-                          style={{ display: "inline-flex", textDecoration: "none", padding: "0.4rem 0.8rem", fontSize: "0.85rem" }}
+                          className={styles.secondaryBtnSmall}
+                          style={{ display: "inline-flex", textDecoration: "none" }}
                         >
                           Manage &amp; Audit →
                         </Link>
@@ -284,180 +312,136 @@ export default function AdminAgreementsPage() {
 
       {/* CREATE TEMPLATE MODAL */}
       {isModalOpen && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          padding: "1rem"
-        }}>
-          <div style={{
-            background: "var(--bg-card)",
-            borderRadius: "16px",
-            width: "100%",
-            maxWidth: "700px",
-            maxHeight: "90vh",
-            overflowY: "auto",
-            padding: "2rem",
-            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
-            border: "1px solid var(--border-light)"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-              <h2 style={{ margin: 0, fontSize: "1.3rem", fontWeight: 800 }}>Create Agreement Template</h2>
+        <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
+          <div
+            className={styles.modalContent}
+            style={{ maxWidth: "780px" }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agreement-modal-title"
+          >
+            <div className={styles.modalHeader}>
+              <div>
+                <h2 id="agreement-modal-title">Create Agreement Template</h2>
+                <p className={styles.modalIntro}>
+                  Define terms and conditions for learner sign-off.
+                </p>
+              </div>
               <button
                 type="button"
+                className={styles.closeBtn}
                 onClick={() => setIsModalOpen(false)}
-                style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "var(--text-secondary)" }}
+                aria-label="Close dialog"
               >
                 ×
               </button>
             </div>
 
-            <form onSubmit={handleCreateTemplate} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-              <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                  Select Program *
-                </label>
-                <select
-                  value={selectedProgramId}
-                  onChange={(e) => setSelectedProgramId(e.target.value)}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-light)",
-                    background: "var(--bg-main)"
-                  }}
-                >
-                  <option value="">-- Choose a program --</option>
-                  {programs.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <form
+              onSubmit={handleCreateTemplate}
+              style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}
+            >
+              <div className={styles.modalBody}>
+                <div className={styles.formGroup}>
+                  <label>
+                    Select Program <span style={{ color: "var(--status-error)" }}>*</span>
+                  </label>
+                  <CustomSelect
+                    value={selectedProgramId}
+                    onChange={setSelectedProgramId}
+                    fullWidth
+                    ariaLabel="Select Program"
+                    placeholder="-- Choose a program --"
+                    options={programs.map((p) => ({
+                      value: p.id,
+                      label: p.title,
+                    }))}
+                  />
+                </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                  Template Title *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 11 Steps to U Standard Program Agreement"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-light)",
-                    background: "var(--bg-main)"
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                  Description (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Brief summary of what this contract governs"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-light)",
-                    background: "var(--bg-main)"
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", gap: "1rem" }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                    Initial Version String *
+                <div className={styles.formGroup}>
+                  <label>
+                    Template Title <span style={{ color: "var(--status-error)" }}>*</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="v1.0"
-                    value={initialVersion}
-                    onChange={(e) => setInitialVersion(e.target.value)}
+                    placeholder="e.g. 11 Steps to U Standard Program Agreement"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Description <span className={styles.optionalLabel}>(Optional)</span></label>
+                  <input
+                    type="text"
+                    placeholder="Brief summary of what this contract governs"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>
+                      Initial Version String <span style={{ color: "var(--status-error)" }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="v1.0"
+                      value={initialVersion}
+                      onChange={(e) => setInitialVersion(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Changelog Note</label>
+                    <input
+                      type="text"
+                      placeholder="Initial terms and conditions release"
+                      value={initialChangelog}
+                      onChange={(e) => setInitialChangelog(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>
+                    Agreement Terms &amp; Conditions (Contract Content) <span style={{ color: "var(--status-error)" }}>*</span>
+                  </label>
+                  <textarea
+                    rows={10}
+                    placeholder="Enter full contract terms that the learner must read and consent to before Step 1 unlocks..."
+                    value={initialContent}
+                    onChange={(e) => setInitialContent(e.target.value)}
                     required
                     style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      borderRadius: "8px",
-                      border: "1px solid var(--border-light)",
-                      background: "var(--bg-main)"
+                      fontFamily: "var(--font-sans), system-ui, sans-serif",
+                      fontSize: "0.88rem",
+                      lineHeight: "1.6",
+                      padding: "0.75rem 1rem",
+                      minHeight: "180px",
                     }}
                   />
                 </div>
-                <div style={{ flex: 2 }}>
-                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                    Changelog Note
-                  </label>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", margin: "0.25rem 0" }}>
                   <input
-                    type="text"
-                    placeholder="Initial terms and conditions release"
-                    value={initialChangelog}
-                    onChange={(e) => setInitialChangelog(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      borderRadius: "8px",
-                      border: "1px solid var(--border-light)",
-                      background: "var(--bg-main)"
-                    }}
+                    type="checkbox"
+                    id="publishNow"
+                    checked={publishImmediately}
+                    onChange={(e) => setPublishImmediately(e.target.checked)}
+                    style={{ width: "16px", height: "16px", cursor: "pointer", accentColor: "var(--accent-primary)" }}
                   />
+                  <label htmlFor="publishNow" style={{ fontSize: "0.88rem", fontWeight: 500, cursor: "pointer", color: "var(--text-primary)" }}>
+                    Publish immediately (makes this version live for learner sign-off)
+                  </label>
                 </div>
               </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem" }}>
-                  Agreement Terms &amp; Conditions (Contract Content) *
-                </label>
-                <textarea
-                  rows={8}
-                  placeholder="Enter full contract terms that the learner must read and consent to before Step 1 unlocks..."
-                  value={initialContent}
-                  onChange={(e) => setInitialContent(e.target.value)}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border-light)",
-                    background: "var(--bg-main)",
-                    fontFamily: "inherit",
-                    fontSize: "0.9rem",
-                    resize: "vertical"
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <input
-                  type="checkbox"
-                  id="publishNow"
-                  checked={publishImmediately}
-                  onChange={(e) => setPublishImmediately(e.target.checked)}
-                  style={{ width: "18px", height: "18px", cursor: "pointer" }}
-                />
-                <label htmlFor="publishNow" style={{ fontSize: "0.9rem", fontWeight: 600, cursor: "pointer" }}>
-                  Publish immediately (makes this version live for learner sign-off)
-                </label>
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", marginTop: "1rem" }}>
+              <div className={styles.modalFooter}>
                 <button
                   type="button"
                   className={styles.secondaryBtn}

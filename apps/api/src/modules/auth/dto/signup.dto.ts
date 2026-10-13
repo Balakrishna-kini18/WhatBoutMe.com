@@ -27,7 +27,26 @@ export class SignupDto {
   timezone?: string;
 
   @IsOptional()
+  @IsString()
+  otp?: string;
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   programIds?: string[];
 }
+
+export class SendSignupOtpDto {
+  @IsEmail({}, { message: 'Invalid email address' })
+  @IsNotEmpty({ message: 'Email is required' })
+  email: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+

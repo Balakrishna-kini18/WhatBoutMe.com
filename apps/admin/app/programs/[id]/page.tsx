@@ -1,230 +1,531 @@
 "use client";
 
-import { useEffect, useState, FormEvent, use } from "react";
-import styles from "../../page.module.css";
+import { useEffect, useState, use, useCallback } from "react";
+import styles from "./curriculum.module.css";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { API_URL, errorMessage } from "../../lib/api";
+
+// 9-Step Wizard Modular Subcomponents
+import CurriculumStepper from "./components/CurriculumStepper";
+import Step1CourseSetup from "./components/Step1CourseSetup";
+import Step2ModuleList from "./components/Step2ModuleList";
+import Step3CreateModuleModal from "./components/Step3CreateModuleModal";
+import Step4ModuleDetails from "./components/Step4ModuleDetails";
+import Step5AddLessonChooser, { LessonTypeChoice } from "./components/Step5AddLessonChooser";
+import Step6AddVideoLesson from "./components/Step6AddVideoLesson";
+import Step6AddPdfLesson from "./components/Step6AddPdfLesson";
+import Step7QuizBuilder from "./components/Step7QuizBuilder";
+import Step8ModulePreview from "./components/Step8ModulePreview";
+import Step9ReviewPublish from "./components/Step9ReviewPublish";
+
+export type WizardStep =
+  | "COURSE_SETUP"
+  | "MODULE_LIST"
+  | "MODULE_DETAILS"
+  | "ADD_LESSON_CHOOSER"
+  | "ADD_VIDEO_LESSON"
+  | "ADD_PDF_LESSON"
+  | "QUIZ_BUILDER"
+  | "MODULE_PREVIEW"
+  | "REVIEW_PUBLISH";
 
 interface Step {
   id: string;
   sequence: number;
   title: string;
   description: string;
+  lessons?: any[];
+  quiz?: any | null;
 }
 
-export default function ProgramCurriculumPage({ params }: { params: Promise<{ id: string }> }) {
+export default function CurriculumWizardPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const programId = resolvedParams.id;
-  const router = useRouter();
+
+  // Master Data State
+  const [programData, setProgramData] = useState<any>(null);
   const [steps, setSteps] = useState<Step[]>([]);
-  const [programTitle, setProgramTitle] = useState("Loading...");
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Form states
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [sequence, setSequence] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
 
-  useEffect(() => {
-    fetchProgram();
-    fetchSteps();
-  }, []);
+  // Active Wizard Progression State
+  const [wizardStep, setWizardStep] = useState<WizardStep>("COURSE_SETUP");
+  const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+  const [isCreateModuleModalOpen, setIsCreateModuleModalOpen] = useState(false);
+  const [isCreatingModule, setIsCreatingModule] = useState(false);
 
-  const fetchProgram = async () => {
+  // Fetch Program & Full Steps with Lessons
+  const fetchProgramAndSteps = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs`);
-      if (res.ok) {
-        const data = await res.json();
-        const prog = data.find((p: any) => p.id === programId);
-        if (prog) setProgramTitle(prog.title);
+      // 1. Fetch Program details
+      const progRes = await fetch(`${API_URL}/programs`);
+      if (progRes.ok) {
+        const progs = await progRes.json();
+        const found = progs.find((p: any) => p.id === programId);
+        if (found) setProgramData(found);
       }
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
-  const fetchSteps = async () => {
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs/${programId}/steps`);
-      if (res.ok) {
-        const data = await res.json();
-        setSteps(data);
-        setSequence(data.reduce((highest: number, step: Step) => Math.max(highest, step.sequence), 0) + 1);
+      // 2. Fetch Steps List
+      const stepsRes = await fetch(`${API_URL}/programs/${programId}/steps`);
+      if (stepsRes.ok) {
+        const stepsData: Step[] = await stepsRes.json();
+        const sorted = [...stepsData].sort((a, b) => a.sequence - b.sequence);
+
+        // Fetch detailed lessons and quiz for each step
+        const detailedSteps = await Promise.all(
+          sorted.map(async (s) => {
+            try {
+              const detailRes = await fetch(`${API_URL}/programs/steps/${s.id}`);
+              if (detailRes.ok) return await detailRes.json();
+            } catch (e) {}
+            return s;
+          })
+        );
+
+        setSteps(detailedSteps);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error("Error loading curriculum wizard data:", err);
     } finally {
       setIsLoading(false);
     }
+  }, [programId]);
+
+  useEffect(() => {
+    fetchProgramAndSteps();
+  }, [fetchProgramAndSteps]);
+
+  // Determine top stepper phase (1: Basic Details, 2: Modules, 3: Review & Publish)
+  const currentPhase: 1 | 2 | 3 =
+    wizardStep === "COURSE_SETUP" ? 1 : wizardStep === "REVIEW_PUBLISH" ? 3 : 2;
+
+  const handleSelectPhase = (phase: 1 | 2 | 3) => {
+    if (phase === 1) setWizardStep("COURSE_SETUP");
+    if (phase === 2) setWizardStep("MODULE_LIST");
+    if (phase === 3) setWizardStep("REVIEW_PUBLISH");
   };
 
-  const openCreateStep = () => {
-    const nextSequence = steps.reduce((highest, step) => Math.max(highest, step.sequence), 0) + 1;
-    setSequence(nextSequence);
-    setTitle("");
-    setDescription("");
-    setSaveError("");
-    setIsModalOpen(true);
-  };
+  const activeModule = steps.find((s) => s.id === activeModuleId) || steps[0] || null;
 
-  const handleCreateStep = async (e: FormEvent, continueToContent = false) => {
-    e.preventDefault();
+  // ---------------------------------------------------------------------------
+  // Action Handlers
+  // ---------------------------------------------------------------------------
+
+  // Save Step 1: Course Setup
+  const handleSaveCourseSetup = async (updatedData: any) => {
     setIsSaving(true);
-    setSaveError("");
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs/${programId}/steps`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          description,
-          sequence: Number(sequence),
-        }),
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/programs/${programId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(updatedData),
       });
-      if (res.ok) {
-        const createdStep: Step = await res.json();
-        setIsModalOpen(false);
-        setTitle("");
-        setDescription("");
-        if (continueToContent) {
-          router.push(`/programs/${programId}/steps/${createdStep.id}`);
-        } else {
-          fetchSteps();
-        }
-      } else {
-        setSaveError("We couldn't create this module. Please try again.");
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to update program details"));
       }
-    } catch (e) {
-      console.error("Failed to create step", e);
-      setSaveError("We couldn't create this module. Check your connection and try again.");
+
+      const updated = await res.json();
+      setProgramData(updated);
+      setWizardStep("MODULE_LIST");
+    } catch (err: any) {
+      alert(err.message || "Failed to save course details");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDeleteStep = async (stepId: string) => {
-    if (!confirm("Are you sure you want to delete this section? This will also delete all associated lessons and quizzes.")) return;
-    
+  // Step 3: Create Module Action
+  const handleCreateModule = async (data: { title: string; description: string; sequence: number }) => {
+    setIsCreatingModule(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}`}`}/programs/steps/${stepId}`, {
-        method: "DELETE",
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/programs/${programId}/steps`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(data),
       });
-      if (res.ok) {
-        fetchSteps();
-      } else {
-        alert("Failed to delete section.");
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to create module"));
       }
-    } catch (e) {
-      console.error("Error deleting section", e);
+
+      const createdStep: Step = await res.json();
+      setSteps((prev) => [...prev, createdStep]);
+      setIsCreateModuleModalOpen(false);
+      setActiveModuleId(createdStep.id);
+      setWizardStep("MODULE_DETAILS");
+    } catch (err: any) {
+      alert(err.message || "Failed to create module");
+    } finally {
+      setIsCreatingModule(false);
     }
   };
 
-  return (
-    <div className={styles.dashboard}>
-      <header className={styles.header}>
-        <div className={styles.headerText}>
-          <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-            <Link href="/programs" style={{textDecoration: 'none', color: 'var(--primary)', fontSize: '1.2rem'}}>← Back</Link>
-            <h1 className={styles.title}>Curriculum: {programTitle}</h1>
-          </div>
-          <p className={styles.subtitle}>Build the learning path one module at a time, then add videos or quizzes to each module.</p>
+  // Delete Module Action
+  const handleDeleteModule = async (stepId: string) => {
+    if (!confirm("Are you sure you want to delete this module and all its attached lessons?")) return;
+    try {
+      const res = await fetch(`${API_URL}/programs/steps/${stepId}`, { method: "DELETE" });
+      if (res.ok) {
+        setSteps((prev) => prev.filter((s) => s.id !== stepId));
+        if (activeModuleId === stepId) {
+          setActiveModuleId(null);
+          setWizardStep("MODULE_LIST");
+        }
+      } else {
+        alert("Failed to delete module.");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Delete Lesson Action
+  const handleDeleteLesson = async (lessonId: string) => {
+    if (!confirm("Delete this lesson from the module?")) return;
+    try {
+      const res = await fetch(`${API_URL}/programs/lessons/${lessonId}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchProgramAndSteps();
+      } else {
+        alert("Failed to delete lesson.");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Delete Quiz Action
+  const handleDeleteQuiz = async () => {
+    if (!activeModule?.quiz?.id || !confirm("Delete this knowledge check quiz completely?")) return;
+    try {
+      const res = await fetch(`${API_URL}/quizzes/${activeModule.quiz.id}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchProgramAndSteps();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Content Type Chooser Selection
+  const handleSelectLessonType = (type: LessonTypeChoice) => {
+    if (type === "VIDEO") {
+      setWizardStep("ADD_VIDEO_LESSON");
+    } else if (type === "PDF") {
+      setWizardStep("ADD_PDF_LESSON");
+    } else if (type === "QUIZ") {
+      setWizardStep("QUIZ_BUILDER");
+    } else {
+      // Default to video/text upload
+      setWizardStep("ADD_VIDEO_LESSON");
+    }
+  };
+
+  // Publish / Save Draft Action
+  const handlePublishCourse = async (settings: {
+    status: "PUBLISHED" | "DRAFT";
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    setIsSaving(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/programs/${programId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          status: settings.status,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to update course publication status");
+
+      const updated = await res.json();
+      setProgramData(updated);
+    } catch (err: any) {
+      alert(err.message || "Failed to update publication");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Loading & Error States
+  // ---------------------------------------------------------------------------
+  if (isLoading && !programData) {
+    return (
+      <div className={styles.wizardContainer}>
+        <div style={{ maxWidth: 800, margin: "3rem auto", width: "100%" }}>
+          <div className="skeleton" style={{ height: 28, width: 200, marginBottom: 16, borderRadius: 8 }} />
+          <div className="skeleton" style={{ height: 48, width: "100%", marginBottom: 32, borderRadius: 12 }} />
+          <div className="skeleton" style={{ height: 380, width: "100%", borderRadius: 18 }} />
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.primaryBtn} onClick={openCreateStep}>
-            + Add Module
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.wizardContainer}>
+      {/* ===================================================================
+          1. Wizard Top Navigation & Breadcrumbs
+          =================================================================== */}
+      <header className={styles.wizardTopBar}>
+        <div className={styles.breadcrumbs}>
+          <button
+            type="button"
+            className={styles.backToProgramBtn}
+            onClick={() => {
+              if (
+                wizardStep === "ADD_LESSON_CHOOSER" ||
+                wizardStep === "ADD_VIDEO_LESSON" ||
+                wizardStep === "ADD_PDF_LESSON" ||
+                wizardStep === "QUIZ_BUILDER"
+              ) {
+                setWizardStep("MODULE_DETAILS");
+              } else if (wizardStep === "MODULE_DETAILS" || wizardStep === "MODULE_PREVIEW") {
+                setWizardStep("MODULE_LIST");
+              } else {
+                window.location.href = "/programs";
+              }
+            }}
+          >
+            <span aria-hidden="true">&larr;</span>
+            <span>Back to Program</span>
           </button>
+
+          <nav className={styles.breadcrumbTrail} aria-label="Breadcrumbs">
+            <span className={styles.homeIcon} aria-label="Programs Home">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+            </span>
+            <span className={styles.pipeDivider} aria-hidden="true">|</span>
+            <Link href="/programs" className={styles.breadcrumbLink}>
+              Programs
+            </Link>
+            <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+            <span
+              className={styles.breadcrumbText}
+              onClick={() => setWizardStep("MODULE_LIST")}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setWizardStep("MODULE_LIST");
+              }}
+            >
+              {programData?.title || "Sigma batch"}
+            </span>
+            {activeModule && (
+              <>
+                <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+                <span
+                  className={styles.breadcrumbText}
+                  onClick={() => setWizardStep("MODULE_DETAILS")}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") setWizardStep("MODULE_DETAILS");
+                  }}
+                >
+                  Module {activeModule.sequence}: {activeModule.title || "HTML Basics"}
+                </span>
+              </>
+            )}
+            <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+            <span className={styles.breadcrumbActive}>
+              {wizardStep === "ADD_LESSON_CHOOSER"
+                ? "Add Content"
+                : wizardStep === "ADD_VIDEO_LESSON"
+                ? "Upload Video"
+                : wizardStep === "ADD_PDF_LESSON"
+                ? "Upload PDF"
+                : wizardStep === "QUIZ_BUILDER"
+                ? "Quiz Builder"
+                : wizardStep === "COURSE_SETUP"
+                ? "Basic Details"
+                : wizardStep === "MODULE_LIST"
+                ? "Modules"
+                : wizardStep === "MODULE_DETAILS"
+                ? "Module Details"
+                : wizardStep === "MODULE_PREVIEW"
+                ? "Student Preview"
+                : "Review & Publish"}
+            </span>
+          </nav>
+        </div>
+
+        <div className={styles.topBarActions}>
+          <span className={styles.statusBadge}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <span>Cloud Synced</span>
+          </span>
+
+          <a
+            href={`http://localhost:3000/programs/${programId}/steps`}
+            target="_blank"
+            rel="noreferrer"
+            className={styles.previewLmsLink}
+            title="Preview student LMS view"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <span>Preview in LMS</span>
+          </a>
         </div>
       </header>
 
-      <section className={styles.tableSection}>
-        <div className={styles.sectionHeader}>
-          <div>
-            <h2>Course modules</h2>
-            <p className={styles.sectionSubtitle}>{steps.length} {steps.length === 1 ? "module" : "modules"} in this course</p>
-          </div>
-        </div>
-        
-        <div className={styles.tableWrapper}>
-          <table className={styles.adminTable}>
-            <thead>
-              <tr>
-                <th>Module</th>
-                <th>Module title</th>
-                <th>Description</th>
-                <th className={styles.alignRight}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={4} style={{textAlign: "center", padding: "20px"}}>Loading curriculum...</td>
-                </tr>
-              ) : steps.length === 0 ? (
-                <tr><td colSpan={4}>
-                  <div className={styles.emptyState}>
-                    <strong>Start building your course</strong>
-                    <span>Create the first module, then add a video or quiz straight away.</span>
-                    <button className={styles.primaryBtn} onClick={openCreateStep}>+ Create first module</button>
-                  </div>
-                </td></tr>
-              ) : [...steps].sort((a,b) => a.sequence - b.sequence).map((step) => (
-                <tr key={step.id}>
-                  <td><span className={styles.moduleNumber}>Module {step.sequence}</span></td>
-                  <td><span className={styles.cellUserName}>{step.title}</span></td>
-                  <td><span className={styles.cellTextMuted}>{step.description || "No description"}</span></td>
-                  <td className={styles.alignRight}>
-                    <div className={styles.rowActions}>
-                      <Link href={`/programs/${programId}/steps/${step.id}`} className={styles.primaryBtn}>Add content</Link>
-                      <button className={styles.textButton} onClick={() => handleDeleteStep(step.id)}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {/* ===================================================================
+          2. Three-Phase Stepper Progress Header
+          =================================================================== */}
+      <CurriculumStepper
+        currentPhase={currentPhase}
+        onSelectPhase={handleSelectPhase}
+        isPhase1Done={Boolean(programData?.title) || currentPhase > 1}
+        isPhase2Done={steps.length > 0 && wizardStep === "REVIEW_PUBLISH"}
+      />
 
-      {/* CREATE STEP MODAL */}
-      {isModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>Create module</h2>
-                <p className={styles.modalIntro}>Module {sequence} will be added to the end of this course.</p>
-              </div>
-              <button className={styles.closeBtn} aria-label="Close create module dialog" onClick={() => setIsModalOpen(false)}>×</button>
-            </div>
-            
-            <form className={styles.modalForm} onSubmit={handleCreateStep}>
-              <div className={styles.formGroup}>
-                <label htmlFor="module-title">Module title</label>
-                <input id="module-title" type="text" placeholder="e.g. Foundations of Resilience" required value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-              </div>
-              
-              <div className={styles.formGroup}>
-                <label htmlFor="module-description">What learners will cover <span className={styles.optionalLabel}>(optional)</span></label>
-                <textarea id="module-description" rows={3} placeholder="e.g. Learn the core principles and prepare for the exercises ahead." value={description} onChange={(e) => setDescription(e.target.value)}></textarea>
-              </div>
+      {/* ===================================================================
+          3. Guided Step Views (One Focused Screen at a Time)
+          =================================================================== */}
 
-              {saveError && <p className={styles.formError} role="alert">{saveError}</p>}
-
-              <div className={styles.modalFooter}>
-                <button type="button" className={styles.secondaryBtn} onClick={() => setIsModalOpen(false)} disabled={isSaving}>Cancel</button>
-                <button type="submit" className={styles.secondaryBtn} disabled={isSaving}>Save module</button>
-                <button type="button" className={styles.primaryBtn} disabled={isSaving} onClick={(e) => handleCreateStep(e as unknown as FormEvent, true)}>
-                  {isSaving ? "Creating..." : "Save & add content"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* STEP 1: Course Setup */}
+      {wizardStep === "COURSE_SETUP" && (
+        <Step1CourseSetup
+          programData={programData}
+          onSaveAndContinue={handleSaveCourseSetup}
+          isSaving={isSaving}
+        />
       )}
 
+      {/* STEP 2: Modules List & Empty State */}
+      {wizardStep === "MODULE_LIST" && (
+        <Step2ModuleList
+          steps={steps}
+          onOpenCreateModal={() => setIsCreateModuleModalOpen(true)}
+          onManageModule={(mod) => {
+            setActiveModuleId(mod.id);
+            setWizardStep("MODULE_DETAILS");
+          }}
+          onPreviewModule={(mod) => {
+            setActiveModuleId(mod.id);
+            setWizardStep("MODULE_PREVIEW");
+          }}
+          onDeleteModule={handleDeleteModule}
+          onBackToBasicDetails={() => setWizardStep("COURSE_SETUP")}
+          onContinueToReview={() => setWizardStep("REVIEW_PUBLISH")}
+        />
+      )}
+
+      {/* STEP 4: Module Details / Lessons inside Selected Module */}
+      {wizardStep === "MODULE_DETAILS" && activeModule && (
+        <Step4ModuleDetails
+          module={activeModule}
+          onBackToModulesList={() => setWizardStep("MODULE_LIST")}
+          onOpenAddLessonChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+          onOpenQuizBuilder={() => setWizardStep("QUIZ_BUILDER")}
+          onPreviewModule={() => setWizardStep("MODULE_PREVIEW")}
+          onDeleteLesson={handleDeleteLesson}
+          onDeleteQuiz={handleDeleteQuiz}
+        />
+      )}
+
+      {/* STEP 5: Add Lesson (Content Type Chooser) */}
+      {wizardStep === "ADD_LESSON_CHOOSER" && activeModule && (
+        <Step5AddLessonChooser
+          moduleSequence={activeModule.sequence}
+          onCancel={() => setWizardStep("MODULE_DETAILS")}
+          onSelectType={handleSelectLessonType}
+        />
+      )}
+
+      {/* STEP 6: Add Video Lesson */}
+      {wizardStep === "ADD_VIDEO_LESSON" && activeModule && (
+        <Step6AddVideoLesson
+          moduleTitle={activeModule.title}
+          moduleId={activeModule.id}
+          onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+          onLessonSaved={() => {
+            fetchProgramAndSteps();
+            setWizardStep("MODULE_DETAILS");
+          }}
+        />
+      )}
+
+      {/* STEP 6 (Alt): Add PDF Lesson */}
+      {wizardStep === "ADD_PDF_LESSON" && activeModule && (
+        <Step6AddPdfLesson
+          moduleTitle={activeModule.title}
+          moduleId={activeModule.id}
+          onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+          onLessonSaved={() => {
+            fetchProgramAndSteps();
+            setWizardStep("MODULE_DETAILS");
+          }}
+        />
+      )}
+
+      {/* STEP 7: Quiz Builder */}
+      {wizardStep === "QUIZ_BUILDER" && activeModule && (
+        <Step7QuizBuilder
+          moduleId={activeModule.id}
+          moduleTitle={activeModule.title}
+          existingQuiz={activeModule.quiz}
+          onBackToModule={() => setWizardStep("MODULE_DETAILS")}
+          onQuizSaved={() => {
+            fetchProgramAndSteps();
+            setWizardStep("MODULE_DETAILS");
+          }}
+        />
+      )}
+
+      {/* STEP 8: Student Module Preview */}
+      {wizardStep === "MODULE_PREVIEW" && activeModule && (
+        <Step8ModulePreview
+          module={activeModule}
+          onBackToEdit={() => setWizardStep("MODULE_DETAILS")}
+          onContinueToReview={() => setWizardStep("REVIEW_PUBLISH")}
+        />
+      )}
+
+      {/* STEP 9: Final Review & Publish */}
+      {wizardStep === "REVIEW_PUBLISH" && (
+        <Step9ReviewPublish
+          programData={programData}
+          steps={steps}
+          onBackToModules={() => setWizardStep("MODULE_LIST")}
+          onPublish={handlePublishCourse}
+          isPublishing={isSaving}
+        />
+      )}
+
+      {/* ===================================================================
+          STEP 3: Create Module Dialog Modal
+          =================================================================== */}
+      <Step3CreateModuleModal
+        isOpen={isCreateModuleModalOpen}
+        onClose={() => setIsCreateModuleModalOpen(false)}
+        defaultSequence={steps.reduce((max, s) => Math.max(max, s.sequence), 0) + 1}
+        onCreateModule={handleCreateModule}
+        isCreating={isCreatingModule}
+      />
     </div>
   );
 }

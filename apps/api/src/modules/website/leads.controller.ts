@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Optional } from '@nestjs/common';
 // import { Throttle } from '@nestjs/throttler';
 import { LeadStatus, Role } from '@prisma/client';
 import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { EmailService } from '../email/email.service.js';
 
 export class CreateLeadDto {
   @IsString() @IsNotEmpty() @MaxLength(120) name: string;
@@ -20,7 +21,10 @@ export class UpdateLeadDto {
 /** Enquiries from the public website, worked through in the admin CRM. */
 @Controller('leads')
 export class LeadsController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
+  ) {}
 
   // public form: keep it to a handful of submissions a minute per address
   @Public()
@@ -28,6 +32,24 @@ export class LeadsController {
   @Post()
   async create(@Body() body: CreateLeadDto) {
     const lead = await this.prisma.lead.create({ data: body });
+
+    if (this.emailService) {
+      const adminEmail = process.env.SMTP_USER || 'admin@whatboutme.com';
+      this.emailService
+        .sendTemplateEmail({
+          to: adminEmail,
+          subject: `New Website Enquiry: ${body.name}`,
+          template: 'LeadEnquiryNotificationEmail',
+          props: {
+            name: body.name,
+            email: body.email,
+            phone: body.phone,
+            message: body.message,
+          },
+        })
+        .catch((e: any) => console.warn('[LeadsController] Lead email notification error:', e?.message));
+    }
+
     return { id: lead.id, status: lead.status };
   }
 

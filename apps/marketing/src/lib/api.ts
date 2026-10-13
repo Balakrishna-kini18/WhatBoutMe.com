@@ -124,6 +124,22 @@ export async function loginUser(identifier: string, password: string) {
   );
 }
 
+export async function sendSignupOtp(details: {
+  email: string;
+  name?: string;
+  phone?: string;
+}) {
+  return authRequest(
+    "/auth/signup/send-otp",
+    {
+      email: details.email.trim().toLowerCase(),
+      name: details.name?.trim(),
+      phone: details.phone?.trim(),
+    },
+    "Could not send verification code.",
+  );
+}
+
 export async function signupUser(details: {
   name: string;
   email: string;
@@ -131,6 +147,7 @@ export async function signupUser(details: {
   password: string;
   country?: string;
   timezone?: string;
+  otp?: string;
 }) {
   return authRequest("/auth/signup", details, "Could not create the account.");
 }

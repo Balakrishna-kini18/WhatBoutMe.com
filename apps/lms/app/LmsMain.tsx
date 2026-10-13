@@ -207,6 +207,10 @@ export default function LmsMain({ children }: { children: React.ReactNode }) {
     return <main className={styles.authMain}>{children}</main>;
   }
 
+  if (pathname.startsWith("/steps/")) {
+    return <main className={styles.classroomMain}>{children}</main>;
+  }
+
   return (
     <main className={styles.mainContent}>
       <header className={styles.topbar}>

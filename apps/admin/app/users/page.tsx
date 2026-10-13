@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
+import { CustomSelect, ActionMenu, StatusBadge } from "../components";
 
 interface User {
   id: string;
@@ -19,7 +20,6 @@ interface User {
 export default function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [page, setPage] = useState(1);
@@ -52,6 +52,23 @@ export default function UsersPage() {
   useEffect(() => {
     fetchBatches();
   }, []);
+
+  useEffect(() => {
+    if (isModalOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setIsModalOpen(false);
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.body.style.overflow = originalOverflow;
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [isModalOpen]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -95,11 +112,6 @@ export default function UsersPage() {
     }
   };
 
-  const toggleDropdown = (e: React.MouseEvent, id: string) => {
-    e.preventDefault();
-    setActiveDropdown(activeDropdown === id ? null : id);
-  };
-
   const openEditModal = (user: User) => {
     setEditingUserId(user.id);
     setEmail(user.email);
@@ -112,7 +124,6 @@ export default function UsersPage() {
     setPermissions(user.permissions || []);
     setFormError("");
     setIsModalOpen(true);
-    setActiveDropdown(null);
   };
 
   const openCreateModal = () => {
@@ -142,7 +153,6 @@ export default function UsersPage() {
     } catch (e) {
       console.error("Failed to delete user", e);
     }
-    setActiveDropdown(null);
   };
 
   const handleSaveUser = async (e: FormEvent) => {
@@ -200,50 +210,45 @@ export default function UsersPage() {
           <p className={styles.subtitle}>Manage all learners across your programs.</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.secondaryBtn}>Filter</button>
-          <button className={styles.primaryBtn} onClick={openCreateModal}>+ Add User</button>
+          <button className={styles.primaryBtn} onClick={openCreateModal}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>Add User</span>
+          </button>
         </div>
       </header>
 
-      <div className={styles.tabsContainer} style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0' }}>
+      <div className={styles.tabsContainer} role="tablist" aria-label="User directory views">
         <button 
-          className={styles.tabBtn} 
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            padding: '0.75rem 1rem', 
-            fontSize: '0.95rem', 
-            fontWeight: viewMode === "LEARNERS" ? 600 : 500, 
-            color: viewMode === "LEARNERS" ? '#0284c7' : '#64748b',
-            borderBottom: viewMode === "LEARNERS" ? '2px solid #0284c7' : '2px solid transparent',
-            cursor: 'pointer'
-          }}
+          type="button"
+          role="tab"
+          aria-selected={viewMode === "LEARNERS"}
+          className={`${styles.tabBtn} ${viewMode === "LEARNERS" ? styles.tabBtnActive : ""}`}
           onClick={() => { setViewMode("LEARNERS"); setPage(1); }}
         >
           Learners
         </button>
         <button 
-          className={styles.tabBtn} 
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            padding: '0.75rem 1rem', 
-            fontSize: '0.95rem', 
-            fontWeight: viewMode === "STAFF" ? 600 : 500, 
-            color: viewMode === "STAFF" ? '#0284c7' : '#64748b',
-            borderBottom: viewMode === "STAFF" ? '2px solid #0284c7' : '2px solid transparent',
-            cursor: 'pointer'
-          }}
+          type="button"
+          role="tab"
+          aria-selected={viewMode === "STAFF"}
+          className={`${styles.tabBtn} ${viewMode === "STAFF" ? styles.tabBtnActive : ""}`}
           onClick={() => { setViewMode("STAFF"); setPage(1); }}
         >
-          Staff & Administrators
+          Staff &amp; Administrators
         </button>
       </div>
 
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
-          <h2>All Learners ({totalUsers})</h2>
+          <h2>{viewMode === "LEARNERS" ? "All Learners" : "Staff & Administrators"} ({totalUsers})</h2>
           <div className={styles.searchContainer}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.4rem" }}>
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
             <input 
               type="text" 
               placeholder="Search by name or email..." 
@@ -269,18 +274,18 @@ export default function UsersPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "20px"}}>Loading users from database...</td>
+                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>Loading users from database...</td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "20px"}}>No users found.</td>
+                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>No users found.</td>
                 </tr>
               ) : users.map((user) => (
                 <tr key={user.id}>
                   <td>
                     <Link href={`/users/${user.id}`} style={{ textDecoration: "none", color: "inherit" }}>
                       <div className={styles.cellUser}>
-                        <span className={styles.cellUserName} style={{ color: "#0284c7" }}>{user.name}</span>
+                        <span className={styles.cellUserName}>{user.name}</span>
                         <span className={styles.cellUserEmail}>{user.email}</span>
                       </div>
                     </Link>
@@ -288,27 +293,25 @@ export default function UsersPage() {
                   <td><span className={styles.cellTextMuted}>{user.joined || "Just now"}</span></td>
                   <td>
                     {viewMode === "STAFF" ? (
-                      <span className={`${styles.statusChip} ${styles.roleAdmin}`}>{user.role}</span>
+                      <StatusBadge status={user.role} />
                     ) : (
                       <span className={styles.cellText}>{user.cohort || "None"}</span>
                     )}
                   </td>
                   <td>
-                    <span className={`${styles.statusChip} ${styles[user.status.toLowerCase()] || styles.active}`}>
-                      {user.status}
-                    </span>
+                    <StatusBadge status={user.status} />
                   </td>
                   {viewMode === "LEARNERS" && (
                     <td>
                       {(() => {
                         const percentVal = parseInt(user.progress || "0", 10) || 0;
-                        const progressFillColor = percentVal === 100 ? "#16a34a" : percentVal > 0 ? "#f59e0b" : "#cbd5e1";
+                        const progressFillColor = percentVal === 100 ? "var(--status-success)" : percentVal > 0 ? "var(--accent-primary)" : "var(--border-light)";
                         return (
                           <div className={styles.progressCell}>
                             <div className={styles.progressBar}>
                               <div className={styles.progressFill} style={{ width: user.progress || "0%", backgroundColor: progressFillColor }}></div>
                             </div>
-                            <span className={styles.progressText} style={{ fontWeight: 600, color: percentVal === 100 ? "#16a34a" : undefined }}>
+                            <span className={styles.progressText} style={{ fontWeight: 600, color: percentVal === 100 ? "var(--status-success)" : undefined }}>
                               {user.progress || "0%"}
                             </span>
                           </div>
@@ -316,25 +319,46 @@ export default function UsersPage() {
                       })()}
                     </td>
                   )}
-                  <td className={styles.alignRight} style={{ position: 'relative' }}>
-                    <button 
-                      className={styles.iconActionBtn} 
-                      title="More Actions"
-                      onClick={(e) => toggleDropdown(e, user.id)}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="5" cy="12" r="2"></circle>
-                        <circle cx="12" cy="12" r="2"></circle>
-                        <circle cx="19" cy="12" r="2"></circle>
-                      </svg>
-                    </button>
-                    {activeDropdown === user.id && (
-                      <div className={styles.actionDropdown}>
-                        <Link href={`/users/${user.id}`} className={styles.dropdownItem} style={{display: 'block', textDecoration: 'none'}}>View Full Profile</Link>
-                        <button className={styles.dropdownItem} onClick={() => openEditModal(user)}>Edit User</button>
-                        <button className={`${styles.dropdownItem} ${styles.textDanger}`} onClick={() => handleDeleteUser(user.id)}>Revoke Access</button>
-                      </div>
-                    )}
+                  <td className={styles.alignRight}>
+                    <ActionMenu
+                      ariaLabel={`Actions for ${user.name}`}
+                      items={[
+                        {
+                          label: "View Full Profile",
+                          href: `/users/${user.id}`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Edit User",
+                          onClick: () => openEditModal(user),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Revoke Access",
+                          danger: true,
+                          dividerAbove: true,
+                          onClick: () => handleDeleteUser(user.id),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                          ),
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -375,81 +399,95 @@ export default function UsersPage() {
             </div>
             
             <form className={styles.modalForm} onSubmit={handleSaveUser}>
-              <div className={styles.formGroup}>
-                <label>Email</label>
-                <input type="email" placeholder="name@example.com" required value={email} onChange={e => setEmail(e.target.value)} />
-              </div>
+              <div className={styles.modalBody}>
+                <div className={styles.formGroup}>
+                  <label>Email</label>
+                  <input type="email" placeholder="name@example.com" required value={email} onChange={e => setEmail(e.target.value)} />
+                </div>
 
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label>First Name</label>
-                  <input type="text" placeholder="John" required value={firstName} onChange={e => setFirstName(e.target.value)} />
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Last Name</label>
-                  <input type="text" placeholder="Doe" required value={lastName} onChange={e => setLastName(e.target.value)} />
-                </div>
-              </div>
-              
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label>Role</label>
-                  <select value={role} onChange={e => setRole(e.target.value)}>
-                    <option value="USER">Learner</option>
-                    <option value="TEACHER">Teacher / Instructor</option>
-                    <option value="MANAGER">Manager</option>
-                    <option value="ADMIN">Admin</option>
-                    {isSuperAdmin && <option value="SUPER_ADMIN">Super Admin</option>}
-                  </select>
-                </div>
-                <div className={styles.formGroup}>
-                  <label>{editingUserId ? "New Password (optional)" : "Temporary Password"}</label>
-                  <input type="text" autoComplete="off" minLength={8} required={!editingUserId} placeholder={editingUserId ? "Leave blank to keep current" : "At least 8 characters"} value={password} onChange={e => setPassword(e.target.value)} />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>Assign to Cohort (Optional)</label>
-                <select value={cohort} onChange={e => setCohort(e.target.value)}>
-                  <option value="">None (Pending Placement)</option>
-                  {batches.map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Dynamic Permissions Checkboxes (Only Super Admin can assign these to Admins/Managers/Teachers) */}
-              {isSuperAdmin && ["ADMIN", "MANAGER", "TEACHER"].includes(role) && (
-                <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
-                  <label style={{ marginBottom: "0.5rem" }}>Custom Module Access</label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                    {[
-                      { id: "view_users", label: "Users & Enrolments" },
-                      { id: "view_batches", label: "Batches & Cohorts" },
-                      { id: "manage_curriculum", label: "Curriculum & Programs" },
-                      { id: "manage_website", label: "Website Content & CRM" },
-                      { id: "view_finance", label: "Finance & Revenue" },
-                      { id: "manage_operations", label: "Operations & Meetings" }
-                    ].map(perm => (
-                      <label key={perm.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", fontWeight: 500, cursor: "pointer" }}>
-                        <input 
-                          type="checkbox" 
-                          checked={permissions.includes(perm.id)} 
-                          onChange={(e) => {
-                            if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
-                            else setPermissions(prev => prev.filter(p => p !== perm.id));
-                          }} 
-                        />
-                        {perm.label}
-                      </label>
-                    ))}
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>First Name</label>
+                    <input type="text" placeholder="John" required value={firstName} onChange={e => setFirstName(e.target.value)} />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Last Name</label>
+                    <input type="text" placeholder="Doe" required value={lastName} onChange={e => setLastName(e.target.value)} />
                   </div>
                 </div>
-              )}
+                
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Role</label>
+                    <CustomSelect
+                      value={role}
+                      onChange={(val) => setRole(val)}
+                      options={[
+                        { value: "USER", label: "Learner" },
+                        { value: "TEACHER", label: "Teacher / Instructor" },
+                        { value: "MANAGER", label: "Manager" },
+                        { value: "ADMIN", label: "Admin" },
+                        ...(isSuperAdmin
+                          ? [{ value: "SUPER_ADMIN", label: "Super Admin" }]
+                          : []),
+                      ]}
+                      fullWidth
+                      ariaLabel="Select user role"
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>{editingUserId ? "New Password (optional)" : "Temporary Password"}</label>
+                    <input type="text" autoComplete="off" minLength={8} required={!editingUserId} placeholder={editingUserId ? "Leave blank to keep current" : "At least 8 characters"} value={password} onChange={e => setPassword(e.target.value)} />
+                  </div>
+                </div>
 
-              {formError && (
-                <p role="alert" style={{ margin: 0, padding: '0.75rem 1rem', borderRadius: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.85rem' }}>{formError}</p>
-              )}
+                <div className={styles.formGroup}>
+                  <label>Assign to Cohort (Optional)</label>
+                  <CustomSelect
+                    value={cohort}
+                    onChange={(val) => setCohort(val)}
+                    options={[
+                      { value: "", label: "None (Pending Placement)" },
+                      ...batches.map((b) => ({ value: b.id, label: b.name })),
+                    ]}
+                    fullWidth
+                    ariaLabel="Assign to cohort"
+                  />
+                </div>
+
+                {/* Dynamic Permissions Checkboxes (Only Super Admin can assign these to Admins/Managers/Teachers) */}
+                {isSuperAdmin && ["ADMIN", "MANAGER", "TEACHER"].includes(role) && (
+                  <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
+                    <label style={{ marginBottom: "0.5rem" }}>Custom Module Access</label>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                      {[
+                        { id: "view_users", label: "Users & Enrolments" },
+                        { id: "view_batches", label: "Batches & Cohorts" },
+                        { id: "manage_curriculum", label: "Curriculum & Programs" },
+                        { id: "manage_website", label: "Website Content & CRM" },
+                        { id: "view_finance", label: "Finance & Revenue" },
+                        { id: "manage_operations", label: "Operations & Meetings" }
+                      ].map(perm => (
+                        <label key={perm.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", fontWeight: 500, cursor: "pointer" }}>
+                          <input 
+                            type="checkbox" 
+                            checked={permissions.includes(perm.id)} 
+                            onChange={(e) => {
+                              if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
+                              else setPermissions(prev => prev.filter(p => p !== perm.id));
+                            }} 
+                          />
+                          {perm.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {formError && (
+                  <p role="alert" style={{ margin: 0, padding: '0.75rem 1rem', borderRadius: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.85rem' }}>{formError}</p>
+                )}
+              </div>
 
               <div className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryBtn} onClick={() => setIsModalOpen(false)}>Cancel</button>

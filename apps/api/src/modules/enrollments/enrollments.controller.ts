@@ -10,10 +10,12 @@ import {
   UseGuards,
   BadRequestException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { BatchStatus, EnrolmentStatus } from '@prisma/client';
 import { EnrollmentsService } from './enrollments.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { EmailService } from '../email/email.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import {
   BatchAccessGuard,
@@ -123,7 +125,11 @@ export class LearnerEnrolmentsController {
 
 @Controller('checkout')
 export class CheckoutController {
-  constructor(private readonly enrollmentsService: EnrollmentsService, private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly enrollmentsService: EnrollmentsService,
+    private readonly prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
+  ) {}
 
   @Post('mock')
   async mockCheckout(@Body() body: any, @Request() req: any) {
@@ -173,6 +179,45 @@ export class CheckoutController {
       where: { id: enrollment.id },
       data: { status: EnrolmentStatus.ACTIVE }
     });
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const program = await this.prisma.program.findUnique({ where: { id: programId } });
+
+    if (this.emailService && user && program) {
+      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
+
+      // 1. Payment Confirmation Email
+      this.emailService
+        .sendTemplateEmail({
+          to: user.email,
+          subject: `Payment Successful - ${program.title}`,
+          template: 'PaymentSuccessEmail',
+          props: {
+            learnerName: user.name,
+            programTitle: program.title,
+            amount: program.price || 0,
+            dashboardUrl: `${lmsUrl}/dashboard`,
+          },
+        })
+        .catch((e: any) => console.warn('[CheckoutController] Payment email error:', e?.message));
+
+      // 2. Enrolment Confirmed Email
+      this.emailService
+        .sendTemplateEmail({
+          to: user.email,
+          subject: `Enrollment Confirmed: ${program.title}`,
+          template: 'EnrolmentConfirmedEmail',
+          props: {
+            firstName,
+            programName: program.title,
+            batchName: batch.name,
+            startDate: batch.startDate ? new Date(batch.startDate).toLocaleDateString() : 'Immediate',
+            dashboardUrl: `${lmsUrl}/dashboard`,
+          },
+        })
+        .catch((e: any) => console.warn('[CheckoutController] Enrolment email error:', e?.message));
+    }
 
     return activeEnrollment;
   }

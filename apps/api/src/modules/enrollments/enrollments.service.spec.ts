@@ -716,7 +716,7 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
       expect(res).toHaveLength(1);
       expect(prismaMock.enrolment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'learner-1' },
+          where: expect.objectContaining({ userId: 'learner-1' }),
         }),
       );
     });

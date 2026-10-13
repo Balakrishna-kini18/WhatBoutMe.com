@@ -9,6 +9,7 @@ export type StatusTone =
   | "error"
   | "info"
   | "neutral"
+  | "roleSuperAdmin"
   | "roleAdmin"
   | "roleManager"
   | "roleTeacher"
@@ -60,10 +61,11 @@ function resolveTone(rawStatus: string): StatusTone {
   ) {
     return "neutral";
   }
-  if (normalized === "ADMIN" || normalized === "SUPER_ADMIN") return "roleAdmin";
+  if (normalized === "SUPER_ADMIN") return "roleSuperAdmin";
+  if (normalized === "ADMIN") return "roleAdmin";
   if (normalized === "MANAGER") return "roleManager";
   if (normalized === "TEACHER") return "roleTeacher";
-  if (normalized === "USER" || normalized === "LEARNER") return "roleUser";
+  if (normalized === "USER" || normalized === "LEARNER" || normalized.includes("USER") || normalized.includes("LEARNER")) return "roleUser";
   return "active";
 }
 

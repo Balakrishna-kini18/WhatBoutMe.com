@@ -14,15 +14,14 @@ export class CloudinaryController {
   ) {}
 
   // D2-008: Implement backend endpoint POST /media/upload-signature
-  // Only admins or managers should be able to upload course media.
+  // Only admins should be able to upload course media. Managers cannot edit course content.
   @Post('upload-signature')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   getUploadSignature() {
     return this.cloudinaryService.createDirectUpload();
   }
 
-  // D2-016: Redirect to secure streaming CDN URL
-  @Public()
+  // D2-016: Redirect to secure streaming CDN URL (Requires valid authenticated session)
   @Get('stream/*key')
   async streamMedia(@Param('key') key: string, @Res() res: Response) {
     try {

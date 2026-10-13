@@ -39,8 +39,10 @@ export class AttendanceService {
   async recordPresentAuto(
     sessionId: string,
     enrolmentId: string,
-    data?: { joinTime?: Date; leaveTime?: Date; durationMin?: number }
+    data?: { joinTime?: Date; leaveTime?: Date; durationMin?: number; status?: AttendanceStatus }
   ) {
+    const targetStatus = data?.status ?? AttendanceStatus.PRESENT_AUTO;
+
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.attendance.findUnique({
         where: { sessionId_enrolmentId: { sessionId, enrolmentId } },
@@ -63,7 +65,7 @@ export class AttendanceService {
       const result = await tx.attendance.upsert({
         where: { sessionId_enrolmentId: { sessionId, enrolmentId } },
         update: {
-          status: AttendanceStatus.PRESENT_AUTO,
+          status: targetStatus,
           joinTime: data?.joinTime ?? existing?.joinTime,
           leaveTime: data?.leaveTime ?? existing?.leaveTime,
           durationMin: data?.durationMin ?? existing?.durationMin,
@@ -72,14 +74,14 @@ export class AttendanceService {
           sessionId,
           enrolmentId,
           userId: enrolment.userId,
-          status: AttendanceStatus.PRESENT_AUTO,
+          status: targetStatus,
           joinTime: data?.joinTime,
           leaveTime: data?.leaveTime,
           durationMin: data?.durationMin,
         },
       });
 
-      if (enrolment.userId) {
+      if (targetStatus === AttendanceStatus.PRESENT_AUTO && enrolment.userId) {
         await markDailyAttendance(tx as any, enrolment.userId, 'sessionJoined');
       }
 

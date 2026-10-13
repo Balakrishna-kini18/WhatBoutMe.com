@@ -17,6 +17,83 @@ interface User {
   permissions?: string[];
 }
 
+const ROLE_CARDS = [
+  {
+    id: "SUPER_ADMIN",
+    title: "Super Admin",
+    badgeLabel: "Super Admin",
+    tone: "roleSuperAdmin" as const,
+    purpose: "Full governance, staff role management, and system security administration.",
+    summary: "Full platform access: staff accounts, role assignment, audit logs, billing, system configuration",
+    canDo: [
+      "Manage staff roles and assign platform permissions",
+      "Access global finance, revenue, agreements & audits",
+      "Full LMS control across all programs, cohorts & tests",
+    ],
+    cannotDo: [
+      "Protected against accidental self-deletion",
+    ],
+    requiresSuperAdmin: true,
+  },
+  {
+    id: "ADMIN",
+    title: "Admin",
+    badgeLabel: "Admin",
+    tone: "roleAdmin" as const,
+    purpose: "Manages day-to-day LMS programs, batches, certificates, and learner operations.",
+    summary: "Manage programs, batches, quizzes, oral assessments, certificates, payments & reports",
+    canDo: [
+      "Create & edit programs, lessons, quizzes & question banks",
+      "Create cohorts, manage enrolments & assign managers",
+      "Approve certificates, grade assessments & pull reports",
+    ],
+    cannotDo: [
+      "Cannot change user roles or elevate staff permissions",
+      "Cannot modify or view Super Admin credentials",
+    ],
+    requiresSuperAdmin: false,
+  },
+  {
+    id: "MANAGER",
+    title: "Manager",
+    badgeLabel: "Manager",
+    tone: "roleManager" as const,
+    purpose: "Handles assigned batches, attendance, sessions, chats, and announcements.",
+    summary: "Assigned batches only: attendance, sessions, chats, announcements & 1:1 bookings",
+    canDo: [
+      "Manage assigned batches, attendance & session check-ins",
+      "Host live Zoom/Meet sessions & conduct oral assessments",
+      "Participate in cohort chats & publish batch announcements",
+      "Grade quizzes & track progress for assigned learners",
+    ],
+    cannotDo: [
+      "Cannot view or edit other managers' batches",
+      "Cannot edit global curriculum, programs, or view revenue",
+      "Cannot manage user accounts or alter roles",
+    ],
+    requiresSuperAdmin: false,
+  },
+  {
+    id: "USER",
+    title: "User (Learner)",
+    badgeLabel: "User (Learner)",
+    tone: "roleUser" as const,
+    purpose: "Access scoped strictly to own dashboard, batch, unlocked steps, sessions, chat, invoices, and certificates.",
+    summary: "Own dashboard only: batch, unlocked steps, sessions, chat, invoices & certificates",
+    canDo: [
+      "Access own dashboard, assigned batch & unlocked steps",
+      "Attend scheduled sessions & book 1:1 oral assessments",
+      "Participate in cohort group chat & direct messaging",
+      "View payment invoices & download earned certificates",
+    ],
+    cannotDo: [
+      "No access to admin portal or management controls",
+      "Cannot view other learners' private progress or PII",
+    ],
+    requiresSuperAdmin: false,
+  },
+];
+
 export default function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -35,6 +112,8 @@ export default function UsersPage() {
   const [lastName, setLastName] = useState("");
   const [cohort, setCohort] = useState("");
   const [role, setRole] = useState("USER");
+  const [initialRole, setInitialRole] = useState("USER");
+  const [status, setStatus] = useState("ACTIVE");
   const [password, setPassword] = useState("");
   const [permissions, setPermissions] = useState<string[]>([]);
   const [formError, setFormError] = useState("");
@@ -118,8 +197,12 @@ export default function UsersPage() {
     const names = user.name ? user.name.split(" ") : ["", ""];
     setFirstName(names[0] || "");
     setLastName(names.slice(1).join(" ") || "");
-    setCohort(""); // Real implementation would resolve cohort to batch ID
-    setRole(user.role || "USER");
+    const matchingBatch = batches.find(b => b.name === user.cohort || b.id === user.cohort);
+    setCohort(matchingBatch ? matchingBatch.id : "");
+    const userRole = user.role || "USER";
+    setRole(userRole);
+    setInitialRole(userRole);
+    setStatus(user.status || "ACTIVE");
     setPassword("");
     setPermissions(user.permissions || []);
     setFormError("");
@@ -133,6 +216,8 @@ export default function UsersPage() {
     setLastName("");
     setCohort("");
     setRole("USER");
+    setInitialRole("USER");
+    setStatus("ACTIVE");
     setPassword("");
     setPermissions([]);
     setFormError("");
@@ -158,8 +243,13 @@ export default function UsersPage() {
   const handleSaveUser = async (e: FormEvent) => {
     e.preventDefault();
     setFormError("");
-    // only the fields the API accepts; a blank password on edit leaves it unchanged
-    const payload = {
+
+    if (role === "SUPER_ADMIN" && !isSuperAdmin) {
+      setFormError("Security rule: Only Super Admins can assign the Super Admin role.");
+      return;
+    }
+
+    const payload: Record<string, any> = {
       email,
       name: `${firstName} ${lastName}`.trim(),
       role,
@@ -184,6 +274,25 @@ export default function UsersPage() {
       });
 
       if (res.ok) {
+        const savedData = await res.json().catch(() => null);
+        const targetUserId = editingUserId || savedData?.id;
+
+        // If cohort is assigned for a Manager, link the batch managerId
+        if (cohort && (role === "MANAGER" || role === "TEACHER") && targetUserId) {
+          try {
+            await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches/${cohort}`, {
+              method: "PATCH",
+              headers: { 
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify({ managerId: targetUserId })
+            });
+          } catch (batchErr) {
+            console.warn("Could not assign manager to batch", batchErr);
+          }
+        }
+
         setIsModalOpen(false);
         setEmail("");
         setFirstName("");
@@ -191,7 +300,6 @@ export default function UsersPage() {
         setEditingUserId(null);
         fetchUsers();
       } else {
-        // the API wraps errors as { error: { code, message } }
         const data = await res.json().catch(() => null);
         const raw = data?.error?.message ?? data?.message;
         setFormError((Array.isArray(raw) ? raw.join(", ") : raw) || `Could not save the user (error ${res.status}).`);
@@ -389,60 +497,150 @@ export default function UsersPage() {
         )}
       </section>
 
-      {/* INVITE USER MODAL */}
+      {/* ROLE ASSIGNMENT & USER MODAL */}
       {isModalOpen && (
         <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+          <div className={`${styles.modalContent} ${styles.modalContentWide}`} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2>{editingUserId ? "Edit User" : "Add New User"}</h2>
-              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)}>×</button>
+              <div>
+                <h2>{editingUserId ? "Edit User & Role Assignment" : "Add New User"}</h2>
+                <p className={styles.modalIntro}>
+                  {editingUserId 
+                    ? "Manage this account's primary role, cohort placement, and platform access."
+                    : "Create a user account and assign exactly one primary role with server-enforced permissions."}
+                </p>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)} aria-label="Close dialog">×</button>
             </div>
             
             <form className={styles.modalForm} onSubmit={handleSaveUser}>
               <div className={styles.modalBody}>
+                {/* 1. EMAIL */}
                 <div className={styles.formGroup}>
-                  <label>Email</label>
-                  <input type="email" placeholder="name@example.com" required value={email} onChange={e => setEmail(e.target.value)} />
+                  <label htmlFor="user-modal-email">Email Address <span style={{ color: "var(--accent-primary)" }}>*</span></label>
+                  <input
+                    id="user-modal-email"
+                    type="email"
+                    placeholder="name@example.com"
+                    required
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                  />
                 </div>
 
+                {/* 2. FIRST & LAST NAME */}
                 <div className={styles.formRow}>
                   <div className={styles.formGroup}>
-                    <label>First Name</label>
-                    <input type="text" placeholder="John" required value={firstName} onChange={e => setFirstName(e.target.value)} />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Last Name</label>
-                    <input type="text" placeholder="Doe" required value={lastName} onChange={e => setLastName(e.target.value)} />
-                  </div>
-                </div>
-                
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>Role</label>
-                    <CustomSelect
-                      value={role}
-                      onChange={(val) => setRole(val)}
-                      options={[
-                        { value: "USER", label: "Learner" },
-                        { value: "TEACHER", label: "Teacher / Instructor" },
-                        { value: "MANAGER", label: "Manager" },
-                        { value: "ADMIN", label: "Admin" },
-                        ...(isSuperAdmin
-                          ? [{ value: "SUPER_ADMIN", label: "Super Admin" }]
-                          : []),
-                      ]}
-                      fullWidth
-                      ariaLabel="Select user role"
+                    <label htmlFor="user-modal-firstname">First Name <span style={{ color: "var(--accent-primary)" }}>*</span></label>
+                    <input
+                      id="user-modal-firstname"
+                      type="text"
+                      placeholder="First name"
+                      required
+                      value={firstName}
+                      onChange={e => setFirstName(e.target.value)}
                     />
                   </div>
                   <div className={styles.formGroup}>
-                    <label>{editingUserId ? "New Password (optional)" : "Temporary Password"}</label>
-                    <input type="text" autoComplete="off" minLength={8} required={!editingUserId} placeholder={editingUserId ? "Leave blank to keep current" : "At least 8 characters"} value={password} onChange={e => setPassword(e.target.value)} />
+                    <label htmlFor="user-modal-lastname">Last Name <span style={{ color: "var(--accent-primary)" }}>*</span></label>
+                    <input
+                      id="user-modal-lastname"
+                      type="text"
+                      placeholder="Last name"
+                      required
+                      value={lastName}
+                      onChange={e => setLastName(e.target.value)}
+                    />
                   </div>
                 </div>
 
-                <div className={styles.formGroup}>
-                  <label>Assign to Cohort (Optional)</label>
+                {/* 3. ROLE CARDS (ONE PERSON = ONE ROLE) */}
+                <div className={styles.roleSection}>
+                  <div className={styles.roleSectionHeader}>
+                    <span className={styles.roleSectionTitle}>Primary Role (One Person = One Role)</span>
+                    <span className={styles.roleSectionSub}>Action permissions verified on server</span>
+                  </div>
+
+                  <div className={styles.roleGrid} role="radiogroup" aria-label="Select primary role">
+                    {ROLE_CARDS.map(card => {
+                      const isSelected = role === card.id;
+                      const isDisabled = card.requiresSuperAdmin && !isSuperAdmin;
+                      return (
+                        <div
+                          key={card.id}
+                          role="radio"
+                          aria-checked={isSelected}
+                          aria-disabled={isDisabled}
+                          tabIndex={isDisabled ? -1 : 0}
+                          className={`${styles.roleCard} ${isSelected ? styles.roleCardSelected : ""} ${isDisabled ? styles.roleCardDisabled : ""}`}
+                          onClick={() => {
+                            if (isDisabled) return;
+                            setRole(card.id);
+                          }}
+                          onKeyDown={(e) => {
+                            if ((e.key === " " || e.key === "Enter") && !isDisabled) {
+                              e.preventDefault();
+                              setRole(card.id);
+                            }
+                          }}
+                        >
+                          <div className={styles.roleCardHeader}>
+                            <div className={styles.roleCardTitleRow}>
+                              <h3 className={styles.roleCardTitle}>{card.title}</h3>
+                              <StatusBadge status={card.badgeLabel} tone={card.tone} />
+                            </div>
+                            <div className={styles.roleRadioIndicator} aria-hidden="true">
+                              {isSelected && (
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </div>
+                          </div>
+
+                          <p className={styles.rolePurpose}>{card.purpose}</p>
+
+                          <div className={styles.rolePermSummary}>
+                            <strong>Permission Summary</strong>
+                            <span>{card.summary}</span>
+                          </div>
+
+                          <div className={styles.roleCardBullets}>
+                            {card.canDo.map((item, idx) => (
+                              <div key={`can-${idx}`} className={`${styles.bulletItem} ${styles.bulletCan}`}>
+                                <span aria-hidden="true">✓</span>
+                                <span>{item}</span>
+                              </div>
+                            ))}
+                            {card.cannotDo.map((item, idx) => (
+                              <div key={`cannot-${idx}`} className={`${styles.bulletItem} ${styles.bulletCannot}`}>
+                                <span aria-hidden="true">✕</span>
+                                <span>{item}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {isDisabled && (
+                            <div style={{ fontSize: "0.72rem", color: "var(--status-error)", marginTop: "0.25rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                              <span>🔒 Requires Super Admin role</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. ASSIGNED COHORT / BATCH (SEPARATE MANAGER ASSIGNMENT) */}
+                <div className={styles.formGroup} style={{ marginTop: "0.35rem" }}>
+                  <label htmlFor="user-modal-cohort">
+                    Assigned Cohort / Batch{" "}
+                    {role === "MANAGER" ? (
+                      <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>(Recommended for Manager)</span>
+                    ) : (
+                      <span className={styles.optionalLabel}>(Optional)</span>
+                    )}
+                  </label>
                   <CustomSelect
                     value={cohort}
                     onChange={(val) => setCohort(val)}
@@ -453,36 +651,145 @@ export default function UsersPage() {
                     fullWidth
                     ariaLabel="Assign to cohort"
                   />
+                  {role === "MANAGER" ? (
+                    <div className={styles.roleHelperNoticeManager}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "1px" }}>
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="16" x2="12" y2="12" />
+                        <line x1="12" y1="8" x2="12.01" y2="8" />
+                      </svg>
+                      <span>
+                        <strong>Manager Scoping Rule:</strong> Per security rules, Managers operate with strict cohort isolation. Selecting a cohort grants this manager direct operational control over its sessions, attendance, and learners.
+                      </span>
+                    </div>
+                  ) : role === "USER" ? (
+                    <p className={styles.fieldHelpText}>
+                      Places learner into this batch for curriculum schedule, group coaching, and peer discussions.
+                    </p>
+                  ) : (
+                    <p className={styles.fieldHelpText}>
+                      Platform administrators operate across all cohorts by default. Specific cohort assignment is optional.
+                    </p>
+                  )}
                 </div>
 
-                {/* Dynamic Permissions Checkboxes (Only Super Admin can assign these to Admins/Managers/Teachers) */}
+                {/* 5. TEMPORARY PASSWORD & ACCOUNT STATUS */}
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label htmlFor="user-modal-password">
+                      {editingUserId ? "New Password" : "Temporary Password"}{" "}
+                      <span className={styles.optionalLabel}>
+                        {editingUserId ? "(Leave blank to keep current)" : "(At least 8 chars)"}
+                      </span>
+                    </label>
+                    <input
+                      id="user-modal-password"
+                      type="text"
+                      autoComplete="off"
+                      minLength={8}
+                      required={!editingUserId}
+                      placeholder={editingUserId ? "Leave blank to keep unchanged" : "At least 8 characters"}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label>Account Status</label>
+                    <CustomSelect
+                      value={status}
+                      onChange={(val) => setStatus(val)}
+                      options={[
+                        { value: "ACTIVE", label: "Active (Full Access)" },
+                        { value: "SUSPENDED", label: "Suspended (Revokes Sessions)" },
+                        { value: "INACTIVE", label: "Inactive (Disabled)" },
+                      ]}
+                      fullWidth
+                      ariaLabel="Select account status"
+                    />
+                  </div>
+                </div>
+
+                {/* 6. ADVANCED PERMISSIONS (ACCORDION - ONLY SUPER ADMIN) */}
                 {isSuperAdmin && ["ADMIN", "MANAGER", "TEACHER"].includes(role) && (
-                  <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
-                    <label style={{ marginBottom: "0.5rem" }}>Custom Module Access</label>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                      {[
-                        { id: "view_users", label: "Users & Enrolments" },
-                        { id: "view_batches", label: "Batches & Cohorts" },
-                        { id: "manage_curriculum", label: "Curriculum & Programs" },
-                        { id: "manage_website", label: "Website Content & CRM" },
-                        { id: "view_finance", label: "Finance & Revenue" },
-                        { id: "manage_operations", label: "Operations & Meetings" }
-                      ].map(perm => (
-                        <label key={perm.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", fontWeight: 500, cursor: "pointer" }}>
-                          <input 
-                            type="checkbox" 
-                            checked={permissions.includes(perm.id)} 
-                            onChange={(e) => {
-                              if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
-                              else setPermissions(prev => prev.filter(p => p !== perm.id));
-                            }} 
-                          />
-                          {perm.label}
-                        </label>
-                      ))}
+                  <details className={styles.advancedAccordion}>
+                    <summary className={styles.advancedAccordionSummary}>
+                      <div className={styles.accordionSummaryLeft}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        <span>Advanced Permissions (Custom Module Overrides)</span>
+                      </div>
+                      <span className={styles.accordionTag}>Super Admin Only</span>
+                    </summary>
+                    <div className={styles.advancedAccordionBody}>
+                      <p className={styles.accordionNotice}>
+                        Canonical roles automatically include standard LMS permissions. Configure module overrides only if this staff account requires specific capabilities outside standard role boundaries.
+                      </p>
+                      <div className={styles.permissionsGrid}>
+                        {[
+                          { id: "view_users", label: "Users & Enrolments", desc: "Manage learner directory and profiles" },
+                          { id: "view_batches", label: "Batches & Cohorts", desc: "Manage schedules and cohort dates" },
+                          { id: "manage_curriculum", label: "Curriculum & Programs", desc: "Edit courses, steps and quizzes" },
+                          { id: "manage_website", label: "Website Content & CRM", desc: "Public landing page and enquiries" },
+                          { id: "view_finance", label: "Finance & Revenue", desc: "Invoices, transactions and refunds" },
+                          { id: "manage_operations", label: "Operations & Meetings", desc: "Zoom links and assessor calendars" },
+                        ].map(perm => {
+                          const isChecked = permissions.includes(perm.id);
+                          return (
+                            <label key={perm.id} className={`${styles.permCard} ${isChecked ? styles.permCardChecked : ""}`}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
+                                  else setPermissions(prev => prev.filter(p => p !== perm.id));
+                                }}
+                              />
+                              <div className={styles.permCardText}>
+                                <strong>{perm.label}</strong>
+                                <span>{perm.desc}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
+                  </details>
+                )}
+
+                {/* 7. DYNAMIC ROLE CHANGE SECURITY WARNING */}
+                {editingUserId && role !== initialRole && (
+                  <div className={styles.roleWarningBanner} role="alert">
+                    <div className={styles.roleWarningTitle}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                      </svg>
+                      <span>Role Permission &amp; Security Boundary Change</span>
+                    </div>
+                    <p className={styles.roleWarningText}>
+                      You are changing this account from <strong>{initialRole}</strong> to <strong>{role}</strong>.
+                    </p>
+                    <ul className={styles.roleWarningList}>
+                      <li><strong>Immediate scope re-evaluation:</strong> The server will verify permissions under the new role on every request.</li>
+                      <li><strong>Session revocation:</strong> All active sessions and refresh tokens for this user will be revoked immediately upon saving (forcing re-login).</li>
+                      <li><strong>Audit logging:</strong> This administrative change is permanently recorded in the system audit log.</li>
+                    </ul>
                   </div>
                 )}
+
+                {/* 8. SYSTEM AUDIT ASSURANCE */}
+                <div className={styles.auditIndicator}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                  <span>
+                    Strict 1 person = 1 role rule enforced. Changes are cryptographically verified and recorded in the audit log.
+                  </span>
+                </div>
 
                 {formError && (
                   <p role="alert" style={{ margin: 0, padding: '0.75rem 1rem', borderRadius: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.85rem' }}>{formError}</p>

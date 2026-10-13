@@ -56,7 +56,7 @@ export class SessionsController {
   @Get('all')
   async getAllSessions(@Request() req: any) {
     // Reconcile any scheduled sessions missing zoom links
-    this.sessionsService.reconcilePendingZoomSessions().catch(() => {});
+    this.sessionsService.reconcilePendingZoomSessions?.().catch(() => {});
     return this.sessionsService.getSessions({}, req.user);
   }
 

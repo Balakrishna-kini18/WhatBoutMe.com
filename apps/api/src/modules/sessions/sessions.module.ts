@@ -20,6 +20,8 @@ import { EmailModule } from '../email/email.module.js';
  * injects it with @Optional() so the booking engine works in all environments;
  * Outlook clash-prevention activates automatically once the provider is wired.
  */
+const isWorkerMode = process.env.WORKER_MODE === 'true';
+
 @Module({
   imports: [PrismaModule, ZoomModule, EmailModule],
   controllers: [SessionsController, AttendanceController],
@@ -28,7 +30,7 @@ import { EmailModule } from '../email/email.module.js';
     AttendanceService,
     AttendanceReconciliationService,
     AttendanceComplianceService,
-    MeetingSyncProcessor,
+    ...(isWorkerMode ? [MeetingSyncProcessor] : []),
     {
       provide: MEETING_PROVIDER,
       useExisting: ZoomMeetingProvider,

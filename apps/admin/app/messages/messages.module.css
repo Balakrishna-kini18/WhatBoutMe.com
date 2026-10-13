@@ -1,20 +1,27 @@
+/* =========================================================================
+   WhatBoutMe Admin - WhatsApp Support Inbox Styles
+   ========================================================================= */
+
 .inbox {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  height: calc(100vh - 230px);
-  min-height: 460px;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  height: calc(100vh - 200px);
+  min-height: 520px;
   overflow: hidden;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
 }
 
+/* ---- Left Contact List ---- */
 .list {
   margin: 0;
   padding: 0;
   overflow-y: auto;
   border-right: 1px solid var(--border-light);
   list-style: none;
+  background: var(--bg-card);
 }
 
 .item {
@@ -22,13 +29,14 @@
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  padding: 0.9rem 1rem;
+  padding: 0.85rem 1rem;
   border: none;
   border-bottom: 1px solid var(--border-light);
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background 0.15s ease;
 }
 
 .item:hover {
@@ -45,22 +53,25 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.6rem;
+  height: 2.6rem;
   border-radius: 50%;
-  background: var(--accent-highlight);
+  background: var(--accent-secondary-light);
   color: var(--accent-primary);
   font-size: var(--text-sm);
   font-weight: 700;
 }
 
 .itemActive .avatar {
-  background: var(--bg-card);
+  background: #ffffff;
 }
 
 .itemText {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .itemText strong,
@@ -74,6 +85,7 @@
 .itemText strong {
   font-size: var(--text-sm);
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .itemText span {
@@ -81,10 +93,15 @@
   font-size: var(--text-xs);
 }
 
+.typingItemBadge {
+  color: #25D366 !important;
+  font-weight: 600 !important;
+}
+
 .unread {
   flex-shrink: 0;
   min-width: 1.25rem;
-  padding: 0.1rem 0.4rem;
+  padding: 0.1rem 0.45rem;
   border-radius: 999px;
   background: var(--accent-primary);
   color: #ffffff;
@@ -93,168 +110,81 @@
   text-align: center;
 }
 
+/* ---- Right Chat Thread ---- */
 .thread {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--bg-main);
 }
 
 .threadHead {
-  padding: 1rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1.25rem;
   border-bottom: 1px solid var(--border-light);
+  background: var(--bg-card);
 }
 
 .threadHead h2 {
   margin: 0;
-  font-size: var(--text-base);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
-.threadHead p {
-  margin: 0;
+.onlineBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
-  font-size: var(--text-xs);
+  margin-top: 0.1rem;
 }
 
+.onlineDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #25D366;
+  box-shadow: 0 0 6px rgba(37, 211, 102, 0.6);
+}
+
+.typingStatus {
+  color: #25D366;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+/* ---- Messages Timeline ---- */
 .messages {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 1.25rem;
+  gap: 0.45rem;
+  padding: 1rem 1.25rem;
   overflow-y: auto;
-  background: var(--bg-soft);
+  background: var(--bg-soft) url("/brand/chat-bg.svg") center / cover no-repeat;
 }
 
-.bubble {
-  max-width: min(70%, 560px);
-  padding: 0.6rem 0.9rem;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-.bubble time {
-  display: block;
-  margin-top: 0.25rem;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.mine {
-  align-self: flex-end;
-  border-color: var(--accent-primary);
-  background: var(--accent-primary);
-  color: #ffffff;
-}
-
-.mine time {
-  color: rgba(255, 255, 255, 0.75);
-}
-
-.composer {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.9rem 1.25rem;
-  border-top: 1px solid var(--border-light);
-}
-
-.composer textarea {
-  flex: 1;
-  min-height: var(--control-height);
-  max-height: 8rem;
-  padding: 0.65rem 0.9rem;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  resize: vertical;
-}
-
-.composer textarea:focus {
-  border-color: var(--accent-primary);
-  outline: none;
-}
-
-.send {
-  align-self: flex-end;
-  height: var(--control-height);
-  padding: 0 1.25rem;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--accent-primary);
-  color: #ffffff;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.send:hover {
-  background: var(--accent-primary-hover);
-}
-
-.send:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.placeholder {
-  margin: auto;
-  padding: 2rem;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  text-align: center;
-}
-
-.error {
-  margin: 0 0 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm);
-  background: var(--status-error-bg);
-  color: var(--status-error);
-  font-size: var(--text-sm);
-}
-
-@media (max-width: 800px) {
-  .inbox {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
-
-  .list {
-    max-height: 14rem;
-    border-right: none;
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  .thread {
-    height: 60vh;
-  }
-}
-
-/* ==========================================================================
-   WHATSAPP-STYLE ADMIN MESSAGING ENHANCEMENTS
-   ========================================================================== */
-
-/* Date badge chips */
+/* Date Dividers */
 .dateDivider {
   display: flex;
   justify-content: center;
   align-items: center;
-  margin: 1rem 0 0.5rem;
+  margin: 0.75rem 0 0.35rem;
+  position: relative;
+  z-index: 1;
 }
 
 .dateBadge {
-  padding: 0.3rem 0.85rem;
+  padding: 0.25rem 0.85rem;
   border-radius: 999px;
   background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
-  font-size: 0.72rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-size: 0.7rem;
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -262,27 +192,108 @@
   border: 1px solid var(--border-light);
 }
 
-/* Message rows and hover unsend */
+/* Rows & Bubbles */
 .msgRow {
   display: flex;
-  position: relative;
   width: 100%;
+  margin: 1px 0;
+  background: transparent !important;
+  border: none !important;
 }
 
-.msgRow.mine {
+.rowMine {
   justify-content: flex-end;
 }
 
-.msgRow.theirs {
+.rowTheirs {
   justify-content: flex-start;
 }
 
 .msgContainer {
   position: relative;
   display: flex;
-  max-width: min(72%, 580px);
+  align-items: flex-end;
+  max-width: min(78%, 520px);
 }
 
+/* Base Bubble */
+.bubble {
+  position: relative;
+  min-width: 90px;
+  max-width: 100%;
+  padding: 0.45rem 0.8rem 0.4rem 0.85rem;
+  border-radius: 14px;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  word-break: break-word;
+  white-space: pre-wrap;
+  clear: both;
+}
+
+/* Received Message (Learner) */
+.bubbleTheirs {
+  background: #ffffff;
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  border-bottom-left-radius: 3px;
+}
+
+/* Sent Message (Staff / Admin) */
+.bubbleMine {
+  background: var(--accent-primary);
+  color: #ffffff;
+  border-bottom-right-radius: 3px;
+}
+
+.msgText {
+  display: inline;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+/* Timestamp & Ticks (Never Wrap Vertically!) */
+.msgMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  float: right;
+  margin-left: 0.65rem;
+  margin-top: 0.35rem;
+  line-height: 1;
+  white-space: nowrap !important;
+  user-select: none;
+}
+
+.timeText {
+  font-size: 0.6875rem;
+  white-space: nowrap !important;
+}
+
+.bubbleTheirs .timeText {
+  color: var(--text-secondary);
+}
+
+.bubbleMine .timeText {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.ticks {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap !important;
+  line-height: 1;
+}
+
+.tickRead {
+  color: #34B7F1; /* WhatsApp double-check blue */
+}
+
+.tickSent {
+  opacity: 0.75;
+}
+
+/* Message Hover Actions (Delete trash button) */
 .msgActions {
   opacity: 0;
   position: absolute;
@@ -295,12 +306,12 @@
   z-index: 2;
 }
 
-.mine .msgActions {
-  left: -2.2rem;
+.rowMine .msgActions {
+  left: -2rem;
 }
 
-.theirs .msgActions {
-  right: -2.2rem;
+.rowTheirs .msgActions {
+  right: -2rem;
 }
 
 .msgContainer:hover .msgActions {
@@ -320,6 +331,7 @@
   color: var(--text-secondary);
   box-shadow: var(--shadow-sm);
   transition: all 0.15s ease;
+  font-size: 0.75rem;
 }
 
 .actionBtn:hover {
@@ -328,76 +340,18 @@
   transform: scale(1.1);
 }
 
-/* Metadata: time + ticks */
-.msgMeta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.3rem;
-  margin-top: 0.3rem;
-  font-size: 0.72rem;
-}
-
-.mine .msgMeta {
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.theirs .msgMeta {
-  color: var(--text-secondary);
-}
-
-.ticks {
-  display: inline-flex;
-  align-items: center;
-}
-
-.tickRead {
-  color: #34B7F1; /* WhatsApp double tick blue */
-}
-
-.tickSent {
-  opacity: 0.7;
-}
-
-/* Status dots and typing indicators */
-.onlineBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  margin-top: 0.15rem;
-}
-
-.onlineDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #25D366;
-  box-shadow: 0 0 6px rgba(37, 211, 102, 0.6);
-}
-
-.typingStatus {
-  color: #25D366;
-  font-weight: 700;
-  font-size: 0.8rem;
-}
-
-.typingItemBadge {
-  color: #25D366 !important;
-  font-weight: 600 !important;
-}
-
+/* Typing animated bubble */
 .typingBubble {
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 0.55rem 0.9rem;
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
+  border-radius: 14px;
+  border-bottom-left-radius: 3px;
+  background: #ffffff;
   border: 1px solid var(--border-light);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   margin-bottom: 0.25rem;
 }
 
@@ -425,17 +379,17 @@
   40% { transform: scale(1.15); opacity: 1; }
 }
 
-/* Attachments */
+/* Media Attachments */
 .attachmentBox {
   margin-bottom: 0.4rem;
 }
 
 .imgThumb {
   max-width: 100%;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .imgThumb img {
@@ -443,7 +397,12 @@
   max-width: 100%;
   max-height: 240px;
   object-fit: cover;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
+  transition: transform 0.2s ease;
+}
+
+.imgThumb:hover img {
+  transform: scale(1.02);
 }
 
 .fileCard {
@@ -451,15 +410,15 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   background: rgba(0, 0, 0, 0.05);
   text-decoration: none;
   color: inherit;
 }
 
-.mine .fileCard {
-  background: rgba(255, 255, 255, 0.18);
-  color: white;
+.bubbleMine .fileCard {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 
 .fileIcon {
@@ -470,23 +429,23 @@
   justify-content: center;
   border-radius: 8px;
   background: var(--accent-primary);
-  color: white;
+  color: #ffffff;
   font-size: 0.75rem;
   font-weight: 700;
   flex-shrink: 0;
 }
 
-.mine .fileIcon {
-  background: white;
+.bubbleMine .fileIcon {
+  background: #ffffff;
   color: var(--accent-primary);
 }
 
-/* Emoji drawer */
+/* Emoji Bar */
 .emojiBar {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.35rem 0.75rem;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
   background: var(--bg-card);
   border-top: 1px solid var(--border-light);
   overflow-x: auto;
@@ -495,9 +454,9 @@
 .emojiBtn {
   background: transparent;
   border: none;
-  font-size: 1.25rem;
+  font-size: 1.3rem;
   cursor: pointer;
-  padding: 0.15rem 0.3rem;
+  padding: 0.2rem 0.3rem;
   border-radius: 6px;
   transition: transform 0.15s ease;
   line-height: 1;
@@ -508,7 +467,7 @@
   background: var(--bg-soft);
 }
 
-/* Pending upload bar */
+/* Upload Progress Bar */
 .uploadBar {
   display: flex;
   align-items: center;
@@ -516,28 +475,104 @@
   padding: 0.4rem 1rem;
   background: var(--bg-soft);
   border-top: 1px solid var(--border-light);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+/* Composer Bar */
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-card);
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 42px;
+  max-height: 100px;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border-light);
+  border-radius: 22px;
+  background: var(--bg-soft);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  resize: none;
+  line-height: 1.4;
+  outline: none;
+}
+
+.composer textarea:focus {
+  border-color: var(--accent-primary);
+  background: #ffffff;
 }
 
 .toolBtn {
   background: transparent;
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   color: var(--text-secondary);
-  width: var(--control-height);
-  height: var(--control-height);
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  font-size: 1rem;
 }
 
 .toolBtn:hover {
   color: var(--accent-primary);
   border-color: var(--accent-primary);
   background: var(--bg-soft);
+}
+
+.send {
+  height: 38px;
+  padding: 0 1.25rem;
+  border: none;
+  border-radius: 20px;
+  background: var(--accent-primary);
+  color: #ffffff;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.send:hover {
+  background: var(--accent-primary-hover);
+}
+
+.send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.placeholder {
+  margin: auto;
+  padding: 2rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.error {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--status-error-bg);
+  color: var(--status-error);
+  font-size: var(--text-sm);
 }
 
 /* Lightbox Modal */
@@ -577,3 +612,19 @@
   cursor: pointer;
 }
 
+@media (max-width: 800px) {
+  .inbox {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .list {
+    max-height: 14rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .thread {
+    height: 60vh;
+  }
+}

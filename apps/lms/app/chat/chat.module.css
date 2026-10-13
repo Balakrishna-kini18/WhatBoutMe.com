@@ -223,6 +223,7 @@
    inside, at the end of the text */
 .message p {
   margin: 0;
+  min-width: 85px;
   padding: 0.5rem 0.85rem 0.4rem;
   border-radius: 16px;
   box-shadow: var(--shadow-sm);

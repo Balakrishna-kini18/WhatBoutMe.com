@@ -638,8 +638,8 @@ export default function LiveSessionsPage() {
                   ) : s.status === "CANCELLED" ? (
                     /* Cancelled session */
                     <span className={styles.statusNote} role="status">Session cancelled</span>
-                  ) : isBooked && s.joinUrl ? (
-                    /* Booked and has join link — show join button */
+                  ) : s.joinUrl ? (
+                    /* Has join link — show join button, plus booking action if applicable */
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                       <a
                         href={s.joinUrl}
@@ -652,7 +652,9 @@ export default function LiveSessionsPage() {
                         <span>Join Meeting</span>
                         {Icons.arrowUpRight}
                       </a>
-                      <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
+                      {(isBooked || canBook) && (
+                        <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
+                      )}
                     </div>
                   ) : isBooked ? (
                     /* Booked, no join link yet */

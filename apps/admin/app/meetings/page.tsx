@@ -500,7 +500,40 @@ export default function MeetingsPage() {
                           </svg>
                         </a>
                       ) : (
-                        <span className={styles.cellTextMuted}>None</span>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                          <span className={styles.cellTextMuted}>None</span>
+                          {m.status === "SCHEDULED" && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const token = localStorage.getItem("token");
+                                  const res = await fetch(`${API_URL}/sessions/${m.id}/sync-zoom`, {
+                                    method: "POST",
+                                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                                  });
+                                  if (res.ok) {
+                                    await load();
+                                  }
+                                } catch (e) {
+                                  console.error("Zoom sync failed", e);
+                                }
+                              }}
+                              style={{
+                                fontSize: "0.75rem",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                background: "rgba(218, 122, 90, 0.12)",
+                                color: "#da7a5a",
+                                border: "1px solid rgba(218, 122, 90, 0.3)",
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              ⚡ Sync Zoom
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td>

@@ -427,7 +427,7 @@ export default function MessagesPage() {
                           </div>
                         )}
 
-                        <div className={`${styles.msgRow} ${isMine ? styles.mine : styles.theirs}`}>
+                        <div className={`${styles.msgRow} ${isMine ? styles.rowMine : styles.rowTheirs}`}>
                           <div className={styles.msgContainer}>
                             {isMine && (
                               <div className={styles.msgActions}>
@@ -442,7 +442,7 @@ export default function MessagesPage() {
                               </div>
                             )}
 
-                            <div className={`${styles.bubble} ${isMine ? styles.mine : ""}`}>
+                            <div className={`${styles.bubble} ${isMine ? styles.bubbleMine : styles.bubbleTheirs}`}>
                               {/* Attachment preview */}
                               {m.attachmentUrl && isSafeUrl(m.attachmentUrl) && (
                                 <div className={styles.attachmentBox}>
@@ -468,13 +468,22 @@ export default function MessagesPage() {
                                 </div>
                               )}
 
-                              {m.content && <div>{m.content}</div>}
+                              {m.content && <span className={styles.msgText}>{m.content}</span>}
 
                               <div className={styles.msgMeta}>
-                                <span>{clock(m.createdAt)}</span>
+                                <span className={styles.timeText}>{clock(m.createdAt)}</span>
                                 {isMine && (
                                   <span className={`${styles.ticks} ${m.read ? styles.tickRead : styles.tickSent}`}>
-                                    {m.read ? "✓✓" : "✓"}
+                                    {m.read ? (
+                                      <svg width="15" height="10" viewBox="0 0 16 11" fill="currentColor">
+                                        <path d="M11.07 0.93a.75.75 0 0 0-1.06 0L5.3 5.64 3.47 3.8a.75.75 0 0 0-1.06 1.06l2.36 2.36a.75.75 0 0 0 1.06 0l5.24-5.23a.75.75 0 0 0 0-1.06z"/>
+                                        <path d="M15.07 0.93a.75.75 0 0 0-1.06 0l-5.24 5.24a.75.75 0 1 0 1.06 1.06l4.71-4.71a.75.75 0 0 0 0-1.06l.53-.53z"/>
+                                      </svg>
+                                    ) : (
+                                      <svg width="11" height="9" viewBox="0 0 12 10" fill="currentColor">
+                                        <path d="M10.82.93a.75.75 0 0 0-1.06 0L4.5 6.19 2.24 3.93a.75.75 0 0 0-1.06 1.06l2.79 2.79a.75.75 0 0 0 1.06 0l5.79-5.79a.75.75 0 0 0 0-1.06z"/>
+                                      </svg>
+                                    )}
                                   </span>
                                 )}
                               </div>

@@ -375,9 +375,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Close mobile drawer on route change
+  // Close mobile drawer and reset transient modal states on route change
   useEffect(() => {
     setMobileMenuOpen(false);
+    setUserDropdownOpen(false);
+    setShowSignOutConfirm(false);
+    setIsLoggingOut(false);
+    setLogoutError(null);
   }, [pathname]);
 
   const toggleCollapsed = () => {
@@ -408,6 +412,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       localStorage.removeItem("token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("user");
+      setUser(null);
+      setShowSignOutConfirm(false);
+      setIsLoggingOut(false);
+      setUserDropdownOpen(false);
       router.push("/login");
     } catch (err) {
       setIsLoggingOut(false);

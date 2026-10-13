@@ -170,7 +170,7 @@ export default function Step7QuizBuilder({
         { text: "", isCorrect: false },
         { text: "", isCorrect: false },
       ]);
-      setFeedbackMsg("Question added ✓");
+      setFeedbackMsg("Question added successfully");
       setTimeout(() => setFeedbackMsg(null), 2500);
     } catch (err: any) {
       alert(err.message || "Failed to append question");
@@ -335,8 +335,16 @@ export default function Step7QuizBuilder({
                       readOnly
                       className={styles.correctRadio}
                     />
-                    <span style={{ fontSize: "0.88rem", fontWeight: opt.isCorrect ? 700 : 400, color: opt.isCorrect ? "#15803d" : "inherit" }}>
-                      {opt.text} {opt.isCorrect && "✓ (Correct)"}
+                    <span style={{ fontSize: "0.88rem", fontWeight: opt.isCorrect ? 700 : 400, color: opt.isCorrect ? "#15803d" : "inherit", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <span>{opt.text}</span>
+                      {opt.isCorrect && (
+                        <span style={{ fontSize: "0.75rem", background: "#dcfce7", color: "#15803d", padding: "1px 6px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          Correct
+                        </span>
+                      )}
                     </span>
                   </div>
                 ))}
@@ -414,7 +422,10 @@ export default function Step7QuizBuilder({
                     className={styles.deleteItemBtn}
                     title="Remove choice"
                   >
-                    ✕
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                   </button>
                 )}
               </div>
@@ -459,7 +470,10 @@ export default function Step7QuizBuilder({
           className={styles.btnBack}
           onClick={onBackToModule}
         >
-          &larr; Back to Module
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          <span>Back to Module</span>
         </button>
 
         <button
@@ -468,7 +482,10 @@ export default function Step7QuizBuilder({
           className={styles.btnPrimary}
           onClick={handleSaveAll}
         >
-          {isSavingAll ? "Saving Quiz..." : "Save Quiz & Return to Module ✓"}
+          <span>{isSavingAll ? "Saving Quiz..." : "Save Quiz & Return to Module"}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </button>
       </div>
     </section>

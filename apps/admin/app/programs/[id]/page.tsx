@@ -106,7 +106,15 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     if (phase === 3) setWizardStep("REVIEW_PUBLISH");
   };
 
-  const activeModule = steps.find((s) => s.id === activeModuleId) || steps[0] || null;
+  const isModuleScope =
+    wizardStep === "MODULE_DETAILS" ||
+    wizardStep === "MODULE_PREVIEW" ||
+    wizardStep === "ADD_LESSON_CHOOSER" ||
+    wizardStep === "ADD_VIDEO_LESSON" ||
+    wizardStep === "ADD_PDF_LESSON" ||
+    wizardStep === "QUIZ_BUILDER";
+
+  const activeModule = steps.find((s) => s.id === activeModuleId) || (isModuleScope ? steps[0] : null);
 
   // ---------------------------------------------------------------------------
   // Action Handlers
@@ -283,113 +291,69 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           1. Wizard Top Navigation & Breadcrumbs
           =================================================================== */}
       <header className={styles.wizardTopBar}>
-        <div className={styles.breadcrumbs}>
-          <button
-            type="button"
-            className={styles.backToProgramBtn}
-            onClick={() => {
-              if (
-                wizardStep === "ADD_LESSON_CHOOSER" ||
-                wizardStep === "ADD_VIDEO_LESSON" ||
-                wizardStep === "ADD_PDF_LESSON" ||
-                wizardStep === "QUIZ_BUILDER"
-              ) {
-                setWizardStep("MODULE_DETAILS");
-              } else if (wizardStep === "MODULE_DETAILS" || wizardStep === "MODULE_PREVIEW") {
-                setWizardStep("MODULE_LIST");
-              } else {
-                window.location.href = "/programs";
-              }
+        <nav className={styles.breadcrumbTrail} aria-label="Breadcrumbs">
+          <Link href="/programs" className={styles.breadcrumbRootLink} title="Back to Programs Catalog">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Programs</span>
+          </Link>
+
+          <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+
+          <span
+            className={styles.breadcrumbCourseLink}
+            onClick={() => setWizardStep("COURSE_SETUP")}
+            role="button"
+            tabIndex={0}
+            title="Edit Course Details"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setWizardStep("COURSE_SETUP");
             }}
           >
-            <span aria-hidden="true">&larr;</span>
-            <span>Back to Program</span>
-          </button>
-
-          <nav className={styles.breadcrumbTrail} aria-label="Breadcrumbs">
-            <span className={styles.homeIcon} aria-label="Programs Home">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
-            </span>
-            <span className={styles.pipeDivider} aria-hidden="true">|</span>
-            <Link href="/programs" className={styles.breadcrumbLink}>
-              Programs
-            </Link>
-            <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
-            <span
-              className={styles.breadcrumbText}
-              onClick={() => setWizardStep("MODULE_LIST")}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") setWizardStep("MODULE_LIST");
-              }}
-            >
-              {programData?.title || "Sigma batch"}
-            </span>
-            {activeModule && (
-              <>
-                <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
-                <span
-                  className={styles.breadcrumbText}
-                  onClick={() => setWizardStep("MODULE_DETAILS")}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") setWizardStep("MODULE_DETAILS");
-                  }}
-                >
-                  Module {activeModule.sequence}: {activeModule.title || "HTML Basics"}
-                </span>
-              </>
-            )}
-            <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
-            <span className={styles.breadcrumbActive}>
-              {wizardStep === "ADD_LESSON_CHOOSER"
-                ? "Add Content"
-                : wizardStep === "ADD_VIDEO_LESSON"
-                ? "Upload Video"
-                : wizardStep === "ADD_PDF_LESSON"
-                ? "Upload PDF"
-                : wizardStep === "QUIZ_BUILDER"
-                ? "Quiz Builder"
-                : wizardStep === "COURSE_SETUP"
-                ? "Basic Details"
-                : wizardStep === "MODULE_LIST"
-                ? "Modules"
-                : wizardStep === "MODULE_DETAILS"
-                ? "Module Details"
-                : wizardStep === "MODULE_PREVIEW"
-                ? "Student Preview"
-                : "Review & Publish"}
-            </span>
-          </nav>
-        </div>
-
-        <div className={styles.topBarActions}>
-          <span className={styles.statusBadge}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            <span>Cloud Synced</span>
+            {programData?.title || "Program Details"}
           </span>
 
-          <a
-            href={`http://localhost:3000/programs/${programId}/steps`}
-            target="_blank"
-            rel="noreferrer"
-            className={styles.previewLmsLink}
-            title="Preview student LMS view"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-            <span>Preview in LMS</span>
-          </a>
-        </div>
+          <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+
+          {isModuleScope && activeModule && (
+            <>
+              <span
+                className={styles.breadcrumbModuleLink}
+                onClick={() => setWizardStep("MODULE_DETAILS")}
+                role="button"
+                tabIndex={0}
+                title="View Module Lessons"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setWizardStep("MODULE_DETAILS");
+                }}
+              >
+                Module {activeModule.sequence}
+              </span>
+              <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+            </>
+          )}
+
+          <span className={styles.breadcrumbActive}>
+            {wizardStep === "COURSE_SETUP"
+              ? "Basic Details"
+              : wizardStep === "MODULE_LIST"
+              ? "Modules"
+              : wizardStep === "MODULE_DETAILS"
+              ? "Lessons"
+              : wizardStep === "ADD_LESSON_CHOOSER"
+              ? "Add Content"
+              : wizardStep === "ADD_VIDEO_LESSON"
+              ? "Upload Video"
+              : wizardStep === "ADD_PDF_LESSON"
+              ? "Upload PDF"
+              : wizardStep === "QUIZ_BUILDER"
+              ? "Quiz Builder"
+              : wizardStep === "MODULE_PREVIEW"
+              ? "Student Preview"
+              : "Review & Publish"}
+          </span>
+        </nav>
       </header>
 
       {/* ===================================================================

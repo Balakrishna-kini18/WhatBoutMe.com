@@ -25,24 +25,80 @@ export class SendMessageDto {
 export class MessagesController {
   constructor(private prisma: PrismaService) {}
 
-  private isStaff(user: any) {
-    return user.role !== Role.USER;
+  private isAdmin(user: any) {
+    return user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN || user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  }
+
+  private isManager(user: any) {
+    return user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER';
   }
 
   private async conversationFor(id: string, user: any) {
     const conversation = await this.prisma.conversation.findUnique({ where: { id } });
     if (!conversation) throw new NotFoundException('Conversation not found');
-    if (!this.isStaff(user) && !conversation.participantIds.includes(user.sub)) {
-      throw new ForbiddenException('You are not part of this conversation');
+
+    if (this.isAdmin(user)) {
+      return conversation;
     }
-    return conversation;
+
+    const myId = user.sub || user.id;
+    if (conversation.participantIds.includes(myId)) {
+      return conversation;
+    }
+
+    if (this.isManager(user)) {
+      const isCohortLearner = await this.prisma.enrolment.findFirst({
+        where: {
+          userId: { in: conversation.participantIds },
+          batch: {
+            OR: [
+              { managerId: myId },
+              { trainers: { some: { trainerId: myId } } },
+            ],
+          },
+        },
+      });
+      if (isCohortLearner) {
+        return conversation;
+      }
+    }
+
+    throw new ForbiddenException('You are not part of this conversation');
   }
 
   @Get('conversations')
   async conversations(@Request() req: any) {
     const me = req.user;
+    let where: any;
+
+    if (this.isAdmin(me)) {
+      where = {};
+    } else if (this.isManager(me)) {
+      const myId = me.sub || me.id;
+      const enrolments = await this.prisma.enrolment.findMany({
+        where: {
+          batch: {
+            OR: [
+              { managerId: myId },
+              { trainers: { some: { trainerId: myId } } },
+            ],
+          },
+        },
+        select: { userId: true },
+      });
+      const cohortLearnerIds = enrolments.map((e) => e.userId);
+      where = {
+        OR: [
+          { participantIds: { has: myId } },
+          ...(cohortLearnerIds.length > 0 ? [{ participantIds: { hasSome: cohortLearnerIds } }] : []),
+        ],
+      };
+    } else {
+      where = { participantIds: { has: me.sub || me.id } };
+    }
+
     const conversations = await this.prisma.conversation.findMany({
-      where: this.isStaff(me) ? {} : { participantIds: { has: me.sub } },
+      where,
       orderBy: { updatedAt: 'desc' },
       include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
     });

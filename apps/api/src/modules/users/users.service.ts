@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -11,7 +11,34 @@ export class UsersService {
     private cacheHelper: CacheHelperService
   ) {}
 
-  async findOne(id: string) {
+  async findOne(id: string, reqUser?: any) {
+    if (reqUser) {
+      if (reqUser.role === Role.USER) {
+        const myId = reqUser.sub || reqUser.id;
+        if (id !== myId) {
+          throw new ForbiddenException('Access denied: You can only view your own user profile');
+        }
+      } else if (reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER') {
+        const myId = reqUser.sub || reqUser.id;
+        if (id !== myId) {
+          const isAssigned = await this.prisma.enrolment.findFirst({
+            where: {
+              userId: id,
+              batch: {
+                OR: [
+                  { managerId: myId },
+                  { trainers: { some: { trainerId: myId } } },
+                ],
+              },
+            },
+          });
+          if (!isAssigned) {
+            throw new ForbiddenException('Access denied: Managers can only view learners enrolled in their assigned cohorts');
+          }
+        }
+      }
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
@@ -194,7 +221,13 @@ export class UsersService {
     });
   }
 
-  async create(data: any) {
+  async create(data: any, reqUser?: any) {
+    if (data.role && data.role !== Role.USER) {
+      if (reqUser && reqUser.role !== Role.SUPER_ADMIN && reqUser.role !== 'SUPER_ADMIN') {
+        throw new ForbiddenException('Access denied: Only Super Admin can assign staff roles');
+      }
+    }
+
     const bcrypt = await import('bcryptjs');
     // The request is validated with a plain `password` field; older callers
     // sent the plain text as `passwordHash`. Either way it is hashed here.
@@ -204,7 +237,17 @@ export class UsersService {
       userData.passwordHash = await bcrypt.hash(plain, 12);
     }
     try {
-      return await this.prisma.user.create({ data: userData });
+      const created = await this.prisma.user.create({ data: userData });
+      if (data.role && data.role !== Role.USER) {
+        await this.prisma.logAction({
+          actorId: reqUser?.sub || reqUser?.id,
+          action: 'STAFF_USER_CREATED',
+          entity: 'User',
+          entityId: created.id,
+          meta: { role: created.role, createdBy: reqUser?.sub || reqUser?.id }
+        });
+      }
+      return created;
     } catch (error: any) {
       if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
         throw new ConflictException('A user with this email already exists.');
@@ -213,7 +256,44 @@ export class UsersService {
     }
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: any, reqUser?: any) {
+    // If Learner: can only modify their own profile - check before DB lookup to prevent ID enumeration
+    if (reqUser && reqUser.role === Role.USER) {
+      const myId = reqUser.sub || reqUser.id;
+      if (id !== myId) {
+        throw new ForbiddenException('Access denied: You can only modify your own profile');
+      }
+      delete data.role;
+      delete data.permissions;
+    }
+
+    // Manager restrictions: Managers cannot modify other user accounts
+    if (reqUser && (reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER')) {
+      const myId = reqUser.sub || reqUser.id;
+      if (id !== myId) {
+        throw new ForbiddenException('Access denied: Managers cannot modify other user accounts');
+      }
+    }
+
+    const currentUser = await this.prisma.user.findUnique({ where: { id }});
+    if (!currentUser) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    // Role modification rule: ONLY Super Admin can change a user's role (PDF Page 3-4)
+    if (data.role && data.role !== currentUser.role) {
+      if (!reqUser || (reqUser.role !== Role.SUPER_ADMIN && reqUser.role !== 'SUPER_ADMIN')) {
+        throw new ForbiddenException('Access denied: Only Super Admin can change user roles');
+      }
+    }
+
+    // Only Super Admin can modify Super Admin accounts
+    if (currentUser.role === Role.SUPER_ADMIN) {
+      if (reqUser && reqUser.role !== Role.SUPER_ADMIN && reqUser.role !== 'SUPER_ADMIN') {
+        throw new ForbiddenException('Access denied: Only Super Admin can modify Super Admin accounts');
+      }
+    }
+
     const { passwordHash: _ph, status: _st, cohort: _co, progress: _pr, joined: _jo, ...userData } = data;
     const bcrypt = await import('bcryptjs');
     if (data.password) {
@@ -224,21 +304,18 @@ export class UsersService {
     let shouldRevoke = false;
     let revokeReason = '';
     
-    const currentUser = await this.prisma.user.findUnique({ where: { id }});
-    if (currentUser) {
-      if (data.role && data.role !== currentUser.role) {
-        shouldRevoke = true;
-        revokeReason = 'ROLE_CHANGED';
-      }
-      if (data.password) {
-        shouldRevoke = true;
-        revokeReason = 'PASSWORD_CHANGED';
-      }
-      // Assuming 'status' means suspension if implemented
-      if (data.status === 'SUSPENDED') {
-        shouldRevoke = true;
-        revokeReason = 'SUSPENDED';
-      }
+    if (data.role && data.role !== currentUser.role) {
+      shouldRevoke = true;
+      revokeReason = 'ROLE_CHANGED';
+    }
+    if (data.password) {
+      shouldRevoke = true;
+      revokeReason = 'PASSWORD_CHANGED';
+    }
+    // Assuming 'status' means suspension if implemented
+    if (data.status === 'SUSPENDED') {
+      shouldRevoke = true;
+      revokeReason = 'SUSPENDED';
     }
 
     if (shouldRevoke) {
@@ -254,6 +331,16 @@ export class UsersService {
         where: { id },
         data: userData,
       });
+
+      if (data.role && data.role !== currentUser.role) {
+        await this.prisma.logAction({
+          actorId: reqUser?.sub || reqUser?.id,
+          action: 'USER_ROLE_CHANGED',
+          entity: 'User',
+          entityId: id,
+          meta: { oldRole: currentUser.role, newRole: data.role, changedBy: reqUser?.sub || reqUser?.id }
+        });
+      }
       
       await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
       await this.cacheHelper.invalidateNamespace('users');
@@ -266,7 +353,14 @@ export class UsersService {
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, reqUser?: any) {
+    if (reqUser) {
+      const myId = reqUser.sub || reqUser.id;
+      if (id === myId) {
+        throw new ForbiddenException('Access denied: Cannot delete your own Super Admin account');
+      }
+    }
+
     await this.prisma.userSession.updateMany({
       where: { userId: id, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: 'USER_DELETED' }
@@ -274,6 +368,15 @@ export class UsersService {
     forgetSessions();
     await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
     await this.cacheHelper.invalidateNamespace('users');
+
+    await this.prisma.logAction({
+      actorId: reqUser?.sub || reqUser?.id,
+      action: 'USER_DELETED',
+      entity: 'User',
+      entityId: id,
+      meta: { deletedBy: reqUser?.sub || reqUser?.id }
+    });
+
     return this.prisma.user.delete({
       where: { id },
     });

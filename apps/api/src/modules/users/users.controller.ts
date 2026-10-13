@@ -24,14 +24,11 @@ export class UpdateUserDto {
 }
 
 @Controller('users')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  // @UseInterceptors(CacheInterceptor)
-  // @CacheKey('all_users')
-  // @CacheTTL(60000)
   findAll(@Req() req: any, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('role') role?: Role) {
     return this.usersService.findAll({
       page: page ? parseInt(page, 10) : 1,
@@ -43,31 +40,35 @@ export class UsersController {
   }
 
   @Post()
-  create(@Body() createDto: CreateUserDto) {
-    return this.usersService.create(createDto);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  create(@Body() createDto: CreateUserDto, @Req() req: any) {
+    return this.usersService.create(createDto, req.user);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateUserDto) {
-    return this.usersService.update(id, updateDto);
+  update(@Param('id') id: string, @Body() updateDto: UpdateUserDto, @Req() req: any) {
+    return this.usersService.update(id, updateDto, req.user);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  @Roles(Role.SUPER_ADMIN)
+  remove(@Param('id') id: string, @Req() req: any) {
+    return this.usersService.remove(id, req.user);
   }
 
   @Get(':id/sessions')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   getUserSessions(@Param('id') id: string) {
     return this.usersService.getUserSessions(id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    return this.usersService.findOne(id, req.user);
   }
 
   @Delete(':id/sessions')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   revokeUserSessions(@Param('id') id: string) {
     return this.usersService.revokeUserSessions(id);
   }

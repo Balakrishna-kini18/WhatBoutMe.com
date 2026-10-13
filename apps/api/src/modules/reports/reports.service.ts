@@ -1,13 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
   // D1-059: Batch attendance distributions
-  async getAttendanceAnalytics() {
+  async getAttendanceAnalytics(user?: any) {
+    const where: any = {};
+    if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
+      const userId = user.sub || user.id;
+      where.OR = [
+        { managerId: userId },
+        { trainers: { some: { trainerId: userId } } },
+      ];
+    }
+
     const batches = await this.prisma.batch.findMany({
+      where,
       select: {
         id: true,
         name: true,
@@ -52,8 +63,25 @@ export class ReportsService {
   }
 
   // D1-060: Learner progress drop-off analytics
-  async getProgressDropOffAnalytics() {
+  async getProgressDropOffAnalytics(user?: any) {
+    const where: any = {};
+    if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
+      const userId = user.sub || user.id;
+      const managerBatches = await this.prisma.batch.findMany({
+        where: {
+          OR: [
+            { managerId: userId },
+            { trainers: { some: { trainerId: userId } } },
+          ],
+        },
+        select: { programId: true },
+      });
+      const programIds = [...new Set(managerBatches.map(b => b.programId).filter(Boolean))];
+      where.programId = { in: programIds as string[] };
+    }
+
     const steps = await this.prisma.step.findMany({
+      where,
       include: {
         progress: true,
       },
@@ -78,8 +106,25 @@ export class ReportsService {
   }
 
   // D1-061: Assessment analytics
-  async getAssessmentAnalytics() {
+  async getAssessmentAnalytics(user?: any) {
+    const where: any = {};
+    if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
+      const userId = user.sub || user.id;
+      const managerBatches = await this.prisma.batch.findMany({
+        where: {
+          OR: [
+            { managerId: userId },
+            { trainers: { some: { trainerId: userId } } },
+          ],
+        },
+        select: { programId: true },
+      });
+      const programIds = [...new Set(managerBatches.map(b => b.programId).filter(Boolean))];
+      where.step = { programId: { in: programIds as string[] } };
+    }
+
     const quizzes = await this.prisma.quiz.findMany({
+      where,
       include: {
         attempts: true,
         questions: {
@@ -121,15 +166,15 @@ export class ReportsService {
   }
 
   // D1-062: CSV Export Streaming
-  async getCsvExport(type: string): Promise<string> {
+  async getCsvExport(type: string, user?: any): Promise<string> {
     let data: any[] = [];
     
     if (type === 'attendance') {
-      data = await this.getAttendanceAnalytics();
+      data = await this.getAttendanceAnalytics(user);
     } else if (type === 'progress') {
-      data = await this.getProgressDropOffAnalytics();
+      data = await this.getProgressDropOffAnalytics(user);
     } else if (type === 'assessments') {
-      data = await this.getAssessmentAnalytics();
+      data = await this.getAssessmentAnalytics(user);
     } else {
       throw new Error('Invalid export type');
     }

@@ -1,8 +1,12 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ZoomMeetingProvider } from './zoom.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import {
+  AttendanceReconciliationService,
+  NormalizedParticipantRecord,
+} from '../sessions/attendance-reconciliation.service.js';
 
 @Processor('zoom-events')
 export class ZoomProcessor extends WorkerHost {
@@ -11,6 +15,8 @@ export class ZoomProcessor extends WorkerHost {
   constructor(
     private readonly zoomService: ZoomMeetingProvider,
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => AttendanceReconciliationService))
+    private readonly reconciliationService: AttendanceReconciliationService,
   ) {
     super();
   }
@@ -52,41 +58,22 @@ export class ZoomProcessor extends WorkerHost {
       data: { status: 'COMPLETED' },
     });
 
-    // 3. D2-032: Fetch participant report and mark attendance
+    // 3. D2-032: Fetch participant report and reconcile attendance via AttendanceReconciliationService
     const participants = await this.zoomService.getParticipantReport(meetingId);
     
-    for (const p of participants) {
-      // Find the user by email
-      const user = await this.prisma.user.findUnique({
-        where: { email: p.userEmail },
-      });
+    const normalizedRecords: NormalizedParticipantRecord[] = participants.map((p) => {
+      const email = p.userEmail?.includes('@') ? p.userEmail.trim().toLowerCase() : undefined;
+      const name = !p.userEmail?.includes('@') ? p.userEmail?.trim() : undefined;
+      return {
+        provider: 'ZOOM',
+        participantEmail: email,
+        participantName: name,
+        joinTime: p.joinTime,
+        leaveTime: p.leaveTime,
+      };
+    });
 
-      if (user) {
-        // Find their enrolment in this batch
-        const enrolment = await this.prisma.enrolment.findUnique({
-          where: {
-            userId_batchId: {
-              userId: user.id,
-              batchId: session.batchId,
-            }
-          }
-        });
-
-        if (enrolment) {
-          // Record attendance
-          await this.prisma.attendance.create({
-            data: {
-              enrolmentId: enrolment.id,
-              sessionId: session.id,
-              status: 'PRESENT_AUTO',
-              joinTime: p.joinTime,
-              leaveTime: p.leaveTime,
-              durationMinutes: p.durationMinutes,
-            }
-          });
-        }
-      }
-    }
+    await this.reconciliationService.reconcileSession(session.id, normalizedRecords);
 
     this.logger.log(`Successfully processed meeting.ended for session ${session.id}`);
   }

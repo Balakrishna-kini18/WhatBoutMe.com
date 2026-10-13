@@ -170,19 +170,13 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
             capacity: 25,
             status: SessionStatus.SCHEDULED,
             hostTrainerId: mockTrainer.id,
-            joinUrl: null,
-            hostUrl: null,
-            providerMeetingId: null,
+            joinUrl: 'https://zoom.us/j/123456789',
+            hostUrl: 'https://zoom.us/s/123456789',
+            providerMeetingId: 'zoom-123456789',
             meetingProvider: MeetingProvider.ZOOM,
           }),
         }),
       );
-
-      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
-        outboxId: 'outbox-1',
-        type: 'CREATE',
-        sessionId: 'sess-1',
-      }));
 
       expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -554,8 +548,9 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
     });
 
     it('creates session and enqueues sync without failing on external API', async () => {
-      // Zoom API calls are no longer inline, they are dispatched to the queue.
-      // So BadGatewayException is no longer thrown during session creation.
+      // When external Zoom API call fails, it falls back to the outbox queue
+      meetingProviderMock.createMeeting.mockRejectedValueOnce(new Error('Zoom 503 Service Unavailable'));
+
       const res = await service.createSession(
         {
           batchId: mockBatch.id,

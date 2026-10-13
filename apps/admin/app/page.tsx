@@ -297,6 +297,8 @@ export default function AdminDashboard() {
   const donutCircumference = 2 * Math.PI * donutRadius;
   let accumulatedOffset = 0;
 
+  const isManager = currentUser?.role === "MANAGER" || currentUser?.role === "TEACHER";
+
   return (
     <div className={styles.dashboardContainer}>
       {/* ===================================================================
@@ -305,6 +307,9 @@ export default function AdminDashboard() {
       <header className={styles.welcomeBar}>
         <div className={styles.welcomeInfo}>
           <div className={styles.welcomeMetaRow}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-primary, #c97a1e)", background: "rgba(201, 122, 30, 0.08)", padding: "2px 8px", borderRadius: "100px", border: "1px solid rgba(201, 122, 30, 0.2)" }}>
+              Brain Health · Resilience · Purpose
+            </span>
             <span className={styles.welcomeDateBadge}>
               <Icons.Calendar />
               <span>{formattedToday}</span>
@@ -314,7 +319,9 @@ export default function AdminDashboard() {
             {getGreeting()}, {currentUser?.name || "Roweena Britto"}
           </h1>
           <p className={styles.welcomeSubtext}>
-            Operational summary across active programs, cohorts, and student registrations.
+            {isManager
+              ? "Operational summary for your assigned batches, sessions, and learners."
+              : "Executive studio managing certified brain health programmes, cohorts, and student progress across WhatBoutMe."}
           </p>
         </div>
 
@@ -328,10 +335,12 @@ export default function AdminDashboard() {
             {exported ? <Icons.Check /> : <Icons.Export />}
             <span>{exported ? "Exported CSV" : "Export Report"}</span>
           </button>
-          <Link href="/batches?create=1" className={styles.createBatchBtn}>
-            <Icons.Plus />
-            <span>Create Batch</span>
-          </Link>
+          {!isManager && (
+            <Link href="/batches?create=1" className={styles.createBatchBtn}>
+              <Icons.Plus />
+              <span>Create Batch</span>
+            </Link>
+          )}
         </div>
       </header>
 
@@ -342,7 +351,7 @@ export default function AdminDashboard() {
         {/* Metric 1: Total Learners */}
         <article className={styles.kpiCard}>
           <div className={styles.kpiTopRow}>
-            <span className={styles.kpiLabel}>Total Learners</span>
+            <span className={styles.kpiLabel}>{isManager ? "Assigned Learners" : "Total Learners"}</span>
             <div className={styles.kpiIconBox}>
               <Icons.Users />
             </div>
@@ -353,14 +362,14 @@ export default function AdminDashboard() {
             </span>
           </div>
           <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>Registered student accounts</span>
+            <span className={styles.kpiMeta}>{isManager ? "Enrolled in your cohorts" : "Registered student accounts"}</span>
           </div>
         </article>
 
         {/* Metric 2: Total Batches */}
         <article className={styles.kpiCard}>
           <div className={styles.kpiTopRow}>
-            <span className={styles.kpiLabel}>Active Batches</span>
+            <span className={styles.kpiLabel}>{isManager ? "Your Batches" : "Active Batches"}</span>
             <div className={styles.kpiIconBox}>
               <Icons.Batches />
             </div>
@@ -371,25 +380,27 @@ export default function AdminDashboard() {
             </span>
           </div>
           <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>Current & upcoming cohorts</span>
+            <span className={styles.kpiMeta}>{isManager ? "Cohorts assigned to you" : "Current & upcoming cohorts"}</span>
           </div>
         </article>
 
-        {/* Metric 3: Total Revenue */}
-        <article className={styles.kpiCard}>
-          <div className={styles.kpiTopRow}>
-            <span className={styles.kpiLabel}>Total Revenue</span>
-            <div className={styles.kpiIconBox}>
-              <Icons.Dollar />
+        {/* Metric 3: Total Revenue (Admin only - hidden for Managers per PDF) */}
+        {!isManager && totalRevenue !== null && (
+          <article className={styles.kpiCard}>
+            <div className={styles.kpiTopRow}>
+              <span className={styles.kpiLabel}>Total Revenue</span>
+              <div className={styles.kpiIconBox}>
+                <Icons.Dollar />
+              </div>
             </div>
-          </div>
-          <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>{loading ? "—" : totalRevenue}</span>
-          </div>
-          <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>Program enrolment revenue</span>
-          </div>
-        </article>
+            <div className={styles.kpiValueRow}>
+              <span className={styles.kpiValue}>{loading ? "—" : totalRevenue}</span>
+            </div>
+            <div className={styles.kpiFooter}>
+              <span className={styles.kpiMeta}>Program enrolment revenue</span>
+            </div>
+          </article>
+        )}
 
         {/* Metric 4: Certificates Issued */}
         <article className={styles.kpiCard}>

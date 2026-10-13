@@ -341,7 +341,7 @@ export class EnrollmentsService {
           );
       }
 
-      return tx.enrolment.update({
+      const updatedEnrolment = await tx.enrolment.update({
         where: { id },
         data: { status: target },
         include: {
@@ -361,8 +361,8 @@ export class EnrollmentsService {
         },
       });
 
-      if (tx.auditLog?.create) {
-        await tx.auditLog.create({
+      if ((tx as any).auditLog?.create) {
+        await (tx as any).auditLog.create({
           data: {
             actorId: actor?.sub ?? actor?.id ?? null,
             action: 'ENROLMENT_STATUS_TRANSITIONED',
@@ -379,7 +379,7 @@ export class EnrollmentsService {
         });
       }
 
-      return updated;
+      return updatedEnrolment;
     });
 
     await this.invalidateEnrolmentCaches(updated.userId);
@@ -598,7 +598,7 @@ export class EnrollmentsService {
               fromBatchId: enrolment.batchId,
               toBatchId: dto.destinationBatchId,
               previousStatus: enrolment.status,
-              newStatus,
+              newStatus: nextStatus,
               reason: dto.reason ?? null,
             },
           },

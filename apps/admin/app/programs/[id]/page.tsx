@@ -4,6 +4,7 @@ import { useEffect, useState, use, useCallback } from "react";
 import styles from "./curriculum.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../lib/api";
+import { parseCourseInfo, formatCourseInfo } from "../courseInfo";
 
 // 9-Step Wizard Modular Subcomponents
 import CurriculumStepper from "./components/CurriculumStepper";
@@ -125,13 +126,38 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     setIsSaving(true);
     try {
       const token = localStorage.getItem("token");
+
+      // Format rich course metadata into structured description
+      const parsed = parseCourseInfo(updatedData.description || programData?.description);
+      const combinedDescription = formatCourseInfo({
+        summary: updatedData.shortDescription || parsed.summary || updatedData.description || "",
+        type: updatedData.category || parsed.type || "",
+        duration: parsed.duration || "",
+        audience: parsed.audience || "",
+        inPerson: parsed.inPerson || "",
+        online: parsed.online || "",
+        image: updatedData.thumbnailUrl || parsed.image || "",
+        points: parsed.points || [],
+      });
+
+      const payload: Record<string, any> = {
+        title: updatedData.title,
+        description: combinedDescription || updatedData.description,
+        price: Number(updatedData.price) || 0,
+        hasCertificate: Boolean(updatedData.hasCertificate),
+        shortDescription: updatedData.shortDescription || "",
+        thumbnailUrl: updatedData.thumbnailUrl || "",
+        category: updatedData.category || "",
+        level: updatedData.level || "",
+      };
+
       const res = await fetch(`${API_URL}/programs/${programId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(updatedData),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {

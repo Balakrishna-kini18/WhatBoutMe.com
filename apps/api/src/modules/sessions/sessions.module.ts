@@ -12,17 +12,18 @@ import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.inter
 import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.interface.js';
 
 import { MeetingSyncProcessor } from './meeting-sync.processor.js';
-
-const isWorkerMode = process.env.WORKER_MODE === 'true';
+import { EmailModule } from '../email/email.module.js';
 
 /**
  * D1-044: CALENDAR_PROVIDER is registered as a null factory until the
- * OutlookCalendarProvider (D2-037–D2-040) is implemented.  The SessionsService
+ * OutlookCalendarProvider (D2-037–D2-040) is implemented. The SessionsService
  * injects it with @Optional() so the booking engine works in all environments;
  * Outlook clash-prevention activates automatically once the provider is wired.
  */
+const isWorkerMode = process.env.WORKER_MODE === 'true';
+
 @Module({
-  imports: [PrismaModule, ZoomModule],
+  imports: [PrismaModule, ZoomModule, EmailModule],
   controllers: [SessionsController, AttendanceController],
   providers: [
     SessionsService,

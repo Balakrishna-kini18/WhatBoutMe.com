@@ -199,12 +199,34 @@ export class SessionsService {
       }
     }
 
-    // 6. Meeting Provider Setup
+    // 6. Meeting Provider Setup: Synchronous Zoom creation with resilient Outbox fallback
     let finalJoinUrl = data.joinUrl;
+    let finalHostUrl: string | null = null;
+    let finalProviderMeetingId: string | null = null;
+    let finalZoomMeetingId: string | null = null;
     const provider = data.meetingProvider || (finalJoinUrl ? MeetingProvider.MANUAL : MeetingProvider.ZOOM);
 
     if ((!finalJoinUrl || finalJoinUrl.trim() === '') && provider === MeetingProvider.ZOOM) {
-      if (!this.meetingProvider && !this.meetingSyncQueue) {
+      if (this.meetingProvider) {
+        try {
+          const durationMin = Math.max(5, Math.round((end.getTime() - start.getTime()) / 60000));
+          const zoomMeeting = await this.meetingProvider.createMeeting({
+            topic: data.title,
+            startTime: start,
+            durationMinutes: durationMin,
+            timezone: data.timezone || 'UTC',
+          });
+          if (zoomMeeting?.joinUrl) {
+            finalJoinUrl = zoomMeeting.joinUrl;
+            finalHostUrl = zoomMeeting.startUrl || null;
+            finalProviderMeetingId = zoomMeeting.id;
+            finalZoomMeetingId = zoomMeeting.id;
+            this.logger.log(`Zoom meeting created synchronously: ID=${zoomMeeting.id}, URL=${zoomMeeting.joinUrl}`);
+          }
+        } catch (zoomErr: any) {
+          this.logger.warn(`Immediate Zoom meeting creation failed: ${zoomErr.message}. Outbox will queue for background retry.`, zoomErr.stack);
+        }
+      } else if (!this.meetingSyncQueue) {
         throw new BadRequestException(
           'Meeting provider or sync queue is not configured. Please supply a manual joinUrl or configure the meeting provider.',
         );
@@ -229,10 +251,10 @@ export class SessionsService {
           hostTrainerId: hostTrainerId || null,
           learnerId: data.learnerId || null,
           meetingProvider: provider,
-          providerMeetingId: null,
-          zoomMeetingId: null,
+          providerMeetingId: finalProviderMeetingId,
+          zoomMeetingId: finalZoomMeetingId,
           joinUrl: finalJoinUrl || null,
-          hostUrl: null,
+          hostUrl: finalHostUrl,
           recordingUrl: data.recordingUrl || null,
           agenda: data.agenda || null,
           quizId: data.quizId || null,
@@ -263,16 +285,19 @@ export class SessionsService {
             hostTrainerId: createdSession.hostTrainerId,
             startTime: createdSession.startTime.toISOString(),
             endTime: createdSession.endTime.toISOString(),
+            joinUrl: finalJoinUrl,
           },
         },
       });
 
-      if (provider === MeetingProvider.ZOOM && !finalJoinUrl && this.meetingSyncQueue) {
+      if (provider === MeetingProvider.ZOOM) {
         syncOutboxEvent = await tx.outboxEvent.create({
           data: {
             type: 'sync-meeting',
             action: 'CREATE',
-            payload: { sessionId: createdSession.id },
+            payload: { sessionId: createdSession.id, joinUrl: finalJoinUrl, hostUrl: finalHostUrl },
+            status: finalJoinUrl ? 'COMPLETED' : 'PENDING',
+            providerId: finalZoomMeetingId,
           }
         });
       }
@@ -280,9 +305,9 @@ export class SessionsService {
       return createdSession;
     });
 
-    // 8. Queue Zoom Meeting Creation (Best effort - outbox handles failures)
+    // 8. Queue Zoom Meeting Creation fallback if not already generated synchronously
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
-    if (outboxToQueue && this.meetingSyncQueue) {
+    if (outboxToQueue && !session.joinUrl && this.meetingSyncQueue) {
       try {
         await this.meetingSyncQueue.add('sync-meeting', {
           outboxId: outboxToQueue.id,
@@ -294,8 +319,8 @@ export class SessionsService {
       }
     }
 
-    // 9. Queue In-App Reminders
-    await this.remindLearners(session.batchId, session.title, session.startTime, session.learnerId);
+    // 9. Dispatch Email Notifications & In-App Reminders to Enrolled Learners
+    await this.notifyEnrolledLearnersOfSession(session, batch);
 
     return session;
   }
@@ -922,6 +947,208 @@ export class SessionsService {
       });
     } catch (err: any) {
       this.logger.warn(`Failed to queue session reminders: ${err.message}`);
+    }
+  }
+
+  /**
+   * Dispatches meeting notifications (both in-app and email) to all active learners
+   * enrolled in the cohort (or single learner if 1-on-1).
+   */
+  private async notifyEnrolledLearnersOfSession(session: any, batch: any) {
+    try {
+      // 1. In-App notifications
+      await this.remindLearners(session.batchId, session.title, session.startTime, session.learnerId);
+
+      // 2. Fetch enrolled learners with emails
+      let learners: Array<{ id: string; name: string | null; email: string; timezone: string | null }> = [];
+      if (session.sessionType === SessionType.ONE_ON_ONE && session.learnerId) {
+        const singleLearner = await this.prisma.user.findUnique({
+          where: { id: session.learnerId },
+          select: { id: true, name: true, email: true, timezone: true },
+        });
+        if (singleLearner?.email) {
+          learners = [singleLearner];
+        }
+      } else {
+        const enrolments = await this.prisma.enrolment.findMany({
+          where: {
+            batchId: session.batchId,
+            status: { in: ['ACTIVE', 'COMPLETED'] },
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, timezone: true } },
+          },
+        });
+        learners = enrolments
+          .map((e) => e.user)
+          .filter((u): u is { id: string; name: string | null; email: string; timezone: string | null } => !!u?.email);
+      }
+
+      if (learners.length === 0 || !this.emailService) {
+        return;
+      }
+
+      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const programTitle = batch?.program?.title || 'Course';
+      const batchName = batch?.name || 'Cohort';
+      const hostName = session.hostTrainer?.name || 'Your Trainer';
+
+      const sessionDate = new Date(session.startTime);
+      const sessionEndDate = new Date(session.endTime);
+
+      // Send emails concurrently in background with error isolation
+      const emailPromises = learners.map(async (learner) => {
+        try {
+          const tz = learner.timezone || session.timezone || 'UTC';
+          const formattedDate = sessionDate.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            timeZone: tz,
+          });
+          const formattedStartTime = sessionDate.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short',
+            timeZone: tz,
+          });
+          const formattedEndTime = sessionEndDate.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short',
+            timeZone: tz,
+          });
+          const formattedTime = `${formattedStartTime} – ${formattedEndTime}`;
+          const joinLink = session.joinUrl || `${lmsUrl}/live`;
+
+          await this.emailService!.sendTemplateEmail({
+            to: learner.email,
+            subject: `Live Session Scheduled: ${session.title} (${batchName})`,
+            template: 'SessionScheduledEmail',
+            props: {
+              firstName: learner.name?.split(' ')[0] || 'Learner',
+              sessionTitle: session.title,
+              batchName,
+              programTitle,
+              instructorName: hostName,
+              date: formattedDate,
+              time: formattedTime,
+              joinUrl: joinLink,
+              lmsLiveUrl: `${lmsUrl}/live`,
+            },
+          });
+          this.logger.log(`Dispatched session scheduled email to ${learner.email} for session "${session.title}"`);
+        } catch (err: any) {
+          this.logger.warn(`Failed to send session scheduled email to ${learner.email}: ${err.message}`);
+        }
+      });
+
+      Promise.allSettled(emailPromises).catch((err) => {
+        this.logger.error(`Error in batch email dispatch: ${err.message}`);
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to dispatch session notifications: ${err.message}`);
+    }
+  }
+
+  /**
+   * Syncs or generates Zoom meeting link for an existing scheduled session.
+   */
+  async syncSessionMeeting(sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        batch: { select: { id: true, name: true, program: { select: { id: true, title: true } } } },
+        hostTrainer: { select: { id: true, name: true, email: true, role: true } },
+        learner: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException(`Session with ID ${sessionId} not found.`);
+    }
+
+    if (session.joinUrl) {
+      return session; // Already has meeting link
+    }
+
+    if (!this.meetingProvider) {
+      throw new ServiceUnavailableException('Zoom meeting provider is not configured.');
+    }
+
+    const durationMin = Math.max(5, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000));
+    const meetingDetails = await this.meetingProvider.createMeeting({
+      topic: session.title,
+      startTime: session.startTime,
+      durationMinutes: durationMin,
+      timezone: session.timezone || 'UTC',
+    });
+
+    const updated = await this.prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        joinUrl: meetingDetails.joinUrl,
+        hostUrl: meetingDetails.startUrl || null,
+        providerMeetingId: meetingDetails.id,
+        zoomMeetingId: meetingDetails.id,
+      },
+      include: {
+        batch: { select: { id: true, name: true, program: { select: { id: true, title: true } } } },
+        hostTrainer: { select: { id: true, name: true, email: true, role: true } },
+        learner: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    // Mark pending outbox events as COMPLETED
+    try {
+      const pendingOutbox = await this.prisma.outboxEvent.findMany({
+        where: {
+          type: 'sync-meeting',
+          action: 'CREATE',
+          status: { in: ['PENDING', 'FAILED', 'PROCESSING'] },
+        },
+      });
+
+      for (const ev of pendingOutbox) {
+        if ((ev.payload as any)?.sessionId === sessionId) {
+          await this.prisma.outboxEvent.update({
+            where: { id: ev.id },
+            data: {
+              status: 'COMPLETED',
+              providerId: meetingDetails.id,
+              payload: { ...((ev.payload as any) || {}), joinUrl: meetingDetails.joinUrl, hostUrl: meetingDetails.startUrl },
+            },
+          });
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not update outbox events for session ${sessionId}: ${err.message}`);
+    }
+
+    this.logger.log(`Successfully synced Zoom meeting for session ${sessionId}: ${meetingDetails.joinUrl}`);
+    return updated;
+  }
+
+  /**
+   * Reconciles all pending Zoom sessions that have joinUrl=null.
+   */
+  async reconcilePendingZoomSessions() {
+    const pendingSessions = await this.prisma.session.findMany({
+      where: {
+        status: SessionStatus.SCHEDULED,
+        meetingProvider: MeetingProvider.ZOOM,
+        joinUrl: null,
+      },
+      select: { id: true, title: true },
+    });
+
+    for (const s of pendingSessions) {
+      try {
+        await this.syncSessionMeeting(s.id);
+      } catch (err: any) {
+        this.logger.warn(`Could not sync meeting for session ${s.id} (${s.title}): ${err.message}`);
+      }
     }
   }
 

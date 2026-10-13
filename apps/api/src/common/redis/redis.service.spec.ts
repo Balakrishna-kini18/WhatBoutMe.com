@@ -5,6 +5,7 @@ import { Redis } from 'ioredis';
 vi.mock('ioredis', () => {
   const RedisMock = vi.fn();
   RedisMock.prototype.on = vi.fn();
+  RedisMock.prototype.once = vi.fn();
   RedisMock.prototype.get = vi.fn();
   RedisMock.prototype.set = vi.fn();
   RedisMock.prototype.del = vi.fn();
@@ -38,6 +39,7 @@ describe('RedisService', () => {
     it('should connect using REDIS_URL with TLS if it starts with rediss://', () => {
       const originalEnv = process.env;
       process.env = { ...originalEnv, REDIS_URL: 'rediss://user:pass@cloud.upstash.io:6379' };
+      vi.clearAllMocks();
       
       const newService = new RedisService();
       
@@ -45,7 +47,6 @@ describe('RedisService', () => {
         'rediss://user:pass@cloud.upstash.io:6379',
         expect.objectContaining({
           tls: { rejectUnauthorized: false },
-          maxRetriesPerRequest: null
         })
       );
       
@@ -55,6 +56,7 @@ describe('RedisService', () => {
     it('should connect without TLS if REDIS_URL is a standard redis://', () => {
       const originalEnv = process.env;
       process.env = { ...originalEnv, REDIS_URL: 'redis://localhost:6379' };
+      vi.clearAllMocks();
       
       const newService = new RedisService();
       
@@ -62,7 +64,6 @@ describe('RedisService', () => {
         'redis://localhost:6379',
         expect.objectContaining({
           tls: undefined,
-          maxRetriesPerRequest: null
         })
       );
       

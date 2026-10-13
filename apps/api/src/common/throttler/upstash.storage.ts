@@ -1,28 +1,27 @@
-// import { ThrottlerStorage } from '@nestjs/throttler';
 import { Redis } from '@upstash/redis';
 import { Injectable } from '@nestjs/common';
+import { ThrottlerStorageService } from '@nestjs/throttler';
 
 @Injectable()
 export class UpstashThrottlerStorage {
   private redis: Redis | null = null;
+  private readonly memoryFallback = new ThrottlerStorageService();
 
   constructor() {
     // Upstash REST Redis constructor can throw synchronously on malformed URL
-    // or undefined inputs (same pattern as ioredis Layer E).
-    // Rate limiting is OPTIONAL for serverless operation; fail-open (disable
-    // throttler storage) rather than crashing the entire cold start when the
-    // user entered wrong UPSTASH_* env vars.
+    // or undefined inputs. When misconfigured, rate limiting falls back to
+    // in-process memory storage to prevent silently disabling brute-force protection.
     const url = process.env.UPSTASH_REDIS_REST_URL;
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
     if (!url || !token) {
-      console.warn('[UpstashThrottlerStorage] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN missing. Throttler disabled (fail-open).');
+      console.warn('[UpstashThrottlerStorage] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN missing. Falling back to in-memory rate limiting.');
       this.redis = null;
       return;
     }
     try {
       this.redis = new Redis({ url, token });
     } catch (err: any) {
-      console.warn('[UpstashThrottlerStorage] Redis constructor error (throttler disabled, fail-open):', err?.message || String(err).slice(0, 200));
+      console.warn('[UpstashThrottlerStorage] Redis constructor error (falling back to in-memory rate limiting):', err?.message || String(err).slice(0, 200));
       this.redis = null;
     }
   }
@@ -34,11 +33,11 @@ export class UpstashThrottlerStorage {
     blockDuration: number,
     throttlerName: string,
   ) {
+    if (!this.redis) {
+      return this.memoryFallback.increment(key, ttl, limit, blockDuration, throttlerName);
+    }
+
     try {
-      if (!this.redis) {
-        // Fail-open: no storage → no rate limiting → allow every request
-        return { totalHits: 1, timeToExpire: ttl, isBlocked: false, timeToBlockExpire: 0 };
-      }
       const prefixedKey = `throttler:${throttlerName}:${key}`;
       const blockKey = `${prefixedKey}:blocked`;
 
@@ -77,8 +76,9 @@ export class UpstashThrottlerStorage {
 
       return { totalHits: hits, timeToExpire, isBlocked: false, timeToBlockExpire: 0 };
     } catch {
-      // Fail open so rate-limiter connection/network issues do not block legitimate requests
-      return { totalHits: 1, timeToExpire: ttl, isBlocked: false, timeToBlockExpire: 0 };
+      // Fallback to in-memory storage so Redis outages/timeouts cannot silently disable brute-force protection
+      return this.memoryFallback.increment(key, ttl, limit, blockDuration, throttlerName);
     }
   }
 }
+

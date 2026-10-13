@@ -805,7 +805,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           fontWeight: 600,
                         }}
                       >
-                        <span>📄</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--accent-primary)", flexShrink: 0 }}>
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                          <polyline points="10 9 9 9 8 9" />
+                        </svg>
                         <span>{doc.title}</span>
                         <span style={{ color: "var(--accent-primary)", fontSize: "0.8rem", marginLeft: "4px" }}>
                           (Open PDF &rarr;)
@@ -948,7 +954,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   <div>
                     {lastResult.passed ? (
                       <div className={styles.quizResultSuccess}>
-                        <h4 style={{ margin: "0 0 6px", fontSize: "1.1rem" }}>🎉 Great job! You Passed!</h4>
+                        <h4 style={{ margin: "0 0 6px", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          <span>Great job! You Passed!</span>
+                        </h4>
                         <p style={{ margin: "0 0 4px" }}>
                           Server Score: <strong>{lastResult.score}%</strong> (Pass mark: {lastResult.passMark}%)
                         </p>
@@ -960,7 +971,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       </div>
                     ) : (
                       <div className={styles.quizResultFail}>
-                        <h4 style={{ margin: "0 0 6px", fontSize: "1.1rem" }}>Keep Trying!</h4>
+                        <h4 style={{ margin: "0 0 6px", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9f1239" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="8" x2="12" y2="12" />
+                            <line x1="12" y1="16" x2="12.01" y2="16" />
+                          </svg>
+                          <span>Keep Trying!</span>
+                        </h4>
                         <p style={{ margin: "0 0 4px" }}>
                           Score: <strong>{lastResult.score}%</strong> (Required: {lastResult.passMark}%)
                         </p>
@@ -973,7 +991,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     {/* Cooldown notification */}
                     {lastResult.isCooldownActive && (
                       <div className={styles.cooldownBox}>
-                        <strong>⏳ Cooldown Active</strong>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700 }}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                          </svg>
+                          <span>Cooldown Active</span>
+                        </div>
                         <p style={{ margin: "4px 0 0" }}>
                           Next attempt available after:{" "}
                           <strong>
@@ -988,7 +1012,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     {/* Revision guidance */}
                     {lastResult.stepToRevisit && (
                       <div className={styles.revisitBox}>
-                        <strong>📖 Recommended Revision</strong>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700 }}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                          </svg>
+                          <span>Recommended Revision</span>
+                        </div>
                         <p style={{ margin: "4px 0 8px" }}>
                           Review Step {lastResult.stepToRevisit.sequence}: {lastResult.stepToRevisit.title} before your next attempt.
                         </p>
@@ -1001,7 +1031,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     {/* Trainer guidance */}
                     {lastResult.retryGuidance && (
                       <div className={styles.guidanceBox}>
-                        <strong>💡 Feedback Guidance:</strong>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700 }}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="16" x2="12" y2="12" />
+                            <line x1="12" y1="8" x2="12.01" y2="8" />
+                          </svg>
+                          <span>Feedback Guidance:</span>
+                        </div>
                         <p style={{ margin: "4px 0 0" }}>{lastResult.retryGuidance}</p>
                       </div>
                     )}

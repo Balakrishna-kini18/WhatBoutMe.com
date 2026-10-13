@@ -62,7 +62,9 @@ export default function ProfilePage() {
       .catch(() => setSessions([]));
   }, [router]);
 
-  const signOut = () => leavePortal();
+  const signOut = () => {
+    window.dispatchEvent(new CustomEvent("wbm:open-signout-modal"));
+  };
 
   // ends this account's sessions on every device, then signs out here
   const signOutEverywhere = async () => {

@@ -3,7 +3,6 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import dash from "../../../page.module.css";
 import styles from "./path.module.css";
 import {
   API_URL,
@@ -14,24 +13,71 @@ import {
   type StepProgressionItem,
 } from "../../../lib/api";
 
-const stroke = {
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 2.5,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-
 const Check = (
-  <svg width="14" height="14" viewBox="0 0 24 24" {...stroke}>
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
 
 const Lock = (
-  <svg width="14" height="14" viewBox="0 0 24 24" {...stroke}>
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <rect x="4" y="11" width="16" height="10" rx="2" />
     <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
+
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+const InfoCircle = (
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
   </svg>
 );
 
@@ -70,8 +116,8 @@ function formatLockReason(step: StepProgressionItem): string {
 }
 
 /**
- * Server-driven curriculum timeline for a program (D1-033, D1-034).
- * Completely replaces client-side localStorage progression with GET /progression/me/:programId.
+ * Server-driven curriculum timeline for a program.
+ * Renders verified learning steps with timeline connectors, progress ring, and up-next guidance.
  */
 export default function ProgramStepsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -122,29 +168,33 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const done = steps.filter((s) => s.isCompleted).length;
   const percent = progression ? Math.round(progression.overallProgressPercent) : 0;
   const current = steps.find((s) => s.isUnlocked && !s.isCompleted) || steps.find((s) => s.isUnlocked);
-  const RING = 2 * Math.PI * 52;
+
+  // SVG Ring calculation: Radius = 50, Circumference = 2 * pi * 50 = ~314.16
+  const RING_RADIUS = 50;
+  const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+  const ringOffset = RING_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, percent)) / 100);
 
   const isEnrolmentActive = progression?.enrolmentStatus === "ACTIVE";
 
   return (
-    <div className={dash.dashboard}>
-      <header className={dash.pageHeader}>
-        <div>
-          <Link href="/" className={styles.back}>
-            &larr; Back to Dashboard
-          </Link>
-          <h1 className={dash.pageTitle}>
-            {progression?.programTitle ? `${progression.programTitle} — Learning Path` : "Your Learning Path"}
-          </h1>
-          <p className={dash.pageSubtitle}>
-            {progression?.batchName
-              ? `Cohort: ${progression.batchName} • Complete each step to advance and unlock your certificate.`
-              : "Complete the steps in order to unlock your certificate."}
-          </p>
-        </div>
+    <div className={styles.container}>
+      {/* Page Header */}
+      <header className={styles.header}>
+        <Link href="/" className={styles.backLink}>
+          {ArrowLeft}
+          <span>Back to Dashboard</span>
+        </Link>
+        <h1 className={styles.title}>
+          {progression?.programTitle ? `${progression.programTitle} — Learning Path` : "Your Learning Path"}
+        </h1>
+        <p className={styles.subtitle}>
+          {progression?.batchName
+            ? `Cohort: ${progression.batchName} • Complete each step to advance and unlock your certificate.`
+            : "Complete each step to advance and unlock your certificate."}
+        </p>
       </header>
 
-      {/* ENROLMENT STATUS ALERT (D1-032) */}
+      {/* ENROLMENT STATUS ALERT (When Inactive / Pending) */}
       {!loading && progression && !isEnrolmentActive && (
         <div
           className={`${styles.statusBanner} ${
@@ -164,7 +214,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               <div>
                 <Link
                   href={`/agreement?programId=${id}${progression.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
-                  className={dash.goldBtn}
+                  className={styles.agreementBtn}
                 >
                   Review &amp; Sign Agreement
                 </Link>
@@ -217,7 +267,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           <p style={{ color: "var(--text-secondary)", margin: "0.5rem 0 1.5rem" }}>{errorMessage}</p>
           <button
             type="button"
-            className={dash.darkBtn}
+            className={styles.retryBtn}
             onClick={() => window.location.reload()}
           >
             Retry Loading
@@ -226,20 +276,21 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       )}
 
       {!errorMessage && (
-        <div className={dash.board}>
-          <div className={dash.boardMain}>
-            <section className={`${dash.panel} ${dash.grow}`}>
-              <div className={dash.panelHead}>
-                <h2>Steps</h2>
-                <span className={styles.count}>
+        <div className={styles.layoutGrid}>
+          {/* Main Column: Steps Timeline */}
+          <main className={styles.mainCol}>
+            <section className={styles.card} aria-labelledby="steps-heading">
+              <div className={styles.cardHead}>
+                <h2 id="steps-heading" className={styles.cardTitle}>Steps</h2>
+                <span className={styles.cardMeta}>
                   {loading ? "" : `${done} of ${total} completed`}
                 </span>
               </div>
 
               {loading ? (
-                <p className={dash.empty}>Loading your verified learning path from server...</p>
+                <p className={styles.emptyState}>Loading your verified learning path from server...</p>
               ) : total === 0 ? (
-                <p className={dash.empty}>The curriculum for this course is being built. Check back soon.</p>
+                <p className={styles.emptyState}>The curriculum for this course is being built. Check back soon.</p>
               ) : (
                 <ol className={styles.timeline}>
                   {steps.map((step) => {
@@ -248,57 +299,64 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     const isLocked = !step.isUnlocked;
                     const isOverride = step.overrideState === "MANUAL_UNLOCKED";
 
-                    const state = isDone ? styles.done : isCurrent ? styles.current : styles.locked;
+                    const stateClass = isDone
+                      ? styles.stepDone
+                      : isCurrent
+                      ? styles.stepCurrent
+                      : styles.stepLocked;
+
+                    const hasPartialProgress =
+                      !isLocked && !isDone && typeof step.progressPercent === "number" && step.progressPercent > 0;
 
                     return (
-                      <li key={step.stepId} className={`${styles.step} ${state}`}>
-                        <span className={styles.marker}>
+                      <li key={step.stepId} className={`${styles.step} ${stateClass}`}>
+                        {/* Step Marker */}
+                        <span className={styles.marker} aria-hidden="true">
                           {isDone ? Check : isCurrent ? step.sequence : Lock}
                         </span>
 
+                        {/* Step Details */}
                         <div className={styles.stepBody}>
                           <p className={styles.kicker}>
-                            Step {step.sequence}
+                            STEP {step.sequence}
                             {isOverride && (
-                              <span className={styles.overrideBadge} title={step.overrideReason || "Unlocked by instructor"}>
+                              <span
+                                className={styles.overrideBadge}
+                                title={step.overrideReason || "Unlocked by instructor"}
+                              >
                                 Staff Override
                               </span>
                             )}
                           </p>
-                          <h3>{step.title}</h3>
 
-                          {/* Reason or Status Messaging */}
+                          <h3 className={styles.stepTitle}>{step.title}</h3>
+
+                          {/* Lock reason message if locked */}
                           {isLocked && (
                             <div className={styles.lockMessage}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="12" y1="8" x2="12" y2="12" />
-                                <line x1="12" y1="16" x2="12.01" y2="16" />
-                              </svg>
+                              {InfoCircle}
                               <span>{formatLockReason(step)}</span>
                             </div>
                           )}
 
+                          {/* Progress bar inside in-progress step */}
                           {!isLocked && !isDone && typeof step.progressPercent === "number" && (
-                            <div style={{ marginTop: "6px", maxWidth: "220px" }}>
-                              <div style={{ height: "5px", backgroundColor: "var(--border-light, #e2e8f0)", borderRadius: "3px", overflow: "hidden" }}>
+                            <div className={styles.stepProgressBarWrap}>
+                              <div className={styles.stepProgressBarTrack}>
                                 <div
-                                  style={{
-                                    height: "100%",
-                                    width: `${step.progressPercent}%`,
-                                    backgroundColor: "var(--accent-secondary, #f59e0b)",
-                                    transition: "width 0.3s ease",
-                                  }}
+                                  className={styles.stepProgressBarFill}
+                                  style={{ width: `${Math.min(100, Math.max(0, step.progressPercent))}%` }}
                                 />
                               </div>
-                              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary, #64748b)" }}>
+                              <span className={styles.stepProgressText}>
                                 {step.completedItems ?? 0} of {step.totalItems ?? 0} completed ({step.progressPercent}%)
                               </span>
                             </div>
                           )}
 
+                          {/* Quiz Note */}
                           {!isLocked && step.quiz && (
-                            <p className={dash.muted} style={{ fontSize: "0.8rem", margin: "0.2rem 0 0" }}>
+                            <p className={styles.quizNote}>
                               {step.quiz.isPassed
                                 ? `Quiz Passed (${step.quiz.bestScore}%)`
                                 : `Includes knowledge check (Pass mark: ${step.quiz.passMark}%)`}
@@ -306,103 +364,130 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           )}
                         </div>
 
-                        {/* Interactive Action Controls */}
-                        {isCurrent ? (
-                          <Link href={`/steps/${step.stepId}`} className={dash.darkBtn}>
-                            Start Step
-                          </Link>
-                        ) : isDone ? (
-                          <Link href={`/steps/${step.stepId}`} className={dash.secondaryBtn}>
-                            Review
-                          </Link>
-                        ) : (
-                          <span className={`${dash.pill} ${dash.pillOff}`} title={formatLockReason(step)}>
-                            Locked
-                          </span>
-                        )}
+                        {/* Action Buttons */}
+                        <div className={styles.stepActionCol}>
+                          {isCurrent ? (
+                            <Link href={`/steps/${step.stepId}`} className={styles.startBtn}>
+                              {hasPartialProgress ? "Continue Step" : "Start Step"}
+                            </Link>
+                          ) : isDone ? (
+                            <Link href={`/steps/${step.stepId}`} className={styles.reviewBtn}>
+                              Review
+                            </Link>
+                          ) : (
+                            <span
+                              className={styles.lockedPill}
+                              title={formatLockReason(step)}
+                              aria-disabled="true"
+                            >
+                              Locked
+                            </span>
+                          )}
+                        </div>
                       </li>
                     );
                   })}
                 </ol>
               )}
             </section>
-          </div>
+          </main>
 
-          <aside className={dash.boardSide}>
-            <section className={dash.panel}>
-              <div className={dash.panelHead}>
-                <h2>Progress</h2>
+          {/* Right Column: Progress Ring, Up Next, and How It Works */}
+          <aside className={styles.sideCol} aria-label="Learning Progress and Guidance">
+            {/* Progress Card */}
+            <section className={`${styles.card} ${styles.progressCard}`} aria-labelledby="progress-heading">
+              <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
+                <h2 id="progress-heading" className={styles.cardTitle}>Progress</h2>
               </div>
-              <div className={dash.ringWrap}>
+              <div className={styles.ringWrap}>
                 <svg
-                  width="132"
-                  height="132"
+                  className={styles.ringSvg}
+                  width="128"
+                  height="128"
                   viewBox="0 0 120 120"
                   role="img"
-                  aria-label={`${percent}% complete`}
+                  aria-label={`${percent}% overall course completion`}
                 >
-                  <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-light)" strokeWidth="10" />
                   <circle
+                    className={styles.ringTrack}
                     cx="60"
                     cy="60"
-                    r="52"
+                    r={RING_RADIUS}
                     fill="none"
-                    stroke="var(--accent-secondary)"
-                    strokeWidth="10"
+                    strokeWidth="9"
+                  />
+                  <circle
+                    className={styles.ringProgress}
+                    cx="60"
+                    cy="60"
+                    r={RING_RADIUS}
+                    fill="none"
+                    strokeWidth="9"
                     strokeLinecap="round"
-                    strokeDasharray={RING}
-                    strokeDashoffset={RING * (1 - percent / 100)}
+                    strokeDasharray={RING_CIRCUMFERENCE}
+                    strokeDashoffset={ringOffset}
                     transform="rotate(-90 60 60)"
                   />
                   <text
+                    className={styles.ringValue}
                     x="60"
                     y="67"
                     textAnchor="middle"
-                    fontSize="24"
-                    fontWeight="800"
-                    fill="var(--text-primary)"
                   >
                     {percent}%
                   </text>
                 </svg>
-                <p className={dash.muted}>{done} of {total} steps completed</p>
+                <p className={styles.progressCount}>
+                  {done} of {total} steps completed
+                </p>
               </div>
             </section>
 
-            <section className={`${dash.panel} ${dash.nextPanel}`}>
-              <p className={dash.kicker}>Up Next</p>
+            {/* Up Next Card */}
+            <section className={styles.upNextCard} aria-labelledby="upnext-heading">
+              <p id="upnext-heading" className={styles.upNextKicker}>UP NEXT</p>
               {current ? (
                 <>
-                  <h3>{current.title}</h3>
-                  <p>Step {current.sequence} of {total}</p>
-                  <Link href={`/steps/${current.stepId}`} className={dash.goldBtn}>
-                    {current.isCompleted ? "Review Step" : "Start Step"}
+                  <h3 className={styles.upNextTitle}>{current.title}</h3>
+                  <p className={styles.upNextSub}>Step {current.sequence} of {total}</p>
+                  <Link href={`/steps/${current.stepId}`} className={styles.upNextBtn}>
+                    {current.isCompleted
+                      ? "Review Step"
+                      : typeof current.progressPercent === "number" && current.progressPercent > 0
+                      ? "Continue Step"
+                      : "Start Step"}
                   </Link>
                 </>
               ) : done > 0 && done === total ? (
                 <>
-                  <h3>Final Certification Examination</h3>
-                  <p>Comprehensive 50-Question Assessment</p>
-                  <Link href={`/programs/${id}/exam`} className={dash.goldBtn} style={{ marginTop: "10px", display: "inline-block" }}>
-                    Take Final Exam →
+                  <h3 className={styles.upNextTitle}>Final Certification Examination</h3>
+                  <p className={styles.upNextSub}>Comprehensive 50-Question Assessment</p>
+                  <Link href={`/programs/${id}/exam`} className={styles.upNextBtn}>
+                    Take Final Exam &rarr;
                   </Link>
                 </>
               ) : (
-                <p>
-                  {loading
-                    ? "Loading..."
-                    : total === 0
-                    ? "Steps will appear here once added."
-                    : "You have completed every step."}
-                </p>
+                <>
+                  <h3 className={styles.upNextTitle}>
+                    {loading ? "Loading..." : total === 0 ? "No steps yet" : "All Steps Completed"}
+                  </h3>
+                  <p className={styles.upNextSub}>
+                    {loading
+                      ? "Retrieving curriculum..."
+                      : total === 0
+                      ? "Steps will appear here once added."
+                      : "You have completed every step in this course."}
+                  </p>
+                </>
               )}
             </section>
 
-            <section className={`${dash.panel} ${dash.grow}`}>
-              <div className={dash.panelHead}>
-                <h2>How It Works</h2>
+            {/* How It Works Card */}
+            <section className={`${styles.card} ${styles.howItWorksCard}`} aria-labelledby="how-it-works-heading">
+              <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
+                <h2 id="how-it-works-heading" className={styles.cardTitle}>How It Works</h2>
               </div>
-              <ul className={styles.notes}>
+              <ul className={styles.notesList}>
                 <li>Steps unlock sequentially based on completion and cohort schedule.</li>
                 <li>Each step closes with a knowledge-check quiz.</li>
                 <li>Staff overrides and cohort schedules update automatically.</li>

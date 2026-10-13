@@ -404,10 +404,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   MANAGER: new Set<Permission>([
     // Programs & Steps (Curriculum reference & manual progression overrides)
     Permission.PROGRAMS_READ,
-    Permission.PROGRAMS_CREATE,
-    Permission.PROGRAMS_UPDATE,
-    Permission.PROGRAMS_DELETE,
-    Permission.PROGRAMS_PUBLISH,
     Permission.STEPS_READ,
     Permission.STEPS_UNLOCK,
     Permission.STEPS_LOCK,
@@ -506,10 +502,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
   TEACHER: new Set<Permission>([
     Permission.PROGRAMS_READ,
-    Permission.PROGRAMS_CREATE,
-    Permission.PROGRAMS_UPDATE,
-    Permission.PROGRAMS_DELETE,
-    Permission.PROGRAMS_PUBLISH,
     Permission.STEPS_READ,
     Permission.STEPS_UNLOCK,
     Permission.STEPS_LOCK,

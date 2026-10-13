@@ -40,8 +40,10 @@ export class AdminEnrolmentsController {
 
   @RequirePermission(Permission.ENROLMENTS_CREATE)
   @Post()
-  async create(@Body() dto: CreateEnrolmentDto) {
-    return this.enrollmentsService.create(dto);
+  async create(@Body() dto: CreateEnrolmentDto, @Request() req?: any) {
+    return req?.user
+      ? this.enrollmentsService.create(dto, req.user)
+      : this.enrollmentsService.create(dto);
   }
 
   @RequirePermission(Permission.ENROLMENTS_READ)
@@ -61,8 +63,11 @@ export class AdminEnrolmentsController {
   async transitionStatus(
     @Param('id') id: string,
     @Body() dto: TransitionEnrolmentStatusDto,
+    @Request() req?: any,
   ) {
-    return this.enrollmentsService.transitionStatus(id, dto);
+    return req?.user
+      ? this.enrollmentsService.transitionStatus(id, dto, req.user)
+      : this.enrollmentsService.transitionStatus(id, dto);
   }
 
   @RequirePermission(Permission.ENROLMENTS_UPDATE)
@@ -70,14 +75,19 @@ export class AdminEnrolmentsController {
   async transfer(
     @Param('id') id: string,
     @Body() dto: TransferBatchDto,
+    @Request() req?: any,
   ) {
-    return this.enrollmentsService.transferBatch(id, dto);
+    return req?.user
+      ? this.enrollmentsService.transferBatch(id, dto, req.user)
+      : this.enrollmentsService.transferBatch(id, dto);
   }
 
   @RequirePermission(Permission.ENROLMENTS_CANCEL)
   @Post(':id/cancel')
-  async cancel(@Param('id') id: string) {
-    return this.enrollmentsService.cancel(id);
+  async cancel(@Param('id') id: string, @Request() req?: any) {
+    return req?.user
+      ? this.enrollmentsService.cancel(id, req.user)
+      : this.enrollmentsService.cancel(id);
   }
 }
 

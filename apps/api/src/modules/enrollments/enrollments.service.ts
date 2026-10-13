@@ -46,7 +46,7 @@ export class EnrollmentsService {
   // 1. ENROLMENT CREATION (ADMIN / SYSTEM)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async create(dto: CreateEnrolmentDto) {
+  async create(dto: CreateEnrolmentDto, actor?: any) {
     // 1. Verify Learner exists and is active
     const user = await this.prisma.user.findFirst({
       where: {
@@ -189,6 +189,24 @@ export class EnrollmentsService {
         });
       }
 
+      if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            actorId: actor?.sub ?? actor?.id ?? null,
+            action: 'ENROLMENT_CREATED',
+            entity: 'Enrolment',
+            entityId: created.id,
+            meta: {
+              userId: dto.userId,
+              batchId: dto.batchId,
+              programId: dto.programId,
+              initialStatus,
+              paymentMode: dto.paymentMode,
+            },
+          },
+        });
+      }
+
       return created;
     });
 
@@ -200,7 +218,7 @@ export class EnrollmentsService {
   // 2. ENROLMENT STATE MACHINE TRANSITIONS
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async transitionStatus(id: string, dto: TransitionEnrolmentStatusDto) {
+  async transitionStatus(id: string, dto: TransitionEnrolmentStatusDto, actor?: any) {
     const updated = await this.prisma.$transaction(async (tx) => {
       const enrolment = await tx.enrolment.findUnique({
         where: { id },
@@ -342,6 +360,26 @@ export class EnrollmentsService {
           payments: true,
         },
       });
+
+      if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            actorId: actor?.sub ?? actor?.id ?? null,
+            action: 'ENROLMENT_STATUS_TRANSITIONED',
+            entity: 'Enrolment',
+            entityId: id,
+            meta: {
+              userId: enrolment.userId,
+              batchId: enrolment.batchId,
+              previousStatus: current,
+              newStatus: target,
+              reason: dto.reason ?? null,
+            },
+          },
+        });
+      }
+
+      return updated;
     });
 
     await this.invalidateEnrolmentCaches(updated.userId);
@@ -453,7 +491,7 @@ export class EnrollmentsService {
   // 4. BATCH TRANSFER
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async transferBatch(id: string, dto: TransferBatchDto) {
+  async transferBatch(id: string, dto: TransferBatchDto, actor?: any) {
     const transferred = await this.prisma.$transaction(async (tx) => {
       const enrolment = await tx.enrolment.findUnique({
         where: { id },
@@ -548,6 +586,25 @@ export class EnrollmentsService {
         },
       });
 
+      if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            actorId: actor?.sub ?? actor?.id ?? null,
+            action: 'BATCH_TRANSFERRED',
+            entity: 'Enrolment',
+            entityId: id,
+            meta: {
+              userId: enrolment.userId,
+              fromBatchId: enrolment.batchId,
+              toBatchId: dto.destinationBatchId,
+              previousStatus: enrolment.status,
+              newStatus,
+              reason: dto.reason ?? null,
+            },
+          },
+        });
+      }
+
       return {
         ...updated,
         transferred: true,
@@ -564,7 +621,7 @@ export class EnrollmentsService {
   // 5. CANCELLATION / REVOCATION
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async cancel(id: string) {
+  async cancel(id: string, actor?: any) {
     const cancelled = await this.prisma.$transaction(async (tx) => {
       const enrolment = await tx.enrolment.findUnique({
         where: { id },
@@ -586,6 +643,23 @@ export class EnrollmentsService {
         where: { id },
         data: { status: EnrolmentStatus.REVOKED },
       });
+
+      if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            actorId: actor?.sub ?? actor?.id ?? null,
+            action: 'ENROLMENT_CANCELLED',
+            entity: 'Enrolment',
+            entityId: id,
+            meta: {
+              userId: enrolment.userId,
+              batchId: enrolment.batchId,
+              previousStatus: enrolment.status,
+              newStatus: EnrolmentStatus.REVOKED,
+            },
+          },
+        });
+      }
 
       return {
         id: updated.id,

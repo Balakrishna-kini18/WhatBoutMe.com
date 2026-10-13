@@ -13,14 +13,17 @@ export class CreateUserDto {
   @IsOptional() @IsString() password?: string;
   @IsOptional() @IsEnum(Role) role?: Role;
   @IsOptional() @IsArray() permissions?: string[];
+  @IsOptional() @IsString() status?: string;
 }
 
 export class UpdateUserDto {
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() password?: string;
   @IsOptional() @IsEnum(Role) role?: Role;
   @IsOptional() @IsArray() permissions?: string[];
+  @IsOptional() @IsString() status?: string;
 }
 
 @Controller('users')

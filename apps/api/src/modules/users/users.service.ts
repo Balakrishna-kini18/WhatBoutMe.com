@@ -231,7 +231,7 @@ export class UsersService {
     const bcrypt = await import('bcryptjs');
     // The request is validated with a plain `password` field; older callers
     // sent the plain text as `passwordHash`. Either way it is hashed here.
-    const { password, passwordHash, ...userData } = data;
+    const { password, passwordHash, status: _st, ...userData } = data;
     const plain = password ?? passwordHash;
     if (plain) {
       userData.passwordHash = await bcrypt.hash(plain, 12);

@@ -10,8 +10,11 @@ import { siteLoginUrl } from "../lib/site";
  */
 export default function LoginRedirect() {
   useEffect(() => {
-    const programId = new URLSearchParams(window.location.search).get("programId");
-    window.location.replace(siteLoginUrl(programId ? `/checkout?programId=${encodeURIComponent(programId)}` : "/"));
+    const params = new URLSearchParams(window.location.search);
+    const programId = params.get("programId");
+    const reason = params.get("reason");
+    const targetPath = programId ? `/checkout?programId=${encodeURIComponent(programId)}` : "/";
+    window.location.replace(siteLoginUrl(targetPath, reason || undefined));
   }, []);
 
   return (

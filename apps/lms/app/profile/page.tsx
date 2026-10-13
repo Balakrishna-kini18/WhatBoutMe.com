@@ -17,11 +17,26 @@ interface Profile {
   upcomingSessions?: { id: string }[];
 }
 
+interface DeviceSession {
+  id: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  deviceInfo?: {
+    browser: string;
+    os: string;
+    deviceType: 'desktop' | 'mobile' | 'tablet';
+  };
+  lastActive: string;
+  createdAt: string;
+  isCurrent: boolean;
+}
+
 /** The signed-in learner's account details and courses. */
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [certificates, setCertificates] = useState(0);
+  const [sessions, setSessions] = useState<DeviceSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -41,6 +56,10 @@ export default function ProfilePage() {
       .then((res) => (res.ok ? res.json() : []))
       .then((list) => setCertificates(Array.isArray(list) ? list.length : 0))
       .catch(() => setCertificates(0));
+    fetch(`${API_URL}/auth/sessions`, { headers })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list) => setSessions(Array.isArray(list) ? list : []))
+      .catch(() => setSessions([]));
   }, [router]);
 
   const signOut = () => {
@@ -58,6 +77,20 @@ export default function ProfilePage() {
     } finally {
       signOut();
     }
+  };
+
+  const revokeSession = async (sessionId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/auth/sessions/${sessionId}/revoke`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      }
+    } catch (e) {}
   };
 
   if (loading) return <div className={styles.frame}><p className={styles.muted}>Loading your profile...</p></div>;
@@ -155,6 +188,85 @@ export default function ProfilePage() {
             )}
           </section>
         </div>
+
+        <section className={styles.deviceSection}>
+          <div className={styles.deviceHeader}>
+            <div>
+              <div className={styles.policyBadge}>
+                <span className={styles.policyDot} />
+                Single Active Device Enforced (1 Device Max)
+              </div>
+              <h2 className={styles.sectionTitle}>Active Devices &amp; Security</h2>
+              <p className={styles.deviceSubtitle}>
+                To protect your course materials and prevent unauthorized sharing, WhatBoutMe limits each account to <strong>1 active session</strong>. Signing in on another browser or device automatically signs out previous sessions.
+              </p>
+            </div>
+            {sessions.length > 1 && (
+              <button
+                type="button"
+                onClick={signOutEverywhere}
+                disabled={busy}
+                className={styles.lineBtn}
+              >
+                Sign Out Other Devices
+              </button>
+            )}
+          </div>
+
+          <div className={styles.deviceGrid}>
+            {sessions.map((sess) => (
+              <div
+                key={sess.id}
+                className={`${styles.deviceCard} ${sess.isCurrent ? styles.deviceCardActive : ''}`}
+              >
+                <div className={styles.deviceIconWrap}>
+                  {sess.deviceInfo?.deviceType === 'mobile' ? (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                      <line x1="12" y1="18" x2="12.01" y2="18" />
+                    </svg>
+                  ) : sess.deviceInfo?.deviceType === 'tablet' ? (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+                      <line x1="12" y1="18" x2="12.01" y2="18" />
+                    </svg>
+                  ) : (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                      <line x1="8" y1="21" x2="16" y2="21" />
+                      <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                  )}
+                </div>
+                <div className={styles.deviceInfo}>
+                  <div className={styles.deviceTitleRow}>
+                    <strong className={styles.deviceTitle}>
+                      {sess.deviceInfo?.browser || "Web Browser"} on {sess.deviceInfo?.os || "Desktop Device"}
+                    </strong>
+                    {sess.isCurrent && (
+                      <span className={styles.currentBadge}>This Device</span>
+                    )}
+                  </div>
+                  <div className={styles.deviceMeta}>
+                    <span>IP: {sess.ipAddress || "127.0.0.1"}</span>
+                    <span>•</span>
+                    <span>{sess.isCurrent ? "Active now" : `Last active ${new Date(sess.lastActive).toLocaleDateString()}`}</span>
+                  </div>
+                </div>
+                {!sess.isCurrent && (
+                  <button
+                    type="button"
+                    onClick={() => revokeSession(sess.id)}
+                    className={styles.revokeBtn}
+                    title="Revoke session"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       </article>
     </div>
   );

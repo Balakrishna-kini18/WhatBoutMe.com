@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "prisma generate",
-    "build": "npx prisma generate && nest build",
+    "build": "node scripts/safe-prisma-generate.js && nest build",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

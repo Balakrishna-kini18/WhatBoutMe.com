@@ -446,16 +446,43 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const userRole = formatRole(user?.role);
   const userEmail = user?.email || "admin@whatboutme.com";
 
+  const isManager = user?.role === "MANAGER" || user?.role === "TEACHER";
+
   const hasPermission = (perm: string) => {
-    if (!user || user.role === "SUPER_ADMIN") return true;
-    if (!user?.permissions) return true;
+    if (!user) return false;
+    if (user.role === "SUPER_ADMIN") return true;
+
+    // Strict Manager Isolation per PDF specification (Page 3-4):
+    // Managers are restricted to assigned batches, live sessions, attendance, and cohort chat.
+    // They cannot access finance/revenue, global marketing/website, CRM leads, or curriculum authoring.
+    if (isManager) {
+      if (
+        perm === "view_finance" ||
+        perm === "manage_website" ||
+        perm === "manage_curriculum"
+      ) {
+        return false;
+      }
+      if (
+        perm === "view_users" ||
+        perm === "view_batches" ||
+        perm === "manage_operations" ||
+        perm === "all"
+      ) {
+        return true;
+      }
+      return false;
+    }
+
+    // Admin role handling
+    if (!user.permissions || user.permissions.length === 0) return true;
     switch (perm) {
       case "view_users":
         return user.permissions.includes("users:read") || user.permissions.includes("users:read_assigned");
       case "view_batches":
         return user.permissions.includes("batches:read") || user.permissions.includes("batches:read_assigned");
       case "manage_curriculum":
-        return user.permissions.includes("programs:read");
+        return user.permissions.includes("programs:read") || user.permissions.includes("programs:create");
       case "manage_website":
         return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
       case "view_finance":
@@ -740,9 +767,18 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             <div className={styles.modalSearchResults}>
               {(() => {
                 const q = searchQuery.toLowerCase().trim();
+                const allowedSearchItems = SEARCH_ITEMS.filter((item) => {
+                  if (item.category === "Website") return hasPermission("manage_website");
+                  if (item.id === "revenue") return hasPermission("view_finance");
+                  if (item.category === "Curriculum" && (item.id === "programs" || item.id === "quizzes")) {
+                    return hasPermission("manage_curriculum");
+                  }
+                  if (item.id === "leads") return hasPermission("manage_website");
+                  return true;
+                });
                 const filtered = q === ""
-                  ? SEARCH_ITEMS.slice(0, 5)
-                  : SEARCH_ITEMS.filter((item) => (
+                  ? allowedSearchItems.slice(0, 5)
+                  : allowedSearchItems.filter((item) => (
                       item.title.toLowerCase().includes(q) ||
                       item.description.toLowerCase().includes(q) ||
                       item.category.toLowerCase().includes(q) ||

@@ -34,6 +34,22 @@ export class CreateProgramDto {
   @IsOptional()
   @IsString()
   certificateTemplate?: string;
+
+  @IsOptional()
+  @IsString()
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  thumbnailUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  level?: string;
 }
 
 export class UpdateProgramDto {
@@ -71,6 +87,22 @@ export class UpdateProgramDto {
   @IsOptional()
   @IsString()
   certificateTemplate?: string;
+
+  @IsOptional()
+  @IsString()
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  thumbnailUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  level?: string;
 }
 
 export class PublishProgramDto {

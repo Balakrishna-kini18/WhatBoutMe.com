@@ -20,8 +20,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Admin | WhatBoutMe",
-  description: "WhatBoutMe Admin Dashboard",
+  title: "Admin Portal | WhatBoutMe · Brain Health & Resilience",
+  description: "Brain Health · Resilience · Purpose. Administration portal for curriculum authoring, learner cohorts, live Zoom sessions, and certified CPD credentials.",
 };
 
 export default function RootLayout({

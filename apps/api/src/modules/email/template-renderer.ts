@@ -15,11 +15,15 @@ import { OralAssessmentResultEmail } from './templates/lms/OralAssessmentResultE
 import { CertificateIssuedEmail } from './templates/lms/CertificateIssuedEmail.js';
 import { PaymentSuccessEmail } from './templates/lms/PaymentSuccessEmail.js';
 import { LeadEnquiryNotificationEmail } from './templates/lms/LeadEnquiryNotificationEmail.js';
+import { SessionScheduledEmail } from './templates/lms/SessionScheduledEmail.js';
 
 export async function renderEmailTemplate(template: string, props: any): Promise<string> {
   let templateComponent: React.ReactElement | null = null;
 
   switch (template) {
+    case 'SessionScheduledEmail':
+      templateComponent = React.createElement(SessionScheduledEmail, props);
+      break;
     case 'SignupWelcomeEmail':
       templateComponent = React.createElement(SignupWelcomeEmail, props);
       break;

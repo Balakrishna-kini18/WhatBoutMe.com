@@ -54,8 +54,28 @@ export class SessionsController {
    */
   @RequirePermission(Permission.SESSIONS_READ)
   @Get('all')
-  getAllSessions(@Request() req: any) {
+  async getAllSessions(@Request() req: any) {
+    // Reconcile any scheduled sessions missing zoom links
+    this.sessionsService.reconcilePendingZoomSessions?.().catch(() => {});
     return this.sessionsService.getSessions({}, req.user);
+  }
+
+  /**
+   * Manually trigger Zoom sync for a specific session.
+   */
+  @RequirePermission(Permission.SESSIONS_UPDATE)
+  @Post(':id/sync-zoom')
+  syncSessionMeeting(@Param('id') id: string) {
+    return this.sessionsService.syncSessionMeeting(id);
+  }
+
+  /**
+   * Reconcile all scheduled sessions with missing Zoom links.
+   */
+  @RequirePermission(Permission.SESSIONS_UPDATE)
+  @Post('reconcile-zoom')
+  reconcileZoom() {
+    return this.sessionsService.reconcilePendingZoomSessions();
   }
 
   /**

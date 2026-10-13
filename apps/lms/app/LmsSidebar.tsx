@@ -54,6 +54,24 @@ export default function LmsSidebar() {
     } else {
       setUser(null);
     }
+
+    const token = localStorage.getItem("token");
+    if (token) {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.user) {
+            setUser(data.user);
+            localStorage.setItem("user", JSON.stringify(data.user));
+          } else if (data?.id) {
+            setUser(data);
+            localStorage.setItem("user", JSON.stringify(data));
+          }
+        })
+        .catch(() => {});
+    }
   }, [pathname]);
 
   // Reset modal state on route change

@@ -230,11 +230,14 @@ export default function LearnerDashboard() {
     <div className={styles.dashboard}>
       <header className={styles.pageHeader}>
         <div>
+          <span style={{ display: "inline-block", fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-primary)", marginBottom: "4px" }}>
+            Brain Health · Resilience · Purpose
+          </span>
           <h1 className={styles.pageTitle}>{greeting}, {firstName}</h1>
           <p className={styles.pageSubtitle}>
             {isEnrolled
-              ? `You have ${numEnrolled} active ${numEnrolled === 1 ? "course" : "courses"} in progress.`
-              : "You are not enrolled in a course yet."}
+              ? `You have ${numEnrolled} active ${numEnrolled === 1 ? "course" : "courses"} in progress — rewiring your brain for sustainable action.`
+              : "For the people who hold everyone else together. Explore certified programmes built on neuroscience and lived experience."}
           </p>
         </div>
         <Link href={siteCourses} className={styles.primaryBtn}>Browse Courses</Link>
@@ -260,7 +263,17 @@ export default function LearnerDashboard() {
               <Link href={siteCourses} className={styles.textLink}>Browse all</Link>
             </div>
             {!isEnrolled ? (
-              <p className={styles.empty}>You haven&apos;t enrolled in a course yet.</p>
+              <div className={styles.empty} style={{ textAlign: "center", padding: "32px 16px" }}>
+                <p style={{ fontWeight: 600, fontSize: "1.05rem", color: "var(--text-primary)", marginBottom: "6px" }}>
+                  Start Your Brain Health Journey
+                </p>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", maxWidth: "480px", margin: "0 auto 16px", lineHeight: 1.5 }}>
+                  From a 12-class CPD-certified programme to focused resilience workshops, rewire your brain for clarity, confidence, and fulfillment.
+                </p>
+                <Link href={siteCourses} className={styles.primaryBtn} style={{ display: "inline-flex" }}>
+                  Explore Programmes &amp; Workshops
+                </Link>
+              </div>
             ) : (
               <ul className={styles.list}>
                 {user.enrolledPrograms.map((prog) => (

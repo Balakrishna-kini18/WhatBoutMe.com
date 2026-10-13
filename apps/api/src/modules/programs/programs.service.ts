@@ -113,7 +113,7 @@ export class ProgramsService {
       data: {
         title: data.title,
         slug: slug!,
-        description: data.description ?? null,
+        description: data.description ?? data.shortDescription ?? null,
         price: data.price,
         isActive: data.isActive !== undefined ? data.isActive : true,
         status: data.status ?? ContentStatus.DRAFT,
@@ -135,7 +135,11 @@ export class ProgramsService {
     const updateData: any = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.slug !== undefined) updateData.slug = data.slug;
-    if (data.description !== undefined) updateData.description = data.description;
+    if (data.description !== undefined) {
+      updateData.description = data.description;
+    } else if (data.shortDescription !== undefined) {
+      updateData.description = data.shortDescription;
+    }
     if (data.price !== undefined) updateData.price = data.price;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     if (data.status !== undefined) updateData.status = data.status;

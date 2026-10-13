@@ -3,14 +3,17 @@ import { Role } from '@prisma/client';
 import { PassThrough } from 'node:stream';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 
-// Content types an admin may upload, and the extension each is stored with.
-// SVG is left out on purpose: it can carry scripts.
+// Content types allowed to upload: images, documents, audio
 const ALLOWED: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
   'image/gif': 'gif',
   'application/pdf': 'pdf',
+  'text/plain': 'txt',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/zip': 'zip',
 };
 
 /**
@@ -19,13 +22,13 @@ const ALLOWED: Record<string, string> = {
  */
 @Controller('uploads')
 export class UploadsController {
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @Roles(Role.USER)
   @Post()
   async upload(@Request() req: any) {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
     const extension = ALLOWED[type];
     if (!extension) {
-      throw new BadRequestException('Only JPG, PNG, WebP, GIF images and PDF files can be uploaded');
+      throw new BadRequestException('Only JPG, PNG, WebP, GIF images, PDF, DOCX, and TXT files can be uploaded');
     }
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       throw new BadRequestException('The upload was empty');

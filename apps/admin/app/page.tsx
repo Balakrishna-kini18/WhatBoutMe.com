@@ -307,6 +307,9 @@ export default function AdminDashboard() {
       <header className={styles.welcomeBar}>
         <div className={styles.welcomeInfo}>
           <div className={styles.welcomeMetaRow}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-primary, #c97a1e)", background: "rgba(201, 122, 30, 0.08)", padding: "2px 8px", borderRadius: "100px", border: "1px solid rgba(201, 122, 30, 0.2)" }}>
+              Brain Health · Resilience · Purpose
+            </span>
             <span className={styles.welcomeDateBadge}>
               <Icons.Calendar />
               <span>{formattedToday}</span>
@@ -318,7 +321,7 @@ export default function AdminDashboard() {
           <p className={styles.welcomeSubtext}>
             {isManager
               ? "Operational summary for your assigned batches, sessions, and learners."
-              : "Operational summary across active programs, cohorts, and student registrations."}
+              : "Executive studio managing certified brain health programmes, cohorts, and student progress across WhatBoutMe."}
           </p>
         </div>
 

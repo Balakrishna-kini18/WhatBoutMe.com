@@ -23,8 +23,8 @@ const geistMono = localFont({
 
 
 export const metadata: Metadata = {
-  title: "WhatBoutMe Learner Portal",
-  description: "Your journey to resilience.",
+  title: "WhatBoutMe · Learner Portal | Brain Health & Resilience",
+  description: "Brain health · Resilience · Purpose. Rewiring your brain for action with certified programmes, live sessions, and self-awareness coaching.",
 };
 
 // On Android the page shrinks when the keyboard opens, instead of sliding up

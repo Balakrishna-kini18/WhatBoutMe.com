@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./layout.module.css";
 import { SITE_URL, signOutEverywhere } from "./lib/site";
@@ -137,7 +138,10 @@ function ProfileMenu() {
   const initials = (name || "Learner").split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase();
   const item: React.CSSProperties = { display: "block", width: "100%", padding: "10px 12px", borderRadius: "10px", border: "none", background: "transparent", textAlign: "left", font: "inherit", fontSize: "0.9rem", color: "var(--text-primary)", cursor: "pointer", textDecoration: "none" };
 
-  const signOut = () => signOutEverywhere();
+  const openSignOut = () => {
+    setOpen(false);
+    window.dispatchEvent(new CustomEvent("wbm:open-signout-modal"));
+  };
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -161,7 +165,7 @@ function ProfileMenu() {
           <Link href="/attendance" style={item} onClick={() => setOpen(false)}>Attendance</Link>
           <Link href="/certificates" style={item} onClick={() => setOpen(false)}>Certificates</Link>
           <a href={SITE_URL} style={item}>Back to Website</a>
-          <button type="button" style={item} onClick={signOut}>Sign Out</button>
+          <button type="button" style={{ ...item, color: "#dc2626", fontWeight: 500 }} onClick={openSignOut}>Sign Out</button>
         </div>
       )}
     </div>
@@ -212,9 +216,15 @@ export default function LmsMain({ children }: { children: React.ReactNode }) {
       <header className={styles.topbar}>
         {/* shown on phones, where there is no sidebar to carry the logo; the
             light logo, because the phone bar is dark like the website's */}
-        <Link href="/" className={styles.topbarLogo} aria-label="whatboutme home">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logo-light.png" alt="whatboutme" />
+        <Link href="/" className={styles.topbarLogo} aria-label="WhatBoutMe Home">
+          <Image
+            src="/brand/logo-light.png"
+            alt="WhatBoutMe"
+            width={136}
+            height={18}
+            priority
+            style={{ width: "auto", height: "1.125rem", objectFit: "contain" }}
+          />
         </Link>
         {/* useSearchParams needs a Suspense boundary to prerender */}
         <Suspense fallback={<div className={styles.searchContainer} />}>

@@ -37,6 +37,10 @@ describe('D1-031: BatchesService - Cohort Management & Lifecycle Engine', () => 
       },
       session: {
         count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      outboxEvent: {
+        create: vi.fn().mockResolvedValue({}),
       },
       $transaction: vi.fn().mockImplementation(async (callback) => {
         if (typeof callback === 'function') {
@@ -192,7 +196,7 @@ describe('D1-031: BatchesService - Cohort Management & Lifecycle Engine', () => 
       await service.findAll(adminUser);
 
       expect(prismaMock.batch.findMany).toHaveBeenCalledWith({
-        where: {},
+        where: { status: { not: 'ARCHIVED' } },
         include: expect.any(Object),
         orderBy: { startDate: 'desc' },
       });
@@ -362,21 +366,17 @@ describe('D1-031: BatchesService - Cohort Management & Lifecycle Engine', () => 
   // 6. ARCHIVE VS HARD DELETE
   // ─────────────────────────────────────────────────────────────────────────────
   describe('Safe Deletion & Archival Guard', () => {
-    it('archives batch when enrolments or sessions exist', async () => {
+    it('hard deletes batch and cascades when enrolments or sessions exist', async () => {
       prismaMock.batch.findUnique.mockResolvedValue({ id: 'b-active', status: BatchStatus.ACTIVE });
       prismaMock.enrolment.count.mockResolvedValue(10); // 10 learners
       prismaMock.session.count.mockResolvedValue(2); // 2 sessions
-      prismaMock.batch.update.mockResolvedValue({ id: 'b-active', status: BatchStatus.ARCHIVED });
+      prismaMock.session.findMany.mockResolvedValue([]);
+      prismaMock.batch.delete.mockResolvedValue({ id: 'b-active' });
 
       const result = await service.remove('b-active');
 
-
-
-      expect(prismaMock.batch.delete).not.toHaveBeenCalled();
-      expect(prismaMock.batch.update).toHaveBeenCalledWith({
-        where: { id: 'b-active' },
-        data: { status: BatchStatus.ARCHIVED },
-      });
+      expect(prismaMock.batch.delete).toHaveBeenCalledWith({ where: { id: 'b-active' } });
+      expect(result.deleted).toBe(true);
     });
 
     it('hard deletes batch when zero enrolments and zero sessions exist', async () => {

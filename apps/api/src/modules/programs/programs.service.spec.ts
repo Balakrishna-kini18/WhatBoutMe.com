@@ -28,7 +28,7 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
         delete: vi.fn(),
       },
       lesson: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn(),
         findFirst: vi.fn(),
         create: vi.fn(),
@@ -37,8 +37,16 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       },
       batch: {
         count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
         findFirst: vi.fn(),
         create: vi.fn(),
+      },
+      session: {
+        count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      outboxEvent: {
+        create: vi.fn().mockResolvedValue({}),
       },
       enrolment: {
         count: vi.fn().mockResolvedValue(0),
@@ -130,6 +138,11 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
           status: ContentStatus.PUBLISHED,
           isActive: true,
         },
+        include: {
+          _count: {
+            select: { steps: true },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toHaveLength(1);
@@ -145,6 +158,14 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       const result = await service.findAll(Role.ADMIN);
 
       expect(prismaMock.program.findMany).toHaveBeenCalledWith({
+        where: {
+          status: { not: ContentStatus.ARCHIVED },
+        },
+        include: {
+          _count: {
+            select: { steps: true },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       });
       expect(result).toHaveLength(2);
@@ -194,27 +215,20 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       expect(result.isActive).toBe(true);
     });
 
-    it('archives program instead of hard delete when batches/enrolments exist', async () => {
+    it('hard deletes program and cascades when batches/enrolments exist', async () => {
       prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1', status: ContentStatus.PUBLISHED });
-      prismaMock.batch.count.mockResolvedValue(1); // Linked batch
-      prismaMock.enrolment.count.mockResolvedValue(5); // Linked enrolments
-      prismaMock.program.update.mockResolvedValue({ id: 'prog-1', status: ContentStatus.ARCHIVED, isActive: false });
+      prismaMock.batch.findMany.mockResolvedValue([]);
+      prismaMock.program.delete.mockResolvedValue({ id: 'prog-1' });
 
       const result = await service.remove('prog-1');
 
-
-
-      expect(prismaMock.program.delete).not.toHaveBeenCalled();
-      expect(prismaMock.program.update).toHaveBeenCalledWith({
-        where: { id: 'prog-1' },
-        data: { status: ContentStatus.ARCHIVED, isActive: false },
-      });
+      expect(prismaMock.program.delete).toHaveBeenCalledWith({ where: { id: 'prog-1' } });
+      expect(result.deleted).toBe(true);
     });
 
     it('hard deletes program when no batches or enrolments exist', async () => {
       prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-empty' });
-      prismaMock.batch.count.mockResolvedValue(0);
-      prismaMock.enrolment.count.mockResolvedValue(0);
+      prismaMock.batch.findMany.mockResolvedValue([]);
       prismaMock.program.delete.mockResolvedValue({ id: 'prog-empty' });
 
       const result = await service.remove('prog-empty');
@@ -239,13 +253,13 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       const result = await service.createStep('prog-1', { title: 'Step 3: Self-Regulation' });
 
       expect(result.sequence).toBe(3);
-      expect(result.status).toBe(ContentStatus.DRAFT);
+      expect(result.status).toBe(ContentStatus.PUBLISHED);
       expect(prismaMock.step.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           programId: 'prog-1',
           title: 'Step 3: Self-Regulation',
           sequence: 3,
-          status: ContentStatus.DRAFT,
+          status: ContentStatus.PUBLISHED,
           releaseSchedule: ReleaseSchedule.IMMEDIATE,
         }),
       });
@@ -400,7 +414,7 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
 
       expect(result.id).toBe('l2');
       expect(result.order).toBe(2);
-      expect(result.status).toBe(ContentStatus.DRAFT);
+      expect(result.status).toBe(ContentStatus.PUBLISHED);
     });
 
     it('getLessons hides draft lessons and strips mediaUrl for learners', async () => {

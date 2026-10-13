@@ -47,8 +47,8 @@ describe('CloudinaryMediaProvider', () => {
       // Verify the format is m3u8 (adaptive bitrate)
       expect(url).toContain('.m3u8');
       
-      // Verify signature query parameter is present (__cld_token__=)
-      expect(url).toContain('__cld_token__=');
+      // Verify signature parameter is present (/s--...--/)
+      expect(url).toContain('/s--');
       
       // Verify adaptive bitrate profile is auto
       expect(url).toContain('sp_auto');
@@ -78,8 +78,8 @@ describe('CloudinaryMediaProvider', () => {
       // Verify the format is jpg
       expect(url).toContain('.jpg');
       
-      // Verify signature query parameter is present
-      expect(url).toContain('__cld_token__=');
+      // Verify signature parameter is present
+      expect(url).toContain('/s--');
       
       // Verify the start_offset transformation is present (so_15)
       expect(url).toContain('so_15');

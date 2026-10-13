@@ -180,6 +180,9 @@ export default function LmsSidebar() {
             />
           </div>
           <span className={styles.portalTag}>LEARNER PORTAL</span>
+          <span style={{ display: "block", fontSize: "0.68rem", color: "var(--text-tertiary)", letterSpacing: "0.04em", marginTop: "2px", fontWeight: 500 }}>
+            Brain Health · Resilience · Purpose
+          </span>
         </Link>
       </div>
 

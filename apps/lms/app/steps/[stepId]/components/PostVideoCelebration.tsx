@@ -2,6 +2,7 @@
 
 import React from "react";
 import styles from "../step.module.css";
+import { StepIcons } from "./StepIcons";
 
 interface PostVideoCelebrationProps {
   lessonTitle: string;
@@ -37,7 +38,9 @@ export default function PostVideoCelebration({
         boxSizing: "border-box",
       }}
     >
-      <div style={{ fontSize: "2.5rem", marginBottom: "0.4rem" }}>🎉</div>
+      <div style={{ color: "#16a34a", marginBottom: "0.5rem" }}>
+        <StepIcons.CheckCircle size={40} />
+      </div>
       <h3 style={{ fontFamily: "var(--font-serif)", fontSize: "1.5rem", margin: "0 0 0.25rem", color: "#166534" }}>
         Lesson Video Completed!
       </h3>
@@ -45,7 +48,7 @@ export default function PostVideoCelebration({
         You've completed <strong>{lessonTitle}</strong>. Keep the momentum going!
       </p>
 
-      {/* Gamification Pills */}
+      {/* Gamification Pills (Clean outline icons) */}
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem", flexWrap: "wrap", justifyContent: "center" }}>
         <div
           style={{
@@ -61,7 +64,7 @@ export default function PostVideoCelebration({
             color: "#15803d",
           }}
         >
-          <span>⭐</span>
+          <StepIcons.Award size={14} />
           <span>+{xpEarned} Skill XP</span>
         </div>
 
@@ -79,7 +82,7 @@ export default function PostVideoCelebration({
             color: "#b45309",
           }}
         >
-          <span>🔥</span>
+          <StepIcons.Clock size={14} />
           <span>{streakDays}-Day Learning Streak</span>
         </div>
       </div>
@@ -137,7 +140,7 @@ export default function PostVideoCelebration({
             cursor: "pointer",
           }}
         >
-          ↺ Replay Video
+          Replay Video
         </button>
       </div>
     </div>

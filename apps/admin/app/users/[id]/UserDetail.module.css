@@ -1,0 +1,965 @@
+/* =========================================================================
+   WhatBoutMe Admin - User Details & Learner Progress
+   Theme: Warm Ivory (#faf6f0), Sand (#f5ece1), Deep Ink (#14110f),
+   Golden Amber (#c97a1e), Elevated White Cards (#ffffff).
+   ========================================================================= */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: var(--bg-main, #faf6f0);
+  color: var(--text-primary, #14110f);
+  padding: 1.5rem 2rem 5rem;
+  max-width: 1360px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  gap: 1.5rem;
+}
+
+/* =========================================================================
+   1. Profile Header
+   ========================================================================= */
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted, #78716a);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  width: fit-content;
+}
+
+.backLink:hover {
+  color: var(--accent-primary, #c97a1e);
+}
+
+.profileCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 2px 10px rgba(20, 17, 15, 0.03);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.profileLeft {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.avatar {
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fdf8f0 0%, #f5ece1 100%);
+  border: 1.5px solid #e7decb;
+  color: var(--accent-primary, #c97a1e);
+  font-size: 1.25rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.08);
+  letter-spacing: -0.02em;
+}
+
+.profileInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.learnerName {
+  font-family: inherit;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #6b635b);
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.metaDot {
+  color: #c9bfb2;
+  font-size: 0.75rem;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.recalculateBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 40px;
+  padding: 0 1.15rem;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  color: var(--text-primary, #14110f);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.04);
+}
+
+.recalculateBtn:hover:not(:disabled) {
+  background: var(--bg-soft, #f5ece1);
+  border-color: #d8cdbe;
+  color: var(--accent-primary, #c97a1e);
+}
+
+.recalculateBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* =========================================================================
+   2. Enrollment Selector Card
+   ========================================================================= */
+.enrollmentCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 16px;
+  padding: 1.25rem 1.75rem;
+  box-shadow: 0 2px 10px rgba(20, 17, 15, 0.03);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.enrollmentPickerGroup {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 280px;
+}
+
+.enrollmentLabel {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary, #4a443d);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.enrollmentStatusWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-soft, #f5ece1);
+  padding: 0.4rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid #e7decb;
+}
+
+.enrollmentStatusLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted, #78716a);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* =========================================================================
+   3. Alerts (Success & Error)
+   ========================================================================= */
+.alertError {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  padding: 0.85rem 1.25rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.alertSuccess {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  padding: 0.85rem 1.25rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+/* =========================================================================
+   4. Progress Overview (Metrics Grid)
+   ========================================================================= */
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+}
+
+.metricCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 14px;
+  padding: 1.25rem 1.4rem;
+  box-shadow: 0 2px 8px rgba(20, 17, 15, 0.02);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.metricCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(20, 17, 15, 0.05);
+}
+
+.metricTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.metricLabel {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #6b635b);
+  margin: 0;
+}
+
+.metricIconWrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-soft, #f5ece1);
+  color: var(--accent-primary, #c97a1e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.metricValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.metricValue {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.metricTotal {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted, #78716a);
+}
+
+.progressBarContainer {
+  width: 100%;
+  height: 7px;
+  background: var(--bg-soft, #f5ece1);
+  border-radius: 9999px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+}
+
+.progressBarFill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+  background: var(--accent-primary, #c97a1e);
+}
+
+.metricBadge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #78716a);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metricBadgePositive {
+  color: #15803d;
+  font-weight: 700;
+}
+
+/* =========================================================================
+   5. Step Progression & Manual Overrides Section
+   ========================================================================= */
+.progressionSection {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 16px;
+  padding: 1.75rem;
+  box-shadow: 0 2px 12px rgba(20, 17, 15, 0.03);
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.01em;
+}
+
+.sectionSubtitle {
+  font-size: 0.88rem;
+  color: var(--text-secondary, #6b635b);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.sequentialCallout {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: #fff8f0;
+  border: 1px solid #fbd38d;
+  color: #92400e;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Progression Table */
+.tableWrapper {
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 12px;
+  overflow-x: auto;
+  background: #ffffff;
+  -webkit-overflow-scrolling: touch;
+}
+
+.progressionTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  text-align: left;
+  min-width: 860px;
+}
+
+.progressionTable th {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-secondary, #4a443d);
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+}
+
+.progressionTable td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+  vertical-align: middle;
+}
+
+.progressionTable tr:last-child td {
+  border-bottom: none;
+}
+
+.progressionTable tr:hover td {
+  background: #fdfbf7;
+}
+
+/* Sequence badge */
+.seqBadge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-secondary, #4a443d);
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Step Title Cell */
+.stepTitleWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stepTitleText {
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+
+.stepScheduledText {
+  font-size: 0.75rem;
+  color: var(--text-muted, #78716a);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.viewContentBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: none;
+  color: var(--accent-primary, #c97a1e);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0;
+  margin-top: 0.35rem;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  font-family: inherit;
+  width: fit-content;
+}
+
+.viewContentBtn:hover {
+  color: #a35d0d;
+}
+
+/* Access State Badges */
+.badgeUnlocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+  letter-spacing: 0.02em;
+}
+
+.badgeLockedWrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.badgeLocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  letter-spacing: 0.02em;
+  width: fit-content;
+}
+
+.lockReasonText {
+  font-size: 0.72rem;
+  color: #b91c1c;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+/* Completion Badges */
+.badgeCompleted {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #15803d;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.badgePending {
+  color: var(--text-muted, #78716a);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* Override State Badges */
+.badgeManualUnlock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: #fff8f0;
+  color: #c97a1e;
+  border: 1px solid #fbd38d;
+}
+
+.badgeManualRelock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: #faf5ff;
+  color: #7e22ce;
+  border: 1px solid #e9d5ff;
+}
+
+.badgeAutomatic {
+  color: var(--text-muted, #78716a);
+  font-size: 0.82rem;
+}
+
+/* Override Notes */
+.overrideNoteText {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #4a443d);
+  font-style: italic;
+  max-width: 220px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Action Buttons */
+.actionBtnGroup {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.actionBtnLock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #fca5a5;
+  background: #ffffff;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.actionBtnLock:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.actionBtnUnlock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #86efac;
+  background: #ffffff;
+  color: #15803d;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.actionBtnUnlock:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+}
+
+.actionBtnReset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, #e7decb);
+  background: #ffffff;
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.actionBtnReset:hover {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+}
+
+/* =========================================================================
+   6. Expanded Step Details Accordion
+   ========================================================================= */
+.expandedDetailsRow {
+  background: #faf7f2 !important;
+}
+
+.expandedDetailsContent {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.expandedHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e7decb;
+  padding-bottom: 0.5rem;
+}
+
+.expandedHeaderTitle {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary, #4a443d);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.expandedHeaderProgress {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent-primary, #c97a1e);
+}
+
+.lessonRowCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #ffffff;
+  border: 1px solid #e7decb;
+  border-radius: 10px;
+  gap: 1rem;
+}
+
+.lessonLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.lessonTypeIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lessonTitle {
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  font-size: 0.88rem;
+}
+
+.lessonSub {
+  font-size: 0.75rem;
+  color: var(--text-muted, #78716a);
+}
+
+.mediaProgressCol {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 240px;
+}
+
+.mediaMiniBar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mediaMiniBarTrack {
+  width: 100%;
+  height: 5px;
+  background: var(--bg-soft, #f5ece1);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.mediaMiniBarFill {
+  height: 100%;
+  background: var(--accent-primary, #c97a1e);
+  border-radius: 9999px;
+}
+
+/* =========================================================================
+   7. Override Modal Dialog
+   ========================================================================= */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 17, 15, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
+}
+
+.modalContent {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 12px 36px rgba(20, 17, 15, 0.12);
+  overflow: hidden;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+  background: var(--bg-card-muted, #fdfbf7);
+}
+
+.modalTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+}
+
+.modalCloseBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #78716a);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.modalCloseBtn:hover {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+}
+
+.modalBody {
+  padding: 1.5rem;
+}
+
+.modalNotice {
+  font-size: 0.88rem;
+  color: var(--text-secondary, #4a443d);
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+  background: var(--bg-soft, #f5ece1);
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #e7decb;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.formLabel {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary, #4a443d);
+}
+
+.formTextarea {
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  border: 1.5px solid var(--border-light, #e7decb);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--text-primary, #14110f);
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.formTextarea:focus {
+  outline: none;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.1);
+}
+
+.formHint {
+  font-size: 0.75rem;
+  color: var(--text-muted, #78716a);
+}
+
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-light, #e7decb);
+  background: var(--bg-card-muted, #fdfbf7);
+}
+
+.modalCancelBtn {
+  padding: 0.6rem 1.15rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #e7decb);
+  background: #ffffff;
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.modalCancelBtn:hover:not(:disabled) {
+  background: var(--bg-soft, #f5ece1);
+}
+
+.modalSubmitBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.25);
+}
+
+.modalSubmitBtn:hover:not(:disabled) {
+  background: #b26915;
+}
+
+.modalSubmitBtnDanger {
+  background: #dc2626;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);
+}
+
+.modalSubmitBtnDanger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+/* =========================================================================
+   8. Responsive Adjustments
+   ========================================================================= */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem 1rem 4rem;
+  }
+
+  .profileCard {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .enrollmentCard {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .metricsGrid {
+    grid-template-columns: 1fr;
+  }
+}

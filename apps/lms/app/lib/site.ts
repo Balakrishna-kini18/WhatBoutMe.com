@@ -23,7 +23,10 @@ export const toSite = (path = "") => (e: { preventDefault(): void }) => {
 const portalPath = (path: string) => (path.startsWith("/") && !path.startsWith("//") ? path : "/");
 
 /** Website sign-in that returns to `path` in the portal afterwards. */
-export const siteLoginUrl = (path = "/") => `${SITE_URL}/login?portal=${encodeURIComponent(portalPath(path))}`;
+export const siteLoginUrl = (path = "/", reason?: string) => {
+  const base = `${SITE_URL}/login?portal=${encodeURIComponent(portalPath(path))}`;
+  return reason ? `${base}&reason=${encodeURIComponent(reason)}` : base;
+};
 
 /** Website sign-up that returns to `path` in the portal afterwards. */
 export const siteSignupUrl = (path = "/") => `${SITE_URL}/signup?portal=${encodeURIComponent(portalPath(path))}`;
@@ -32,9 +35,10 @@ export const siteSignupUrl = (path = "/") => `${SITE_URL}/signup?portal=${encode
  * Signs out here and on the website. Without the website half, the portal
  * would be handed the same session straight back.
  */
-export function signOutEverywhere() {
+export function signOutEverywhere(reason?: string) {
   localStorage.removeItem("token");
   localStorage.removeItem("refresh_token");
   localStorage.removeItem("user");
-  window.location.href = `${SITE_URL}/login?signout=1`;
+  const url = `${SITE_URL}/login?signout=1${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`;
+  window.location.href = url;
 }

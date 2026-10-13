@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, use, Fragment } from "react";
-import styles from "../../page.module.css";
+import styles from "./UserDetail.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../lib/api";
-import { CustomSelect } from "../../components";
+import { CustomSelect, StatusBadge } from "../../components";
 
 interface EnrolmentOption {
   id: string;
@@ -97,6 +97,20 @@ function formatDuration(sec?: number | null): string {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
+function getInitials(name?: string | null): string {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) {
+    const first = parts[0] ?? "";
+    return first.slice(0, 2).toUpperCase() || "U";
+  }
+  const first = parts[0] ?? "";
+  const last = parts[parts.length - 1] ?? "";
+  const init = `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
+  return init || "U";
+}
+
 export default function UserDetailPage({
   params,
 }: {
@@ -121,7 +135,7 @@ export default function UserDetailPage({
   const [submittingOverride, setSubmittingOverride] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  // Expanded steps for content inspection (video watch stats, PDF read, quiz attempts)
+  // Expanded steps for content inspection
   const [expandedStepIds, setExpandedStepIds] = useState<Record<string, boolean>>({});
 
   const toggleStepExpand = (stepId: string) => {
@@ -293,57 +307,148 @@ export default function UserDetailPage({
 
   if (loading) {
     return (
-      <div className={styles.dashboard}>
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <Link href="/users" className={styles.backLink}>← Back to Users</Link>
-            <h1 className={styles.title}>Loading learner profile...</h1>
+      <div className={styles.container}>
+        <Link href="/users" className={styles.backLink}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          <span>Back to Users</span>
+        </Link>
+        <div className={styles.profileCard} style={{ justifyContent: "center", padding: "3rem" }}>
+          <div style={{ color: "var(--text-muted)", fontSize: "0.95rem", fontWeight: 600 }}>
+            Loading learner profile &amp; progression...
           </div>
-        </header>
+        </div>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className={styles.dashboard}>
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <Link href="/users" className={styles.backLink}>← Back to Users</Link>
-            <h1 className={styles.title}>Learner not found</h1>
-            {actionError && <p className={styles.errorBanner}>{actionError}</p>}
+      <div className={styles.container}>
+        <Link href="/users" className={styles.backLink}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          <span>Back to Users</span>
+        </Link>
+        <div className={styles.profileCard} style={{ padding: "2.5rem" }}>
+          <div>
+            <h2 className={styles.learnerName} style={{ marginBottom: "0.5rem" }}>Learner not found</h2>
+            <p style={{ color: "var(--text-secondary)", margin: 0 }}>The requested user account does not exist or has been removed.</p>
           </div>
-        </header>
+        </div>
       </div>
     );
   }
 
   const selectedEnrolment = user.enrolments?.find((e) => e.id === selectedEnrolmentId);
 
-  return (
-    <div className={styles.dashboard}>
-      <header className={styles.header}>
-        <div className={styles.headerText}>
-          <Link href="/users" className={styles.backLink}>← Back to Users</Link>
-          <h1 className={styles.title}>{user.name}</h1>
-          <p className={styles.subtitle}>
-            {user.email} • Role: {user.role} • Joined: {new Date(user.createdAt).toLocaleDateString()}
-          </p>
-        </div>
-        <div className={styles.headerActions}>
-          <button
-            className={styles.secondaryBtn}
-            onClick={handleRecalculate}
-            disabled={!selectedEnrolmentId || loadingProgression}
-            title="Recalculate progression locks and completions according to program schedule and quiz results"
-          >
-            Recalculate Progression
-          </button>
-        </div>
-      </header>
+  // Compute metrics
+  const overallPct = progression
+    ? Math.round(progression.overallProgressPercent ?? progression.overallPercent ?? 0)
+    : 0;
+  const completedSteps = progression?.steps?.filter((s) => s.isCompleted).length ?? 0;
+  const totalSteps = progression?.steps?.length ?? 0;
 
+  const totalVideos =
+    progression?.steps?.reduce(
+      (acc, s) => acc + (s.lessons?.filter((l) => l.type === "VIDEO" || l.type === "AUDIO").length || 0),
+      0
+    ) ?? 0;
+  const completedVideos =
+    progression?.steps?.reduce(
+      (acc, s) =>
+        acc +
+        (s.lessons?.filter((l) => (l.type === "VIDEO" || l.type === "AUDIO") && l.isCompleted).length || 0),
+      0
+    ) ?? 0;
+
+  const totalDocs =
+    progression?.steps?.reduce(
+      (acc, s) => acc + (s.lessons?.filter((l) => l.type === "PDF" || l.type === "TEXT").length || 0),
+      0
+    ) ?? 0;
+  const completedDocs =
+    progression?.steps?.reduce(
+      (acc, s) =>
+        acc +
+        (s.lessons?.filter((l) => (l.type === "PDF" || l.type === "TEXT") && l.isCompleted).length || 0),
+      0
+    ) ?? 0;
+
+  const totalQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz ? 1 : 0), 0) ?? 0;
+  const passedQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz?.isPassed ? 1 : 0), 0) ?? 0;
+
+  return (
+    <div className={styles.container}>
+      {/* 1. Page Header with Back Navigation & Profile Card */}
+      <div>
+        <Link href="/users" className={styles.backLink}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          <span>Back to Users</span>
+        </Link>
+
+        <div className={styles.profileCard}>
+          <div className={styles.profileLeft}>
+            <div className={styles.avatar} aria-hidden="true">
+              {getInitials(user.name)}
+            </div>
+
+            <div className={styles.profileInfo}>
+              <h1 className={styles.learnerName}>{user.name}</h1>
+              <div className={styles.metaRow}>
+                <span className={styles.metaItem}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect width="20" height="16" x="2" y="4" rx="2" />
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                  </svg>
+                  <span>{user.email}</span>
+                </span>
+
+                <span className={styles.metaDot}>&bull;</span>
+
+                <span className={styles.metaItem}>
+                  <StatusBadge status={user.role} />
+                </span>
+
+                <span className={styles.metaDot}>&bull;</span>
+
+                <span className={styles.metaItem}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  <span>Joined {new Date(user.createdAt).toLocaleDateString()}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.recalculateBtn}
+              onClick={handleRecalculate}
+              disabled={!selectedEnrolmentId || loadingProgression}
+              title="Recalculate progression locks and completions according to cohort schedule and criteria"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animation: loadingProgression ? "spin 1s linear infinite" : undefined }}>
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              <span>{loadingProgression ? "Recalculating..." : "Recalculate Progression"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Action Notifications */}
       {actionError && (
-        <div className={styles.alertError}>
+        <div className={styles.alertError} role="alert">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
@@ -354,7 +459,7 @@ export default function UserDetailPage({
       )}
 
       {actionSuccess && (
-        <div className={styles.alertSuccess}>
+        <div className={styles.alertSuccess} role="status">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <polyline points="20 6 9 17 4 12" />
           </svg>
@@ -362,208 +467,224 @@ export default function UserDetailPage({
         </div>
       )}
 
-      {/* Enrolment Selector if user has multiple enrolments */}
+      {/* 2. Enrollment Selector Card */}
       {user.enrolments && user.enrolments.length > 0 && (
-        <div style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "12px", background: "white", padding: "12px 16px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-          <label style={{ fontWeight: 600, fontSize: "0.875rem", color: "#475569" }}>
-            Select Enrolment:
-          </label>
-          <CustomSelect
-            value={selectedEnrolmentId}
-            onChange={setSelectedEnrolmentId}
-            minWidth="280px"
-            ariaLabel="Select Enrolment"
-            options={user.enrolments.map((enr) => ({
-              value: enr.id,
-              label: `${enr.batch?.program?.title || "Program"} — ${enr.batch?.name || "Batch"} (${enr.status})`,
-            }))}
-          />
-          <span style={{ fontSize: "0.875rem", color: "#64748b" }}>
-            Status: <strong style={{ textTransform: "uppercase" }}>{selectedEnrolment?.status}</strong>
-          </span>
-        </div>
+        <section className={styles.enrollmentCard}>
+          <div className={styles.enrollmentPickerGroup}>
+            <label className={styles.enrollmentLabel} htmlFor="enrolment-select">
+              Active Enrollment Track:
+            </label>
+            <CustomSelect
+              value={selectedEnrolmentId}
+              onChange={setSelectedEnrolmentId}
+              minWidth="340px"
+              ariaLabel="Select Enrolment"
+              options={user.enrolments.map((enr) => ({
+                value: enr.id,
+                label: `${enr.batch?.program?.title || "Program"} — ${enr.batch?.name || "Batch"}`,
+              }))}
+            />
+          </div>
+
+          <div className={styles.enrollmentStatusWrap}>
+            <span className={styles.enrollmentStatusLabel}>Enrollment Status:</span>
+            <StatusBadge status={selectedEnrolment?.status || "ACTIVE"} />
+          </div>
+        </section>
       )}
 
-      {/* Stats Grid */}
-      {(() => {
-        const overallPct = progression
-          ? Math.round(progression.overallProgressPercent ?? progression.overallPercent ?? 0)
-          : 0;
-        const completedSteps = progression?.steps?.filter((s) => s.isCompleted).length ?? 0;
-        const totalSteps = progression?.steps?.length ?? 0;
-
-        const totalVideos =
-          progression?.steps?.reduce(
-            (acc, s) => acc + (s.lessons?.filter((l) => l.type === "VIDEO" || l.type === "AUDIO").length || 0),
-            0
-          ) ?? 0;
-        const completedVideos =
-          progression?.steps?.reduce(
-            (acc, s) =>
-              acc +
-              (s.lessons?.filter((l) => (l.type === "VIDEO" || l.type === "AUDIO") && l.isCompleted).length || 0),
-            0
-          ) ?? 0;
-
-        const totalDocs =
-          progression?.steps?.reduce(
-            (acc, s) => acc + (s.lessons?.filter((l) => l.type === "PDF" || l.type === "TEXT").length || 0),
-            0
-          ) ?? 0;
-        const completedDocs =
-          progression?.steps?.reduce(
-            (acc, s) =>
-              acc +
-              (s.lessons?.filter((l) => (l.type === "PDF" || l.type === "TEXT") && l.isCompleted).length || 0),
-            0
-          ) ?? 0;
-
-        const totalQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz ? 1 : 0), 0) ?? 0;
-        const passedQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz?.isPassed ? 1 : 0), 0) ?? 0;
-
-        const progressColor = overallPct === 100 ? "#16a34a" : overallPct > 0 ? "#f59e0b" : "#cbd5e1";
-
-        return (
-          <div className={styles.statsGrid}>
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <h3>Overall Progress</h3>
-              </div>
-              <div className={styles.statBody}>
-                <p className={styles.statValue} style={{ color: overallPct === 100 ? "#16a34a" : undefined }}>
-                  {overallPct}%
-                </p>
-                <div className={styles.progressBar} style={{ width: "100%", marginTop: "0.5rem" }}>
-                  <div
-                    className={styles.progressFill}
-                    style={{ width: `${overallPct}%`, backgroundColor: progressColor }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <h3>Completed Steps</h3>
-              </div>
-              <div className={styles.statBody}>
-                <p className={styles.statValue}>
-                  {completedSteps} / {totalSteps}
-                </p>
-                <div className={styles.statTrendWrapper}>
-                  <span className={styles.statTrendNeutral}>
-                    {progression?.steps?.filter((s) => s.isUnlocked).length || 0} unlocked
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {compliance && compliance.status !== 'NOT_APPLICABLE' && (
-              <div className={styles.statCard}>
-                <div className={styles.statHeader}>
-                  <h3>Attendance</h3>
-                </div>
-                <div className={styles.statBody}>
-                  <p className={styles.statValue} style={{ color: compliance.status === 'COMPLIANT' ? "#16a34a" : "#dc2626" }}>
-                    {Math.round(compliance.attendancePercentage)}%
-                  </p>
-                  <div className={styles.statTrendWrapper}>
-                    <span className={compliance.status === 'COMPLIANT' ? styles.statTrendPositive : styles.statTrendNegative} style={{
-                      background: compliance.status === 'COMPLIANT' ? '#ecfdf5' : '#fef2f2',
-                      color: compliance.status === 'COMPLIANT' ? '#059669' : '#dc2626',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {compliance.status === 'COMPLIANT' ? "Compliant" : "Low Attendance"} 
-                      ({compliance.attendedSessionCount}/{compliance.requiredSessionCount} sessions)
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <h3>Videos &amp; Audio</h3>
-              </div>
-              <div className={styles.statBody}>
-                <p className={styles.statValue}>
-                  {completedVideos} / {totalVideos}
-                </p>
-                <div className={styles.statTrendWrapper}>
-                  <span className={completedVideos === totalVideos && totalVideos > 0 ? styles.statTrendPositive : styles.statTrendNeutral}>
-                    {totalVideos > 0 ? `${Math.round((completedVideos / totalVideos) * 100)}% watched` : "No media"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <h3>Documents &amp; Text</h3>
-              </div>
-              <div className={styles.statBody}>
-                <p className={styles.statValue}>
-                  {completedDocs} / {totalDocs}
-                </p>
-                <div className={styles.statTrendWrapper}>
-                  <span className={completedDocs === totalDocs && totalDocs > 0 ? styles.statTrendPositive : styles.statTrendNeutral}>
-                    {totalDocs > 0 ? `${Math.round((completedDocs / totalDocs) * 100)}% read` : "No documents"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statHeader}>
-                <h3>Quizzes Passed</h3>
-              </div>
-              <div className={styles.statBody}>
-                <p className={styles.statValue}>
-                  {passedQuizzes} / {totalQuizzes}
-                </p>
-                <div className={styles.statTrendWrapper}>
-                  <span className={passedQuizzes === totalQuizzes && totalQuizzes > 0 ? styles.statTrendPositive : styles.statTrendNeutral}>
-                    {totalQuizzes > 0 ? `${Math.round((passedQuizzes / totalQuizzes) * 100)}% passed` : "No quizzes"}
-                  </span>
-                </div>
-              </div>
+      {/* 3. Progress Overview Metrics Grid */}
+      <section className={styles.metricsGrid}>
+        {/* Metric 1: Overall Progress */}
+        <div className={styles.metricCard}>
+          <div className={styles.metricTop}>
+            <span className={styles.metricLabel}>Overall Progress</span>
+            <div className={styles.metricIconWrap} aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="m9 12 2 2 4-4" />
+              </svg>
             </div>
           </div>
-        );
-      })()}
+          <div>
+            <div className={styles.metricValueRow}>
+              <span className={styles.metricValue}>{overallPct}%</span>
+            </div>
+            <div className={styles.progressBarContainer}>
+              <div
+                className={styles.progressBarFill}
+                style={{ width: `${overallPct}%` }}
+              />
+            </div>
+          </div>
+          <span className={styles.metricBadge}>
+            Milestones completion track
+          </span>
+        </div>
 
-      {/* D1-034: Step Progression & Manual Overrides Section */}
-      <section className={styles.tableSection}>
+        {/* Metric 2: Completed Steps */}
+        <div className={styles.metricCard}>
+          <div className={styles.metricTop}>
+            <span className={styles.metricLabel}>Completed Steps</span>
+            <div className={styles.metricIconWrap} aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
+                <path d="M6 6h10" />
+                <path d="M6 10h10" />
+              </svg>
+            </div>
+          </div>
+          <div>
+            <div className={styles.metricValueRow}>
+              <span className={styles.metricValue}>{completedSteps}</span>
+              <span className={styles.metricTotal}>/ {totalSteps}</span>
+            </div>
+          </div>
+          <span className={`${styles.metricBadge} ${completedSteps > 0 ? styles.metricBadgePositive : ""}`}>
+            {progression?.steps?.filter((s) => s.isUnlocked).length || 0} unlocked
+          </span>
+        </div>
+
+        {/* Metric 3: Videos & Audio */}
+        <div className={styles.metricCard}>
+          <div className={styles.metricTop}>
+            <span className={styles.metricLabel}>Videos &amp; Audio</span>
+            <div className={styles.metricIconWrap} aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+            </div>
+          </div>
+          <div>
+            <div className={styles.metricValueRow}>
+              <span className={styles.metricValue}>{completedVideos}</span>
+              <span className={styles.metricTotal}>/ {totalVideos}</span>
+            </div>
+          </div>
+          <span className={`${styles.metricBadge} ${completedVideos === totalVideos && totalVideos > 0 ? styles.metricBadgePositive : ""}`}>
+            {totalVideos > 0 ? `${Math.round((completedVideos / totalVideos) * 100)}% watched` : "No media items"}
+          </span>
+        </div>
+
+        {/* Metric 4: Documents & Text */}
+        <div className={styles.metricCard}>
+          <div className={styles.metricTop}>
+            <span className={styles.metricLabel}>Documents &amp; Text</span>
+            <div className={styles.metricIconWrap} aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </div>
+          </div>
+          <div>
+            <div className={styles.metricValueRow}>
+              <span className={styles.metricValue}>{completedDocs}</span>
+              <span className={styles.metricTotal}>/ {totalDocs}</span>
+            </div>
+          </div>
+          <span className={`${styles.metricBadge} ${completedDocs === totalDocs && totalDocs > 0 ? styles.metricBadgePositive : ""}`}>
+            {totalDocs > 0 ? `${Math.round((completedDocs / totalDocs) * 100)}% read` : "No documents"}
+          </span>
+        </div>
+
+        {/* Metric 5: Quizzes Passed */}
+        <div className={styles.metricCard}>
+          <div className={styles.metricTop}>
+            <span className={styles.metricLabel}>Quizzes Passed</span>
+            <div className={styles.metricIconWrap} aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </div>
+          </div>
+          <div>
+            <div className={styles.metricValueRow}>
+              <span className={styles.metricValue}>{passedQuizzes}</span>
+              <span className={styles.metricTotal}>/ {totalQuizzes}</span>
+            </div>
+          </div>
+          <span className={`${styles.metricBadge} ${passedQuizzes === totalQuizzes && totalQuizzes > 0 ? styles.metricBadgePositive : ""}`}>
+            {totalQuizzes > 0 ? `${Math.round((passedQuizzes / totalQuizzes) * 100)}% passed` : "No quizzes"}
+          </span>
+        </div>
+
+        {/* Optional Metric 6: Attendance Compliance */}
+        {compliance && compliance.status !== "NOT_APPLICABLE" && (
+          <div className={styles.metricCard}>
+            <div className={styles.metricTop}>
+              <span className={styles.metricLabel}>Attendance</span>
+              <div className={styles.metricIconWrap} aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </div>
+            </div>
+            <div>
+              <div className={styles.metricValueRow}>
+                <span className={styles.metricValue} style={{ color: compliance.status === "COMPLIANT" ? "#15803d" : "#dc2626" }}>
+                  {Math.round(compliance.attendancePercentage)}%
+                </span>
+              </div>
+            </div>
+            <span className={`${styles.metricBadge} ${compliance.status === "COMPLIANT" ? styles.metricBadgePositive : ""}`}>
+              {compliance.status === "COMPLIANT" ? "Compliant" : "Low Attendance"} ({compliance.attendedSessionCount}/{compliance.requiredSessionCount} sessions)
+            </span>
+          </div>
+        )}
+      </section>
+
+      {/* 4. Step Progression & Manual Overrides Section */}
+      <section className={styles.progressionSection}>
         <div className={styles.sectionHeader}>
           <div>
-            <h2>Step Progression & Manual Overrides</h2>
-            <p style={{ fontSize: "0.85rem", color: "#64748b", margin: "4px 0 0" }}>
+            <h2 className={styles.sectionTitle}>Step Progression &amp; Manual Overrides</h2>
+            <p className={styles.sectionSubtitle}>
               View sequential progression and manage administrative unlock/relock overrides. All overrides require an audit reason.
             </p>
           </div>
         </div>
 
+        {/* Sequential Progression Callout */}
+        <div className={styles.sequentialCallout}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <span>
+            <strong>Sequential Progression:</strong> Learners advance step-by-step. Steps unlock automatically as prerequisite milestones are satisfied. Manual overrides bypass standard gates and are logged in the audit trail.
+          </span>
+        </div>
+
         {loadingProgression ? (
-          <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
-            Loading step progression...
+          <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)", fontSize: "0.92rem", fontWeight: 600 }}>
+            Loading step progression milestones...
           </div>
         ) : !progression || !progression.steps || progression.steps.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
-            No program steps found for this enrolment.
+          <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)", fontSize: "0.92rem" }}>
+            No program steps found for this enrollment.
           </div>
         ) : (
           <div className={styles.tableWrapper}>
-            <table className={styles.adminTable}>
+            <table className={styles.progressionTable}>
               <thead>
                 <tr>
-                  <th style={{ width: "60px" }}>#</th>
-                  <th>Step Title</th>
-                  <th>Access State</th>
-                  <th>Completion</th>
-                  <th>Override State</th>
-                  <th>Override Notes</th>
-                  <th className={styles.alignRight}>Actions</th>
+                  <th style={{ width: "48px" }}>#</th>
+                  <th style={{ width: "32%" }}>Step Title</th>
+                  <th style={{ width: "16%" }}>Access State</th>
+                  <th style={{ width: "13%" }}>Completion</th>
+                  <th style={{ width: "14%" }}>Override State</th>
+                  <th style={{ width: "12%" }}>Override Notes</th>
+                  <th style={{ textAlign: "right", width: "13%" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -575,400 +696,398 @@ export default function UserDetailPage({
                     <Fragment key={step.stepId}>
                       <tr>
                         <td>
-                          <span style={{ fontWeight: 600, color: "#475569" }}>
+                          <div className={styles.seqBadge}>
                             {step.sequence}
-                          </span>
+                          </div>
                         </td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontWeight: 600, color: "#1e293b" }}>{step.title}</span>
-                          {step.scheduledUnlockDate && (
-                            <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                              Scheduled: {new Date(step.scheduledUnlockDate).toLocaleDateString()}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => toggleStepExpand(step.stepId)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#0284c7",
-                              cursor: "pointer",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              padding: 0,
-                              marginTop: "6px",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              textAlign: "left",
-                            }}
-                          >
-                            {expandedStepIds[step.stepId]
-                              ? "▲ Hide Content"
-                              : `▼ View Content (${step.completedItems ?? 0}/${step.totalItems ?? 0} done)`}
-                          </button>
-                        </div>
-                      </td>
-                      <td>
-                        {step.isUnlocked ? (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              backgroundColor: "#dcfce7",
-                              color: "#166534",
-                            }}
-                          >
-                            UNLOCKED
-                          </span>
-                        ) : (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                                backgroundColor: "#fee2e2",
-                                color: "#991b1b",
-                              }}
-                            >
-                              LOCKED
-                            </span>
-                            {step.lockReason && (
-                              <span style={{ fontSize: "0.7rem", color: "#991b1b" }}>
-                                {step.lockReason.replace(/_/g, " ")}
+
+                        <td>
+                          <div className={styles.stepTitleWrap}>
+                            <span className={styles.stepTitleText}>{step.title}</span>
+                            {step.scheduledUnlockDate && (
+                              <span className={styles.stepScheduledText}>
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="10" />
+                                  <polyline points="12 6 12 12 16 14" />
+                                </svg>
+                                <span>Scheduled: {new Date(step.scheduledUnlockDate).toLocaleDateString()}</span>
                               </span>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => toggleStepExpand(step.stepId)}
+                              className={styles.viewContentBtn}
+                              title="Toggle step items inspection"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: expandedStepIds[step.stepId] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>
+                                <polyline points="6 9 12 15 18 9" />
+                              </svg>
+                              <span>
+                                {expandedStepIds[step.stepId]
+                                  ? "Hide Content"
+                                  : `View Content (${step.completedItems ?? 0}/${step.totalItems ?? 0} done)`}
+                              </span>
+                            </button>
                           </div>
-                        )}
-                      </td>
-                      <td>
-                        {step.isCompleted ? (
-                          <span style={{ color: "#166534", fontWeight: 600, fontSize: "0.8rem" }}>
-                            ✓ Completed
-                          </span>
-                        ) : (
-                          <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>
-                            Pending
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        {isManuallyUnlocked ? (
-                          <span
-                            style={{
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              backgroundColor: "#fef3c7",
-                              color: "#92400e",
-                              border: "1px solid #fde68a",
-                            }}
-                          >
-                            MANUAL UNLOCK
-                          </span>
-                        ) : isManuallyLocked ? (
-                          <span
-                            style={{
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              backgroundColor: "#f3e8ff",
-                              color: "#6b21a8",
-                              border: "1px solid #e9d5ff",
-                            }}
-                          >
-                            MANUAL RELOCK
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                            Automatic
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        {step.overrideReason ? (
-                          <span
-                            style={{ fontSize: "0.8rem", color: "#334155", fontStyle: "italic" }}
-                            title={`Overridden at: ${step.overriddenAt ? new Date(step.overriddenAt).toLocaleString() : ""}`}
-                          >
-                            "{step.overrideReason}"
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: "0.8rem", color: "#cbd5e1" }}>—</span>
-                        )}
-                      </td>
-                      <td className={styles.alignRight}>
-                        <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                          {step.isUnlocked ? (
-                            <button
-                              type="button"
-                              onClick={() => openOverrideModal("relock", step)}
-                              style={{
-                                padding: "4px 10px",
-                                fontSize: "0.75rem",
-                                borderRadius: "4px",
-                                border: "1px solid #fca5a5",
-                                backgroundColor: "#fff1f2",
-                                color: "#9f1239",
-                                cursor: "pointer",
-                                fontWeight: 500,
-                              }}
-                              title="Manually lock this step for this learner"
-                            >
-                              Lock
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => openOverrideModal("unlock", step)}
-                              style={{
-                                padding: "4px 10px",
-                                fontSize: "0.75rem",
-                                borderRadius: "4px",
-                                border: "1px solid #86efac",
-                                backgroundColor: "#f0fdf4",
-                                color: "#166534",
-                                cursor: "pointer",
-                                fontWeight: 500,
-                              }}
-                              title="Manually unlock this step for this learner"
-                            >
-                              Unlock
-                            </button>
-                          )}
+                        </td>
 
-                          {(isManuallyUnlocked || isManuallyLocked) && (
-                            <button
-                              type="button"
-                              onClick={() => openOverrideModal("reset", step)}
-                              style={{
-                                padding: "4px 10px",
-                                fontSize: "0.75rem",
-                                borderRadius: "4px",
-                                border: "1px solid #cbd5e1",
-                                backgroundColor: "#f8fafc",
-                                color: "#475569",
-                                cursor: "pointer",
-                              }}
-                              title="Reset override back to automated rules"
-                            >
-                              Reset
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {expandedStepIds[step.stepId] && (
-                      <tr key={`${step.stepId}-details`} style={{ backgroundColor: "#f8fafc" }}>
-                        <td colSpan={7} style={{ padding: "16px 24px" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <h4 style={{ margin: 0, fontSize: "0.85rem", color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                                Step Content Breakdown ({step.completedItems ?? 0} of {step.totalItems ?? 0} Completed)
-                              </h4>
-                              {typeof step.progressPercent === "number" && (
-                                <span style={{ fontSize: "0.8rem", fontWeight: 700, color: step.isCompleted ? "#166534" : "#0284c7" }}>
-                                  Step Progress: {step.progressPercent}%
+                        <td>
+                          {step.isUnlocked ? (
+                            <span className={styles.badgeUnlocked}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                              </svg>
+                              <span>UNLOCKED</span>
+                            </span>
+                          ) : (
+                            <div className={styles.badgeLockedWrap}>
+                              <span className={styles.badgeLocked}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                </svg>
+                                <span>LOCKED</span>
+                              </span>
+                              {step.lockReason && (
+                                <span className={styles.lockReasonText}>
+                                  {step.lockReason.replace(/_/g, " ")}
                                 </span>
                               )}
                             </div>
+                          )}
+                        </td>
 
-                            {(!step.lessons || step.lessons.length === 0) && !step.quiz ? (
-                              <p style={{ margin: 0, fontSize: "0.85rem", color: "#94a3b8" }}>No lessons or quiz in this step.</p>
+                        <td>
+                          {step.isCompleted ? (
+                            <span className={styles.badgeCompleted}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              <span>Completed</span>
+                            </span>
+                          ) : (
+                            <span className={styles.badgePending}>
+                              Pending
+                            </span>
+                          )}
+                        </td>
+
+                        <td>
+                          {isManuallyUnlocked ? (
+                            <span className={styles.badgeManualUnlock}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                              </svg>
+                              <span>Manual Unlock</span>
+                            </span>
+                          ) : isManuallyLocked ? (
+                            <span className={styles.badgeManualRelock}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                              </svg>
+                              <span>Manual Relock</span>
+                            </span>
+                          ) : (
+                            <span className={styles.badgeAutomatic}>
+                              Automatic
+                            </span>
+                          )}
+                        </td>
+
+                        <td>
+                          {step.overrideReason ? (
+                            <span
+                              className={styles.overrideNoteText}
+                              title={`Overridden at: ${step.overriddenAt ? new Date(step.overriddenAt).toLocaleString() : ""}`}
+                            >
+                              "{step.overrideReason}"
+                            </span>
+                          ) : (
+                            <span style={{ color: "#d1c7bc" }}>—</span>
+                          )}
+                        </td>
+
+                        <td style={{ textAlign: "right" }}>
+                          <div className={styles.actionBtnGroup}>
+                            {step.isUnlocked ? (
+                              <button
+                                type="button"
+                                onClick={() => openOverrideModal("relock", step)}
+                                className={styles.actionBtnLock}
+                                title="Manually lock this step for this learner"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                </svg>
+                                <span>Lock</span>
+                              </button>
                             ) : (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                {step.lessons?.map((lesson) => {
-                                  const isMedia = lesson.type === "VIDEO" || lesson.type === "AUDIO";
-                                  return (
-                                    <div
-                                      key={lesson.lessonId}
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "space-between",
-                                        padding: "10px 14px",
-                                        backgroundColor: "#ffffff",
-                                        borderRadius: "6px",
-                                        border: "1px solid #e2e8f0",
-                                        fontSize: "0.85rem",
-                                      }}
-                                    >
-                                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1 }}>
-                                        <span style={{ fontSize: "1.1rem" }}>
-                                          {lesson.type === "VIDEO" ? "🎬" : lesson.type === "AUDIO" ? "🎧" : lesson.type === "PDF" ? "📄" : "📝"}
-                                        </span>
-                                        <div style={{ display: "flex", flexDirection: "column" }}>
-                                          <span style={{ fontWeight: 600, color: "#1e293b" }}>{lesson.title}</span>
-                                          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                                            {lesson.type} {lesson.durationSec ? `• ${formatDuration(lesson.durationSec)}` : ""}
-                                          </span>
-                                        </div>
-                                      </div>
+                              <button
+                                type="button"
+                                onClick={() => openOverrideModal("unlock", step)}
+                                className={styles.actionBtnUnlock}
+                                title="Manually unlock this step for this learner"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                  <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+                                </svg>
+                                <span>Unlock</span>
+                              </button>
+                            )}
 
-                                      {isMedia ? (
-                                        <div style={{ display: "flex", alignItems: "center", gap: "16px", minWidth: "260px" }}>
-                                          <div style={{ flex: 1 }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "4px" }}>
-                                              <span style={{ color: "#64748b" }}>
-                                                {formatDuration(lesson.lastPositionSec)} / {formatDuration(lesson.durationSec)}
-                                              </span>
-                                              <span style={{ fontWeight: 600, color: lesson.isCompleted ? "#166534" : "#0284c7" }}>
-                                                {Math.round(lesson.progressPercent)}%
-                                              </span>
-                                            </div>
-                                            <div style={{ width: "100%", height: "6px", backgroundColor: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
-                                              <div
-                                                style={{
-                                                  width: `${Math.min(100, lesson.progressPercent)}%`,
-                                                  height: "100%",
-                                                  backgroundColor: lesson.isCompleted ? "#16a34a" : "#0284c7",
-                                                }}
-                                              />
-                                            </div>
-                                          </div>
-                                          <span
-                                            style={{
-                                              padding: "2px 8px",
-                                              borderRadius: "4px",
-                                              fontSize: "0.75rem",
-                                              fontWeight: 600,
-                                              backgroundColor: lesson.isCompleted ? "#dcfce7" : "#f1f5f9",
-                                              color: lesson.isCompleted ? "#166534" : "#64748b",
-                                              whiteSpace: "nowrap",
-                                            }}
-                                          >
-                                            {lesson.isCompleted ? "✓ Viewed" : lesson.progressPercent > 0 ? "In Progress" : "Unwatched"}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                                          {lesson.completedAt && (
-                                            <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                                              Completed {new Date(lesson.completedAt).toLocaleDateString()}
-                                            </span>
-                                          )}
-                                          <span
-                                            style={{
-                                              padding: "2px 8px",
-                                              borderRadius: "4px",
-                                              fontSize: "0.75rem",
-                                              fontWeight: 600,
-                                              backgroundColor: lesson.isCompleted ? "#dcfce7" : "#f1f5f9",
-                                              color: lesson.isCompleted ? "#166534" : "#64748b",
-                                            }}
-                                          >
-                                            {lesson.isCompleted ? (lesson.type === "PDF" ? "✓ Opened" : "✓ Read") : "Pending"}
-                                          </span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-
-                                {step.quiz && (
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      padding: "10px 14px",
-                                      backgroundColor: "#ffffff",
-                                      borderRadius: "6px",
-                                      border: "1px solid #e2e8f0",
-                                      fontSize: "0.85rem",
-                                    }}
-                                  >
-                                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                      <span style={{ fontSize: "1.1rem" }}>❓</span>
-                                      <div style={{ display: "flex", flexDirection: "column" }}>
-                                        <span style={{ fontWeight: 600, color: "#1e293b" }}>Step Knowledge Quiz</span>
-                                        <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                                          Pass mark: {step.quiz.passMark}% • {step.quiz.attemptsCount} attempt{step.quiz.attemptsCount === 1 ? "" : "s"}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                                      <span style={{ fontSize: "0.8rem", color: "#334155" }}>
-                                        Best Score: <strong>{step.quiz.bestScore != null ? `${step.quiz.bestScore}%` : "No attempts"}</strong>
-                                      </span>
-                                      <span
-                                        style={{
-                                          padding: "2px 8px",
-                                          borderRadius: "4px",
-                                          fontSize: "0.75rem",
-                                          fontWeight: 600,
-                                          backgroundColor: step.quiz.isPassed ? "#dcfce7" : step.quiz.attemptsCount > 0 ? "#fee2e2" : "#f1f5f9",
-                                          color: step.quiz.isPassed ? "#166534" : step.quiz.attemptsCount > 0 ? "#991b1b" : "#64748b",
-                                        }}
-                                      >
-                                        {step.quiz.isPassed ? "✓ Passed" : step.quiz.attemptsCount > 0 ? "Failed" : "Not Attempted"}
-                                      </span>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                            {(isManuallyUnlocked || isManuallyLocked) && (
+                              <button
+                                type="button"
+                                onClick={() => openOverrideModal("reset", step)}
+                                className={styles.actionBtnReset}
+                                title="Reset override back to automated rules"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                                  <path d="M3 3v5h5" />
+                                </svg>
+                                <span>Reset</span>
+                              </button>
                             )}
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
+
+                      {/* Expanded Step Details Accordion */}
+                      {expandedStepIds[step.stepId] && (
+                        <tr key={`${step.stepId}-details`} className={styles.expandedDetailsRow}>
+                          <td colSpan={7}>
+                            <div className={styles.expandedDetailsContent}>
+                              <div className={styles.expandedHeader}>
+                                <h4 className={styles.expandedHeaderTitle}>
+                                  Step Content Breakdown ({step.completedItems ?? 0} of {step.totalItems ?? 0} Completed)
+                                </h4>
+                                {typeof step.progressPercent === "number" && (
+                                  <span className={styles.expandedHeaderProgress}>
+                                    Step Progress: {step.progressPercent}%
+                                  </span>
+                                )}
+                              </div>
+
+                              {(!step.lessons || step.lessons.length === 0) && !step.quiz ? (
+                                <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                                  No lessons or quiz in this step.
+                                </p>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                  {step.lessons?.map((lesson) => {
+                                    const isMedia = lesson.type === "VIDEO" || lesson.type === "AUDIO";
+                                    const isVideo = lesson.type === "VIDEO";
+                                    const isPdf = lesson.type === "PDF";
+
+                                    return (
+                                      <div key={lesson.lessonId} className={styles.lessonRowCard}>
+                                        <div className={styles.lessonLeft}>
+                                          <div
+                                            className={styles.lessonTypeIcon}
+                                            style={{
+                                              background: isVideo ? "#ede9fe" : isMedia ? "#e0f2fe" : isPdf ? "#ffe4e6" : "#fef3c7",
+                                              color: isVideo ? "#7c3aed" : isMedia ? "#0284c7" : isPdf ? "#e11d48" : "#d97706",
+                                            }}
+                                          >
+                                            {isVideo ? (
+                                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <polygon points="23 7 16 12 23 17 23 7" />
+                                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                                              </svg>
+                                            ) : isMedia ? (
+                                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                                                <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+                                              </svg>
+                                            ) : isPdf ? (
+                                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                                <polyline points="14 2 14 8 20 8" />
+                                              </svg>
+                                            ) : (
+                                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                                <polyline points="14 2 14 8 20 8" />
+                                                <line x1="16" y1="13" x2="8" y2="13" />
+                                                <line x1="16" y1="17" x2="8" y2="17" />
+                                              </svg>
+                                            )}
+                                          </div>
+
+                                          <div style={{ display: "flex", flexDirection: "column" }}>
+                                            <span className={styles.lessonTitle}>{lesson.title}</span>
+                                            <span className={styles.lessonSub}>
+                                              {lesson.type} {lesson.durationSec ? `• ${formatDuration(lesson.durationSec)}` : ""}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {isMedia ? (
+                                          <div className={styles.mediaProgressCol}>
+                                            <div className={styles.mediaMiniBar}>
+                                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                                <span>{formatDuration(lesson.lastPositionSec)} / {formatDuration(lesson.durationSec)}</span>
+                                                <span style={{ fontWeight: 700, color: lesson.isCompleted ? "#15803d" : "var(--accent-primary)" }}>
+                                                  {Math.round(lesson.progressPercent)}%
+                                                </span>
+                                              </div>
+                                              <div className={styles.mediaMiniBarTrack}>
+                                                <div
+                                                  className={styles.mediaMiniBarFill}
+                                                  style={{
+                                                    width: `${Math.min(100, lesson.progressPercent)}%`,
+                                                    backgroundColor: lesson.isCompleted ? "#15803d" : "var(--accent-primary)",
+                                                  }}
+                                                />
+                                              </div>
+                                            </div>
+
+                                            <span
+                                              style={{
+                                                fontSize: "0.75rem",
+                                                fontWeight: 700,
+                                                padding: "2px 8px",
+                                                borderRadius: 4,
+                                                background: lesson.isCompleted ? "#dcfce7" : "#f5ece1",
+                                                color: lesson.isCompleted ? "#15803d" : "var(--text-muted)",
+                                                whiteSpace: "nowrap",
+                                              }}
+                                            >
+                                              {lesson.isCompleted ? "✓ Viewed" : lesson.progressPercent > 0 ? "In Progress" : "Unwatched"}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                            {lesson.completedAt && (
+                                              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                                                Completed {new Date(lesson.completedAt).toLocaleDateString()}
+                                              </span>
+                                            )}
+                                            <span
+                                              style={{
+                                                fontSize: "0.75rem",
+                                                fontWeight: 700,
+                                                padding: "2px 8px",
+                                                borderRadius: 4,
+                                                background: lesson.isCompleted ? "#dcfce7" : "#f5ece1",
+                                                color: lesson.isCompleted ? "#15803d" : "var(--text-muted)",
+                                              }}
+                                            >
+                                              {lesson.isCompleted ? (lesson.type === "PDF" ? "✓ Opened" : "✓ Read") : "Pending"}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+
+                                  {step.quiz && (
+                                    <div className={styles.lessonRowCard}>
+                                      <div className={styles.lessonLeft}>
+                                        <div
+                                          className={styles.lessonTypeIcon}
+                                          style={{ background: "#faf5ff", color: "#7e22ce" }}
+                                        >
+                                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                                          </svg>
+                                        </div>
+                                        <div style={{ display: "flex", flexDirection: "column" }}>
+                                          <span className={styles.lessonTitle}>Step Knowledge Quiz</span>
+                                          <span className={styles.lessonSub}>
+                                            Pass mark: {step.quiz.passMark}% &bull; {step.quiz.attemptsCount} attempt{step.quiz.attemptsCount === 1 ? "" : "s"}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                                        <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                                          Best Score: <strong>{step.quiz.bestScore != null ? `${step.quiz.bestScore}%` : "No attempts"}</strong>
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: "0.75rem",
+                                            fontWeight: 700,
+                                            padding: "2px 8px",
+                                            borderRadius: 4,
+                                            background: step.quiz.isPassed ? "#dcfce7" : step.quiz.attemptsCount > 0 ? "#fee2e2" : "#f5ece1",
+                                            color: step.quiz.isPassed ? "#15803d" : step.quiz.attemptsCount > 0 ? "#991b1b" : "var(--text-muted)",
+                                          }}
+                                        >
+                                          {step.quiz.isPassed ? "✓ Passed" : step.quiz.attemptsCount > 0 ? "Failed" : "Not Attempted"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
 
-      {/* Manual Override Dialog Modal */}
+      {/* 5. Manual Override Confirmation Modal */}
       {activeModal && targetStep && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: "520px" }}>
+        <div className={styles.modalOverlay} onClick={closeOverrideModal}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2 style={{ fontSize: "1.25rem", margin: 0 }}>
+              <h2 className={styles.modalTitle}>
                 {activeModal === "unlock" && `Manual Unlock — Step ${targetStep.sequence}`}
                 {activeModal === "relock" && `Manual Relock — Step ${targetStep.sequence}`}
                 {activeModal === "reset" && `Reset Override — Step ${targetStep.sequence}`}
               </h2>
               <button
                 type="button"
-                className={styles.closeBtn}
+                className={styles.modalCloseBtn}
                 onClick={closeOverrideModal}
                 disabled={submittingOverride}
+                title="Close dialog (Esc)"
               >
-                ✕
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
 
             <form onSubmit={handleOverrideSubmit}>
               <div className={styles.modalBody}>
                 {modalError && (
-                  <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "10px", borderRadius: "6px", marginBottom: "1rem", fontSize: "0.85rem" }}>
-                    {modalError}
+                  <div className={styles.alertError} style={{ marginBottom: "1rem" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>{modalError}</span>
                   </div>
                 )}
 
-                <p style={{ fontSize: "0.875rem", color: "#475569", marginBottom: "1rem" }}>
+                <div className={styles.modalNotice}>
                   {activeModal === "unlock" && (
                     <>
-                      You are about to <strong>manually grant access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>, bypassing scheduled release gates.
+                      You are about to <strong>manually grant access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>, bypassing cohort release schedules and milestone prerequisite gates.
                     </>
                   )}
                   {activeModal === "relock" && (
                     <>
-                      You are about to <strong>manually revoke access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>.
+                      You are about to <strong>manually revoke access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>. The step will remain locked until manually cleared or re-evaluated.
                     </>
                   )}
                   {activeModal === "reset" && (
@@ -976,19 +1095,19 @@ export default function UserDetailPage({
                       This will remove the manual override and restore automated progression logic based on prerequisite completion and release schedules.
                     </>
                   )}
-                </p>
+                </div>
 
                 <div className={styles.formGroup}>
-                  <label htmlFor="reason" style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                    Reason for Override {activeModal !== "reset" && <span style={{ color: "#ef4444" }}>*</span>}
+                  <label htmlFor="reason" className={styles.formLabel}>
+                    Reason for Override {activeModal !== "reset" && <span style={{ color: "#dc2626" }}>*</span>}
                   </label>
                   <textarea
                     id="reason"
                     rows={3}
-                    className={styles.formInput}
+                    className={styles.formTextarea}
                     placeholder={
                       activeModal === "unlock"
-                        ? "e.g., Learner demonstrated exceptional readiness or has fast-track approval."
+                        ? "e.g., Learner demonstrated exceptional readiness or has fast-track cohort approval."
                         : activeModal === "relock"
                         ? "e.g., Academic review required before proceeding; prerequisite remediations needed."
                         : "Optional administrative notes for resetting to automatic progression."
@@ -997,10 +1116,9 @@ export default function UserDetailPage({
                     onChange={(e) => setOverrideReason(e.target.value)}
                     required={activeModal !== "reset"}
                     disabled={submittingOverride}
-                    style={{ width: "100%", marginTop: "6px" }}
                   />
-                  <span style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "4px", display: "block" }}>
-                    This reason is permanently logged to the system audit trail.
+                  <span className={styles.formHint}>
+                    This administrative reason is permanently logged to the system audit trail.
                   </span>
                 </div>
               </div>
@@ -1008,7 +1126,7 @@ export default function UserDetailPage({
               <div className={styles.modalFooter}>
                 <button
                   type="button"
-                  className={styles.secondaryBtn}
+                  className={styles.modalCancelBtn}
                   onClick={closeOverrideModal}
                   disabled={submittingOverride}
                 >
@@ -1016,7 +1134,7 @@ export default function UserDetailPage({
                 </button>
                 <button
                   type="submit"
-                  className={activeModal === "relock" ? styles.dangerBtn : styles.primaryBtn}
+                  className={`${styles.modalSubmitBtn} ${activeModal === "relock" ? styles.modalSubmitBtnDanger : ""}`}
                   disabled={submittingOverride}
                 >
                   {submittingOverride

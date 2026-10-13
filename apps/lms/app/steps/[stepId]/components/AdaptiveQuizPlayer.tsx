@@ -3,6 +3,7 @@
 import React from "react";
 import styles from "../step.module.css";
 import { QuizQuestion, ActiveQuizAttempt, QuizSubmissionResult } from "../../../lib/api";
+import { StepIcons } from "./StepIcons";
 
 interface AdaptiveQuizPlayerProps {
   quiz: any;
@@ -48,7 +49,9 @@ export default function AdaptiveQuizPlayer({
       {/* 1. QUIZ START SCREEN */}
       {!activeAttempt && !lastResult && (
         <div className={styles.quizIntroCard}>
-          <div className={styles.quizHeroIcon}>🧠</div>
+          <div className={styles.quizHeroIcon}>
+            <StepIcons.Brain size={32} />
+          </div>
           <h2 style={{ fontFamily: "var(--font-serif)", fontSize: "1.85rem", margin: "0 0 0.5rem" }}>
             Knowledge Check
           </h2>
@@ -99,42 +102,38 @@ export default function AdaptiveQuizPlayer({
 
           <h3 className={styles.questionPrompt}>{currentQuestion.text}</h3>
 
-          {/* Single Choice Radio Options List */}
-          <div className={styles.optionsList}>
+          {/* Options Radio List */}
+          <div className={styles.questionOptionsList}>
             {currentQuestion.options?.map((opt) => {
-              const isSelected = answers[currentQuestion.id] === opt.id;
+              const isChecked = answers[currentQuestion.id] === opt.id;
               return (
                 <label
                   key={opt.id}
-                  className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
+                  className={`${styles.questionOptionLabel} ${isChecked ? styles.questionOptionChecked : ""}`}
                 >
                   <input
                     type="radio"
-                    name={`q_${currentQuestion.id}`}
+                    name={`quiz_${currentQuestion.id}`}
                     value={opt.id}
-                    checked={isSelected}
+                    checked={isChecked}
                     onChange={() => onOptionChange(currentQuestion.id, opt.id)}
-                    style={{ display: "none" }}
+                    className={styles.questionRadioInput}
                   />
-                  <div className={styles.optionRadioCircle}>
-                    {isSelected && <div className={styles.optionRadioDot} />}
-                  </div>
-                  <span>{opt.text}</span>
+                  <span className={styles.optionTextSpan}>{opt.text}</span>
                 </label>
               );
             })}
           </div>
 
-          {/* Inline Navigation for Questions */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2rem" }}>
+          {/* Question Navigation Buttons */}
+          <div className={styles.questionNavRow}>
             <button
               type="button"
-              className={styles.playerToolBtn}
+              className={styles.questionPrevBtn}
               onClick={() => setCurrentQuestionIdx(Math.max(0, currentQuestionIdx - 1))}
               disabled={currentQuestionIdx === 0}
-              style={{ opacity: currentQuestionIdx === 0 ? 0.4 : 1, padding: "0.6rem 1.25rem", fontSize: "0.88rem" }}
             >
-              ← Previous Question
+              ← Previous
             </button>
 
             {currentQuestionIdx < questions.length - 1 ? (
@@ -167,9 +166,11 @@ export default function AdaptiveQuizPlayer({
         <div className={styles.resultCard}>
           {lastResult.passed ? (
             <>
-              <div style={{ fontSize: "3.5rem", marginBottom: "0.5rem" }}>🎉</div>
+              <div style={{ color: "#16a34a", marginBottom: "0.5rem" }}>
+                <StepIcons.CheckCircle size={48} />
+              </div>
               <h2 style={{ fontFamily: "var(--font-serif)", fontSize: "2rem", color: "#15803d", margin: "0 0 0.5rem" }}>
-                Knowledge Check Passed!
+                Knowledge Check Passed
               </h2>
               <div className={`${styles.scoreBadge} ${styles.scoreBadgePassed}`}>
                 {lastResult.score}%
@@ -189,7 +190,9 @@ export default function AdaptiveQuizPlayer({
             </>
           ) : (
             <>
-              <div style={{ fontSize: "3.5rem", marginBottom: "0.5rem" }}>💪</div>
+              <div style={{ color: "#b91c1c", marginBottom: "0.5rem" }}>
+                <StepIcons.Brain size={48} />
+              </div>
               <h2 style={{ fontFamily: "var(--font-serif)", fontSize: "1.85rem", color: "#b91c1c", margin: "0 0 0.5rem" }}>
                 Keep Learning &amp; Try Again
               </h2>

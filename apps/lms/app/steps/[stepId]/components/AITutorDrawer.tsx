@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import styles from "../step.module.css";
+import { StepIcons } from "./StepIcons";
 
 interface AITutorDrawerProps {
   isOpen: boolean;
@@ -36,7 +37,6 @@ export default function AITutorDrawer({
     setInputText("");
     setIsTyping(true);
 
-    // Intelligent simulated pedagogical response based on lesson context
     setTimeout(() => {
       let reply = `In ${stepTitle}, the key insight is understanding how the hierarchy and rules work together. When you apply this pattern in production code, it ensures predictability and maintainability across components.`;
       
@@ -44,11 +44,11 @@ export default function AITutorDrawer({
       if (lower.includes("summarize") || lower.includes("summary")) {
         reply = `Here is a quick summary for ${stepTitle}:\n1. Understand the direct relationship between parent and child elements.\n2. Avoid high specificity overrides; keep rules focused and DRY.\n3. Test responsive behaviors across viewport breakpoints.`;
       } else if (lower.includes("simply") || lower.includes("simple")) {
-        reply = `Think of ${stepTitle} like a family tree! A direct child combinator only affects immediate children (son/daughter), ignoring grandchildren and deeper descendants. That keeps your styling razor-sharp!`;
+        reply = `Think of ${stepTitle} like building blocks! Each component establishes clear hierarchy and responsibilities.`;
       } else if (lower.includes("quiz") || lower.includes("question")) {
-        reply = `Quick test question: What happens when an element is nested inside a container two levels deep? Does a direct child combinator apply? (Hint: Think about level-1 hierarchy!)`;
+        reply = `Quick test question: What is the primary milestone requirement to complete this step?`;
       } else if (lower.includes("code") || lower.includes("example")) {
-        reply = `Here is a clean pattern:\n\`\`\`css\n.card > .button {\n  background: var(--accent-primary);\n}\n\`\`\`\nThis only styles buttons immediately inside .card, leaving nested sub-buttons untouched.`;
+        reply = `Sample implementation pattern:\n\`\`\`typescript\nconst isReady = Boolean(isCompleted && !isLocked);\n\`\`\``;
       }
 
       setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
@@ -67,8 +67,8 @@ export default function AITutorDrawer({
         {/* Drawer Header */}
         <div className={styles.drawerHeader} style={{ background: "var(--bg-soft)" }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-              <span style={{ fontSize: "1.2rem" }}>🤖</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+              <StepIcons.Bot size={20} />
               <h3 style={{ fontFamily: "var(--font-serif)", fontSize: "1.2rem", margin: 0 }}>
                 AI Study Tutor
               </h3>
@@ -84,7 +84,7 @@ export default function AITutorDrawer({
             onClick={onClose}
             title="Close AI Tutor (Esc)"
           >
-            ✕
+            <StepIcons.Close size={16} />
           </button>
         </div>
 
@@ -101,14 +101,14 @@ export default function AITutorDrawer({
               type="button"
               onClick={() => handleSendMessage(prompt)}
               style={{
-                background: "#ffffff",
-                border: "1px solid var(--border-light)",
-                borderRadius: 9999,
                 padding: "4px 10px",
                 fontSize: "0.78rem",
-                fontWeight: 600,
-                color: "var(--accent-primary)",
+                borderRadius: 6,
+                border: "1px solid var(--border-light)",
+                background: "#ffffff",
+                color: "var(--text-secondary)",
                 cursor: "pointer",
+                fontWeight: 600,
               }}
             >
               {prompt}
@@ -116,78 +116,82 @@ export default function AITutorDrawer({
           ))}
         </div>
 
-        {/* Chat History Messages */}
+        {/* Messages Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
           {messages.map((m, idx) => (
             <div
               key={idx}
               style={{
+                display: "flex",
+                gap: 10,
                 alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                maxWidth: "85%",
-                background: m.role === "user" ? "var(--accent-primary)" : "var(--bg-soft)",
-                color: m.role === "user" ? "#ffffff" : "var(--text-primary)",
-                padding: "0.75rem 1rem",
-                borderRadius: m.role === "user" ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-                fontSize: "0.88rem",
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                maxWidth: "88%",
               }}
             >
-              {m.text}
+              {m.role === "assistant" && (
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent-highlight)", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <StepIcons.Bot size={14} />
+                </div>
+              )}
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  background: m.role === "user" ? "var(--accent-primary)" : "#ffffff",
+                  color: m.role === "user" ? "#ffffff" : "var(--text-primary)",
+                  border: m.role === "assistant" ? "1px solid var(--border-light)" : "none",
+                  fontSize: "0.88rem",
+                  lineHeight: 1.5,
+                  whiteSpace: "pre-line",
+                }}
+              >
+                {m.text}
+              </div>
             </div>
           ))}
-
           {isTyping && (
-            <div
-              style={{
-                alignSelf: "flex-start",
-                background: "var(--bg-soft)",
-                color: "var(--text-muted)",
-                padding: "0.5rem 0.85rem",
-                borderRadius: 12,
-                fontSize: "0.8rem",
-                fontStyle: "italic",
-              }}
-            >
-              Copilot is thinking...
+            <div style={{ display: "flex", gap: 10, alignSelf: "flex-start" }}>
+              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--accent-highlight)", color: "var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <StepIcons.Bot size={14} />
+              </div>
+              <div style={{ padding: "8px 14px", borderRadius: 12, background: "#ffffff", border: "1px solid var(--border-light)", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                Thinking...
+              </div>
             </div>
           )}
         </div>
 
-        {/* Chat Input Bar */}
-        <div style={{ padding: "1rem 1.25rem", borderTop: "1px solid var(--border-light)", background: "#ffffff" }}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendMessage();
+        {/* Chat Input */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSendMessage();
+          }}
+          style={{ padding: "1rem 1.25rem", borderTop: "1px solid var(--border-light)", background: "#ffffff", display: "flex", gap: 8 }}
+        >
+          <input
+            type="text"
+            placeholder="Ask your AI tutor a question..."
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 8,
+              border: "1px solid var(--border-light)",
+              fontSize: "0.88rem",
+              outline: "none",
             }}
-            style={{ display: "flex", gap: "0.5rem" }}
+          />
+          <button
+            type="submit"
+            disabled={!inputText.trim()}
+            className={styles.continueActionBtn}
+            style={{ padding: "8px 14px", fontSize: "0.88rem" }}
           >
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Ask anything about this lesson..."
-              style={{
-                flex: 1,
-                padding: "0.65rem 0.85rem",
-                borderRadius: 8,
-                border: "1px solid var(--border-light)",
-                outline: "none",
-                fontSize: "0.88rem",
-                background: "var(--bg-card-muted)",
-              }}
-            />
-            <button
-              type="submit"
-              className={styles.continueActionBtn}
-              style={{ padding: "0.65rem 1.15rem", fontSize: "0.88rem" }}
-            >
-              Send
-            </button>
-          </form>
-        </div>
+            <StepIcons.Send size={14} />
+          </button>
+        </form>
       </aside>
     </>
   );

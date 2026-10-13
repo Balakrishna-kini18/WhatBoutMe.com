@@ -3,6 +3,7 @@
 import React, { useRef } from "react";
 import styles from "../step.module.css";
 import { API_URL } from "../../../lib/api";
+import { StepIcons } from "./StepIcons";
 
 interface CinemaVideoPlayerProps {
   currentMedia: any;
@@ -58,16 +59,19 @@ export default function CinemaVideoPlayer({
     <div style={{ width: "100%" }}>
       {/* Multi-video parts selector (if step contains >1 video) */}
       {allMediaLessons.length > 1 && (
-        <div className={styles.multiVideoSelector}>
+        <div className={styles.multiVideoSelector} role="tablist">
           {allMediaLessons.map((m: any, idx: number) => {
             const isSelected = currentMedia.id === m.id;
             return (
               <button
                 key={m.id}
                 type="button"
+                role="tab"
+                aria-selected={isSelected}
                 onClick={() => onSelectMedia(m.id)}
                 className={`${styles.videoPill} ${isSelected ? styles.videoPillActive : ""}`}
               >
+                <StepIcons.Video size={14} />
                 <span>Part {idx + 1}: {m.title}</span>
               </button>
             );
@@ -122,9 +126,12 @@ export default function CinemaVideoPlayer({
       {/* Resume Playback Notification Pill */}
       {resumedFrom && resumedFrom.lessonId === currentMedia.id && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", background: "#fef3c7", borderRadius: 10, fontSize: "0.85rem", color: "#92400e", marginTop: "0.75rem" }}>
-          <span>
-            Resumed at <strong>{Math.floor(resumedFrom.timeSec / 60)}:{(resumedFrom.timeSec % 60).toString().padStart(2, "0")}</strong>
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <StepIcons.Clock size={15} />
+            <span>
+              Resumed at <strong>{Math.floor(resumedFrom.timeSec / 60)}:{(resumedFrom.timeSec % 60).toString().padStart(2, "0")}</strong>
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -143,7 +150,14 @@ export default function CinemaVideoPlayer({
         <div className={styles.videoMetaInfo}>
           <span className={styles.videoLessonBadge}>{currentMedia.title}</span>
           <span className={styles.videoDurationChip}>
-            {isVideoDone ? "✓ Watched" : `${Math.round(progressPercent)}% Completed`}
+            {isVideoDone ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <StepIcons.Check size={13} />
+                <span>Watched</span>
+              </span>
+            ) : (
+              <span>{Math.round(progressPercent)}% Completed</span>
+            )}
           </span>
         </div>
 
@@ -154,7 +168,7 @@ export default function CinemaVideoPlayer({
             onClick={onChangeSpeed}
             title="Cycle playback speed"
           >
-            <span>⚡</span>
+            <StepIcons.Gauge size={14} />
             <span>{playbackSpeed}x Speed</span>
           </button>
 
@@ -173,7 +187,7 @@ export default function CinemaVideoPlayer({
               }}
               title="Toggle Picture-in-Picture window"
             >
-              <span>📺</span>
+              <StepIcons.PictureInPicture size={14} />
               <span>PiP</span>
             </button>
           )}

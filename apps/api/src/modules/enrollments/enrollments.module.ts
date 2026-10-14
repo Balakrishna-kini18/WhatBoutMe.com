@@ -8,9 +8,10 @@ import {
 import { EnrollmentsService } from './enrollments.service.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { CacheHelperModule } from '../../common/cache/cache-helper.module.js';
+import { CouponsModule } from '../coupons/coupons.module.js';
 
 @Module({
-  imports: [PrismaModule, CacheHelperModule],
+  imports: [PrismaModule, CacheHelperModule, CouponsModule],
   controllers: [
     AdminEnrolmentsController,
     BatchWaitlistController,

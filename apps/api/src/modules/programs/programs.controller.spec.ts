@@ -185,7 +185,7 @@ describe('D1-030: ProgramsController & Security Guard Tests', () => {
     it('findOne forwards caller role to service', async () => {
       const req = { user: { role: Role.ADMIN } };
       await controller.findOne('prog-1', req);
-      expect(serviceMock.findOne).toHaveBeenCalledWith('prog-1', Role.ADMIN);
+      expect(serviceMock.findOne).toHaveBeenCalledWith('prog-1', Role.ADMIN, undefined);
     });
 
     it('create calls service.create with body', async () => {

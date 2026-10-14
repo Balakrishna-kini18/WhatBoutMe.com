@@ -53,6 +53,8 @@ describe('D1-035: LessonProgressController Tests', () => {
         'lesson-1',
         req.user,
         150,
+        undefined,
+        undefined,
       );
       expect(res.progressPercent).toBe(50);
       expect(res.lastPositionSec).toBe(150);

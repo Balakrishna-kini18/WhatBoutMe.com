@@ -1361,12 +1361,8 @@ export class ProgressionService {
       lesson.type === ContentType.VIDEO ||
       lesson.type === ContentType.AUDIO
     ) {
-      return this.recordMediaProgress(
-        lessonId,
-        actor,
-        lesson.durationSec || 1,
-        lesson.durationSec || 1,
-        true,
+      throw new BadRequestException(
+        'Media lessons (VIDEO/AUDIO) must be completed via media progress heartbeat',
       );
     }
 

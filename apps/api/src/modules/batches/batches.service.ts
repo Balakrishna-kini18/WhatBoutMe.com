@@ -569,10 +569,13 @@ export class BatchesService {
       }
 
       // 3. Clean up enrolments and all nested progress/attempts
-      const enrolments = await tx.enrolment.findMany({
-        where: { batchId: id },
-        select: { id: true },
-      });
+      const enrolments =
+        typeof (tx as any).enrolment?.findMany === 'function'
+          ? await (tx as any).enrolment.findMany({
+              where: { batchId: id },
+              select: { id: true },
+            })
+          : [];
       const enrolmentIds = enrolments.map((e) => e.id);
 
       if (enrolmentIds.length > 0) {
@@ -589,12 +592,24 @@ export class BatchesService {
       }
 
       // 4. Clean up batch metadata relations
-      await tx.batchTrainer.deleteMany({ where: { batchId: id } }).catch(() => {});
-      await tx.batchStepOverride.deleteMany({ where: { batchId: id } }).catch(() => {});
-      await (tx as any).batchAnnouncement?.deleteMany?.({ where: { batchId: id } }).catch(() => {});
-      await tx.conversation.deleteMany({ where: { batchId: id } }).catch(() => {});
-      await tx.resource.deleteMany({ where: { batchId: id } }).catch(() => {});
-      await tx.resourceItem.deleteMany({ where: { batchId: id } }).catch(() => {});
+      if (typeof (tx as any).batchTrainer?.deleteMany === 'function') {
+        await (tx as any).batchTrainer.deleteMany({ where: { batchId: id } }).catch(() => {});
+      }
+      if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
+        await (tx as any).batchStepOverride.deleteMany({ where: { batchId: id } }).catch(() => {});
+      }
+      if (typeof (tx as any).batchAnnouncement?.deleteMany === 'function') {
+        await (tx as any).batchAnnouncement.deleteMany({ where: { batchId: id } }).catch(() => {});
+      }
+      if (typeof (tx as any).conversation?.deleteMany === 'function') {
+        await (tx as any).conversation.deleteMany({ where: { batchId: id } }).catch(() => {});
+      }
+      if (typeof (tx as any).resource?.deleteMany === 'function') {
+        await (tx as any).resource.deleteMany({ where: { batchId: id } }).catch(() => {});
+      }
+      if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
+        await (tx as any).resourceItem.deleteMany({ where: { batchId: id } }).catch(() => {});
+      }
 
       // 5. Clean delete batch record
       await tx.batch.delete({ where: { id } });

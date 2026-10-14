@@ -3,7 +3,8 @@
 import { useEffect, useState, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
-import { Modal, CustomSelect } from "../../../../../components";
+import { Modal, CustomSelect, ConfirmDialog, useToast } from "../../../../../components";
+import { errorMessage as extractErrorMessage } from "../../../../../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -42,9 +43,15 @@ export default function ReconciliationPage({
   const resolvedParams = use(params);
   const { id: batchId, sessionId } = resolvedParams;
 
+  const { success: toastSuccess, error: toastError } = useToast();
   const [data, setData] = useState<ReconciliationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+
+  // Dismiss confirmation state
+  const [itemToDismiss, setItemToDismiss] = useState<UnmatchedItem | null>(null);
+  const [isDismissing, setIsDismissing] = useState(false);
+  const [dismissError, setDismissError] = useState<string | null>(null);
 
   const [linkModal, setLinkModal] = useState<{
     isOpen: boolean;
@@ -130,13 +137,55 @@ export default function ReconciliationPage({
 
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.message || "Failed to link participant");
+        const msg = err?.message || "Failed to link participant";
+        setLinkModal((prev) => ({ ...prev, loading: false, error: msg }));
+        toastError(msg, "Linking Failed");
+        return;
       }
 
+      const linkedName = linkModal.unmatchedItem?.participantName || "Attendee";
       setLinkModal((prev) => ({ ...prev, isOpen: false, loading: false }));
+      toastSuccess(`Attendee "${linkedName}" successfully linked to enrolled learner.`, "Participant Linked");
       await fetchData();
     } catch (err: any) {
-      setLinkModal((prev) => ({ ...prev, loading: false, error: err.message || "Network error" }));
+      const netErr = err?.message || "Network error";
+      setLinkModal((prev) => ({ ...prev, loading: false, error: netErr }));
+      toastError(netErr, "Connection Error");
+    }
+  };
+
+  const confirmDismiss = async () => {
+    if (!itemToDismiss) return;
+    setIsDismissing(true);
+    setDismissError(null);
+    try {
+      const res = await fetch(
+        `${API_URL}/sessions/${sessionId}/unmatched-attendance/${itemToDismiss.id}/dismiss`,
+        {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+        }
+      );
+
+      if (res.ok) {
+        toastSuccess(
+          `Attendee "${itemToDismiss.participantName}" dismissed from reconciliation.`,
+          "Attendee Dismissed"
+        );
+        setItemToDismiss(null);
+        await fetchData();
+      } else {
+        const err = await extractErrorMessage(res, "Failed to dismiss unmatched participant.");
+        setDismissError(err);
+        toastError(err, "Dismissal Failed");
+      }
+    } catch (e: any) {
+      console.error("Failed to dismiss unmatched attendee:", e);
+      const netErr = "Network error: failed to communicate with the server.";
+      setDismissError(netErr);
+      toastError(netErr, "Connection Error");
+    } finally {
+      setIsDismissing(false);
     }
   };
 
@@ -233,13 +282,27 @@ export default function ReconciliationPage({
                       <span className={styles.cellTextMuted}>{formatLocalTime(item.leaveTimeUtc)}</span>
                     </td>
                     <td className={styles.alignRight}>
-                      <button
-                        className={styles.primaryBtn}
-                        onClick={() => handleOpenLinkModal(item)}
-                        style={{ padding: "6px 14px", fontSize: "0.85rem" }}
-                      >
-                        Link to Learner →
-                      </button>
+                      <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                        <button
+                          className={styles.primaryBtn}
+                          onClick={() => handleOpenLinkModal(item)}
+                          style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+                        >
+                          Link to Learner →
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondaryBtn}
+                          onClick={() => {
+                            setItemToDismiss(item);
+                            setDismissError(null);
+                          }}
+                          style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+                          title="Dismiss this attendee from attendance reconciliation"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -325,6 +388,39 @@ export default function ReconciliationPage({
           </form>
         </Modal>
       )}
+
+      {/* Branded ConfirmDialog for Unmatched Attendee Dismissal */}
+      <ConfirmDialog
+        isOpen={Boolean(itemToDismiss)}
+        onClose={() => {
+          if (!isDismissing) {
+            setItemToDismiss(null);
+            setDismissError(null);
+          }
+        }}
+        onConfirm={confirmDismiss}
+        title="Dismiss Unmatched Attendee?"
+        subtitle={itemToDismiss?.participantName}
+        description="Are you sure you want to dismiss this unmatched attendee? They will be marked as dismissed and ignored for cohort attendance calculations."
+        tone="danger"
+        confirmText={isDismissing ? "Dismissing..." : "Dismiss Attendee"}
+        cancelText="Cancel"
+        isLoading={isDismissing}
+        error={dismissError}
+        itemDetails={
+          itemToDismiss
+            ? [
+                { label: "Attendee Name", value: itemToDismiss.participantName },
+                { label: "Attendee Email", value: itemToDismiss.participantEmail || "(No email provided)" },
+                { label: "Duration", value: `${itemToDismiss.minutesPresent} mins` },
+              ]
+            : []
+        }
+        callout={{
+          tone: "warning",
+          text: "Dismissed attendees will be marked as DISMISSED and removed from the active reconciliation queue.",
+        }}
+      />
     </div>
   );
 }

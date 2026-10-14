@@ -148,46 +148,6 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener('wbm-session-revoked', onRevoked);
   }, []);
 
-  React.useEffect(() => {
-    const checkSessionNow = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-      try {
-        const res = await window.fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/session`);
-        if (res.status === 401) {
-          const data = await res.json().catch(() => ({}));
-          const code = typeof data.error === 'string' ? data.error : data.error?.code;
-          if (code === 'SESSION_REVOKED') {
-            localStorage.removeItem('token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('user');
-            setRevokedReason(data.reason || data.error?.reason || 'DEVICE_LIMIT_EXCEEDED');
-          }
-        }
-      } catch (e) {}
-    };
-
-    // Heartbeat poll every 20 seconds
-    const pollInterval = setInterval(checkSessionNow, 20000);
-
-    // Immediate check on tab visibility change or focus
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void checkSessionNow();
-      }
-    };
-    const onFocus = () => void checkSessionNow();
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('focus', onFocus);
-
-    return () => {
-      clearInterval(pollInterval);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [router]);
-
   return (
     <>
       {children}

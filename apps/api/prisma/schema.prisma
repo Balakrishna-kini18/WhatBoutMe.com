@@ -94,6 +94,20 @@ enum ResourceScope {
   PROGRAM_LIBRARY
 }
 
+enum ResourceItemType {
+  WORKSHEET
+  READING
+  GUIDED_AUDIO
+  VIDEO
+}
+
+enum ResourceAccessScope {
+  ALL_ENROLLED
+  PROGRAM
+  BATCH
+  STEP_UNLOCKED
+}
+
 enum InvoiceStatus {
   DRAFT
   ISSUED
@@ -105,6 +119,23 @@ enum InvoiceStatus {
 enum CouponType {
   PERCENTAGE
   FIXED
+}
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum CouponScope {
+  ALL_COURSES
+  SPECIFIC_COURSES
+}
+
+enum CouponCurrency {
+  INR
+  AED
+  USD
+  ALL
 }
 
 enum AgreementStatus {
@@ -263,6 +294,8 @@ model User {
   passwordResetTokens          PasswordResetToken[]
   otpCodes                     OtpCode[]
   loginAudits                  LoginAudit[]
+  createdResourceItems         ResourceItem[]             @relation("CreatedResourceItems")
+  couponRedemptions            CouponRedemption[]
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -368,6 +401,7 @@ model Program {
   steps              Step[]
   batches            Batch[]
   resources          Resource[]
+  resourceItems      ResourceItem[]
   enrolments         Enrolment[]
   questionBanks      QuestionBank[]
   exams              Exam[]
@@ -375,6 +409,7 @@ model Program {
   agreementTemplates AgreementTemplate[]
   signedAgreements   SignedAgreement[]
   certificates       Certificate[]
+  coupons            Coupon[]                   @relation("CouponPrograms")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -394,7 +429,8 @@ model Step {
   unlockDelayDays Int?
 
   lessons       Lesson[]
-  resources     Resource[]
+  resources                Resource[]
+  requiredForResourceItems ResourceItem[]
   quiz          Quiz?
   questionBanks QuestionBank[]
   questions     Question[]
@@ -455,6 +491,64 @@ model Resource {
   @@index([programId])
   @@index([stepId])
   @@index([batchId])
+}
+
+// -----------------------------------------------------------------------------
+// STANDALONE RESOURCE LIBRARY (MODULE 1 OF 8)
+// -----------------------------------------------------------------------------
+
+model ResourceCategory {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items ResourceItem[]
+
+  @@index([order])
+}
+
+model ResourceItem {
+  id              String              @id @default(uuid())
+  title           String
+  description     String?
+  type            ResourceItemType
+  categoryId      String
+  category        ResourceCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  storageKey      String
+  mimeType        String
+  fileSizeBytes   Int
+  durationSeconds Int?
+  pageCount       Int?
+
+  // Tagging & Access Scoping
+  stepTagNumber   Int?
+  accessScope     ResourceAccessScope @default(ALL_ENROLLED)
+  programId       String?
+  program         Program?            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  batchId         String?
+  batch           Batch?              @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  requiredStepId  String?
+  requiredStep    Step?               @relation(fields: [requiredStepId], references: [id], onDelete: SetNull)
+
+  isPublished     Boolean             @default(true)
+  createdById     String?
+  createdBy       User?               @relation("CreatedResourceItems", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([categoryId])
+  @@index([accessScope])
+  @@index([programId])
+  @@index([batchId])
+  @@index([requiredStepId])
+  @@index([stepTagNumber])
+  @@index([isPublished])
 }
 
 // -----------------------------------------------------------------------------
@@ -657,6 +751,7 @@ model Batch {
   overrides     BatchStepOverride[]
   trainers      BatchTrainer[]
   resources     Resource[]
+  resourceItems ResourceItem[]
   conversations Conversation[]
 
   createdAt DateTime @default(now())
@@ -707,6 +802,7 @@ model Enrolment {
   certificate          Certificate?
   payments             Payment[]
   stepProgress         StepProgress[]
+  couponRedemptions    CouponRedemption[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1053,6 +1149,11 @@ model Payment {
   currency        String @default("USD")
   status          String // e.g., 'succeeded', 'failed'
 
+  couponId        String?
+  couponCode      String?
+  discountAmount  Float?
+  redemptions     CouponRedemption[]
+
   createdAt DateTime @default(now())
 }
 
@@ -1140,6 +1241,8 @@ model Invoice {
   invoiceNumber String        @unique
   amount        Float
   currency      String        @default("USD")
+  couponCode    String?
+  discountAmount Float?
   taxFields     Json?
   pdfUrl        String?
   status        InvoiceStatus @default(DRAFT)
@@ -1150,15 +1253,57 @@ model Invoice {
 }
 
 model Coupon {
-  id         String     @id @default(uuid())
-  code       String     @unique
-  type       CouponType
-  value      Float
-  usageLimit Int?
-  usedCount  Int        @default(0)
-  expiryDate DateTime?
+  id                    String             @id @default(uuid())
+  code                  String             @unique
+  description           String?
+  discountType          CouponDiscountType @default(PERCENTAGE)
+  discountValue         Float
+  currency              CouponCurrency     @default(ALL)
+  scope                 CouponScope        @default(ALL_COURSES)
 
-  createdAt DateTime @default(now())
+  maxTotalUses          Int?
+  currentUses           Int                @default(0)
+  maxUsesPerUser        Int                @default(1)
+
+  validFrom             DateTime           @default(now())
+  expiresAt             DateTime?
+  isActive              Boolean            @default(true)
+
+  stripeCouponId        String?
+  stripePromotionCodeId String?
+  appliesToInstalments  Boolean            @default(false)
+
+  programs              Program[]          @relation("CouponPrograms")
+  redemptions           CouponRedemption[]
+
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model CouponRedemption {
+  id             String     @id @default(uuid())
+  couponId       String
+  coupon         Coupon     @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  enrolmentId    String?
+  enrolment      Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: SetNull)
+  paymentId      String?
+  payment        Payment?   @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  orderAmount    Float
+  discountAmount Float
+  finalAmount    Float
+  currency       String     @default("USD")
+
+  redeemedAt     DateTime   @default(now())
+
+  @@index([couponId])
+  @@index([userId])
+  @@index([couponId, userId])
 }
 
 // -----------------------------------------------------------------------------

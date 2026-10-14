@@ -1,0 +1,274 @@
+/* =========================================================================
+   WhatBoutMe Admin - Resource Library Styles
+   ========================================================================= */
+
+.categoryTabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-light, #e7dfd5);
+  margin-bottom: 1.25rem;
+}
+
+.categoryTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary, #6b6359);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.categoryTab:hover {
+  background: var(--bg-soft, #f7f3ed);
+  color: var(--text-primary, #1e1915);
+}
+
+.categoryTabActive {
+  background: #ffffff;
+  color: var(--accent-primary, #92400e);
+  font-weight: 600;
+  border-color: var(--border-light, #e7dfd5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.tabBadge {
+  background: var(--bg-soft, #f3ede4);
+  color: var(--text-secondary, #6b6359);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.categoryTabActive .tabBadge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.manageCategoriesBtn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary, #6b6359);
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7dfd5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.manageCategoriesBtn:hover {
+  background: var(--bg-soft, #f7f3ed);
+  color: var(--text-primary, #1e1915);
+}
+
+/* Filter Controls Bar */
+.filterBar {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7dfd5);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.searchInputWrapper {
+  flex: 1;
+  min-width: 220px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted, #9c9386);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, #e7dfd5);
+  font-size: 0.875rem;
+  background: #ffffff;
+  color: var(--text-primary, #1e1915);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.searchInput:focus {
+  border-color: var(--accent-primary, #92400e);
+}
+
+.filterSelect {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, #e7dfd5);
+  font-size: 0.8125rem;
+  background: #ffffff;
+  color: var(--text-primary, #1e1915);
+  cursor: pointer;
+  min-width: 140px;
+}
+
+/* Dropzone */
+.dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.dropzone:hover, .dropzoneActive {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.dropzoneIcon {
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.dropzoneTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 4px 0;
+}
+
+.dropzoneSubtitle {
+  font-size: 0.8125rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Upload Progress Bar */
+.progressContainer {
+  margin-top: 12px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  height: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progressBar {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* Watermarked PDF Viewer Container */
+.previewContainer {
+  position: relative;
+  width: 100%;
+  height: 520px;
+  background: #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.watermarkOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-30deg);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.22);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  user-select: none;
+  text-align: center;
+  line-height: 1.8;
+  white-space: pre-line;
+}
+
+.previewFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Custom Audio Player */
+.audioPlayerCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7dfd5);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.audioWaveformPlaceholder {
+  width: 100%;
+  height: 60px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 16px;
+}
+
+.audioWaveBar {
+  width: 4px;
+  background: #3b82f6;
+  border-radius: 2px;
+  animation: wavePulse 1.2s ease-in-out infinite;
+}
+
+@keyframes wavePulse {
+  0%, 100% { height: 12px; }
+  50% { height: 44px; }
+}
+
+.stepPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #e0e7ff;
+  color: #3730a3;
+}

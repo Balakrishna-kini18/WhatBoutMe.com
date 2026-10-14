@@ -77,6 +77,12 @@ const Icons = {
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
   ),
+  Coupons: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+      <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  ),
   Messages: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -251,6 +257,24 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     category: "Curriculum",
     iconName: "Certificates",
     keywords: ["credentials", "awards", "graduation", "diploma"],
+  },
+  {
+    id: "resources",
+    title: "Resource Library",
+    description: "Worksheets, readings, guided audios, and learning materials",
+    href: "/resources",
+    category: "Curriculum",
+    iconName: "Resources",
+    keywords: ["resources", "worksheets", "readings", "audio", "meditations", "files"],
+  },
+  {
+    id: "coupons",
+    title: "Coupons & Discounts",
+    description: "Promo codes, currency discounts (INR/AED/USD), and checkout usage rules",
+    href: "/coupons",
+    category: "Commerce",
+    iconName: "Coupons",
+    keywords: ["coupons", "promo", "discount", "stripe", "vouchers", "sale", "pricing"],
   },
   {
     id: "messages",
@@ -458,6 +482,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     if (isManager) {
       if (
         perm === "view_finance" ||
+        perm === "manage_coupons" ||
         perm === "manage_website" ||
         perm === "manage_curriculum"
       ) {
@@ -487,6 +512,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
       case "view_finance":
         return user.permissions.includes("payments:read") || user.permissions.includes("invoices:read");
+      case "manage_coupons":
+        return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
       case "manage_operations":
         return user.permissions.includes("sessions:read") || user.permissions.includes("certificates:read");
       default:
@@ -503,6 +530,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
         { label: "Analytics", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
+        { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
       ],
     },
     {
@@ -513,6 +541,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
         { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
         { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
+        { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
       ],
     },
     {

@@ -17,6 +17,7 @@ import { EnrollmentsService } from './enrollments.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
+import { CouponsService } from '../coupons/coupons.service.js';
 import {
   BatchAccessGuard,
   RequireBatchAccess,
@@ -139,6 +140,7 @@ export class CheckoutController {
     private readonly enrollmentsService: EnrollmentsService,
     private readonly prisma: PrismaService,
     @Optional() private readonly emailService?: EmailService,
+    @Optional() private readonly couponsService?: CouponsService,
   ) {}
 
   @Post('mock')
@@ -195,7 +197,19 @@ export class CheckoutController {
       });
     }
 
-    let activeEnrollment;
+    // Check if coupon was provided
+    let couponValidation: any = null;
+    if (body.couponCode && this.couponsService) {
+      couponValidation = await this.couponsService.validateCoupon({
+        code: body.couponCode,
+        programId,
+        currency: body.currency || 'USD',
+        userId,
+        paymentPlanType: body.paymentPlanType || 'FULL',
+      });
+    }
+
+    let activeEnrollment: any;
     try {
       const enrollment = await this.enrollmentsService.create({
         userId,
@@ -205,15 +219,62 @@ export class CheckoutController {
         overrideCapacity: true
       } as any);
 
-      // Force ACTIVE status since we are simulating payment and agreement
+      // If 100% discount, keep in PENDING_AGREEMENT so agreement must be signed before unlocking Step 1
+      const targetStatus = couponValidation?.isFree
+        ? EnrolmentStatus.PENDING_AGREEMENT
+        : EnrolmentStatus.ACTIVE;
+
       activeEnrollment = await this.prisma.enrolment.update({
         where: { id: enrollment.id },
-        data: { status: EnrolmentStatus.ACTIVE },
+        data: { status: targetStatus },
         include: {
           program: { select: { id: true, title: true, slug: true } },
           batch: { select: { id: true, name: true, startDate: true } },
         },
       });
+
+      // If coupon used or payment recorded, create Payment and Invoice records
+      if (couponValidation) {
+        const payment = await this.prisma.payment.create({
+          data: {
+            enrolmentId: activeEnrollment.id,
+            stripeSessionId: `pay_${Date.now()}_${activeEnrollment.id.slice(0, 8)}`,
+            amount: couponValidation.finalAmount,
+            currency: couponValidation.currency || 'USD',
+            status: 'succeeded',
+            couponId: couponValidation.couponId,
+            couponCode: couponValidation.code,
+            discountAmount: couponValidation.discountAmount,
+          },
+        });
+
+        await this.prisma.invoice.create({
+          data: {
+            paymentId: payment.id,
+            invoiceNumber: `INV-${Date.now()}-${activeEnrollment.id.slice(0, 4)}`,
+            amount: couponValidation.finalAmount,
+            currency: couponValidation.currency || 'USD',
+            status: 'PAID',
+            couponCode: couponValidation.code,
+            discountAmount: couponValidation.discountAmount,
+          },
+        });
+
+        if (this.couponsService && couponValidation.couponId) {
+          await this.prisma.$transaction(async (tx) => {
+            await this.couponsService!.redeemCouponAtomic(tx, {
+              couponId: couponValidation.couponId,
+              userId,
+              enrolmentId: activeEnrollment.id,
+              paymentId: payment.id,
+              orderAmount: couponValidation.originalAmount,
+              discountAmount: couponValidation.discountAmount,
+              finalAmount: couponValidation.finalAmount,
+              currency: couponValidation.currency,
+            });
+          });
+        }
+      }
     } catch (err: any) {
       // In case of duplicate or concurrent submission, retrieve existing
       const existingAfterErr = await this.prisma.enrolment.findFirst({

@@ -1,7 +1,7 @@
 import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceService } from './attendance.service.js';
-import { UnmatchedAttendanceStatus } from '@prisma/client';
+import { UnmatchedAttendanceStatus, AttendanceStatus } from '@prisma/client';
 
 export interface NormalizedParticipantRecord {
   provider: string;
@@ -100,7 +100,7 @@ export class AttendanceReconciliationService {
   }
 
   /**
-   * D1-048b: Main Reconciliation Engine Entry Point
+   * D1-048b: Main Reconciliation Engine Entry Point with 70% Attendance Compliance Enforcement (ATT-01)
    */
   async reconcileSession(sessionId: string, rawRecords: NormalizedParticipantRecord[]) {
     const session = await this.prisma.session.findUnique({
@@ -117,6 +117,23 @@ export class AttendanceReconciliationService {
     }
 
     const aggregated = this.aggregateRecords(rawRecords);
+
+    // Calculate effective session duration in minutes
+    let sessionDurationMin = 0;
+    if (session.startTime && session.endTime && new Date(session.endTime) > new Date(session.startTime)) {
+      sessionDurationMin = Math.round(
+        (new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000,
+      );
+    } else {
+      // Safe default for missing, zero, or invalid scheduled times
+      sessionDurationMin = 60;
+      this.logger.warn(
+        `Session ${session.id} has invalid or missing duration (start=${session.startTime}, end=${session.endTime}). Defaulting to 60 minutes for attendance evaluation.`,
+      );
+    }
+
+    // Configurable batch threshold or standard 70% threshold (ATT-01)
+    const thresholdPercent = (session.batch as any)?.attendanceThreshold ?? 70;
 
     // Build lookup maps for enrolments by email
     const enrolmentsByEmail = new Map<string, typeof session.batch.enrolments[0]>();
@@ -135,6 +152,15 @@ export class AttendanceReconciliationService {
       }
 
       if (matchedEnrolment) {
+        // Evaluate attended duration against 70% compliance threshold
+        const attendedDurationMin = participant.durationMin || 0;
+        const attendancePercentage = sessionDurationMin > 0
+          ? (attendedDurationMin / sessionDurationMin) * 100
+          : 0;
+
+        const meetsThreshold = attendancePercentage >= thresholdPercent;
+        const status = meetsThreshold ? AttendanceStatus.PRESENT_AUTO : AttendanceStatus.ABSENT;
+
         // Known learner: pass to domain service which naturally protects MANUAL/CORRECTED states.
         await this.attendanceService.recordPresentAuto(
           session.id, 
@@ -142,7 +168,8 @@ export class AttendanceReconciliationService {
           {
             joinTime: participant.joinTime,
             leaveTime: participant.leaveTime,
-            durationMin: participant.durationMin,
+            durationMin: attendedDurationMin,
+            status,
           }
         );
       } else {

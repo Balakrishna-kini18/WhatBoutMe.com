@@ -12,7 +12,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private cacheHelper: CacheHelperService
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        ExtractJwt.fromUrlQueryParameter('token'),
+        ExtractJwt.fromUrlQueryParameter('jwt'),
+        (req: any) => req?.cookies?.jwt || req?.cookies?.token || null,
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'fallback-secret',
     });

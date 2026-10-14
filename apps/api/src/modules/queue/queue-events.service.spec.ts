@@ -43,9 +43,9 @@ describe('QueueEventsService', () => {
   });
 
   describe('Dead-Letter Handling (Edge Cases)', () => {
-    it('should register listeners for all 7 standard queues', () => {
+    it('should register listeners for all 8 standard queues', () => {
       service.onModuleInit();
-      expect(QueueEvents).toHaveBeenCalledTimes(7);
+      expect(QueueEvents).toHaveBeenCalledTimes(8);
       expect(QueueEvents).toHaveBeenCalledWith('email', expect.any(Object));
       expect(QueueEvents).toHaveBeenCalledWith('invoice-gen', expect.any(Object));
     });

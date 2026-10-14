@@ -24,15 +24,29 @@ export class ReportsController {
     return this.reportsService.getAssessmentAnalytics(req.user);
   }
 
+  @Get('payments')
+  async getPaymentAnalytics(@Req() req: any) {
+    return this.reportsService.getPaymentAnalytics(req.user);
+  }
+
+  @Get('certificates')
+  async getCertificateAnalytics(@Req() req: any) {
+    return this.reportsService.getCertificateAnalytics(req.user);
+  }
+
   @Get(':type/export')
   async exportCsv(@Param('type') type: string, @Res() res: Response, @Req() req: any) {
     try {
       const csv = await this.reportsService.getCsvExport(type, req.user);
-      res.header('Content-Type', 'text/csv');
+      res.header('Content-Type', 'text/csv; charset=utf-8');
       res.attachment(`report-${type}.csv`);
       return res.send(csv);
     } catch (e: any) {
-      return res.status(400).send(e.message);
+      const status = e.status || 400;
+      return res.status(status).json({
+        statusCode: status,
+        message: e.message || 'Export error',
+      });
     }
   }
 }

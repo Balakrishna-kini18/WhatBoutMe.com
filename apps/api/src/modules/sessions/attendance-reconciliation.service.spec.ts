@@ -3,7 +3,7 @@ import { AttendanceReconciliationService } from './attendance-reconciliation.ser
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceService } from './attendance.service.js';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { UnmatchedAttendanceStatus } from '@prisma/client';
+import { UnmatchedAttendanceStatus, AttendanceStatus } from '@prisma/client';
 
 describe('AttendanceReconciliationService', () => {
   let service: AttendanceReconciliationService;
@@ -134,7 +134,10 @@ describe('AttendanceReconciliationService', () => {
   describe('reconcileSession', () => {
     const mockSession = {
       id: 'sess-1',
+      startTime: new Date('2026-10-01T10:00:00Z'),
+      endTime: new Date('2026-10-01T11:00:00Z'), // 60 mins scheduled session
       batch: {
+        attendanceThreshold: 70, // 70% compliance threshold
         enrolments: [
           { id: 'enr-1', user: { email: 'enrolled@example.com' } }
         ]
@@ -145,22 +148,121 @@ describe('AttendanceReconciliationService', () => {
       prismaMock.session.findUnique.mockResolvedValue(mockSession);
     });
 
-    it('2. Participant successfully matches enrolled learner', async () => {
+    it('2. Participant meeting threshold (> 70%) is marked PRESENT_AUTO', async () => {
       await service.reconcileSession('sess-1', [
         {
           provider: 'ZOOM',
           participantEmail: 'enrolled@example.com',
           joinTime: new Date('2026-10-01T10:00:00Z'),
-          leaveTime: new Date('2026-10-01T11:00:00Z'),
+          leaveTime: new Date('2026-10-01T10:50:00Z'), // 50 mins = 83.3% >= 70%
         } as any
       ]);
 
       expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
         'sess-1',
         'enr-1',
-        expect.objectContaining({ durationMin: 60 })
+        expect.objectContaining({ durationMin: 50, status: AttendanceStatus.PRESENT_AUTO })
       );
       expect(prismaMock.unmatchedAttendance.create).not.toHaveBeenCalled();
+    });
+
+    it('2b. Participant meeting exactly 70% threshold (42/60 min) is marked PRESENT_AUTO', async () => {
+      await service.reconcileSession('sess-1', [
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled@example.com',
+          joinTime: new Date('2026-10-01T10:00:00Z'),
+          leaveTime: new Date('2026-10-01T10:42:00Z'), // Exactly 42 mins = 70.0%
+        } as any
+      ]);
+
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-1',
+        'enr-1',
+        expect.objectContaining({ durationMin: 42, status: AttendanceStatus.PRESENT_AUTO })
+      );
+    });
+
+    it('2c. Participant below 70% threshold (35/60 min = 58.3%) is marked ABSENT', async () => {
+      await service.reconcileSession('sess-1', [
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled@example.com',
+          joinTime: new Date('2026-10-01T10:00:00Z'),
+          leaveTime: new Date('2026-10-01T10:35:00Z'), // 35 mins = 58.3% < 70%
+        } as any
+      ]);
+
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-1',
+        'enr-1',
+        expect.objectContaining({ durationMin: 35, status: AttendanceStatus.ABSENT })
+      );
+    });
+
+    it('2d. Very short attendance (2 min) is marked ABSENT', async () => {
+      await service.reconcileSession('sess-1', [
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled@example.com',
+          joinTime: new Date('2026-10-01T10:00:00Z'),
+          leaveTime: new Date('2026-10-01T10:02:00Z'), // 2 mins
+        } as any
+      ]);
+
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-1',
+        'enr-1',
+        expect.objectContaining({ durationMin: 2, status: AttendanceStatus.ABSENT })
+      );
+    });
+
+    it('2e. Multiple reconnects with overlapping intervals correctly aggregate duration for 70% threshold', async () => {
+      await service.reconcileSession('sess-1', [
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled@example.com',
+          joinTime: new Date('2026-10-01T10:00:00Z'),
+          leaveTime: new Date('2026-10-01T10:15:00Z'), // 15 mins
+        } as any,
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled@example.com',
+          joinTime: new Date('2026-10-01T10:17:00Z'),
+          leaveTime: new Date('2026-10-01T10:45:00Z'), // 28 mins
+        } as any,
+      ]);
+
+      // Total non-overlapping: 43 mins out of 60 mins = 71.6% >= 70%
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-1',
+        'enr-1',
+        expect.objectContaining({ durationMin: 43, status: AttendanceStatus.PRESENT_AUTO })
+      );
+    });
+
+    it('2f. Missing or invalid session duration defaults safely to 60 minutes', async () => {
+      const sessionWithInvalidDuration = {
+        ...mockSession,
+        startTime: new Date('2026-10-01T11:00:00Z'),
+        endTime: new Date('2026-10-01T10:00:00Z'), // endTime < startTime (invalid)
+      };
+      prismaMock.session.findUnique.mockResolvedValue(sessionWithInvalidDuration);
+
+      await service.reconcileSession('sess-1', [
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled@example.com',
+          joinTime: new Date('2026-10-01T10:00:00Z'),
+          leaveTime: new Date('2026-10-01T10:45:00Z'), // 45 mins / 60 min fallback = 75% >= 70%
+        } as any
+      ]);
+
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-1',
+        'enr-1',
+        expect.objectContaining({ durationMin: 45, status: AttendanceStatus.PRESENT_AUTO })
+      );
     });
 
     it('3. Unknown participant becomes an unmatched review item', async () => {

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Role } from '@prisma/client';
 
@@ -76,7 +76,7 @@ export class ReportsService {
         },
         select: { programId: true },
       });
-      const programIds = [...new Set(managerBatches.map(b => b.programId).filter(Boolean))];
+      const programIds = [...new Set(managerBatches.map((b) => b.programId).filter(Boolean))];
       where.programId = { in: programIds as string[] };
     }
 
@@ -95,7 +95,7 @@ export class ReportsService {
       return {
         stepId: step.id,
         title: step.title,
-        stepNumber: step.stepNumber,
+        stepNumber: step.sequence ?? step.stepNumber ?? 1,
         programId: step.programId,
         totalEnrolled,
         completedCount: completed,
@@ -119,7 +119,7 @@ export class ReportsService {
         },
         select: { programId: true },
       });
-      const programIds = [...new Set(managerBatches.map(b => b.programId).filter(Boolean))];
+      const programIds = [...new Set(managerBatches.map((b) => b.programId).filter(Boolean))];
       where.step = { programId: { in: programIds as string[] } };
     }
 
@@ -138,9 +138,11 @@ export class ReportsService {
     return quizzes.map((quiz: any) => {
       const totalAttempts = quiz.attempts.length;
       const passedAttempts = quiz.attempts.filter((a: any) => a.passed).length;
-      
+
       let totalScore = 0;
-      quiz.attempts.forEach((a: any) => { totalScore += (a.score || 0); });
+      quiz.attempts.forEach((a: any) => {
+        totalScore += a.score || 0;
+      });
 
       const questionDifficulty = quiz.questions.map((q: any) => {
         const totalAnswers = q.answers.length;
@@ -165,35 +167,125 @@ export class ReportsService {
     });
   }
 
-  // D1-062: CSV Export Streaming
+  // Financial & Payment analytics (Restricted to SUPER_ADMIN and ADMIN)
+  async getPaymentAnalytics(user?: any) {
+    if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
+      throw new ForbiddenException('Managers do not have permission to access financial reports');
+    }
+
+    const payments = await this.prisma.payment.findMany({
+      include: {
+        invoice: true,
+        enrolment: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            program: { select: { id: true, title: true } },
+            batch: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return payments.map((p) => ({
+      paymentId: p.id,
+      invoiceNumber: p.invoice?.invoiceNumber || 'N/A',
+      amount: p.amount,
+      currency: p.currency,
+      status: p.status,
+      clientName: p.enrolment?.user?.name || 'Unknown',
+      clientEmail: p.enrolment?.user?.email || 'Unknown',
+      programTitle: p.enrolment?.program?.title || 'Unknown',
+      batchName: p.enrolment?.batch?.name || 'N/A',
+      creditNoteId: p.invoice?.creditNoteId || 'N/A',
+      date: new Date(p.createdAt).toISOString().split('T')[0],
+    }));
+  }
+
+  // Certificate Issuance analytics (Scoped for managers, platform-wide for admins)
+  async getCertificateAnalytics(user?: any) {
+    const where: any = {};
+    if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
+      const userId = user.sub || user.id;
+      const managerBatches = await this.prisma.batch.findMany({
+        where: {
+          OR: [
+            { managerId: userId },
+            { trainers: { some: { trainerId: userId } } },
+          ],
+        },
+        select: { programId: true },
+      });
+      const programIds = [...new Set(managerBatches.map((b) => b.programId).filter(Boolean))];
+      where.programId = { in: programIds as string[] };
+    }
+
+    const certificates = await this.prisma.certificate.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        program: { select: { id: true, title: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return certificates.map((cert) => ({
+      certificateId: cert.id,
+      certificateCode: cert.certificateCode,
+      recipientName: cert.user?.name || 'Unknown',
+      recipientEmail: cert.user?.email || 'Unknown',
+      programTitle: cert.program?.title || 'Unknown',
+      status: cert.status,
+      cpdHours: cert.cpdHours || 0,
+      issueDate: cert.issueDate
+        ? new Date(cert.issueDate).toISOString().split('T')[0]
+        : cert.issuedAt
+          ? new Date(cert.issuedAt).toISOString().split('T')[0]
+          : 'N/A',
+    }));
+  }
+
+  // D1-062: CSV Export Streaming with UTF-8 BOM for Microsoft Excel compatibility
   async getCsvExport(type: string, user?: any): Promise<string> {
     let data: any[] = [];
-    
-    if (type === 'attendance') {
+
+    const normalizedType = type?.toLowerCase().trim();
+
+    if (normalizedType === 'attendance') {
       data = await this.getAttendanceAnalytics(user);
-    } else if (type === 'progress') {
+    } else if (normalizedType === 'progress' || normalizedType === 'drop-offs') {
       data = await this.getProgressDropOffAnalytics(user);
-    } else if (type === 'assessments') {
+    } else if (normalizedType === 'assessments' || normalizedType === 'quizzes') {
       data = await this.getAssessmentAnalytics(user);
+    } else if (normalizedType === 'payments' || normalizedType === 'financial' || normalizedType === 'revenue') {
+      data = await this.getPaymentAnalytics(user);
+    } else if (normalizedType === 'certificates') {
+      data = await this.getCertificateAnalytics(user);
     } else {
-      throw new Error('Invalid export type');
+      throw new BadRequestException(
+        `Invalid export type '${type}'. Supported types: attendance, progress, assessments, payments, certificates`,
+      );
     }
 
     if (data.length === 0) {
-      return '';
+      return '\uFEFF';
     }
 
-    const headers = Object.keys(data[0]).filter(k => typeof data[0][k] !== 'object');
-    let csv = headers.join(',') + '\n';
-    
-    data.forEach(row => {
-      const line = headers.map(header => {
-        const value = row[header];
-        if (typeof value === 'string') {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
-      }).join(',');
+    const headers = Object.keys(data[0]).filter((k) => typeof data[0][k] !== 'object');
+    // Prepend UTF-8 Byte Order Mark (\uFEFF) so Excel on Windows cleanly interprets encoding
+    let csv = '\uFEFF' + headers.join(',') + '\n';
+
+    data.forEach((row) => {
+      const line = headers
+        .map((header) => {
+          const value = row[header];
+          if (value === null || value === undefined) return '""';
+          if (typeof value === 'string') {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value;
+        })
+        .join(',');
       csv += line + '\n';
     });
 

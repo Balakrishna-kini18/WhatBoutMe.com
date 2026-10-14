@@ -576,7 +576,7 @@ export class BatchesService {
               select: { id: true },
             })
           : [];
-      const enrolmentIds = enrolments.map((e) => e.id);
+      const enrolmentIds = enrolments.map((e: any) => e.id);
 
       if (enrolmentIds.length > 0) {
         await tx.attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});

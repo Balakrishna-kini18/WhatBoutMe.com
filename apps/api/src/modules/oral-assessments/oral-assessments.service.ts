@@ -7,6 +7,7 @@ import {
 import {
   OralAssessmentStatus,
   Role,
+  EnrolmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
@@ -50,6 +51,13 @@ export class OralAssessmentsService {
     if (enrolment.programId !== dto.programId) {
       throw new BadRequestException(
         'Enrolment does not belong to the specified program',
+      );
+    }
+
+    // Verify enrolment is ACTIVE
+    if (enrolment.status !== EnrolmentStatus.ACTIVE) {
+      throw new ForbiddenException(
+        'Cannot schedule assessment for non-active or revoked enrolment',
       );
     }
 

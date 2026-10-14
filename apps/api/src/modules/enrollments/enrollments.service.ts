@@ -70,8 +70,8 @@ export class EnrollmentsService {
 
     // 3. Atomically lock batch, verify constraints, evaluate capacity, and create enrolment
     const enrolment = await this.prisma.$transaction(async (tx) => {
-      // Pessimistic advisory lock per batch ID to serialize concurrent seat allocations
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.batchId}))`;
+      // Row-level lock per batch ID to serialize concurrent seat allocations (pooler-safe)
+      await tx.$executeRaw`SELECT id FROM "Batch" WHERE id = ${dto.batchId} FOR UPDATE`;
 
       const batch = await tx.batch.findUnique({
         where: { id: dto.batchId },
@@ -208,7 +208,7 @@ export class EnrollmentsService {
       }
 
       return created;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     await this.invalidateEnrolmentCaches(dto.userId);
     return enrolment;

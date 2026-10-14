@@ -149,6 +149,25 @@ export class CheckoutController {
       throw new BadRequestException('Missing user or programId');
     }
     
+    // 0. Idempotency Check: if user is already enrolled in this program, activate and return immediately
+    const existing = await this.prisma.enrolment.findFirst({
+      where: { userId, programId },
+      include: {
+        program: { select: { id: true, title: true, slug: true } },
+        batch: { select: { id: true, name: true, startDate: true } },
+      },
+    });
+
+    if (existing) {
+      if (existing.status !== EnrolmentStatus.ACTIVE) {
+        await this.prisma.enrolment.update({
+          where: { id: existing.id },
+          data: { status: EnrolmentStatus.ACTIVE },
+        });
+      }
+      return { success: true, enrollment: existing };
+    }
+
     // Find active batch for the program
     let batch = await this.prisma.batch.findFirst({
       where: { 
@@ -176,19 +195,46 @@ export class CheckoutController {
       });
     }
 
-    const enrollment = await this.enrollmentsService.create({
-      userId,
-      programId,
-      batchId: batch.id,
-      paymentMode: PaymentMode.STRIPE,
-      overrideCapacity: true
-    } as any);
+    let activeEnrollment;
+    try {
+      const enrollment = await this.enrollmentsService.create({
+        userId,
+        programId,
+        batchId: batch.id,
+        paymentMode: PaymentMode.STRIPE,
+        overrideCapacity: true
+      } as any);
 
-    // Force ACTIVE status since we are simulating payment and agreement
-    const activeEnrollment = await this.prisma.enrolment.update({
-      where: { id: enrollment.id },
-      data: { status: EnrolmentStatus.ACTIVE }
-    });
+      // Force ACTIVE status since we are simulating payment and agreement
+      activeEnrollment = await this.prisma.enrolment.update({
+        where: { id: enrollment.id },
+        data: { status: EnrolmentStatus.ACTIVE },
+        include: {
+          program: { select: { id: true, title: true, slug: true } },
+          batch: { select: { id: true, name: true, startDate: true } },
+        },
+      });
+    } catch (err: any) {
+      // In case of duplicate or concurrent submission, retrieve existing
+      const existingAfterErr = await this.prisma.enrolment.findFirst({
+        where: { userId, programId },
+        include: {
+          program: { select: { id: true, title: true, slug: true } },
+          batch: { select: { id: true, name: true, startDate: true } },
+        },
+      });
+      if (existingAfterErr) {
+        activeEnrollment = existingAfterErr;
+        if (existingAfterErr.status !== EnrolmentStatus.ACTIVE) {
+          await this.prisma.enrolment.update({
+            where: { id: existingAfterErr.id },
+            data: { status: EnrolmentStatus.ACTIVE },
+          });
+        }
+      } else {
+        throw err;
+      }
+    }
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const program = await this.prisma.program.findUnique({ where: { id: programId } });

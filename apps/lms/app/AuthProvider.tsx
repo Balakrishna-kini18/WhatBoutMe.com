@@ -61,13 +61,22 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
       response = await originalFetch(input, newInit);
     } catch (fetchErr: any) {
       // If the API server is momentarily restarting or recompiling in watch mode,
-      // attempt an immediate brief retry before bubbling the error
+      // attempt progressive retries before bubbling the error
       if (typeof input === 'string' && (input.includes(':4000') || input.includes(API_URL))) {
-        await new Promise((r) => setTimeout(r, 600));
-        try {
-          response = await originalFetch(input, newInit);
-        } catch {
-          throw fetchErr;
+        let lastError = fetchErr;
+        let succeeded = false;
+        for (const delay of [400, 800, 1500]) {
+          await new Promise((r) => setTimeout(r, delay));
+          try {
+            response = await originalFetch(input, newInit);
+            succeeded = true;
+            break;
+          } catch (retryErr: any) {
+            lastError = retryErr;
+          }
+        }
+        if (!succeeded) {
+          throw lastError;
         }
       } else {
         throw fetchErr;

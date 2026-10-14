@@ -38,20 +38,26 @@ const Icons = {
 export default function RevenuePage() {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRevenue();
   }, []);
 
   const fetchRevenue = async () => {
+    setIsLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${API_URL}/revenue`);
       if (res.ok) {
         const json = await res.json();
         setData(json);
+      } else {
+        const errJson = await res.json().catch(() => null);
+        setError(errJson?.message || `Unable to load revenue metrics (${res.status})`);
       }
-    } catch (e) {
-      console.error("Failed to fetch revenue", e);
+    } catch (e: any) {
+      setError(e?.message || "Unable to connect to the revenue service. Please check your connection.");
     } finally {
       setIsLoading(false);
     }
@@ -100,6 +106,39 @@ export default function RevenuePage() {
           </button>
         </div>
       </header>
+
+      {error && (
+        <div style={{
+          backgroundColor: "#fef2f2",
+          border: "1px solid #fecaca",
+          borderRadius: "8px",
+          padding: "12px 16px",
+          marginBottom: "1.5rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          color: "#991b1b",
+          fontSize: "0.875rem"
+        }}>
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={fetchRevenue}
+            style={{
+              background: "#ef4444",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontWeight: 500,
+              fontSize: "0.8rem"
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* KPI Stats Cards */}
       <section className={styles.kpiGrid} style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: "1.75rem" }} aria-label="Revenue Metrics">

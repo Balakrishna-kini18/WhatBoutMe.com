@@ -285,19 +285,26 @@ function BatchesContent() {
   };
 
   const handleDeleteBatch = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this batch?")) return;
+    if (!confirm("Are you sure you want to delete this batch? This will remove all associated sessions, enrolments, and attendance records.")) return;
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/batches/${id}`,
+        `${API_URL}/batches/${id}`,
         {
           method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         }
       );
       if (res.ok) {
+        setBatches((prev) => prev.filter((b) => b.id !== id));
         fetchBatches();
+      } else {
+        const errorText = await errorMessage(res, "Failed to delete batch");
+        alert(errorText);
       }
     } catch (e) {
       console.error("Failed to delete batch", e);
+      alert("Network error: Could not reach the server to delete the batch.");
     }
   };
 

@@ -296,6 +296,7 @@ model User {
   loginAudits                  LoginAudit[]
   createdResourceItems         ResourceItem[]             @relation("CreatedResourceItems")
   couponRedemptions            CouponRedemption[]
+  sentAnnouncements            BatchAnnouncement[]        @relation("SentAnnouncements")
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -753,6 +754,7 @@ model Batch {
   resources     Resource[]
   resourceItems ResourceItem[]
   conversations Conversation[]
+  announcements BatchAnnouncement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -897,6 +899,23 @@ model BatchStepOverride {
   unlockDate DateTime? // For DRIP schedules
 
   @@unique([batchId, stepId])
+}
+
+model BatchAnnouncement {
+  id             String   @id @default(uuid())
+  batchId        String
+  batch          Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User     @relation("SentAnnouncements", fields: [senderId], references: [id])
+  title          String
+  message        String
+  sendEmail      Boolean  @default(true)
+  recipientCount Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([batchId, createdAt])
+  @@index([senderId])
 }
 
 // Step-level progression tracking

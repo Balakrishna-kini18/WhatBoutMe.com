@@ -64,16 +64,25 @@ export class CacheHelperService {
           return cached as T;
         }
       } catch (e: any) {
-        this.logger.error(`Redis GET error for key ${key}: ${e.message}`);
+        if (e?.message?.includes('limit exceeded')) {
+          this.logger.warn('Upstash Redis monthly request limit reached. Gracefully degrading to in-memory local fallback.');
+          (this as any).redis = null;
+        } else {
+          this.logger.error(`Redis GET error for key ${key}: ${e.message}`);
+        }
       }
 
       const data = await fetcher();
 
-      if (data !== null && data !== undefined) {
+      if (data !== null && data !== undefined && this.redis) {
         try {
           // Run set asynchronously so we don't block the response.
-          this.redis!.set(key, data, { ex: ttlSeconds }).catch((e: any) => {
-            this.logger.error(`Redis SET error for key ${key}: ${e.message}`);
+          this.redis.set(key, data, { ex: ttlSeconds }).catch((e: any) => {
+            if (e?.message?.includes('limit exceeded')) {
+              (this as any).redis = null;
+            } else {
+              this.logger.error(`Redis SET error for key ${key}: ${e.message}`);
+            }
           });
         } catch (e: any) {
           this.logger.error(`Redis SET init error for key ${key}: ${e.message}`);

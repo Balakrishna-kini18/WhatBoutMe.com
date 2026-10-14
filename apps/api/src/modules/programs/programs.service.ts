@@ -173,87 +173,310 @@ export class ProgramsService {
     return updated;
   }
 
+  private extractCloudinaryPublicId(urlOrId?: string | null): { publicId: string; resourceType: 'video' | 'image' | 'raw' } | null {
+    if (!urlOrId || typeof urlOrId !== 'string') return null;
+    const trimmed = urlOrId.trim();
+    if (!trimmed) return null;
+
+    if (trimmed.startsWith('upload:')) {
+      const id = trimmed.replace('upload:', '');
+      return { publicId: id, resourceType: 'video' };
+    }
+
+    if (trimmed.includes('cloudinary.com')) {
+      try {
+        const url = new URL(trimmed);
+        const pathname = url.pathname;
+        const segments = pathname.split('/').filter(Boolean);
+        let resourceType: 'video' | 'image' | 'raw' = 'video';
+        if (segments.includes('image')) resourceType = 'image';
+        else if (segments.includes('raw')) resourceType = 'raw';
+        else if (segments.includes('video')) resourceType = 'video';
+        else {
+          if (pathname.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i)) resourceType = 'image';
+          else if (pathname.match(/\.(pdf|doc|docx|zip)$/i)) resourceType = 'raw';
+          else resourceType = 'video';
+        }
+
+        const uploadIdx = segments.indexOf('upload');
+        if (uploadIdx !== -1 && uploadIdx < segments.length - 1) {
+          let idParts = segments.slice(uploadIdx + 1);
+          if (idParts[0] && /^v\d+$/.test(idParts[0])) {
+            idParts = idParts.slice(1);
+          }
+          let publicId = idParts.join('/');
+          if (resourceType !== 'raw') {
+            publicId = publicId.replace(/\.[^/.]+$/, '');
+          }
+          return { publicId, resourceType };
+        }
+
+        const last = segments[segments.length - 1];
+        const publicId = resourceType === 'raw' ? last : last.replace(/\.[^/.]+$/, '');
+        return { publicId, resourceType };
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  private async safeDeleteCloudinaryMedia(urlOrId?: string | null, fallbackType: 'video' | 'image' | 'raw' = 'video') {
+    const extracted = this.extractCloudinaryPublicId(urlOrId);
+    if (!extracted) return;
+    try {
+      await this.mediaProvider.deleteMedia(extracted.publicId, extracted.resourceType || fallbackType).catch((err) => {
+        this.logger.warn(`Could not delete Cloudinary asset ${extracted.publicId}: ${err.message}`);
+      });
+    } catch {}
+  }
+
   async remove(id: string) {
     const program = await this.prisma.program.findUnique({ where: { id } });
     if (!program) {
       throw new NotFoundException(`Program not found`);
     }
 
-    const [batchCount, enrolmentCount] = await Promise.all([
-      this.prisma.batch.count({ where: { programId: id } }),
-      this.prisma.enrolment.count({ where: { programId: id } }),
-    ]);
-
-    if (batchCount > 0 || enrolmentCount > 0) {
-      this.logger.warn(`Program ${id} is being hard deleted. It has ${batchCount} batches and ${enrolmentCount} enrolments which will be cascade deleted.`);
-    }
-
+    // 1. Collect all media across the program to delete from Cloudinary
     try {
-      // 1. Program Cover Image
+      // 1a. Program cover image
       if (program.description) {
         try {
           const info = JSON.parse(program.description);
-          if (info.image && info.image.includes('cloudinary.com')) {
-            const parts = info.image.split('/');
-            const filename = parts[parts.length - 1];
-            const publicId = filename.split('.')[0];
-            await this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete program image ${publicId}: ${err.message}`));
+          if (info.image) {
+            await this.safeDeleteCloudinaryMedia(info.image, 'image');
           }
-        } catch (e) {}
+        } catch {}
       }
 
-      // 2. Lesson Media
+      // 1b. All lessons in all steps
       const lessons = await this.prisma.lesson.findMany({
         where: { step: { programId: id } },
-        select: { mediaUrl: true }
+        select: { id: true, mediaUrl: true, type: true },
       });
       for (const lesson of lessons) {
-        if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
-          const publicId = lesson.mediaUrl.replace('upload:', '');
-          await this.mediaProvider.deleteMedia(publicId, 'video').catch(err => this.logger.warn(`Failed to delete lesson media ${publicId}: ${err.message}`));
+        if (lesson.mediaUrl) {
+          await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
         }
       }
 
-      // 3. Resource Media
+      // 1c. All resources
       const resources = await this.prisma.resource.findMany({
         where: { programId: id },
-        select: { mediaUrl: true }
+        select: { mediaUrl: true },
       });
       for (const res of resources) {
-        if (res.mediaUrl && res.mediaUrl.includes('cloudinary.com')) {
-          const parts = res.mediaUrl.split('/');
-          const filename = parts[parts.length - 1];
-          const publicId = filename.split('.')[0];
-          // Cloudinary resources uploaded as raw might need 'raw', but images are 'image'.
-          // Let's try 'raw' and fallback to 'image' if needed, or just let it fail gracefully.
-          await this.mediaProvider.deleteMedia(publicId, 'raw').catch(() => 
-            this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete resource ${publicId}: ${err.message}`))
-          );
+        if (res.mediaUrl) {
+          await this.safeDeleteCloudinaryMedia(res.mediaUrl, 'raw');
         }
       }
 
-      // 4. Cancel Zoom Meetings
-      const sessions = await this.prisma.session.findMany({
-        where: { batch: { programId: id } },
-        select: { providerMeetingId: true }
+      // 1d. All resource items
+      const resourceItems = await this.prisma.resourceItem.findMany({
+        where: { programId: id },
+        select: { storageKey: true, type: true },
       });
+      for (const item of resourceItems) {
+        if (item.storageKey) {
+          const rType = item.type === 'GUIDED_AUDIO' ? 'video' : 'raw';
+          await this.safeDeleteCloudinaryMedia(item.storageKey, rType);
+        }
+      }
+    } catch (mediaErr: any) {
+      this.logger.warn(`Media cleanup notice during program deletion: ${mediaErr.message}`);
+    }
+
+    // 2. Gather sessions for Zoom meeting cancellation outbox
+    const sessions = await this.prisma.session.findMany({
+      where: { batch: { programId: id } },
+      select: { id: true, providerMeetingId: true },
+    });
+
+    // 3. Complete database transactional cascade cleanup
+    await this.prisma.$transaction(async (tx) => {
+      // 3a. Batches and session attendance cleanup
+      const batches = await tx.batch.findMany({
+        where: { programId: id },
+        select: { id: true },
+      });
+      const batchIds = batches.map((b) => b.id);
+
+      if (batchIds.length > 0) {
+        const batchSessions = await tx.session.findMany({
+          where: { batchId: { in: batchIds } },
+          select: { id: true },
+        });
+        const sessionIds = batchSessions.map((s) => s.id);
+
+        if (sessionIds.length > 0) {
+          const attendances = await tx.attendance.findMany({
+            where: { sessionId: { in: sessionIds } },
+            select: { id: true },
+          });
+          const attendanceIds = attendances.map((a) => a.id);
+
+          if (attendanceIds.length > 0) {
+            await (tx as any).attendanceAuditLog?.deleteMany?.({
+              where: { attendanceId: { in: attendanceIds } },
+            }).catch(() => {});
+            await (tx as any).attendanceEventLog?.deleteMany?.({
+              where: { attendanceId: { in: attendanceIds } },
+            }).catch(() => {});
+            await tx.attendance.deleteMany({
+              where: { id: { in: attendanceIds } },
+            });
+          }
+
+          await tx.unmatchedAttendance.deleteMany({ where: { sessionId: { in: sessionIds } } }).catch(() => {});
+          await tx.sessionBooking.deleteMany({ where: { sessionId: { in: sessionIds } } });
+          await tx.session.deleteMany({ where: { id: { in: sessionIds } } });
+        }
+
+        // Clean batch enrolments
+        const enrolments = await tx.enrolment.findMany({
+          where: { OR: [{ programId: id }, { batchId: { in: batchIds } }] },
+          select: { id: true },
+        });
+        const enrolmentIds = enrolments.map((e) => e.id);
+
+        if (enrolmentIds.length > 0) {
+          await tx.attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+        }
+
+        await tx.batchTrainer.deleteMany({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        await tx.batchStepOverride.deleteMany({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        await (tx as any).batchAnnouncement?.deleteMany?.({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        await tx.conversation.deleteMany({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        await tx.batch.deleteMany({ where: { id: { in: batchIds } } });
+      } else {
+        // Enrolments directly on program without batch
+        const directEnrolments = await tx.enrolment.findMany({
+          where: { programId: id },
+          select: { id: true },
+        });
+        const enrolmentIds = directEnrolments.map((e) => e.id);
+        if (enrolmentIds.length > 0) {
+          await tx.attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+          await tx.enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+        }
+      }
+
+      // 3b. Clean steps, lessons, quizzes
+      const steps = await tx.step.findMany({
+        where: { programId: id },
+        select: { id: true },
+      });
+      const stepIds = steps.map((s) => s.id);
+
+      if (stepIds.length > 0) {
+        // Quizzes
+        const quizzes = await tx.quiz.findMany({
+          where: { stepId: { in: stepIds } },
+          select: { id: true },
+        });
+        const quizIds = quizzes.map((q) => q.id);
+
+        if (quizIds.length > 0) {
+          const questions = await tx.question.findMany({
+            where: { quizId: { in: quizIds } },
+            select: { id: true },
+          });
+          const questionIds = questions.map((q) => q.id);
+
+          if (questionIds.length > 0) {
+            await tx.option.deleteMany({ where: { questionId: { in: questionIds } } }).catch(() => {});
+            await tx.question.deleteMany({ where: { id: { in: questionIds } } });
+          }
+          await tx.attempt.deleteMany({ where: { quizId: { in: quizIds } } }).catch(() => {});
+          await tx.quiz.deleteMany({ where: { id: { in: quizIds } } });
+        }
+
+        // Lessons
+        const lessons = await tx.lesson.findMany({
+          where: { stepId: { in: stepIds } },
+          select: { id: true },
+        });
+        const lessonIds = lessons.map((l) => l.id);
+        if (lessonIds.length > 0) {
+          await tx.userLessonProgress.deleteMany({ where: { lessonId: { in: lessonIds } } }).catch(() => {});
+          await tx.lesson.deleteMany({ where: { id: { in: lessonIds } } });
+        }
+
+        await tx.batchStepOverride.deleteMany({ where: { stepId: { in: stepIds } } }).catch(() => {});
+        await tx.stepProgress.deleteMany({ where: { stepId: { in: stepIds } } }).catch(() => {});
+        await tx.step.deleteMany({ where: { id: { in: stepIds } } });
+      }
+
+      // 3c. Clean resources
+      await tx.resourceItem.deleteMany({ where: { programId: id } }).catch(() => {});
+      await tx.resource.deleteMany({ where: { programId: id } }).catch(() => {});
+
+      // 3d. Clean agreements and templates
+      const agreementTemplates = await tx.agreementTemplate.findMany({
+        where: { programId: id },
+        select: { id: true },
+      });
+      const templateIds = agreementTemplates.map((t) => t.id);
+      if (templateIds.length > 0) {
+        await tx.agreementTemplateVersion.deleteMany({ where: { templateId: { in: templateIds } } }).catch(() => {});
+        await tx.signedAgreement.deleteMany({ where: { templateId: { in: templateIds } } }).catch(() => {});
+        await tx.agreementTemplate.deleteMany({ where: { id: { in: templateIds } } });
+      }
+
+      // 3e. Clean certificates
+      await tx.certificate.deleteMany({ where: { programId: id } }).catch(() => {});
+
+      // 3f. Disconnect from coupons
+      const couponsWithProgram = await tx.coupon.findMany({
+        where: { programs: { some: { id } } },
+        select: { id: true },
+      });
+      for (const coupon of couponsWithProgram) {
+        await tx.coupon.update({
+          where: { id: coupon.id },
+          data: { programs: { disconnect: { id } } },
+        }).catch(() => {});
+      }
+
+      // 3g. Finally, delete the program
+      await tx.program.delete({ where: { id } });
+    });
+
+    // 4. Cancel Zoom Meetings
+    try {
       for (const sess of sessions) {
         if (sess.providerMeetingId) {
           await this.prisma.outboxEvent.create({
             data: {
               type: 'sync-meeting',
               action: 'CANCEL',
-              payload: { providerMeetingId: sess.providerMeetingId }
-            }
-          }).catch(e => this.logger.error('Failed to create Zoom cancel outbox event', e));
+              payload: { providerMeetingId: sess.providerMeetingId },
+            },
+          }).catch(() => {});
         }
       }
-    } catch (cleanupErr) {
-      this.logger.error(`Failed to clean up Cloudinary media for program ${id}:`, cleanupErr);
-    }
+    } catch {}
 
-    await this.prisma.program.delete({ where: { id } });
     await this.cacheHelper.invalidateNamespace('programs');
+    await this.cacheHelper.invalidateNamespace('batches');
     return { id, deleted: true };
   }
 
@@ -308,6 +531,9 @@ export class ProgramsService {
             where: isPrivileged ? undefined : { status: ContentStatus.PUBLISHED },
             orderBy: { order: 'asc' },
           },
+          resources: {
+            where: isPrivileged ? undefined : { status: ContentStatus.PUBLISHED },
+          },
           quiz: {
             include: {
               questions: {
@@ -324,6 +550,23 @@ export class ProgramsService {
 
       if (!isPrivileged && step.status !== ContentStatus.PUBLISHED) {
         throw new NotFoundException(`Step not found`);
+      }
+
+      // Query standalone ResourceLibrary items tagged for this step sequence or stepId
+      try {
+        const resourceItems = await this.prisma.resourceItem.findMany({
+          where: {
+            isPublished: true,
+            OR: [
+              { requiredStepId: stepId },
+              { programId: step.programId, stepTagNumber: step.sequence },
+            ],
+          },
+          include: { category: true },
+        });
+        (step as any).resourceItems = resourceItems;
+      } catch {
+        (step as any).resourceItems = [];
       }
 
       // Hide quiz answer keys from learners and guests
@@ -545,7 +788,45 @@ export class ProgramsService {
       throw new NotFoundException(`Step not found`);
     }
 
+    // 1. Delete all lessons' media from Cloudinary
+    try {
+      const lessons = await this.prisma.lesson.findMany({
+        where: { stepId },
+        select: { mediaUrl: true, type: true },
+      });
+      for (const lesson of lessons) {
+        if (lesson.mediaUrl) {
+          await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
+        }
+      }
+    } catch (mediaErr: any) {
+      this.logger.warn(`Media cleanup notice during step deletion: ${mediaErr.message}`);
+    }
+
     await this.prisma.$transaction(async (tx) => {
+      // Clean quiz relations if any
+      const quiz = await tx.quiz.findUnique({ where: { stepId } });
+      if (quiz) {
+        const questions = await tx.question.findMany({ where: { quizId: quiz.id }, select: { id: true } });
+        const questionIds = questions.map((q) => q.id);
+        if (questionIds.length > 0) {
+          await tx.option.deleteMany({ where: { questionId: { in: questionIds } } }).catch(() => {});
+          await tx.question.deleteMany({ where: { id: { in: questionIds } } });
+        }
+        await tx.attempt.deleteMany({ where: { quizId: quiz.id } }).catch(() => {});
+        await tx.quiz.delete({ where: { id: quiz.id } });
+      }
+
+      // Clean lesson progress and lessons
+      const stepLessons = await tx.lesson.findMany({ where: { stepId }, select: { id: true } });
+      const lessonIds = stepLessons.map((l) => l.id);
+      if (lessonIds.length > 0) {
+        await tx.userLessonProgress.deleteMany({ where: { lessonId: { in: lessonIds } } }).catch(() => {});
+        await tx.lesson.deleteMany({ where: { id: { in: lessonIds } } });
+      }
+
+      await tx.batchStepOverride.deleteMany({ where: { stepId } }).catch(() => {});
+      await tx.stepProgress.deleteMany({ where: { stepId } }).catch(() => {});
       await tx.step.delete({ where: { id: stepId } });
 
       // Renumber remaining sibling steps to preserve contiguous 1..N sequence
@@ -795,17 +1076,18 @@ export class ProgramsService {
       throw new NotFoundException(`Lesson not found`);
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.lesson.delete({ where: { id: lessonId } });
-
-      // If the lesson had an uploaded media file, delete it from Cloudinary
-      if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
-        const publicId = lesson.mediaUrl.replace('upload:', '');
-        const resourceType = lesson.type === 'VIDEO' ? 'video' : 'raw';
-        this.mediaProvider.deleteMedia(publicId, resourceType).catch(err => {
-          console.error(`Failed to delete media ${publicId} from Cloudinary:`, err);
-        });
+    // Delete media from Cloudinary (video or document)
+    try {
+      if (lesson.mediaUrl) {
+        await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
       }
+    } catch (mediaErr: any) {
+      this.logger.warn(`Media cleanup notice during lesson deletion: ${mediaErr.message}`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userLessonProgress.deleteMany({ where: { lessonId } }).catch(() => {});
+      await tx.lesson.delete({ where: { id: lessonId } });
 
       // Renumber remaining sibling lessons
       const remaining = await tx.lesson.findMany({

@@ -41,6 +41,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [isStartingQuiz, setIsStartingQuiz] = useState(false);
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [viewingPdf, setViewingPdf] = useState<{ id: string; title: string; url: string } | null>(null);
 
   const [userEmail, setUserEmail] = useState<string>("Learner");
 
@@ -262,17 +264,22 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // D1-035: Video/Audio media playback heartbeat
   const sendMediaHeartbeat = useCallback(
-    async (lessonId: string, positionSec: number) => {
+    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number) => {
       try {
+        const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
         const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
           method: "POST",
           headers: getAuthHeaders(),
-          body: JSON.stringify({ positionSec }),
+          body: JSON.stringify({
+            positionSec,
+            videoDurationSec: dur > 0 ? dur : undefined,
+            isEnded,
+          }),
         });
         if (res.ok) {
           const data = await res.json();
           setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
-          if (data.isCompleted && !lessonProgress[lessonId]?.isCompleted) {
+          if (data.isCompleted || isEnded) {
             fetchStepAndProgression();
           }
         }
@@ -280,7 +287,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         console.warn("Heartbeat error:", err);
       }
     },
-    [lessonProgress, fetchStepAndProgression]
+    [fetchStepAndProgression]
   );
 
   // Send keepalive heartbeat on pagehide / tab switch (Edge Case 6)
@@ -328,6 +335,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
     } catch (err) {
       console.warn("Document completion error:", err);
+    }
+  };
+
+  const openPdfModal = (doc: any) => {
+    let url = doc.mediaUrl || "";
+    if (url.startsWith("upload:")) {
+      const publicId = url.replace("upload:", "");
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      url = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    }
+    setViewingPdf({ id: doc.id, title: doc.title, url });
+    if (!lessonProgress[doc.id]?.isCompleted) {
+      handleCompleteDocument(doc.id);
     }
   };
 
@@ -491,13 +511,17 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const completedLessonsCount = allStepLessons.filter(
     (l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed
   ).length;
-  const isQuizPassed = currentStepProg?.quiz?.isPassed || lastResult?.passed;
+  const isQuizPassed = Boolean(currentStepProg?.quiz?.isPassed || lastResult?.passed);
   const stepTotalItems = allStepLessons.length + (quiz ? 1 : 0);
   const stepCompletedItems = completedLessonsCount + (quiz && isQuizPassed ? 1 : 0);
-  const isStepCompleted = currentStepProg?.isCompleted || (stepTotalItems > 0 && stepCompletedItems === stepTotalItems);
+  const isStepCompleted = stepTotalItems > 0
+    ? (stepCompletedItems >= stepTotalItems || (currentStepProg?.isCompleted && stepCompletedItems > 0))
+    : Boolean(currentStepProg?.isCompleted);
   const calculatedStepPercent = stepTotalItems > 0
-    ? (isStepCompleted ? 100 : Math.floor((stepCompletedItems / stepTotalItems) * 100))
+    ? (isStepCompleted && stepCompletedItems >= stepTotalItems ? 100 : Math.min(100, Math.floor((stepCompletedItems / stepTotalItems) * 100)))
     : 100;
+
+  const nextStep = (progression?.steps || []).find((s: any) => s.sequence === step.sequence + 1);
 
   const answeredCount = Object.keys(answers).length;
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
@@ -545,9 +569,44 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </span>
           </div>
           {isStepCompleted && (
-            <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
-              ✓ Step Requirements Met
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
+                ✓ Step Requirements Met
+              </span>
+              {nextStep ? (
+                <Link
+                  href={`/steps/${nextStep.stepId}`}
+                  style={{
+                    backgroundColor: "#16a34a",
+                    color: "#ffffff",
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    display: "inline-block",
+                  }}
+                >
+                  Continue to Step {nextStep.sequence} &rarr;
+                </Link>
+              ) : (
+                <Link
+                  href={`/programs/${step.programId}/steps`}
+                  style={{
+                    backgroundColor: "#16a34a",
+                    color: "#ffffff",
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    display: "inline-block",
+                  }}
+                >
+                  Return to Roadmap &rarr;
+                </Link>
+              )}
+            </div>
           )}
         </div>
         <div style={{ width: "100%", height: "10px", background: "var(--bg-soft, #f1f5f9)", borderRadius: "6px", overflow: "hidden" }}>
@@ -600,51 +659,142 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {currentMedia ? (
             <div>
               {(() => {
+                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
                 const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
-                let videoSrc = currentMedia.mediaUrl;
+                let videoSrc = currentMedia.mediaUrl || "";
                 if (isUpload) {
                   const publicId = currentMedia.mediaUrl.replace("upload:", "");
                   const streamingKey = publicId.includes(".") ? publicId : `${publicId}.mp4`;
-                  videoSrc = `${API_URL}/media/stream/${streamingKey}`;
+                  videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+                } else if (videoSrc && !videoSrc.startsWith("http") && !videoSrc.startsWith("/")) {
+                  const streamingKey = videoSrc.includes(".") ? videoSrc : `${videoSrc}.mp4`;
+                  videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
                 }
 
                 return (
                   <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                    <video
-                      ref={videoRef}
-                      key={currentMedia.id}
-                      controls
-                      controlsList="nodownload"
-                      onLoadedMetadata={(e) => {
-                        const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
-                        if (resumeSec && resumeSec > 5 && resumeSec < e.currentTarget.duration - 5) {
-                          e.currentTarget.currentTime = resumeSec;
-                          setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
-                        }
-                      }}
-                      onTimeUpdate={(e) => {
-                        const currentSec = Math.floor(e.currentTarget.currentTime);
-                        const now = Date.now();
-                        if (now - lastHeartbeatTimeRef.current > 15000) {
-                          lastHeartbeatTimeRef.current = now;
-                          sendMediaHeartbeat(currentMedia.id, currentSec);
-                        }
-                      }}
-                      onPause={(e) => {
-                        sendMediaHeartbeat(currentMedia.id, Math.floor(e.currentTarget.currentTime));
-                      }}
-                      onEnded={(e) => {
-                        const duration = Math.floor(e.currentTarget.duration || 0);
-                        sendMediaHeartbeat(currentMedia.id, duration);
-                        if (!currentMedia.durationSec || currentMedia.durationSec <= 0) {
-                          handleCompleteDocument(currentMedia.id);
-                        }
-                      }}
-                      style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px", display: "block" }}
-                      src={videoSrc}
-                    >
-                      Your browser does not support the video tag.
-                    </video>
+                    {videoError ? (
+                      <div
+                        style={{
+                          width: "100%",
+                          aspectRatio: "16/9",
+                          backgroundColor: "#0f172a",
+                          borderRadius: "12px",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#f8fafc",
+                          padding: "24px",
+                          textAlign: "center",
+                        }}
+                      >
+                        <p style={{ margin: "0 0 12px", fontSize: "1rem", color: "#fca5a5" }}>
+                          ⚠️ Video stream unavailable or loading failed.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVideoError(null);
+                            if (videoRef.current) {
+                              videoRef.current.load();
+                              videoRef.current.play().catch(() => {});
+                            }
+                          }}
+                          className={styles.secondaryBtn}
+                          style={{
+                            padding: "8px 18px",
+                            backgroundColor: "var(--accent-primary, #c97a1e)",
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: "8px",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Retry Playback
+                        </button>
+                      </div>
+                    ) : (
+                      <video
+                        ref={videoRef}
+                        key={`${currentMedia.id}-${videoSrc}`}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        controlsList="nodownload"
+                        onError={() => {
+                          setVideoError("Video stream could not be loaded. Please click Retry Playback.");
+                        }}
+                        onLoadedMetadata={(e) => {
+                          setVideoError(null);
+                          const dur = Math.floor(e.currentTarget.duration || 0);
+                          if (dur > 0 && dur !== currentMedia.durationSec) {
+                            currentMedia.durationSec = dur;
+                          }
+                          const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
+                          if (resumeSec && resumeSec > 5 && dur > 0 && resumeSec < dur - 5) {
+                            e.currentTarget.currentTime = resumeSec;
+                            setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
+                          }
+                        }}
+                        onTimeUpdate={(e) => {
+                          const currentSec = Math.floor(e.currentTarget.currentTime);
+                          const duration = Math.floor(e.currentTarget.duration || 0);
+                          const isFinished = duration > 0 && (currentSec >= duration - 2 || (currentSec / duration) >= 0.85);
+
+                          if (isFinished && !lessonProgress[currentMedia.id]?.isCompleted) {
+                            setLessonProgress((prev) => ({
+                              ...prev,
+                              [currentMedia.id]: {
+                                ...(prev[currentMedia.id] || {}),
+                                isCompleted: true,
+                                viewed: true,
+                                progressPercent: 100,
+                                lastPositionSec: duration,
+                              },
+                            }));
+                            sendMediaHeartbeat(currentMedia.id, duration, true, duration);
+                            fetchStepAndProgression();
+                            return;
+                          }
+
+                          const now = Date.now();
+                          if (now - lastHeartbeatTimeRef.current > 10000) {
+                            lastHeartbeatTimeRef.current = now;
+                            sendMediaHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
+                          }
+                        }}
+                        onPause={(e) => {
+                          const currentSec = Math.floor(e.currentTarget.currentTime);
+                          const duration = Math.floor(e.currentTarget.duration || 0);
+                          if (duration > 0 && (currentSec >= duration - 2 || currentSec / duration >= 0.85)) {
+                            sendMediaHeartbeat(currentMedia.id, duration, true, duration);
+                          } else {
+                            sendMediaHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
+                          }
+                        }}
+                        onEnded={(e) => {
+                          const duration = Math.floor(e.currentTarget.duration || 0);
+                          setLessonProgress((prev) => ({
+                            ...prev,
+                            [currentMedia.id]: {
+                              ...(prev[currentMedia.id] || {}),
+                              isCompleted: true,
+                              viewed: true,
+                              progressPercent: 100,
+                              lastPositionSec: duration,
+                            },
+                          }));
+                          sendMediaHeartbeat(currentMedia.id, duration, true, duration);
+                          fetchStepAndProgression();
+                        }}
+                        style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px", display: "block" }}
+                        src={videoSrc}
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    )}
                     <img 
                       src="/brand/logo-dark.png" 
                       alt="WhatBoutMe"
@@ -708,20 +858,67 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               )}
 
-              <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: "bold" }}>{currentMedia.title}</span>
-                {lessonProgress[currentMedia.id]?.isCompleted || lessonProgress[currentMedia.id]?.viewed ? (
-                  <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
-                    ✓ Watched
-                  </span>
-                ) : lessonProgress[currentMedia.id]?.progressPercent > 0 ? (
-                  <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.85rem", fontWeight: 600 }}>
-                    {lessonProgress[currentMedia.id]?.lastPositionSec && currentMedia.durationSec
-                      ? `${Math.floor(lessonProgress[currentMedia.id].lastPositionSec / 60)}:${(Math.floor(lessonProgress[currentMedia.id].lastPositionSec) % 60).toString().padStart(2, "0")} / ${Math.floor(currentMedia.durationSec / 60)}:${(currentMedia.durationSec % 60).toString().padStart(2, "0")} · `
-                      : ""}
-                    Watched {Math.round(lessonProgress[currentMedia.id].progressPercent)}%
-                  </span>
-                ) : null}
+              <div style={{ marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div>
+                  <span style={{ fontWeight: "bold", fontSize: "1rem" }}>{currentMedia.title}</span>
+                  {currentMedia.durationSec && (
+                    <span style={{ marginLeft: "8px", fontSize: "0.85rem", color: "var(--text-secondary, #64748b)" }}>
+                      ({Math.floor(currentMedia.durationSec / 60)}:{(currentMedia.durationSec % 60).toString().padStart(2, "0")})
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  {lessonProgress[currentMedia.id]?.isCompleted || lessonProgress[currentMedia.id]?.viewed ? (
+                    <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "6px 14px", borderRadius: "16px", border: "1px solid #bbf7d0" }}>
+                      ✓ Watched
+                    </span>
+                  ) : (
+                    <>
+                      {lessonProgress[currentMedia.id]?.progressPercent > 0 && (
+                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.85rem", fontWeight: 600 }}>
+                          Watched {Math.round(lessonProgress[currentMedia.id].progressPercent)}%
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const dur = Math.floor(videoRef.current?.duration || currentMedia.durationSec || 30);
+                          setLessonProgress((prev) => ({
+                            ...prev,
+                            [currentMedia.id]: {
+                              ...(prev[currentMedia.id] || {}),
+                              isCompleted: true,
+                              viewed: true,
+                              progressPercent: 100,
+                              lastPositionSec: dur,
+                            },
+                          }));
+                          await sendMediaHeartbeat(currentMedia.id, dur, true, dur);
+                          try {
+                            await fetch(`${API_URL}/progress/lessons/${currentMedia.id}/complete`, {
+                              method: "POST",
+                              headers: getAuthHeaders(),
+                            });
+                          } catch {}
+                          fetchStepAndProgression();
+                        }}
+                        className={styles.secondaryBtn}
+                        style={{
+                          padding: "6px 14px",
+                          fontSize: "0.85rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          backgroundColor: "#f8fafc",
+                          border: "1px solid var(--accent-primary, #0284c7)",
+                          color: "var(--accent-primary, #0284c7)",
+                          borderRadius: "8px",
+                        }}
+                      >
+                        Mark as Watched ✓
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -776,7 +973,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Documents &amp; Reading Materials</h2>
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
                 {documents.map((doc: any) => {
-                  const isDocCompleted = lessonProgress[doc.id]?.isCompleted;
+                  const isDocCompleted = lessonProgress[doc.id]?.isCompleted || lessonProgress[doc.id]?.viewed;
+                  let resolvedPdfUrl = doc.mediaUrl || "";
+                  if (resolvedPdfUrl.startsWith("upload:")) {
+                    const publicId = resolvedPdfUrl.replace("upload:", "");
+                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                    resolvedPdfUrl = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+                  }
+
                   return (
                     <li
                       key={doc.id}
@@ -786,26 +990,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         justifyContent: "space-between",
                         gap: "12px",
                         padding: "14px 16px",
-                        border: "1px solid var(--border-light)",
+                        border: "1px solid var(--border-light, #e2e8f0)",
                         borderRadius: "12px",
-                        background: "var(--bg-card)",
+                        background: "var(--bg-card, #ffffff)",
                       }}
                     >
-                      <a
-                        href={doc.mediaUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => handleCompleteDocument(doc.id)}
+                      <button
+                        type="button"
+                        onClick={() => openPdfModal(doc)}
                         style={{
                           display: "flex",
                           alignItems: "center",
                           gap: "8px",
                           color: "var(--text-primary)",
-                          textDecoration: "none",
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
                           fontWeight: 600,
+                          textAlign: "left",
+                          padding: 0,
+                          fontSize: "0.95rem",
                         }}
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--accent-primary)", flexShrink: 0 }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--accent-primary, #0284c7)", flexShrink: 0 }}>
                           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                           <polyline points="14 2 14 8 20 8" />
                           <line x1="16" y1="13" x2="8" y2="13" />
@@ -813,15 +1020,31 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           <polyline points="10 9 9 9 8 9" />
                         </svg>
                         <span>{doc.title}</span>
-                        <span style={{ color: "var(--accent-primary)", fontSize: "0.8rem", marginLeft: "4px" }}>
-                          (Open PDF &rarr;)
+                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.8rem", marginLeft: "4px" }}>
+                          (View PDF &rarr;)
                         </span>
-                      </a>
+                      </button>
 
-                      <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <a
+                          href={resolvedPdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => handleCompleteDocument(doc.id)}
+                          style={{
+                            fontSize: "0.82rem",
+                            color: "var(--text-secondary, #64748b)",
+                            textDecoration: "none",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          New tab ↗
+                        </a>
                         {isDocCompleted ? (
-                          <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
-                            ✓ Marked as Read
+                          <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "4px 10px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+                            ✓ Read
                           </span>
                         ) : (
                           <button
@@ -829,12 +1052,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             onClick={() => handleCompleteDocument(doc.id)}
                             className={styles.secondaryBtn}
                             style={{
-                              padding: "4px 10px",
+                              padding: "4px 12px",
                               fontSize: "0.8rem",
                               cursor: "pointer",
                               background: "#f1f5f9",
                               border: "1px solid #cbd5e1",
-                              borderRadius: "6px"
+                              borderRadius: "6px",
+                              fontWeight: 600,
                             }}
                           >
                             Mark as Read
@@ -1103,9 +1327,140 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", margin: 0 }}>
               Step Sequence: #{step.sequence}
             </p>
+            {isStepCompleted && (
+              <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid var(--border-light)" }}>
+                <p style={{ color: "#16a34a", fontWeight: 700, fontSize: "0.9rem", margin: "0 0 10px" }}>
+                  🎉 All Requirements Met!
+                </p>
+                {nextStep ? (
+                  <Link
+                    href={`/steps/${nextStep.stepId}`}
+                    className={styles.submitBtn}
+                    style={{ textDecoration: "none", display: "block", textAlign: "center", background: "#16a34a" }}
+                  >
+                    Go to Step {nextStep.sequence} &rarr;
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/programs/${step.programId}/steps`}
+                    className={styles.submitBtn}
+                    style={{ textDecoration: "none", display: "block", textAlign: "center", background: "#16a34a" }}
+                  >
+                    View Roadmap &rarr;
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
+      {/* IN-APP PDF READER MODAL */}
+      {viewingPdf && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.75)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            backdropFilter: "blur(4px)",
+          }}
+          onClick={() => setViewingPdf(null)}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "14px",
+              width: "100%",
+              maxWidth: "1000px",
+              height: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: "14px 20px",
+                borderBottom: "1px solid var(--border-light, #e2e8f0)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                backgroundColor: "#f8fafc",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "1.2rem" }}>📄</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    {viewingPdf.title}
+                  </h3>
+                  <span style={{ fontSize: "0.75rem", color: "#16a34a", fontWeight: 600 }}>
+                    ✓ Marked as Read
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <a
+                  href={viewingPdf.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    color: "var(--accent-primary, #0284c7)",
+                    textDecoration: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <span>Open in New Tab</span>
+                  <span>↗</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setViewingPdf(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    fontSize: "1.4rem",
+                    color: "#64748b",
+                    cursor: "pointer",
+                    padding: "0 4px",
+                    lineHeight: 1,
+                  }}
+                  aria-label="Close PDF Viewer"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Embedded PDF iframe */}
+            <div style={{ flex: 1, width: "100%", height: "100%", background: "#525659" }}>
+              <iframe
+                src={viewingPdf.url}
+                title={viewingPdf.title}
+                style={{ width: "100%", height: "100%", border: "none" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

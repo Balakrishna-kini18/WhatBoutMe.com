@@ -36,7 +36,7 @@ export default function Step3CreateModuleModal({
     await onCreateModule({
       title: title.trim(),
       description: description.trim(),
-      sequence: Number(sequence) || defaultSequence,
+      sequence: defaultSequence,
     });
   };
 
@@ -102,15 +102,9 @@ export default function Step3CreateModuleModal({
             </div>
 
             <div className={styles.formGroup} style={{ marginBottom: 0 }}>
-              <label className={styles.formLabel}>Module Order</label>
-              <input
-                type="number"
-                min={1}
-                value={sequence}
-                onChange={(e) => setSequence(Number(e.target.value))}
-                className={styles.formInput}
-                style={{ maxWidth: 120 }}
-              />
+              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                This module will be automatically positioned as <strong>Module #{defaultSequence}</strong> in the curriculum sequence.
+              </p>
             </div>
           </div>
 

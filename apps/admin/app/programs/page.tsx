@@ -170,19 +170,24 @@ export default function ProgramsPage() {
   };
 
   const handleDeleteProgram = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this program? This will remove all associated modules, lessons, and student progress.")) return;
+    if (!confirm("Are you sure you want to delete this program? This will remove all associated modules, lessons, batches, and student progress.")) return;
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const res = await fetch(`${API_URL}/programs/${id}`, {
         method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
+        setPrograms((prev) => prev.filter((p) => p.id !== id));
         fetchPrograms();
       } else {
         const errorData = await res.json().catch(() => null);
-        alert(`Failed to delete program: ${errorData?.message || res.statusText}`);
+        const errorMsg = errorData?.error?.message ?? errorData?.message ?? res.statusText;
+        alert(`Failed to delete program: ${errorMsg}`);
       }
     } catch (e) {
       console.error("Failed to delete program", e);
+      alert("Network error: Could not reach the server to delete the program.");
     }
   };
 

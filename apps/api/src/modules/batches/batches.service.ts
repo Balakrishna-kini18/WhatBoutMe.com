@@ -503,38 +503,100 @@ export class BatchesService {
       throw new NotFoundException('Batch not found');
     }
 
-    const [enrolmentCount, sessionCount] = await Promise.all([
-      this.prisma.enrolment.count({ where: { batchId: id } }),
-      this.prisma.session.count({ where: { batchId: id } }),
-    ]);
+    // 1. Gather all sessions in this batch for Zoom cancel events & attendance cleanup
+    const sessions = await this.prisma.session.findMany({
+      where: { batchId: id },
+      select: { id: true, providerMeetingId: true },
+    });
+    const sessionIds = sessions.map((s) => s.id);
 
-    if (enrolmentCount > 0 || sessionCount > 0) {
-      // Hard delete, cascade will handle the enrolments and sessions
-      // because we added onDelete: Cascade to the schema
-    }
+    // 2. Execute full relational cleanup inside transaction
+    await this.prisma.$transaction(async (tx) => {
+      if (sessionIds.length > 0) {
+        // Attendance records & audit logs
+        const attendances = await tx.attendance.findMany({
+          where: { sessionId: { in: sessionIds } },
+          select: { id: true },
+        });
+        const attendanceIds = attendances.map((a) => a.id);
 
-    try {
-      const sessions = await this.prisma.session.findMany({
+        if (attendanceIds.length > 0) {
+          await (tx as any).attendanceAuditLog?.deleteMany?.({
+            where: { attendanceId: { in: attendanceIds } },
+          }).catch(() => {});
+          await (tx as any).attendanceEventLog?.deleteMany?.({
+            where: { attendanceId: { in: attendanceIds } },
+          }).catch(() => {});
+          await tx.attendance.deleteMany({
+            where: { id: { in: attendanceIds } },
+          });
+        }
+
+        // Unmatched attendances
+        await tx.unmatchedAttendance.deleteMany({
+          where: { sessionId: { in: sessionIds } },
+        }).catch(() => {});
+
+        // Session bookings
+        await tx.sessionBooking.deleteMany({
+          where: { sessionId: { in: sessionIds } },
+        });
+
+        // Sessions
+        await tx.session.deleteMany({
+          where: { id: { in: sessionIds } },
+        });
+      }
+
+      // 3. Clean up enrolments and all nested progress/attempts
+      const enrolments = await tx.enrolment.findMany({
         where: { batchId: id },
-        select: { providerMeetingId: true }
+        select: { id: true },
       });
+      const enrolmentIds = enrolments.map((e) => e.id);
+
+      if (enrolmentIds.length > 0) {
+        await tx.attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        await tx.enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+      }
+
+      // 4. Clean up batch metadata relations
+      await tx.batchTrainer.deleteMany({ where: { batchId: id } }).catch(() => {});
+      await tx.batchStepOverride.deleteMany({ where: { batchId: id } }).catch(() => {});
+      await (tx as any).batchAnnouncement?.deleteMany?.({ where: { batchId: id } }).catch(() => {});
+      await tx.conversation.deleteMany({ where: { batchId: id } }).catch(() => {});
+      await tx.resource.deleteMany({ where: { batchId: id } }).catch(() => {});
+      await tx.resourceItem.deleteMany({ where: { batchId: id } }).catch(() => {});
+
+      // 5. Clean delete batch record
+      await tx.batch.delete({ where: { id } });
+    });
+
+    // 3. Create Zoom cancel outbox events
+    try {
       for (const sess of sessions) {
         if (sess.providerMeetingId) {
           await this.prisma.outboxEvent.create({
             data: {
               type: 'sync-meeting',
               action: 'CANCEL',
-              payload: { providerMeetingId: sess.providerMeetingId }
-            }
-          });
+              payload: { providerMeetingId: sess.providerMeetingId },
+            },
+          }).catch(() => {});
         }
       }
     } catch (cleanupErr) {
       this.logger.error(`Failed to create Zoom cancel outbox events for batch ${id}:`, cleanupErr);
     }
 
-    // Clean hard delete
-    await this.prisma.batch.delete({ where: { id } });
     await this.cacheHelper.invalidateNamespace('batches');
     return { id, deleted: true };
   }

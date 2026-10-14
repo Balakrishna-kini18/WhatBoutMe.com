@@ -3,7 +3,7 @@ import { Role } from '@prisma/client';
 import { PassThrough } from 'node:stream';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 
-// Content types allowed to upload: images, documents, audio
+// Content types allowed to upload: images, documents, audio, and video
 const ALLOWED: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -14,6 +14,18 @@ const ALLOWED: Record<string, string> = {
   'application/msword': 'doc',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
   'application/zip': 'zip',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/x-msvideo': 'avi',
+  'video/mpeg': 'mpeg',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/wav': 'wav',
+  'audio/ogg': 'ogg',
+  'audio/m4a': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/aac': 'aac',
 };
 
 /**
@@ -28,11 +40,18 @@ export class UploadsController {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
     const extension = ALLOWED[type];
     if (!extension) {
-      throw new BadRequestException('Only JPG, PNG, WebP, GIF images, PDF, DOCX, and TXT files can be uploaded');
+      throw new BadRequestException('Only JPG, PNG, WebP, GIF images, PDF, DOCX, TXT, MP4/MOV videos, and MP3 audios can be uploaded');
     }
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       throw new BadRequestException('The upload was empty');
     }
+
+    const isPdfOrDoc =
+      type === 'application/pdf' ||
+      type === 'application/zip' ||
+      type.startsWith('application/msword') ||
+      type.includes('officedocument') ||
+      type === 'text/plain';
 
     return new Promise((resolve, reject) => {
       import('cloudinary').then(({ v2: cloudinary }) => {
@@ -44,7 +63,7 @@ export class UploadsController {
 
         const uploadStream = cloudinary.uploader.upload_stream(
           {
-            resource_type: 'auto',
+            resource_type: isVideoOrAudio ? 'video' : isPdfOrDoc ? 'raw' : 'auto',
             type: 'upload',
             format: extension,
           },

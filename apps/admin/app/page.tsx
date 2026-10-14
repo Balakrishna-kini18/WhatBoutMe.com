@@ -85,11 +85,14 @@ const Icons = {
 
 interface LearnerItem {
   id: string;
+  userId?: string;
+  enrolmentId?: string;
   name: string;
   email: string;
   program: string;
   status: string;
   date: string;
+  batchId?: string | null;
   initial: string;
   isPhoto?: boolean;
   photoUrl?: string;
@@ -205,17 +208,19 @@ export default function AdminDashboard() {
   // Metrics from legitimate API contract or graceful baseline defaults
   const totalLearners = dashboardData?.totalLearners ?? 0;
   const totalBatches = dashboardData?.totalBatches ?? 0;
-  const totalRevenue = dashboardData?.mockRevenue ?? "$0";
-  const certificatesIssued = dashboardData?.certificatesIssued ?? 0;
+  const totalRevenue = dashboardData?.totalRevenue ?? dashboardData?.mockRevenue ?? "$0";
+  const certificatesIssued = dashboardData?.certificatesIssued ?? dashboardData?.totalCertificates ?? 0;
 
   const enrolmentsList: LearnerItem[] = loading
     ? []
     : dashboardData?.recentEnrolments && dashboardData.recentEnrolments.length > 0
-      ? dashboardData.recentEnrolments.map((u: any) => ({
-          id: u.id,
+      ? dashboardData.recentEnrolments.map((u: any, idx: number) => ({
+          id: u.enrolmentId || (u.id && u.id !== u.userId ? u.id : `${u.userId || u.id || 'enr'}-${idx}`),
+          userId: u.userId || u.id,
+          enrolmentId: u.enrolmentId || u.id,
           name: u.name || "Learner",
           email: u.email,
-          program: u.cohort || u.programTitle || "11 Steps to You",
+          program: u.programTitle || u.batchName || u.cohort || "Unassigned",
           status: u.status === "ACTIVE" || !u.status ? "Active" : u.status,
           date: u.createdAt
             ? new Date(u.createdAt).toLocaleDateString("en-US", {
@@ -223,28 +228,25 @@ export default function AdminDashboard() {
                 day: "numeric",
                 year: "numeric",
               })
-            : "Oct 9, 2026",
+            : "—",
+          batchId: u.batchId || null,
           initial: (u.name || u.email || "L")[0].toUpperCase(),
         }))
       : [];
 
-  // Real, dynamic program distribution computed directly from live enrolments
-  const programDistribution = (() => {
-    if (!enrolmentsList || enrolmentsList.length === 0) return [];
-    const counts: Record<string, number> = {};
-    enrolmentsList.forEach((e) => {
-      const prog = e.program || "General Enrolment";
-      counts[prog] = (counts[prog] || 0) + 1;
-    });
-    const total = enrolmentsList.length;
-    // Brand-derived palette: Primary Amber, Warm Gold, Deep Charcoal, Muted Stone
-    const brandColors = ["#c97a1e", "#d8a86a", "#2c2825", "#8c8275", "#a39887"];
-    return Object.entries(counts).map(([name, count], index) => ({
-      name,
-      count,
-      percentage: Math.round((count / total) * 100),
-      color: brandColors[index % brandColors.length],
-    }));
+interface ProgramDistItem {
+  name: string;
+  count: number;
+  percentage: number;
+  color: string;
+}
+
+  // Dynamic program distribution computed from all persisted enrolments via API
+  const programDistribution: ProgramDistItem[] = (() => {
+    if (dashboardData?.programDistribution && dashboardData.programDistribution.length > 0) {
+      return dashboardData.programDistribution;
+    }
+    return [];
   })();
 
   // Time-of-day greeting
@@ -615,7 +617,9 @@ export default function AdminDashboard() {
                           items={[
                             {
                               label: "View Profile",
-                              href: item.id.startsWith("enr-")
+                              href: item.userId
+                                ? `/users/${item.userId}`
+                                : item.id.startsWith("enr-")
                                 ? "/users"
                                 : `/users/${item.id}`,
                               icon: (
@@ -627,7 +631,7 @@ export default function AdminDashboard() {
                             },
                             {
                               label: "Batch Details",
-                              href: "/batches",
+                              href: item.batchId ? `/batches?id=${item.batchId}` : "/batches",
                               icon: (
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />

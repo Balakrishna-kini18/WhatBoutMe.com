@@ -172,6 +172,7 @@ export interface EnrolmentProgressionResponse {
   steps: StepProgressionItem[];
   totalItems?: number;
   completedItems?: number;
+  certificate?: any;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

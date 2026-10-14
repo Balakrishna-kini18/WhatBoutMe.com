@@ -54,6 +54,12 @@ export default function LearnerDashboard() {
   const [loadError, setLoadError] = useState(false);
 
   const [complianceMap, setComplianceMap] = useState<Record<string, any>>({});
+  const [attendanceSummary, setAttendanceSummary] = useState<{
+    totalScheduledSessions: number;
+    totalAttendedSessions: number;
+    overallAttendancePercentage: number;
+    history: any[];
+  } | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -62,8 +68,11 @@ export default function LearnerDashboard() {
       return;
     }
 
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    fetch(`${apiUrl}/auth/me`, {
+      headers: authHeaders,
     })
       .then((res) => {
         if (res.status === 401) {
@@ -84,8 +93,8 @@ export default function LearnerDashboard() {
         const compMap: Record<string, any> = {};
         for (const ep of profile.enrolledPrograms) {
           try {
-            const cres = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/attendance/compliance/${ep.enrolmentId}`, {
-              headers: { Authorization: `Bearer ${token}` },
+            const cres = await fetch(`${apiUrl}/attendance/compliance/${ep.enrolmentId}`, {
+              headers: authHeaders,
             });
             if (cres.ok) {
               compMap[ep.enrolmentId] = await cres.json();
@@ -96,14 +105,27 @@ export default function LearnerDashboard() {
         }
         setComplianceMap(compMap);
 
+        // Fetch /me/attendance for session tracking & certification eligibility progress
+        try {
+          const attRes = await fetch(`${apiUrl}/me/attendance`, {
+            headers: authHeaders,
+          });
+          if (attRes.ok) {
+            const attData = await attRes.json();
+            setAttendanceSummary(attData);
+          }
+        } catch (e) {
+          console.error("Failed to load /me/attendance", e);
+        }
+
         // Also fetch their certificates
-        return fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/certificates/mine`, {
-          headers: { Authorization: `Bearer ${token}` },
+        return fetch(`${apiUrl}/certificates/mine`, {
+          headers: authHeaders,
         });
       })
-      .then(res => res.ok ? res.json() : [])
+      .then(res => res && res.ok ? res.json() : [])
       .then(certs => {
-        setCertificates(certs);
+        setCertificates(certs || []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -408,6 +430,48 @@ export default function LearnerDashboard() {
               </svg>
               <p className={styles.muted}>
                 {completed.length} of {numEnrolled} {numEnrolled === 1 ? "course" : "courses"} completed
+              </p>
+            </div>
+          </section>
+
+          {/* Attendance & Certificate Eligibility Progress Card */}
+          <section className={styles.panel}>
+            <div className={styles.panelHead}>
+              <h2>Attendance &amp; Certificate Gate</h2>
+              <Link href="/attendance" className={styles.textLink}>Details</Link>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "4px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                  {attendanceSummary ? `${attendanceSummary.overallAttendancePercentage}%` : "—"}
+                </span>
+                <span style={{
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  padding: "3px 8px",
+                  borderRadius: "6px",
+                  background: (attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "#ecfdf5" : "#fff7ed",
+                  color: (attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "#047857" : "#c2410c",
+                  border: `1px solid ${(attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "#a7f3d0" : "#fed7aa"}`
+                }}>
+                  {(attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "Threshold Met (≥75%)" : "Needs 75% for Certificate"}
+                </span>
+              </div>
+              <div style={{ height: "8px", width: "100%", background: "var(--border-light, #e2e8f0)", borderRadius: "4px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${Math.min(100, attendanceSummary?.overallAttendancePercentage ?? 0)}%`,
+                    background: (attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "var(--accent-secondary, #10b981)" : "#f59e0b",
+                    borderRadius: "4px",
+                    transition: "width 0.3s ease"
+                  }}
+                />
+              </div>
+              <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
+                {attendanceSummary
+                  ? `${attendanceSummary.totalAttendedSessions} of ${attendanceSummary.totalScheduledSessions} live sessions completed`
+                  : "Tracking live session attendance in real-time"}
               </p>
             </div>
           </section>

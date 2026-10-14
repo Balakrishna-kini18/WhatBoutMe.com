@@ -65,6 +65,9 @@ describe('D1-051 & D1-051b: CertificateEligibilityService', () => {
           Array.from({ length: 11 }, (_, i) => ({ stepId: `step-${i + 1}`, isCompleted: true }))
         ),
       },
+      exam: {
+        count: vi.fn().mockResolvedValue(1),
+      },
       examAttempt: {
         findMany: vi.fn().mockResolvedValue([
           { id: 'exam-att-1', status: AttemptStatus.PASSED, passed: true, score: 92 },
@@ -74,6 +77,7 @@ describe('D1-051 & D1-051b: CertificateEligibilityService', () => {
         findMany: vi.fn().mockResolvedValue([
           { id: 'oral-1', status: OralAssessmentStatus.PASSED, passed: true, overallScore: 88 },
         ]),
+        count: vi.fn().mockResolvedValue(1),
       },
       session: {
         findMany: vi.fn().mockResolvedValue([

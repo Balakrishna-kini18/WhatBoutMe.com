@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { CertificatesController } from './certificates.controller.js';
 import { CertificatesService } from './certificates.service.js';
@@ -14,7 +14,7 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
   imports: [
     PrismaModule,
     CloudinaryModule,
-    SessionsModule,
+    forwardRef(() => SessionsModule),
     BullModule.registerQueue({
       name: 'certificates',
     }),

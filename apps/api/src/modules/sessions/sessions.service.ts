@@ -10,7 +10,7 @@ import {
   Optional,
   Logger,
 } from '@nestjs/common';
-import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus, OutboxEvent } from '@prisma/client';
+import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus, OutboxEvent, AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
 import type { IMeetingProvider } from '../../common/interfaces/meeting-provider.interface.js';
@@ -422,15 +422,22 @@ export class SessionsService {
     }
 
     if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
-      const isAssigned =
-        session.batch.managerId === user.sub ||
-        session.batch.trainers.some((t: any) => t.trainerId === user.sub);
-      if (!isAssigned) {
-        throw new ForbiddenException('You are not assigned to manage this batch.');
+      if (session.batch) {
+        const isAssigned =
+          session.batch.managerId === user.sub ||
+          session.batch.trainers.some((t: any) => t.trainerId === user.sub);
+        if (!isAssigned) {
+          throw new ForbiddenException('You are not assigned to manage this batch.');
+        }
+      } else if (session.hostTrainerId && session.hostTrainerId !== user.sub) {
+        throw new ForbiddenException('You are not assigned to manage this session.');
       }
     } else if (user.role === Role.USER) {
-      const isLearner = session.learnerId === user.sub;
+      const isLearner = session.learnerId === user.sub || session.userId === user.sub;
       if (!isLearner) {
+        if (!session.batchId) {
+          throw new ForbiddenException('You do not have access to this session.');
+        }
         const enrolment = await this.prisma.enrolment.findUnique({
           where: { userId_batchId: { userId: user.sub, batchId: session.batchId } },
         });
@@ -457,7 +464,9 @@ export class SessionsService {
     }
 
     if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER')) {
-      const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId);
+      const isAssigned = session.batchId
+        ? await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId)
+        : session.hostTrainerId === actorUser.sub;
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
       }
@@ -587,7 +596,9 @@ export class SessionsService {
     }
 
     if ((actorUser.role === Role.MANAGER || actorUser.role === 'MANAGER' || actorUser.role === 'TEACHER')) {
-      const isAssigned = await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId);
+      const isAssigned = session.batchId
+        ? await isManagerAssignedToBatch(this.prisma, actorUser.sub, session.batchId)
+        : session.hostTrainerId === actorUser.sub;
       if (!isAssigned) {
         throw new ForbiddenException('You are not assigned to manage this batch.');
       }
@@ -843,6 +854,10 @@ export class SessionsService {
       }
     }
 
+    if (!session.batchId) {
+      throw new BadRequestException('Session is not associated with a batch.');
+    }
+
     const enrolment = await this.prisma.enrolment.findUnique({
       where: { userId_batchId: { userId, batchId: session.batchId } },
     });
@@ -869,8 +884,13 @@ export class SessionsService {
 
     if (!session) throw new NotFoundException('Session not found');
 
-    if ((user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER') && session.batch.managerId !== user.sub) {
-      throw new ForbiddenException('You can only view attendance for your own batches');
+    if (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER') {
+      const isManager = session.batch
+        ? session.batch.managerId === user.sub
+        : session.hostTrainerId === user.sub;
+      if (!isManager) {
+        throw new ForbiddenException('You can only view attendance for your own batches');
+      }
     }
 
     return this.prisma.attendance.findMany({
@@ -1224,10 +1244,13 @@ export class SessionsService {
         );
       }
       // Resolve enrolment for the batch (used for downstream reconciliation).
-      const enrolment = await this.prisma.enrolment.findUnique({
-        where: { userId_batchId: { userId: learnerId, batchId: session.batchId } },
-        select: { id: true, status: true },
-      });
+      let enrolment = null;
+      if (session.batchId) {
+        enrolment = await this.prisma.enrolment.findUnique({
+          where: { userId_batchId: { userId: learnerId, batchId: session.batchId } },
+          select: { id: true, status: true },
+        });
+      }
       if (enrolment && enrolment.status === EnrolmentStatus.ACTIVE) {
         enrolmentId = enrolment.id;
       }
@@ -1242,6 +1265,10 @@ export class SessionsService {
       // so we do not hard-reject when the enrolment is absent as long as the learnerId matches.
     } else {
       // Group cohort: learner must have an ACTIVE enrolment in this batch.
+      if (!session.batchId) {
+        throw new BadRequestException('Group cohort session is not associated with a batch.');
+      }
+
       const enrolment = await this.prisma.enrolment.findUnique({
         where: { userId_batchId: { userId: learnerId, batchId: session.batchId } },
         select: { id: true, status: true },
@@ -1638,10 +1665,13 @@ export class SessionsService {
       if (newSession.learnerId && newSession.learnerId !== learnerId) {
         throw new ForbiddenException('This 1-on-1 session is dedicated to a different learner.');
       }
-      const enrolment = await this.prisma.enrolment.findUnique({
-        where: { userId_batchId: { userId: learnerId, batchId: newSession.batchId } },
-        select: { id: true, status: true },
-      });
+      let enrolment = null;
+      if (newSession.batchId) {
+        enrolment = await this.prisma.enrolment.findUnique({
+          where: { userId_batchId: { userId: learnerId, batchId: newSession.batchId } },
+          select: { id: true, status: true },
+        });
+      }
       if (enrolment && enrolment.status === EnrolmentStatus.ACTIVE) {
         enrolmentId = enrolment.id;
       }
@@ -1649,6 +1679,9 @@ export class SessionsService {
         throw new ForbiddenException('You must have an ACTIVE enrolment in the batch to book this open 1-on-1 session.');
       }
     } else {
+      if (!newSession.batchId) {
+        throw new BadRequestException('Target session is not associated with a batch.');
+      }
       const enrolment = await this.prisma.enrolment.findUnique({
         where: { userId_batchId: { userId: learnerId, batchId: newSession.batchId } },
         select: { id: true, status: true },
@@ -1776,5 +1809,72 @@ export class SessionsService {
     }
 
     return result;
+  }
+
+  /**
+   * Phase 6: Missed Session & Recording Notification.
+   * Finds absent learners for the session and dispatches notification email & audit record.
+   */
+  async triggerMissedSessionNotifications(sessionId: string, recordingUrl: string) {
+    try {
+      const session = await this.prisma.session.findUnique({
+        where: { id: sessionId },
+        include: {
+          batch: {
+            include: {
+              enrolments: {
+                where: { status: 'ACTIVE' },
+                include: { user: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!session || !session.batch) return;
+
+      const attendances = await this.prisma.attendance.findMany({
+        where: { sessionId, status: AttendanceStatus.ABSENT },
+        select: { userId: true },
+      });
+
+      const absentUserIds = new Set(attendances.map((a) => a.userId));
+      const absentLearners = session.batch.enrolments.filter((e) => absentUserIds.has(e.userId));
+
+      for (const enrolment of absentLearners) {
+        if (!enrolment.user?.email) continue;
+
+        try {
+          if (this.emailService) {
+            await this.emailService.sendEmail({
+              to: enrolment.user.email,
+              subject: `Missed session, recording available: ${session.title}`,
+              html: `<p>Hi ${enrolment.user.name || 'Learner'},</p>
+<p>We missed you at <strong>${session.title}</strong>!</p>
+<p>The recording has been uploaded and is available now: <a href="${recordingUrl}">Watch Session Recording</a>.</p>
+<p>Please review the recording to keep up with your attendance and certification requirements.</p>`,
+            });
+          }
+
+          await this.prisma.auditLog.create({
+            data: {
+              actorId: 'SYSTEM',
+              action: 'MISSED_SESSION_NOTIFICATION_SENT',
+              entity: 'Session',
+              entityId: session.id,
+              meta: {
+                recipientUserId: enrolment.userId,
+                recipientEmail: enrolment.user.email,
+                recordingUrl,
+              },
+            },
+          });
+        } catch (err: any) {
+          this.logger.warn(`Failed to dispatch missed session alert to ${enrolment.user.email}: ${err.message}`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`Error in triggerMissedSessionNotifications: ${err.message}`);
+    }
   }
 }

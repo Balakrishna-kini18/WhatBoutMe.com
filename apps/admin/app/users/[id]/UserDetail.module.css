@@ -963,3 +963,49 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================================
+   9. Attendance History Section
+   ========================================================================= */
+.attendanceTableWrapper {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 12px;
+  overflow-x: auto;
+  box-shadow: 0 1px 4px rgba(20, 17, 15, 0.03);
+}
+
+.attendanceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.attendanceTable th {
+  background: #faf6f0;
+  color: var(--text-muted, #78716a);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+  white-space: nowrap;
+}
+
+.attendanceTable td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+  color: var(--text-primary, #14110f);
+  vertical-align: middle;
+}
+
+.attendanceTable tr:last-child td {
+  border-bottom: none;
+}
+
+.attendanceTable tr:hover td {
+  background: #fdfbf7;
+}
+

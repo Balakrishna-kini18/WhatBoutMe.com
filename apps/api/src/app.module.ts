@@ -30,6 +30,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { CacheHelperModule } from './common/cache/cache-helper.module.js';
+import { AuditModule } from './common/audit/audit.module.js';
 
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard.js';
@@ -92,6 +93,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     HealthModule,
     ChatModule,
     ReportsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [

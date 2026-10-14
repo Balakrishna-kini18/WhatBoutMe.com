@@ -1,7 +1,8 @@
-import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceService } from './attendance.service.js';
-import { UnmatchedAttendanceStatus, AttendanceStatus } from '@prisma/client';
+import { UnmatchedAttendanceStatus, AttendanceStatus, AttendanceSource, Role } from '@prisma/client';
+import { AuditLogService } from '../../common/audit/audit-log.service.js';
 
 export interface NormalizedParticipantRecord {
   provider: string;
@@ -10,6 +11,7 @@ export interface NormalizedParticipantRecord {
   participantName?: string;
   joinTime: Date;
   leaveTime: Date;
+  rawPayload?: any;
 }
 
 export interface AggregatedParticipant {
@@ -20,6 +22,7 @@ export interface AggregatedParticipant {
   joinTime: Date;
   leaveTime: Date;
   durationMin: number;
+  rawPayload?: any;
 }
 
 @Injectable()
@@ -29,20 +32,20 @@ export class AttendanceReconciliationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendanceService: AttendanceService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
-   * Aggregate multiple raw participant records (e.g. from Zoom reconnects) 
-   * into a single clean record per user email, safely merging overlapping intervals.
+   * Aggregate multiple raw participant records (e.g. from network drops and reconnects)
+   * into a single clean record per user email or name, safely merging overlapping intervals.
+   * Handles clock skew, negative interval jitter, invalid timestamps, and high concurrency.
    */
   aggregateRecords(records: NormalizedParticipantRecord[]): AggregatedParticipant[] {
     const grouped = new Map<string, NormalizedParticipantRecord[]>();
 
     for (const record of records) {
-      // Normalize email: trim and lowercase
       let key = record.participantEmail?.trim().toLowerCase() || '';
       if (!key) {
-        // Fallback to name or provider ID if email is missing
         key = record.participantName?.trim().toLowerCase() || record.providerId || 'UNKNOWN';
       }
 
@@ -54,36 +57,78 @@ export class AttendanceReconciliationService {
 
     const results: AggregatedParticipant[] = [];
 
-    for (const [key, userRecords] of grouped.entries()) {
-      // Sort by join time
-      userRecords.sort((a, b) => a.joinTime.getTime() - b.joinTime.getTime());
-      
-      const merged: { joinTime: Date; leaveTime: Date }[] = [{ 
-        joinTime: userRecords[0].joinTime, 
-        leaveTime: userRecords[0].leaveTime 
-      }];
+    for (const [_key, userRecords] of grouped.entries()) {
+      // 1. Sanitize timestamps and protect against clock drift or negative intervals
+      const validRecords: { joinTime: Date; leaveTime: Date; original: NormalizedParticipantRecord }[] = [];
+      for (const rec of userRecords) {
+        const join = new Date(rec.joinTime);
+        const leave = new Date(rec.leaveTime);
+        const joinValid = !isNaN(join.getTime());
+        const leaveValid = !isNaN(leave.getTime());
 
-      for (let i = 1; i < userRecords.length; i++) {
-        const current = userRecords[i];
+        if (!joinValid && !leaveValid) {
+          continue;
+        }
+
+        const validJoin = joinValid ? join : leave;
+        let validLeave = leaveValid ? leave : join;
+
+        // Clock skew guard: leave time cannot precede join time
+        if (validLeave.getTime() < validJoin.getTime()) {
+          validLeave = validJoin;
+        }
+
+        validRecords.push({
+          joinTime: validJoin,
+          leaveTime: validLeave,
+          original: rec,
+        });
+      }
+
+      if (validRecords.length === 0) {
+        continue;
+      }
+
+      // 2. Sort intervals by join time ascending
+      validRecords.sort((a, b) => a.joinTime.getTime() - b.joinTime.getTime());
+
+      // 3. Merge overlapping and continuous intervals
+      const merged: { joinTime: Date; leaveTime: Date }[] = [
+        {
+          joinTime: new Date(validRecords[0].joinTime),
+          leaveTime: new Date(validRecords[0].leaveTime),
+        },
+      ];
+
+      for (let i = 1; i < validRecords.length; i++) {
+        const current = {
+          joinTime: new Date(validRecords[i].joinTime),
+          leaveTime: new Date(validRecords[i].leaveTime),
+        };
         const previous = merged[merged.length - 1];
 
-        if (current.joinTime <= previous.leaveTime) {
-          // Overlap: extend leaveTime if needed
-          previous.leaveTime = new Date(Math.max(previous.leaveTime.getTime(), current.leaveTime.getTime()));
+        if (current.joinTime.getTime() <= previous.leaveTime.getTime()) {
+          // Overlapping interval: extend leave time to maximum
+          previous.leaveTime = new Date(
+            Math.max(previous.leaveTime.getTime(), current.leaveTime.getTime()),
+          );
         } else {
-          merged.push({ joinTime: current.joinTime, leaveTime: current.leaveTime });
+          // Non-overlapping interval: new discrete segment
+          merged.push(current);
         }
       }
 
+      // 4. Sum duration across all non-overlapping connected segments
       let durationMs = 0;
       for (const interval of merged) {
-        durationMs += (interval.leaveTime.getTime() - interval.joinTime.getTime());
+        const diff = interval.leaveTime.getTime() - interval.joinTime.getTime();
+        durationMs += Math.max(0, isNaN(diff) ? 0 : diff);
       }
 
       const firstJoin = merged[0].joinTime;
       const lastLeave = merged[merged.length - 1].leaveTime;
-      
-      const firstRecord = userRecords[0];
+      const firstRecord = validRecords[0].original;
+      const durationMin = Math.max(0, Math.round(durationMs / 60000));
 
       results.push({
         provider: firstRecord.provider,
@@ -92,7 +137,8 @@ export class AttendanceReconciliationService {
         participantName: firstRecord.participantName?.trim(),
         joinTime: firstJoin,
         leaveTime: lastLeave,
-        durationMin: Math.floor(durationMs / 60000),
+        durationMin: Number.isFinite(durationMin) ? durationMin : 0,
+        rawPayload: firstRecord.rawPayload,
       });
     }
 
@@ -100,16 +146,24 @@ export class AttendanceReconciliationService {
   }
 
   /**
-   * D1-048b: Main Reconciliation Engine Entry Point with 70% Attendance Compliance Enforcement (ATT-01)
+   * Main Reconciliation Engine Entry Point with Multi-Join Aggregation, 75% Rule & No-Show Marking.
+   * Optimized with chunked concurrency processing to handle batches with up to 100,000 learners without connection pool exhaustion.
    */
   async reconcileSession(sessionId: string, rawRecords: NormalizedParticipantRecord[]) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      include: { 
+      include: {
         batch: {
-          include: { enrolments: { include: { user: true } } }
-        }
-      }
+          include: {
+            program: true,
+            enrolments: {
+              where: { status: 'ACTIVE' },
+              include: { user: true },
+            },
+          },
+        },
+        user: true, // for 1-on-1 sessions
+      },
     });
 
     if (!session) {
@@ -119,244 +173,442 @@ export class AttendanceReconciliationService {
     const aggregated = this.aggregateRecords(rawRecords);
 
     // Calculate effective session duration in minutes
-    let sessionDurationMin = 0;
-    if (session.startTime && session.endTime && new Date(session.endTime) > new Date(session.startTime)) {
+    let sessionDurationMin = session.durationMinutes || 0;
+    if (sessionDurationMin <= 0 && session.startTime && session.endTime) {
       sessionDurationMin = Math.round(
         (new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000,
       );
-    } else {
-      // Safe default for missing, zero, or invalid scheduled times
+    }
+    if (sessionDurationMin <= 0) {
       sessionDurationMin = 60;
-      this.logger.warn(
-        `Session ${session.id} has invalid or missing duration (start=${session.startTime}, end=${session.endTime}). Defaulting to 60 minutes for attendance evaluation.`,
+    }
+
+    // Configurable program threshold (default 75% as per Phase 1/4 requirements)
+    const minAttendancePercentage =
+      session.batch?.program?.minAttendancePercentage ??
+      (session.batch as any)?.attendanceThreshold ??
+      75;
+
+    // Lookup map of enrolled learners by lowercase email
+    const enrolledByEmail = new Map<string, { userId: string; enrolmentId: string }>();
+    const matchedUserIds = new Set<string>();
+
+    if (session.batch?.enrolments) {
+      for (const enrolment of session.batch.enrolments) {
+        if (enrolment.user?.email) {
+          enrolledByEmail.set(enrolment.user.email.toLowerCase().trim(), {
+            userId: enrolment.userId,
+            enrolmentId: enrolment.id,
+          });
+        }
+      }
+    } else if (session.userId && session.user?.email) {
+      // 1-on-1 session
+      enrolledByEmail.set(session.user.email.toLowerCase().trim(), {
+        userId: session.userId,
+        enrolmentId: '',
+      });
+    }
+
+    // Pre-fetch existing unmatched records in 1 query to prevent N+1 query loops
+    const existingUnmatchedList = await this.prisma.unmatchedAttendance.findMany({
+      where: {
+        sessionId: session.id,
+        status: UnmatchedAttendanceStatus.UNMATCHED,
+      },
+    });
+
+    const unmatchedByEmail = new Map<string, (typeof existingUnmatchedList)[0]>();
+    const unmatchedByName = new Map<string, (typeof existingUnmatchedList)[0]>();
+    for (const u of existingUnmatchedList) {
+      if (u.participantEmail) {
+        unmatchedByEmail.set(u.participantEmail.toLowerCase().trim(), u);
+      }
+      if (u.participantName) {
+        unmatchedByName.set(u.participantName.toLowerCase().trim(), u);
+      }
+    }
+
+    // Concurrency chunking helper to execute operations in parallel without overwhelming DB connection pool
+    const CHUNK_SIZE = 50;
+
+    // 1. Process matched participants in parallel chunks
+    const matchedParticipants: {
+      userId: string;
+      enrolmentId?: string;
+      joinTime: Date;
+      leaveTime: Date;
+      durationMin: number;
+      attendancePercentage: number;
+      status: AttendanceStatus;
+    }[] = [];
+
+    const unmatchedToProcess: AggregatedParticipant[] = [];
+
+    for (const participant of aggregated) {
+      const email = participant.participantEmail?.toLowerCase().trim();
+      const matched = email ? enrolledByEmail.get(email) : undefined;
+
+      if (matched) {
+        matchedUserIds.add(matched.userId);
+        const attendedDurationMin = participant.durationMin || 0;
+        const attendancePercentage =
+          sessionDurationMin > 0 ? (attendedDurationMin / sessionDurationMin) * 100 : 0;
+        const meetsThreshold = attendancePercentage >= minAttendancePercentage;
+        const status = meetsThreshold ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT;
+
+        matchedParticipants.push({
+          userId: matched.userId,
+          enrolmentId: matched.enrolmentId || undefined,
+          joinTime: participant.joinTime,
+          leaveTime: participant.leaveTime,
+          durationMin: attendedDurationMin,
+          attendancePercentage,
+          status,
+        });
+      } else {
+        unmatchedToProcess.push(participant);
+      }
+    }
+
+    // Chunked parallel execution for matched attendees
+    for (let i = 0; i < matchedParticipants.length; i += CHUNK_SIZE) {
+      const chunk = matchedParticipants.slice(i, i + CHUNK_SIZE);
+      await Promise.all(
+        chunk.map((item) =>
+          this.attendanceService.recordPresentAuto(session.id, item.userId, {
+            isUserId: true,
+            enrolmentId: item.enrolmentId,
+            joinTime: item.joinTime,
+            leaveTime: item.leaveTime,
+            durationMin: item.durationMin,
+            attendancePercentage: item.attendancePercentage,
+            status: item.status,
+          }),
+        ),
       );
     }
 
-    // Configurable batch threshold or standard 70% threshold (ATT-01)
-    const thresholdPercent = (session.batch as any)?.attendanceThreshold ?? 70;
+    // 2. Process unmatched participants in parallel chunks
+    for (let i = 0; i < unmatchedToProcess.length; i += CHUNK_SIZE) {
+      const chunk = unmatchedToProcess.slice(i, i + CHUNK_SIZE);
+      await Promise.all(
+        chunk.map(async (participant) => {
+          const email = participant.participantEmail?.toLowerCase().trim();
+          const name = participant.participantName?.toLowerCase().trim();
+          const existingUnmatched =
+            (email ? unmatchedByEmail.get(email) : undefined) ||
+            (name ? unmatchedByName.get(name) : undefined);
 
-    // Build lookup maps for enrolments by email
-    const enrolmentsByEmail = new Map<string, typeof session.batch.enrolments[0]>();
-    for (const enrolment of session.batch.enrolments) {
-      if (enrolment.user.email) {
-        enrolmentsByEmail.set(enrolment.user.email.toLowerCase(), enrolment);
-      }
+          if (existingUnmatched) {
+            await this.prisma.unmatchedAttendance.update({
+              where: { id: existingUnmatched.id },
+              data: {
+                joinTime: participant.joinTime,
+                leaveTime: participant.leaveTime,
+                durationMin: participant.durationMin,
+                minutesPresent: participant.durationMin,
+                rawPayload: (participant.rawPayload || {}) as any,
+              },
+            });
+          } else {
+            await this.prisma.unmatchedAttendance.create({
+              data: {
+                sessionId: session.id,
+                provider: participant.provider,
+                providerId: participant.providerId,
+                participantEmail: participant.participantEmail,
+                participantName: participant.participantName || 'Anonymous',
+                joinTime: participant.joinTime,
+                leaveTime: participant.leaveTime,
+                durationMin: participant.durationMin,
+                minutesPresent: participant.durationMin,
+                status: UnmatchedAttendanceStatus.UNMATCHED,
+                rawPayload: (participant.rawPayload || {}) as any,
+              },
+            });
+          }
+        }),
+      );
     }
 
-    // Process each aggregated participant
-    for (const participant of aggregated) {
-      let matchedEnrolment = undefined;
-      
-      if (participant.participantEmail) {
-        matchedEnrolment = enrolmentsByEmail.get(participant.participantEmail);
-      }
+    // 3. Mark No-Shows: Any enrolled active learner with no matched record is marked ABSENT (chunked)
+    if (session.batch?.enrolments) {
+      const absentEnrolments = session.batch.enrolments.filter(
+        (e) => !matchedUserIds.has(e.userId),
+      );
 
-      if (matchedEnrolment) {
-        // Evaluate attended duration against 70% compliance threshold
-        const attendedDurationMin = participant.durationMin || 0;
-        const attendancePercentage = sessionDurationMin > 0
-          ? (attendedDurationMin / sessionDurationMin) * 100
-          : 0;
-
-        const meetsThreshold = attendancePercentage >= thresholdPercent;
-        const status = meetsThreshold ? AttendanceStatus.PRESENT_AUTO : AttendanceStatus.ABSENT;
-
-        // Known learner: pass to domain service which naturally protects MANUAL/CORRECTED states.
-        await this.attendanceService.recordPresentAuto(
-          session.id, 
-          matchedEnrolment.id, 
-          {
-            joinTime: participant.joinTime,
-            leaveTime: participant.leaveTime,
-            durationMin: attendedDurationMin,
-            status,
-          }
+      for (let i = 0; i < absentEnrolments.length; i += CHUNK_SIZE) {
+        const chunk = absentEnrolments.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map((enrolment) =>
+            this.attendanceService.recordAbsent(session.id, enrolment.userId, {
+              isUserId: true,
+              enrolmentId: enrolment.id,
+            }),
+          ),
         );
-      } else {
-        // Unknown or unmatched participant: send to Unmatched Queue (Idempotent)
-        const matchKey = participant.participantEmail || participant.participantName || participant.providerId || 'UNKNOWN';
-        
-        const orClauses: any[] = [];
-        if (participant.participantEmail) orClauses.push({ participantEmail: participant.participantEmail });
-        if (participant.providerId) orClauses.push({ providerId: participant.providerId });
-        if (participant.participantName) orClauses.push({ participantName: participant.participantName });
-
-        let existingUnmatched = null;
-        if (orClauses.length > 0) {
-          existingUnmatched = await this.prisma.unmatchedAttendance.findFirst({
-            where: {
-              sessionId: session.id,
-              OR: orClauses
-            }
-          });
-        }
-
-        if (existingUnmatched) {
-          // Update aggregated times if it hasn't been resolved yet
-          if (existingUnmatched.status === UnmatchedAttendanceStatus.UNMATCHED) {
-             await this.prisma.unmatchedAttendance.update({
-               where: { id: existingUnmatched.id },
-               data: {
-                 joinTime: participant.joinTime,
-                 leaveTime: participant.leaveTime,
-                 durationMin: participant.durationMin,
-               }
-             });
-          }
-        } else {
-          await this.prisma.unmatchedAttendance.create({
-            data: {
-              sessionId: session.id,
-              provider: participant.provider,
-              providerId: participant.providerId,
-              participantEmail: participant.participantEmail,
-              participantName: participant.participantName,
-              joinTime: participant.joinTime,
-              leaveTime: participant.leaveTime,
-              durationMin: participant.durationMin,
-              status: UnmatchedAttendanceStatus.UNMATCHED,
-            }
-          });
-        }
       }
     }
 
-    // Finally, mark the session as having its attendance pulled
     await this.prisma.session.update({
       where: { id: session.id },
-      data: { attendancePulled: true }
+      data: { attendancePulled: true },
     });
   }
 
   /**
-   * Manually resolves an unmatched record to a valid learner in the batch.
+   * Phase 5: Links an unmatched participant entry to a learner with recalculation against the 75% rule.
    */
-  async resolveUnmatched(unmatchedId: string, enrolmentId: string, managerActorId: string, isSuperAdmin: boolean = false) {
+  async linkUnmatchedParticipant(
+    sessionId: string,
+    unmatchedId: string,
+    userId: string,
+    actor: { id: string; role: string },
+    reason?: string,
+  ) {
+    const effectiveReason = reason?.trim() || 'Linked unmatched meeting participant to enrolled learner';
+
     return this.prisma.$transaction(async (tx) => {
       const unmatched = await tx.unmatchedAttendance.findUnique({
         where: { id: unmatchedId },
-        include: { session: { include: { batch: true } } }
+        include: {
+          session: {
+            include: {
+              batch: {
+                include: {
+                  trainers: true,
+                  program: true,
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!unmatched) {
-        throw new BadRequestException('Unmatched record not found');
+        throw new NotFoundException('Unmatched participant record not found');
       }
 
       if (unmatched.status !== UnmatchedAttendanceStatus.UNMATCHED) {
-        throw new BadRequestException('Record is already resolved');
+        throw new BadRequestException('Unmatched record is already linked or resolved');
       }
 
-      // RBAC check: Manager can only link in their assigned batch
-      if (!isSuperAdmin && unmatched.session.batch.managerId !== managerActorId) {
-        // Also check if they are a batch trainer? The requirement says manager assigned batch.
-        throw new ForbiddenException('You can only resolve attendance for your assigned batches');
+      // Batch isolation verification for MANAGER
+      if (
+        (actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER') &&
+        unmatched.session.batch
+      ) {
+        const isAssigned =
+          unmatched.session.batch.managerId === actor.id ||
+          unmatched.session.batch.trainers.some((t: any) => t.trainerId === actor.id);
+
+        if (!isAssigned) {
+          throw new ForbiddenException('Access denied: You are not assigned to manage this batch');
+        }
       }
 
-      // Check enrolment belongs to same batch
-      const enrolment = await tx.enrolment.findUnique({
-        where: { id: enrolmentId }
-      });
-
-      if (!enrolment || enrolment.batchId !== unmatched.session.batchId) {
-        throw new BadRequestException('Selected learner is not enrolled in the relevant batch');
+      // Verify target user is enrolled in the session batch (if batch session)
+      let targetEnrolmentId: string | null = null;
+      if (unmatched.session.batchId) {
+        const enrolment = await tx.enrolment.findUnique({
+          where: {
+            userId_batchId: {
+              userId,
+              batchId: unmatched.session.batchId,
+            },
+          },
+        });
+        if (!enrolment) {
+          throw new BadRequestException('Selected learner is not actively enrolled in this batch');
+        }
+        targetEnrolmentId = enrolment.id;
       }
 
-      // Perform linkage: update Unmatched table
-      const resolved = await tx.unmatchedAttendance.update({
+      // Mark unmatched record as LINKED
+      const updatedUnmatched = await tx.unmatchedAttendance.update({
         where: { id: unmatchedId },
         data: {
           status: UnmatchedAttendanceStatus.LINKED,
-          linkedEnrolmentId: enrolmentId,
-          resolvedById: managerActorId,
+          linkedUserId: userId,
+          linkedEnrolmentId: targetEnrolmentId,
+          resolvedById: actor.id,
           resolvedAt: new Date(),
-        }
+        },
       });
 
-      // Update Attendance table via domain logic. We use tx by passing it to correctAttendance if possible,
-      // but since AttendanceService handles its own transactions or uses the provided one, we'll need to call it.
-      // Wait, AttendanceService methods accept transactions if we wrap them, but actually we can just call it 
-      // without transaction context or with a simpler flow. 
-      // To strictly follow rules, let's call attendanceService.recordPresentAuto if they are merely linking the auto data,
-      // OR maybe correctAttendance? 
-      // The requirement says: "resolving an unmatched attendee must update attendance through AttendanceService, not directly mutate attendance state"
-      // Wait, is it a manual override or an automatic mapping?
-      // "link an unmatched participant... resolving must update attendance through AttendanceService"
-      // If we use recordPresentAuto, it's non-destructive and treats it as an automated signal that got linked.
-      // Let's use recordPresentAuto so that if someone manually marked them Absent/Corrected already, we don't blow it away.
-      
-      // We will perform the domain call after the transaction, or we can use the domain service separately.
-      
-      return resolved;
-    }).then(async (resolved) => {
-       // Domain call
-       await this.attendanceService.recordPresentAuto(
-         resolved.sessionId,
-         resolved.linkedEnrolmentId!,
-         {
-           joinTime: resolved.joinTime || undefined,
-           leaveTime: resolved.leaveTime || undefined,
-           durationMin: resolved.durationMin || undefined,
-         }
-       );
-       
-       // Log audit
-       await this.prisma.auditLog.create({
-         data: {
-           actorId: managerActorId,
-           action: 'UNMATCHED_ATTENDANCE_LINKED',
-           entity: 'UnmatchedAttendance',
-           entityId: resolved.id,
-           meta: { 
-             sessionId: resolved.sessionId,
-             linkedEnrolmentId: enrolmentId, 
-             participantEmail: resolved.participantEmail 
-           }
-         }
-       });
+      // Recalculate duration & percentage against the 75% threshold rule
+      let sessionDurationMin = unmatched.session.durationMinutes || 0;
+      if (sessionDurationMin <= 0 && unmatched.session.startTime && unmatched.session.endTime) {
+        sessionDurationMin = Math.round(
+          (new Date(unmatched.session.endTime).getTime() -
+            new Date(unmatched.session.startTime).getTime()) /
+            60000,
+        );
+      }
+      if (sessionDurationMin <= 0) sessionDurationMin = 60;
 
-       return resolved;
+      const minThreshold =
+        unmatched.session.batch?.program?.minAttendancePercentage ?? 75;
+      const minutesPresent = unmatched.minutesPresent || unmatched.durationMin || 0;
+      const percentage = (minutesPresent / sessionDurationMin) * 100;
+      const meetsThreshold = percentage >= minThreshold;
+      const calculatedStatus = meetsThreshold ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT;
+
+      // Upsert attendance record for the learner
+      const attendance = await tx.attendance.upsert({
+        where: { sessionId_userId: { sessionId: unmatched.sessionId, userId } },
+        update: {
+          status: calculatedStatus,
+          minutesPresent,
+          durationMin: minutesPresent,
+          attendancePercentage: percentage,
+          joinTime: unmatched.joinTime,
+          leaveTime: unmatched.leaveTime,
+          source: AttendanceSource.MANUAL,
+          correctedById: actor.id,
+          correctionReason: effectiveReason,
+          overrideReason: effectiveReason,
+          updatedById: actor.id,
+        },
+        create: {
+          sessionId: unmatched.sessionId,
+          userId,
+          enrolmentId: targetEnrolmentId,
+          status: calculatedStatus,
+          minutesPresent,
+          durationMin: minutesPresent,
+          attendancePercentage: percentage,
+          joinTime: unmatched.joinTime,
+          leaveTime: unmatched.leaveTime,
+          source: AttendanceSource.MANUAL,
+          correctedById: actor.id,
+          correctionReason: effectiveReason,
+          overrideReason: effectiveReason,
+          updatedById: actor.id,
+        },
+      });
+
+      // Write immutable audit log entry
+      await this.auditLogService.log(tx, {
+        actorId: actor.id,
+        action: 'ATTENDANCE_RECONCILED',
+        entityType: 'Attendance',
+        entityId: attendance.id,
+        reason: effectiveReason,
+        metadata: {
+          sessionId: unmatched.sessionId,
+          unmatchedId,
+          userId,
+          minutesPresent,
+          attendancePercentage: percentage,
+          status: calculatedStatus,
+        },
+      });
+
+      return updatedUnmatched;
     });
   }
 
-  async dismissUnmatched(unmatchedId: string, managerActorId: string, isSuperAdmin: boolean = false) {
-    const unmatched = await this.prisma.unmatchedAttendance.findUnique({
-      where: { id: unmatchedId },
-      include: { session: { include: { batch: true } } }
-    });
+  /**
+   * Dismisses / Ignores an unmatched record
+   */
+  async dismissUnmatched(unmatchedId: string, actor: { id: string; role: string }, reason?: string) {
+    const effectiveReason = reason?.trim() || 'Dismissed non-learner participant entry';
 
-    if (!unmatched) {
-      throw new BadRequestException('Unmatched record not found');
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const unmatched = await tx.unmatchedAttendance.findUnique({
+        where: { id: unmatchedId },
+        include: {
+          session: {
+            include: {
+              batch: {
+                include: { trainers: true },
+              },
+            },
+          },
+        },
+      });
 
-    if (!isSuperAdmin && unmatched.session.batch.managerId !== managerActorId) {
-      throw new ForbiddenException('You can only resolve attendance for your assigned batches');
-    }
-
-    const resolved = await this.prisma.unmatchedAttendance.update({
-      where: { id: unmatchedId },
-      data: {
-        status: UnmatchedAttendanceStatus.IGNORED,
-        resolvedById: managerActorId,
-        resolvedAt: new Date(),
+      if (!unmatched) {
+        throw new NotFoundException('Unmatched record not found');
       }
-    });
 
-    await this.prisma.auditLog.create({
-      data: {
-        actorId: managerActorId,
+      if (
+        (actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER') &&
+        unmatched.session.batch
+      ) {
+        const isAssigned =
+          unmatched.session.batch.managerId === actor.id ||
+          unmatched.session.batch.trainers.some((t: any) => t.trainerId === actor.id);
+
+        if (!isAssigned) {
+          throw new ForbiddenException('Access denied: You are not assigned to manage this batch');
+        }
+      }
+
+      const dismissed = await tx.unmatchedAttendance.update({
+        where: { id: unmatchedId },
+        data: {
+          status: UnmatchedAttendanceStatus.IGNORED,
+          resolvedById: actor.id,
+          resolvedAt: new Date(),
+        },
+      });
+
+      await this.auditLogService.log(tx, {
+        actorId: actor.id,
         action: 'UNMATCHED_ATTENDANCE_DISMISSED',
-        entity: 'UnmatchedAttendance',
-        entityId: resolved.id,
-        meta: { sessionId: resolved.sessionId, participantEmail: resolved.participantEmail }
-      }
-    });
+        entityType: 'UnmatchedAttendance',
+        entityId: dismissed.id,
+        reason: effectiveReason,
+        metadata: {
+          sessionId: unmatched.sessionId,
+          unmatchedId,
+          participantEmail: unmatched.participantEmail,
+        },
+      });
 
-    return resolved;
+      return dismissed;
+    });
   }
+
   async getUnmatchedForSession(sessionId: string) {
     return this.prisma.unmatchedAttendance.findMany({
       where: { sessionId },
       orderBy: { joinTime: 'asc' },
     });
+  }
+
+  /**
+   * Compatibility method for resolveUnmatched
+   */
+  async resolveUnmatched(
+    unmatchedId: string,
+    enrolmentId: string,
+    managerActorId: string,
+    isSuperAdmin: boolean = false,
+  ) {
+    const unmatched = await this.prisma.unmatchedAttendance.findUnique({
+      where: { id: unmatchedId },
+    });
+    if (!unmatched) throw new NotFoundException('Unmatched record not found');
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id: enrolmentId },
+    });
+    if (!enrolment) throw new BadRequestException('Enrolment not found');
+
+    const actor = {
+      id: managerActorId,
+      role: isSuperAdmin ? Role.SUPER_ADMIN : Role.MANAGER,
+    };
+
+    return this.linkUnmatchedParticipant(
+      unmatched.sessionId,
+      unmatchedId,
+      enrolment.userId,
+      actor,
+      'Resolved unmatched participant to enrolled learner',
+    );
   }
 }

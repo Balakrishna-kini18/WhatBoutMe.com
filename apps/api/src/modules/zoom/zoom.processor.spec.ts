@@ -28,10 +28,15 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       reconcileSession: vi.fn(),
     };
 
+    const sessionsServiceMock = {
+      triggerMissedSessionNotifications: vi.fn().mockResolvedValue(undefined),
+    };
+
     processor = new ZoomProcessor(
       zoomServiceMock as unknown as ZoomMeetingProvider,
       prismaMock as unknown as PrismaService,
       reconciliationMock as unknown as AttendanceReconciliationService,
+      sessionsServiceMock as any,
     );
   });
 
@@ -113,6 +118,24 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       const job = createJob('meeting.ended', { id: 999999999 });
       await processor.process(job);
 
+      expect(prismaMock.session.update).not.toHaveBeenCalled();
+      expect(zoomServiceMock.getParticipantReport).not.toHaveBeenCalled();
+      expect(reconciliationMock.reconcileSession).not.toHaveBeenCalled();
+    });
+
+    it('skips duplicate meeting.ended webhook when attendancePulled is already true', async () => {
+      const mockSession = {
+        id: 'sess-100',
+        batchId: 'batch-1',
+        providerMeetingId: '987654321',
+        attendancePulled: true,
+      };
+      prismaMock.session.findFirst.mockResolvedValue(mockSession);
+
+      const job = createJob('meeting.ended', { id: 987654321 });
+      await processor.process(job);
+
+      // Verify no duplicate reconciliation or update was executed
       expect(prismaMock.session.update).not.toHaveBeenCalled();
       expect(zoomServiceMock.getParticipantReport).not.toHaveBeenCalled();
       expect(reconciliationMock.reconcileSession).not.toHaveBeenCalled();

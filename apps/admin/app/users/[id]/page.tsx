@@ -111,6 +111,32 @@ function getInitials(name?: string | null): string {
   return init || "U";
 }
 
+interface LearnerAttendanceHistory {
+  userId: string;
+  totalScheduledSessions: number;
+  totalAttendedSessions: number;
+  overallAttendancePercentage: number;
+  history: Array<{
+    sessionId: string;
+    sessionTitle: string;
+    sessionType: string;
+    batchId?: string | null;
+    batchName: string | null;
+    programTitle: string | null;
+    startTimeUtc: string;
+    endTimeUtc: string;
+    durationMinutes: number;
+    meetingProvider: string | null;
+    status: string;
+    minutesPresent: number;
+    attendancePercentage: number;
+    source: string;
+    overrideReason?: string | null;
+    joinTimeUtc: string | null;
+    leaveTimeUtc: string | null;
+  }>;
+}
+
 export default function UserDetailPage({
   params,
 }: {
@@ -123,6 +149,8 @@ export default function UserDetailPage({
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState<string>("");
   const [progression, setProgression] = useState<EnrolmentProgression | null>(null);
   const [compliance, setCompliance] = useState<any>(null);
+  const [attendanceHistory, setAttendanceHistory] = useState<LearnerAttendanceHistory | null>(null);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingProgression, setLoadingProgression] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -145,7 +173,7 @@ export default function UserDetailPage({
     }));
   };
 
-  // Load user profile & enrolments
+  // Load user profile & enrolments & attendance history
   useEffect(() => {
     async function loadUser() {
       setLoading(true);
@@ -169,7 +197,27 @@ export default function UserDetailPage({
         setLoading(false);
       }
     }
+
+    async function loadAttendanceHistory() {
+      setLoadingAttendance(true);
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/attendance/user/${userId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAttendanceHistory(data);
+        }
+      } catch (e) {
+        console.error("Failed to load attendance history", e);
+      } finally {
+        setLoadingAttendance(false);
+      }
+    }
+
     loadUser();
+    loadAttendanceHistory();
   }, [userId]);
 
   // Load progression when selected enrolment changes
@@ -1042,7 +1090,168 @@ export default function UserDetailPage({
         )}
       </section>
 
-      {/* 5. Manual Override Confirmation Modal */}
+      {/* 5. Learner Session Attendance & Reconciliation History */}
+      <section className={styles.progressionSection}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>Session Attendance &amp; Reconciliation History</h2>
+            <p className={styles.sectionSubtitle}>
+              Live cohort and 1-on-1 coaching attendance records, timestamps, and manual overrides.
+            </p>
+          </div>
+          {attendanceHistory && (
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+              <span
+                style={{
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  background: attendanceHistory.overallAttendancePercentage >= 75 ? "#ecfdf5" : "#fef2f2",
+                  color: attendanceHistory.overallAttendancePercentage >= 75 ? "#047857" : "#b91c1c",
+                  border: `1px solid ${attendanceHistory.overallAttendancePercentage >= 75 ? "#a7f3d0" : "#fecaca"}`,
+                }}
+              >
+                {attendanceHistory.overallAttendancePercentage}% Attendance ({attendanceHistory.totalAttendedSessions}/{attendanceHistory.totalScheduledSessions} Sessions)
+              </span>
+            </div>
+          )}
+        </div>
+
+        {loadingAttendance ? (
+          <div style={{ textAlign: "center", padding: "2.5rem", color: "var(--text-muted)" }}>
+            Loading session attendance history...
+          </div>
+        ) : !attendanceHistory || attendanceHistory.history.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "2.5rem", color: "var(--text-muted)" }}>
+            No sessions or attendance records found for this learner yet.
+          </div>
+        ) : (
+          <div className={styles.attendanceTableWrapper}>
+            <table className={styles.attendanceTable}>
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th>Cohort / Track</th>
+                  <th>When (Local)</th>
+                  <th>Minutes Present</th>
+                  <th>Attendance %</th>
+                  <th>Status</th>
+                  <th>Source</th>
+                  <th>Override Reason</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendanceHistory.history.map((record) => {
+                  const startTime = new Date(record.startTimeUtc);
+                  const isPresent =
+                    record.status === "PRESENT" ||
+                    record.status === "PRESENT_AUTO" ||
+                    record.status === "PRESENT_MANUAL" ||
+                    record.status === "CORRECTED";
+
+                  return (
+                    <tr key={record.sessionId}>
+                      <td>
+                        <strong>{record.sessionTitle}</strong>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                          {record.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching" : "Cohort Session"}
+                        </div>
+                      </td>
+                      <td>
+                        <span>{record.batchName || record.programTitle || "—"}</span>
+                      </td>
+                      <td>
+                        <span>
+                          {startTime.toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </span>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          {startTime.toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </td>
+                      <td>
+                        <span>{record.minutesPresent} min</span>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "4px" }}>
+                          / {record.durationMinutes} min
+                        </span>
+                      </td>
+                      <td>
+                        <strong style={{ color: isPresent ? "#047857" : "#b91c1c" }}>
+                          {Math.round(record.attendancePercentage)}%
+                        </strong>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0.2rem 0.5rem",
+                            borderRadius: "4px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            background: isPresent ? "#ecfdf5" : "#fef2f2",
+                            color: isPresent ? "#047857" : "#b91c1c",
+                          }}
+                        >
+                          {record.status}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0.15rem 0.45rem",
+                            borderRadius: "4px",
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            background: "#f1f5f9",
+                            color: "#475569",
+                          }}
+                        >
+                          {record.source}
+                        </span>
+                      </td>
+                      <td>
+                        {record.overrideReason ? (
+                          <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                            {record.overrideReason}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        {record.batchId && (
+                          <Link
+                            href={`/batches/${record.batchId}/sessions/${record.sessionId}/attendance`}
+                            style={{
+                              fontSize: "0.8rem",
+                              fontWeight: 600,
+                              color: "var(--accent-primary, #c97a1e)",
+                              textDecoration: "none",
+                            }}
+                          >
+                            Manage Attendance &rarr;
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* 6. Manual Override Confirmation Modal */}
       {activeModal && targetStep && (
         <div className={styles.modalOverlay} onClick={closeOverrideModal}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>

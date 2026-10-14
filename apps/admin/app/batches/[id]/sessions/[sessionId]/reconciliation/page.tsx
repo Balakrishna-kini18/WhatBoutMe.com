@@ -3,232 +3,327 @@
 import { useEffect, useState, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
-import { CustomSelect } from "../../../../../components";
+import { Modal, CustomSelect } from "../../../../../components";
 
-export default function ReconciliationPage({ params }: { params: Promise<{ id: string, sessionId: string }> }) {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+interface UnmatchedItem {
+  id: string;
+  participantName: string;
+  participantEmail: string | null;
+  joinTimeUtc: string | null;
+  leaveTimeUtc: string | null;
+  minutesPresent: number;
+  rawPayload: any;
+}
+
+interface UnlinkedLearnerItem {
+  userId: string;
+  enrolmentId: string;
+  name: string;
+  email: string;
+}
+
+interface ReconciliationResponse {
+  session: {
+    id: string;
+    title: string;
+    durationMinutes: number;
+  };
+  unmatched: UnmatchedItem[];
+  unlinkedLearners: UnlinkedLearnerItem[];
+}
+
+export default function ReconciliationPage({
+  params,
+}: {
+  params: Promise<{ id: string; sessionId: string }>;
+}) {
   const resolvedParams = use(params);
   const { id: batchId, sessionId } = resolvedParams;
-  
-  const [unmatched, setUnmatched] = useState<any[]>([]);
-  const [enrolments, setEnrolments] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [session, setSession] = useState<any>(null);
 
-  const [resolveData, setResolveData] = useState<{
+  const [data, setData] = useState<ReconciliationResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const [linkModal, setLinkModal] = useState<{
     isOpen: boolean;
-    unmatchedId: string;
-    enrolmentId: string;
-    participantEmail: string;
+    unmatchedItem: UnmatchedItem | null;
+    selectedUserId: string;
+    reason: string;
     loading: boolean;
     error: string;
   }>({
     isOpen: false,
-    unmatchedId: "",
-    enrolmentId: "",
-    participantEmail: "",
+    unmatchedItem: null,
+    selectedUserId: "",
+    reason: "",
     loading: false,
-    error: ""
+    error: "",
   });
 
-  useEffect(() => {
-    fetchData();
-  }, [batchId, sessionId]);
-
-  function getAuthHeaders(): Record<string, string> {
-    const token = localStorage.getItem("token");
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     return token ? { Authorization: `Bearer ${token}` } : {};
-  }
+  };
 
   const fetchData = async () => {
     setIsLoading(true);
+    setErrorMessage("");
     try {
-      // Fetch session details
-      const sessionRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/sessions?batchId=${batchId}`);
-      if (sessionRes.ok) {
-        const sessions = await sessionRes.json();
-        const currentSession = sessions.find((s: any) => s.id === sessionId);
-        setSession(currentSession);
-      }
-
-      // Fetch batch enrolments to know who SHOULD be here (for linking)
-      const batchRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches/${batchId}`);
-      if (batchRes.ok) {
-        const currentBatch = await batchRes.json();
-        if (currentBatch && currentBatch.enrolments) {
-          setEnrolments(currentBatch.enrolments);
-        }
-      }
-
-      // Fetch unmatched records
-      const attRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/sessions/${sessionId}/unmatched-attendance`, {
-        headers: getAuthHeaders()
+      const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/reconciliation`, {
+        headers: getAuthHeaders(),
       });
-      if (attRes.ok) {
-        const data = await attRes.json();
-        setUnmatched(data);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.message || `Failed to fetch reconciliation records (${res.status})`);
       }
-    } catch (e) {
-      console.error(e);
+
+      const json: ReconciliationResponse = await res.json();
+      setData(json);
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to load reconciliation records");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleResolveClick = (unmatchedId: string, participantEmail: string) => {
-    setResolveData({
+  useEffect(() => {
+    fetchData();
+  }, [batchId, sessionId]);
+
+  const handleOpenLinkModal = (item: UnmatchedItem) => {
+    setLinkModal({
       isOpen: true,
-      unmatchedId,
-      enrolmentId: "",
-      participantEmail: participantEmail || "Unknown",
+      unmatchedItem: item,
+      selectedUserId: data?.unlinkedLearners[0]?.userId || "",
+      reason: `Matched unmatched attendee (${item.participantEmail || item.participantName}) to enrolled learner.`,
       loading: false,
-      error: ""
+      error: "",
     });
   };
 
-  const submitResolve = async (e: React.FormEvent) => {
+  const submitLink = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resolveData.enrolmentId) {
-      setResolveData(prev => ({ ...prev, error: "Please select a learner to link." }));
+    if (!linkModal.unmatchedItem || !linkModal.selectedUserId) {
+      setLinkModal((prev) => ({ ...prev, error: "Please choose an enrolled learner to link." }));
       return;
     }
 
-    setResolveData(prev => ({ ...prev, loading: true, error: "" }));
+    setLinkModal((prev) => ({ ...prev, loading: true, error: "" }));
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/sessions/${sessionId}/unmatched-attendance/${resolveData.unmatchedId}/resolve`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ enrolmentId: resolveData.enrolmentId })
-      });
-      if (res.ok) {
-        setResolveData(prev => ({ ...prev, isOpen: false, loading: false }));
-        fetchData();
-      } else {
-        const err = await res.json();
-        setResolveData(prev => ({ ...prev, loading: false, error: err.message || "Failed to resolve participant." }));
+      const res = await fetch(
+        `${API_URL}/batches/${batchId}/sessions/${sessionId}/reconciliation/${linkModal.unmatchedItem.id}/link`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            userId: linkModal.selectedUserId,
+            reason: linkModal.reason.trim(),
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.message || "Failed to link participant");
       }
-    } catch (e: any) {
-      setResolveData(prev => ({ ...prev, loading: false, error: e.message || "Network error" }));
+
+      setLinkModal((prev) => ({ ...prev, isOpen: false, loading: false }));
+      await fetchData();
+    } catch (err: any) {
+      setLinkModal((prev) => ({ ...prev, loading: false, error: err.message || "Network error" }));
     }
   };
 
-  const handleDismiss = async (unmatchedId: string) => {
-    if (!confirm("Are you sure you want to dismiss this unmatched participant? They will be ignored for attendance.")) return;
-    
+  const formatLocalTime = (isoString: string | null) => {
+    if (!isoString) return "---";
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/sessions/${sessionId}/unmatched-attendance/${unmatchedId}/dismiss`, {
-        method: "PATCH",
-        headers: getAuthHeaders()
-      });
-      if (res.ok) {
-        fetchData();
-      } else {
-        alert("Failed to dismiss unmatched participant.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Network error.");
+      return new Date(isoString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return "---";
     }
   };
-
-  const pendingUnmatched = unmatched.filter(u => u.status === 'UNMATCHED');
 
   return (
     <div className={styles.dashboard}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-            <Link href={`/batches/${batchId}/sessions`} style={{textDecoration: 'none', color: 'var(--accent-primary)', fontSize: '1.2rem'}}>← Back to Sessions</Link>
-            <h1 className={styles.title}>Reconciliation: {session?.title || 'Session'}</h1>
+          <div style={{ display: "flex", alignItems: "center", gap: "15px", marginBottom: "8px" }}>
+            <Link
+              href={`/batches/${batchId}/sessions/${sessionId}/attendance`}
+              style={{ textDecoration: "none", color: "var(--accent-primary, #6366f1)", fontSize: "0.95rem", fontWeight: 600 }}
+            >
+              ← Back to Attendance
+            </Link>
           </div>
-          <p className={styles.subtitle}>Review unmatched participants (e.g. from Zoom) and link them to enrolled learners.</p>
+          <h1 className={styles.title}>Participant Reconciliation: {data?.session.title || "Session"}</h1>
+          <p className={styles.subtitle}>
+            Link unrecognized Zoom or Google Meet attendees to enrolled batch learners to update their attendance percentage.
+          </p>
         </div>
       </header>
 
+      {errorMessage && (
+        <div style={{ padding: "12px 16px", background: "#fef2f2", color: "#991b1b", borderRadius: "6px", marginBottom: "16px" }}>
+          {errorMessage}
+        </div>
+      )}
+
       <section className={styles.tableSection}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 600, color: "#1e293b", margin: 0 }}>
+            Unmatched Meeting Attendees ({data?.unmatched.length ?? 0})
+          </h2>
+          <span style={{ fontSize: "0.85rem", color: "#64748b" }}>
+            {data?.unlinkedLearners.length ?? 0} enrolled learners currently unlinked / absent
+          </span>
+        </div>
+
         <div className={styles.tableWrapper}>
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Participant Identity</th>
-                <th>Provider</th>
-                <th>Status</th>
-                <th className={styles.alignRight}>Actions</th>
+                <th>Attendee Name</th>
+                <th>Attendee Email</th>
+                <th>Time Present</th>
+                <th>Join Time (Local)</th>
+                <th>Leave Time (Local)</th>
+                <th className={styles.alignRight}>Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={4} style={{textAlign: "center", padding: "20px"}}>Loading unmatched participants...</td>
-                </tr>
-              ) : pendingUnmatched.length === 0 ? (
-                <tr>
-                  <td colSpan={4} style={{textAlign: "center", padding: "20px"}}>No pending unmatched participants.</td>
-                </tr>
-              ) : pendingUnmatched.map((record) => (
-                <tr key={record.id}>
-                  <td>
-                    <span className={styles.cellUserName}>{record.participantEmail || record.providerId || 'Unknown Identity'}</span>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "30px" }}>
+                    Loading unmatched attendees...
                   </td>
-                  <td><span className={styles.cellTextMuted}>{record.provider}</span></td>
-                  <td>
-                    <span className={`${styles.statusChip} ${styles.pending}`}>
-                      Needs Review
+                </tr>
+              ) : !data || data.unmatched.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: "center", padding: "40px" }}>
+                    <div style={{ color: "#16a34a", fontSize: "1.1rem", fontWeight: 600, marginBottom: "4px" }}>
+                      ✓ All meeting attendees reconciled!
+                    </div>
+                    <span style={{ color: "#64748b", fontSize: "0.9rem" }}>
+                      There are no unmatched participants waiting for review.
                     </span>
                   </td>
-                  <td className={styles.alignRight}>
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <button className={styles.primaryBtn} onClick={() => handleResolveClick(record.id, record.participantEmail || record.providerId)} style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}>Link to Learner</button>
-                      <button className={styles.secondaryBtn} onClick={() => handleDismiss(record.id)} style={{ padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}>Dismiss</button>
-                    </div>
-                  </td>
                 </tr>
-              ))}
+              ) : (
+                data.unmatched.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <span className={styles.cellUserName}>{item.participantName}</span>
+                    </td>
+                    <td>
+                      <span className={styles.cellTextMuted}>{item.participantEmail || "(No email provided)"}</span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{item.minutesPresent} mins</span>
+                    </td>
+                    <td>
+                      <span className={styles.cellTextMuted}>{formatLocalTime(item.joinTimeUtc)}</span>
+                    </td>
+                    <td>
+                      <span className={styles.cellTextMuted}>{formatLocalTime(item.leaveTimeUtc)}</span>
+                    </td>
+                    <td className={styles.alignRight}>
+                      <button
+                        className={styles.primaryBtn}
+                        onClick={() => handleOpenLinkModal(item)}
+                        style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+                      >
+                        Link to Learner →
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
-      {resolveData.isOpen && (
-        <div className={styles.modalOverlay} onClick={() => setResolveData(prev => ({ ...prev, isOpen: false }))}>
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>Link Participant</h2>
-              <button className={styles.closeBtn} onClick={() => setResolveData(prev => ({ ...prev, isOpen: false }))}>×</button>
+      {/* Link Participant Modal */}
+      {linkModal.isOpen && linkModal.unmatchedItem && (
+        <Modal
+          isOpen={linkModal.isOpen}
+          title={`Link Attendee: ${linkModal.unmatchedItem.participantName}`}
+          onClose={() => setLinkModal((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <form onSubmit={submitLink} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div style={{ background: "#f1f5f9", padding: "12px", borderRadius: "6px" }}>
+              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Raw Meeting Attendee:</div>
+              <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                {linkModal.unmatchedItem.participantName} ({linkModal.unmatchedItem.participantEmail || "no email"})
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "#0369a1", marginTop: "4px" }}>
+                Logged duration: {linkModal.unmatchedItem.minutesPresent} minutes
+              </div>
             </div>
-            <form onSubmit={submitResolve} className={styles.modalForm}>
-              <div className={styles.formGroup}>
-                <label>Unmatched Participant:</label>
-                <div style={{ padding: '0.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', marginBottom: '1rem' }}>
-                  {resolveData.participantEmail}
-                </div>
-                
-                <label>Select Enrolled Learner</label>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "6px" }}>
+                Select Enrolled Learner to Link
+              </label>
+              {data?.unlinkedLearners && data.unlinkedLearners.length > 0 ? (
                 <CustomSelect
-                  value={resolveData.enrolmentId}
-                  onChange={(val) => setResolveData(prev => ({ ...prev, enrolmentId: val }))}
-                  fullWidth
-                  ariaLabel="Select Enrolled Learner"
-                  placeholder="-- Choose Learner --"
-                  options={enrolments.map(enrol => ({
-                    value: enrol.id,
-                    label: `${enrol.user?.name || "Learner"} (${enrol.user?.email || "No email"})`,
+                  value={linkModal.selectedUserId}
+                  onChange={(val) => setLinkModal((prev) => ({ ...prev, selectedUserId: val }))}
+                  options={data.unlinkedLearners.map((l) => ({
+                    value: l.userId,
+                    label: `${l.name} (${l.email})`,
                   }))}
                 />
-              </div>
-              {resolveData.error && (
-                <p style={{ color: '#b91c1c', background: '#fef2f2', padding: '0.5rem', borderRadius: '4px' }}>
-                  {resolveData.error}
+              ) : (
+                <p style={{ color: "#dc2626", fontSize: "0.85rem" }}>
+                  No absent/unlinked learners found in this batch.
                 </p>
               )}
-              <div className={styles.modalFooter}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setResolveData(prev => ({ ...prev, isOpen: false }))}>Cancel</button>
-                <button type="submit" className={styles.primaryBtn} disabled={resolveData.loading}>
-                  {resolveData.loading ? "Linking..." : "Confirm Link"}
-                </button>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "6px" }}>
+                Reason for Linking (Logged in Audit Trail)
+              </label>
+              <textarea
+                required
+                rows={2}
+                value={linkModal.reason}
+                onChange={(e) => setLinkModal((prev) => ({ ...prev, reason: e.target.value }))}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+              />
+            </div>
+
+            {linkModal.error && (
+              <div style={{ color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", fontSize: "0.875rem" }}>
+                {linkModal.error}
               </div>
-            </form>
-          </div>
-        </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setLinkModal((prev) => ({ ...prev, isOpen: false }))}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={styles.primaryBtn}
+                disabled={linkModal.loading || !linkModal.selectedUserId}
+              >
+                {linkModal.loading ? "Linking..." : "Confirm & Link Participant"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

@@ -19,6 +19,7 @@ interface Session {
   quizId: string | null;
   hostTrainer?: { id: string; name: string; email: string } | null;
   learner?: { id: string; name: string; email: string } | null;
+  _count?: { attendances?: number; bookings?: number };
 }
 
 export default function BatchSessionsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -237,6 +238,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                 <th>Format</th>
                 <th>Host Trainer</th>
                 <th>Capacity</th>
+                <th>Attendance</th>
                 <th>Start Time (UTC saved)</th>
                 <th>End Time</th>
                 <th>Meeting Link</th>
@@ -248,13 +250,13 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={11} style={{ textAlign: "center", padding: "20px" }}>
                     Loading sessions...
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={11} style={{ textAlign: "center", padding: "20px" }}>
                     No sessions scheduled yet for this batch.
                   </td>
                 </tr>
@@ -284,6 +286,21 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                     </td>
                     <td>
                       <span className={styles.cellText}>{s.capacity}</span>
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "0.2rem 0.5rem",
+                          borderRadius: "4px",
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          background: (s._count?.attendances ?? 0) > 0 ? "#ecfdf5" : "#f1f5f9",
+                          color: (s._count?.attendances ?? 0) > 0 ? "#047857" : "#64748b",
+                        }}
+                      >
+                        {s._count?.attendances ?? 0} logged
+                      </span>
                     </td>
                     <td>
                       <span className={styles.cellTextMuted}>
@@ -372,14 +389,27 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                         href={`/batches/${batchId}/sessions/${s.id}/attendance`}
                         className={styles.secondaryBtn}
                         style={{
-                          marginRight: "8px",
+                          marginRight: "6px",
                           textDecoration: "none",
                           display: "inline-block",
-                          padding: "0.4rem 0.75rem",
+                          padding: "0.35rem 0.65rem",
                           fontSize: "0.8rem",
                         }}
                       >
-                        Attendance
+                        Attendance ({s._count?.attendances ?? 0})
+                      </Link>
+                      <Link
+                        href={`/batches/${batchId}/sessions/${s.id}/reconciliation`}
+                        className={styles.secondaryBtn}
+                        style={{
+                          marginRight: "6px",
+                          textDecoration: "none",
+                          display: "inline-block",
+                          padding: "0.35rem 0.65rem",
+                          fontSize: "0.8rem",
+                        }}
+                      >
+                        Reconcile
                       </Link>
                       {s.status !== "CANCELLED" && (
                         <button

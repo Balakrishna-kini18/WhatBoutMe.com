@@ -291,4 +291,124 @@ export class ReportsService {
 
     return csv;
   }
+
+  /**
+   * Phase 6: Export batch attendance sheet to CSV/Excel format.
+   * Scoped to Super Admins, Admins, and assigned Batch Manager.
+   */
+  async exportBatchAttendance(batchId: string, user: any, format = 'csv') {
+    const batch = await this.prisma.batch.findUnique({
+      where: { id: batchId },
+      include: {
+        program: true,
+        trainers: true,
+        sessions: {
+          orderBy: { startTime: 'asc' },
+        },
+        enrolments: {
+          where: { status: 'ACTIVE' },
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    if (!batch) {
+      throw new BadRequestException('Batch not found');
+    }
+
+    if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
+      const userId = user.sub || user.userId || user.id;
+      const isAssigned =
+        batch.managerId === userId || batch.trainers.some((t) => t.trainerId === userId);
+      if (!isAssigned) {
+        throw new ForbiddenException('Access denied: You are not assigned to manage this batch');
+      }
+    }
+
+    const minAttendanceThreshold =
+      batch.program?.minAttendancePercentage ?? (batch as any).attendanceThreshold ?? 75;
+
+    // Fetch all attendances for the batch's sessions
+    const sessionIds = batch.sessions.map((s) => s.id);
+    const attendances = await this.prisma.attendance.findMany({
+      where: { sessionId: { in: sessionIds } },
+    });
+
+    const attendanceLookup = new Map<string, Map<string, (typeof attendances)[0]>>();
+    for (const att of attendances) {
+      if (!attendanceLookup.has(att.userId)) {
+        attendanceLookup.set(att.userId, new Map());
+      }
+      attendanceLookup.get(att.userId)!.set(att.sessionId, att);
+    }
+
+    // Build header columns
+    const baseHeaders = [
+      'Learner Name',
+      'Learner Email',
+      'Enrolment Status',
+      'Total Sessions',
+      'Sessions Attended',
+      'Attendance Percentage',
+      'Compliance Status (Min 75%)',
+    ];
+
+    const sessionHeaders: string[] = [];
+    batch.sessions.forEach((s) => {
+      const dateStr = s.startTime ? new Date(s.startTime).toISOString().slice(0, 10) : '';
+      sessionHeaders.push(`${s.title} (${dateStr}) Status`);
+      sessionHeaders.push(`${s.title} Minutes`);
+    });
+
+    const allHeaders = [...baseHeaders, ...sessionHeaders];
+    let csv = '\uFEFF' + allHeaders.map((h) => `"${h.replace(/"/g, '""')}"`).join(',') + '\n';
+
+    batch.enrolments.forEach((enrolment) => {
+      const userAttMap = attendanceLookup.get(enrolment.userId);
+      let attendedCount = 0;
+
+      const sessionValues: string[] = [];
+      batch.sessions.forEach((s) => {
+        const att = userAttMap?.get(s.id);
+        const isPresent =
+          att &&
+          (att.status === 'PRESENT' ||
+            att.status === 'PRESENT_AUTO' ||
+            att.status === 'PRESENT_MANUAL' ||
+            att.status === 'CORRECTED');
+
+        if (isPresent) attendedCount++;
+
+        sessionValues.push(att?.status || 'ABSENT');
+        sessionValues.push(String(att?.minutesPresent || att?.durationMin || 0));
+      });
+
+      const totalSessions = batch.sessions.length;
+      const percentage =
+        totalSessions > 0 ? Math.round((attendedCount / totalSessions) * 100) : 100;
+      const isCompliant = percentage >= minAttendanceThreshold ? 'COMPLIANT' : 'NON_COMPLIANT';
+
+      const row = [
+        enrolment.user?.name || 'Learner',
+        enrolment.user?.email || '',
+        enrolment.status,
+        String(totalSessions),
+        String(attendedCount),
+        `${percentage}%`,
+        isCompliant,
+        ...sessionValues,
+      ];
+
+      csv += row.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+
+    const filename = `batch-${batch.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-attendance.csv`;
+    return {
+      csv,
+      filename,
+      contentType: 'text/csv; charset=utf-8',
+    };
+  }
 }

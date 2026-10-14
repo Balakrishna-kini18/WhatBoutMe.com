@@ -122,8 +122,10 @@ export class ZoomMeetingProvider implements IMeetingProvider {
           const details = await this.zoomApiRequest(`/meetings/${foundMeeting.id}`, 'GET');
           return {
             id: details.id.toString(),
+            externalId: details.id.toString(),
             joinUrl: details.join_url,
             startUrl: details.start_url,
+            hostUrl: details.start_url,
             password: details.password,
           };
         }
@@ -160,8 +162,10 @@ export class ZoomMeetingProvider implements IMeetingProvider {
 
     return {
       id: data.id.toString(),
+      externalId: data.id.toString(),
       joinUrl: data.join_url,
       startUrl: data.start_url,
+      hostUrl: data.start_url,
       password: data.password,
     };
   }
@@ -184,11 +188,15 @@ export class ZoomMeetingProvider implements IMeetingProvider {
     try {
       await this.zoomApiRequest(`/meetings/${meetingId}`, 'DELETE');
     } catch (error: any) {
-      // Ignore 404s if it's already deleted or doesn't exist
       if (error?.status === HttpStatus.BAD_GATEWAY && error?.message?.includes('Zoom API Error')) {
          // Keep silent
       }
     }
+  }
+
+  async getRecording(externalMeetingId: string): Promise<{ recordingUrl: string } | null> {
+    const url = await this.getRecordingUrl(externalMeetingId);
+    return url ? { recordingUrl: url } : null;
   }
 
   // D2-031: Implement getRecordingUrl querying Zoom Cloud Recording API
@@ -196,7 +204,6 @@ export class ZoomMeetingProvider implements IMeetingProvider {
     try {
       const data = await this.zoomApiRequest(`/meetings/${meetingId}/recordings`, 'GET');
       
-      // Look for the MP4 recording
       const mp4File = data.recording_files?.find((file: any) => file.file_type === 'MP4');
       
       if (mp4File && mp4File.play_url) {
@@ -210,7 +217,7 @@ export class ZoomMeetingProvider implements IMeetingProvider {
   }
 
   // D2-032: Implement getParticipantReport querying Zoom Reports API
-  async getParticipantReport(meetingId: string): Promise<ParticipantReport[]> {
+  async getParticipantReport(meetingId: string): Promise<any[]> {
     try {
       const data = await this.zoomApiRequest(`/report/meetings/${meetingId}/participants`, 'GET');
       
@@ -218,12 +225,23 @@ export class ZoomMeetingProvider implements IMeetingProvider {
         return [];
       }
 
-      return data.participants.map((p: any) => ({
-        userEmail: p.user_email || p.name, // Fallback to name if email isn't provided
-        joinTime: new Date(p.join_time),
-        leaveTime: new Date(p.leave_time),
-        durationMinutes: Math.round(p.duration / 60), // Duration in Zoom is in seconds
-      }));
+      return data.participants.map((p: any) => {
+        const joinDate = new Date(p.join_time);
+        const leaveDate = new Date(p.leave_time);
+        const email = p.user_email?.includes('@') ? p.user_email.trim().toLowerCase() : undefined;
+        const name = p.name || p.user_name || undefined;
+        return {
+          userEmail: p.user_email || p.name,
+          participantEmail: email,
+          participantName: name,
+          joinTime: joinDate,
+          leaveTime: leaveDate,
+          joinTimeUtc: joinDate,
+          leaveTimeUtc: leaveDate,
+          durationMinutes: Math.round(p.duration / 60),
+          rawPayload: p,
+        };
+      });
     } catch (error: any) {
       this.logger.warn(`Could not fetch participants for meeting ${meetingId}. Error: ${error.message}`);
       return [];

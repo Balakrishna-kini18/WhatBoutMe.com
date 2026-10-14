@@ -7,6 +7,7 @@ import {
   AttendanceReconciliationService,
   NormalizedParticipantRecord,
 } from '../sessions/attendance-reconciliation.service.js';
+import { SessionsService } from '../sessions/sessions.service.js';
 
 @Processor('zoom-events')
 export class ZoomProcessor extends WorkerHost {
@@ -17,6 +18,8 @@ export class ZoomProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => AttendanceReconciliationService))
     private readonly reconciliationService: AttendanceReconciliationService,
+    @Inject(forwardRef(() => SessionsService))
+    private readonly sessionsService: SessionsService,
   ) {
     super();
   }
@@ -49,6 +52,13 @@ export class ZoomProcessor extends WorkerHost {
 
     if (!session) {
       this.logger.warn(`Received meeting.ended for unknown Zoom meeting ID: ${meetingId}`);
+      return;
+    }
+
+    if (session.attendancePulled) {
+      this.logger.log(
+        `Attendance for session ${session.id} already reconciled. Skipping duplicate webhook.`,
+      );
       return;
     }
 
@@ -113,6 +123,8 @@ export class ZoomProcessor extends WorkerHost {
         },
       });
       this.logger.log(`Successfully processed recording.completed for session ${session.id}`);
+      // Trigger missed session notifications for all absent learners
+      await this.sessionsService.triggerMissedSessionNotifications(session.id, playUrl);
     } else {
       this.logger.warn(`No MP4 recording found for Zoom meeting ID: ${meetingId}`);
     }

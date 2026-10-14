@@ -98,6 +98,30 @@ export class CacheHelperService {
     }
   }
 
+  async set<T>(key: string, value: T, ttlSeconds: number = 600): Promise<void> {
+    if (!this.redis) return;
+    try {
+      await this.redis.set(key, value, { ex: ttlSeconds });
+    } catch (e: any) {
+      this.logger.error(`Redis SET error for key ${key}: ${e.message}`);
+    }
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    if (!this.redis) return null;
+    try {
+      const val = await this.redis.get(key);
+      return (val as T) ?? null;
+    } catch (e: any) {
+      this.logger.error(`Redis GET error for key ${key}: ${e.message}`);
+      return null;
+    }
+  }
+
+  async del(key: string): Promise<void> {
+    return this.invalidate(key);
+  }
+
   // --- VERSIONED NAMESPACES SUPPORT --- //
 
   /**

@@ -34,7 +34,10 @@ export async function renderEmailTemplate(template: string, props: any): Promise
       templateComponent = React.createElement(PasswordResetEmail, props);
       break;
     case 'OneTimeOtpEmail':
-      templateComponent = React.createElement(OneTimeOtpEmail, props);
+      templateComponent = React.createElement(OneTimeOtpEmail, {
+        ...props,
+        otpCode: props.otpCode || props.code,
+      });
       break;
     case 'EnrolmentConfirmedEmail':
       templateComponent = React.createElement(EnrolmentConfirmedEmail, props);

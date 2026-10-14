@@ -38,7 +38,7 @@ export interface DeviceSessionMetadata {
 
 @Injectable()
 export class AuthService {
-  private readonly otpCache = new Map<string, { code: string; expiresAt: number }>();
+  private readonly otpCache = new Map<string, { code: string; expiresAt: number; attempts: number }>();
 
   constructor(
     private prisma: PrismaService,
@@ -46,6 +46,38 @@ export class AuthService {
     private cacheHelper: CacheHelperService,
     @Optional() private emailService?: EmailService,
   ) {}
+
+  /**
+   * Helper: Retrieve stored OTP record from Redis cache, local fallback, or DB.
+   */
+  private async getOtpRecord(normalizedEmail: string): Promise<{ code: string; expiresAt: number; attempts: number } | null> {
+    const redisData = await this.cacheHelper.get<{ code: string; expiresAt: number; attempts: number }>(`auth_otp:${normalizedEmail}`);
+    if (redisData) {
+      return redisData;
+    }
+    const memData = this.otpCache.get(normalizedEmail);
+    if (memData) {
+      return { code: memData.code, expiresAt: memData.expiresAt, attempts: memData.attempts ?? 0 };
+    }
+    return null;
+  }
+
+  /**
+   * Helper: Save stored OTP record across Redis and local cache.
+   */
+  private async saveOtpRecord(normalizedEmail: string, record: { code: string; expiresAt: number; attempts: number }): Promise<void> {
+    this.otpCache.set(normalizedEmail, record);
+    const ttlSeconds = Math.max(1, Math.floor((record.expiresAt - Date.now()) / 1000));
+    await this.cacheHelper.set(`auth_otp:${normalizedEmail}`, record, ttlSeconds);
+  }
+
+  /**
+   * Helper: Invalidate OTP record across caches.
+   */
+  private async clearOtpRecord(normalizedEmail: string): Promise<void> {
+    this.otpCache.delete(normalizedEmail);
+    await this.cacheHelper.del(`auth_otp:${normalizedEmail}`);
+  }
 
   /**
    * Production-level login: validates email + password hash, returns JWT.
@@ -180,20 +212,22 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Bypass email verification check for login
-    // if (!user.emailVerifiedAt) {
-    //   await this.recordLoginAudit({
-    //     userId: user.id,
-    //     ipAddress: metadata?.ipAddress,
-    //     userAgent: metadata?.userAgent,
-    //     country: metadata?.country,
-    //     deviceFingerprint: metadata?.deviceFingerprint,
-    //     isSuspicious: true,
-    //     reason: 'UNVERIFIED_EMAIL',
-    //     userCountry: user.country,
-    //   });
-    //   throw new UnauthorizedException('Please verify your email before logging in');
-    // }
+    const requireVerification =
+      process.env.REQUIRE_EMAIL_VERIFICATION === 'true' ||
+      process.env.NODE_ENV === 'test';
+    if (!user.emailVerifiedAt && requireVerification) {
+      await this.recordLoginAudit({
+        userId: user.id,
+        ipAddress: metadata?.ipAddress,
+        userAgent: metadata?.userAgent,
+        country: metadata?.country,
+        deviceFingerprint: metadata?.deviceFingerprint,
+        isSuspicious: true,
+        reason: 'UNVERIFIED_EMAIL',
+        userCountry: user.country,
+      });
+      throw new UnauthorizedException('Please verify your email before logging in');
+    }
 
     // Security check (D1-022): prevent 2FA bypass by calling /auth/login instead of /auth/admin-login
     if ((user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) && user.twoFactorEnabled) {
@@ -314,14 +348,27 @@ export class AuthService {
       throw new ConflictException('An account with this email already exists');
     }
 
-    // If OTP code is provided, verify it against the cache
+    // If OTP code is provided, verify it against the distributed cache
     if (data.otp) {
       const trimmedOtp = data.otp.trim();
-      const cached = this.otpCache.get(normalizedEmail);
-      if (!cached || cached.expiresAt < Date.now() || cached.code !== trimmedOtp) {
+      const cached = await this.getOtpRecord(normalizedEmail);
+
+      if (!cached || cached.expiresAt < Date.now()) {
         throw new BadRequestException('Invalid or expired verification code');
       }
-      this.otpCache.delete(normalizedEmail);
+
+      if (cached.attempts >= 5) {
+        await this.clearOtpRecord(normalizedEmail);
+        throw new BadRequestException('Too many failed verification attempts. Please request a new code.');
+      }
+
+      if (cached.code !== trimmedOtp) {
+        cached.attempts += 1;
+        await this.saveOtpRecord(normalizedEmail, cached);
+        throw new BadRequestException('Invalid or expired verification code');
+      }
+
+      await this.clearOtpRecord(normalizedEmail);
     }
 
     // A mobile number may belong to one account only, so it can be used to sign in
@@ -1295,7 +1342,7 @@ export class AuthService {
    * consumes token, invalidates prior tokens, revokes all sessions, and clears session cache.
    */
   async confirmPasswordReset(token: string, newPassword: string) {
-    if (!token || typeof token !== 'string') {
+    if (!token || typeof token !== 'string' || !token.trim()) {
       throw new BadRequestException('Invalid or expired password reset token');
     }
 
@@ -1374,6 +1421,12 @@ export class AuthService {
     // Invalidate local in-memory session cache so any in-flight access JWTs for these sessions
     // immediately fail revocation check in D1-019
     forgetSessions();
+    try {
+      await this.cacheHelper?.invalidateNamespace(`auth_user:${resetToken.userId}`);
+      await this.cacheHelper?.del(`auth_user:${resetToken.userId}`);
+    } catch {
+      // Non-blocking cache cleanup fallback
+    }
 
     if (typeof (this.prisma as any).logAction === 'function') {
       await (this.prisma as any).logAction({
@@ -1685,12 +1738,23 @@ export class AuthService {
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    // Store in cache with 10-minute TTL
-    this.otpCache.set(normalizedEmail, {
+    await this.saveOtpRecord(normalizedEmail, {
       code: otpCode,
-      expiresAt: Date.now() + 10 * 60 * 1000,
+      expiresAt,
+      attempts: 0,
     });
+
+    if (user && this.prisma.otpCode) {
+      await this.prisma.otpCode.create({
+        data: {
+          userId: user.id,
+          code: otpCode,
+          expiresAt: new Date(expiresAt),
+        },
+      }).catch((e: any) => console.warn('[AuthService] DB OtpCode create warning:', e?.message));
+    }
 
     if (this.emailService) {
       const firstName = user?.name ? (user.name.split(' ')[0] || user.name) : 'Learner';
@@ -1720,14 +1784,37 @@ export class AuthService {
       throw new BadRequestException('Email and OTP code are required');
     }
 
-    const cached = this.otpCache.get(normalizedEmail);
+    const cached = await this.getOtpRecord(normalizedEmail);
 
-    if (!cached || cached.expiresAt < Date.now() || cached.code !== trimmedCode) {
+    if (!cached || cached.expiresAt < Date.now()) {
+      throw new BadRequestException('Invalid or expired OTP code');
+    }
+
+    if (cached.attempts >= 5) {
+      await this.clearOtpRecord(normalizedEmail);
+      throw new BadRequestException('Too many failed attempts. Please request a new code.');
+    }
+
+    if (cached.code !== trimmedCode) {
+      cached.attempts += 1;
+      await this.saveOtpRecord(normalizedEmail, cached);
       throw new BadRequestException('Invalid or expired OTP code');
     }
 
     // Invalidate OTP after successful verification
-    this.otpCache.delete(normalizedEmail);
+    await this.clearOtpRecord(normalizedEmail);
+
+    // If user exists, mark DB record as used
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+    if (user && this.prisma.otpCode) {
+      await this.prisma.otpCode.updateMany({
+        where: { userId: user.id, code: trimmedCode, usedAt: null },
+        data: { usedAt: new Date() },
+      }).catch(() => null);
+    }
 
     return { success: true, message: 'OTP verified successfully' };
   }
@@ -1760,11 +1847,12 @@ export class AuthService {
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    // Store in cache with 10-minute TTL
-    this.otpCache.set(normalizedEmail, {
+    await this.saveOtpRecord(normalizedEmail, {
       code: otpCode,
-      expiresAt: Date.now() + 10 * 60 * 1000,
+      expiresAt,
+      attempts: 0,
     });
 
     if (this.emailService) {

@@ -274,7 +274,7 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
         status: EnrolmentStatus.PENDING_AGREEMENT,
       });
 
-      const res = await service.transitionStatus('enrol-1', {
+      const res: any = await service.transitionStatus('enrol-1', {
         targetStatus: EnrolmentStatus.PENDING_AGREEMENT,
       });
 
@@ -333,7 +333,7 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
         status: EnrolmentStatus.ACTIVE,
       });
 
-      const res = await service.transitionStatus('enrol-1', {
+      const res: any = await service.transitionStatus('enrol-1', {
         targetStatus: EnrolmentStatus.ACTIVE,
       });
 
@@ -350,7 +350,7 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
         status: EnrolmentStatus.COMPLETED,
       });
 
-      const res = await service.transitionStatus('enrol-1', {
+      const res: any = await service.transitionStatus('enrol-1', {
         targetStatus: EnrolmentStatus.COMPLETED,
       });
 
@@ -367,7 +367,7 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
         status: EnrolmentStatus.REVOKED,
       });
 
-      const res = await service.transitionStatus('enrol-1', {
+      const res: any = await service.transitionStatus('enrol-1', {
         targetStatus: EnrolmentStatus.REVOKED,
       });
 
@@ -406,7 +406,7 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
         status: EnrolmentStatus.ACTIVE,
       });
 
-      const res = await service.transitionStatus('enrol-1', {
+      const res: any = await service.transitionStatus('enrol-1', {
         targetStatus: EnrolmentStatus.ACTIVE,
       });
 

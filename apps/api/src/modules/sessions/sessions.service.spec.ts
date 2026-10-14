@@ -14,7 +14,7 @@ import type { IMeetingProvider } from '../../common/interfaces/meeting-provider.
 describe('SessionsService — D1-043 Live Session Scheduling', () => {
   let service: SessionsService;
   let prismaMock: any;
-  let meetingProviderMock: IMeetingProvider;
+  let meetingProviderMock: any;
   let meetingSyncQueueMock: any;
 
   const adminActor = {

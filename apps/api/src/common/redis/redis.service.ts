@@ -124,11 +124,11 @@ export class RedisService implements OnModuleDestroy {
         killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
         try { killTimer.unref(); } catch {/* noop */}
       });
-      this.client.once('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
-      this.client.once('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
-      this.client.once('error', kill);
-      this.client.once('close', () => kill());
-      this.client.once('connectTimeout', () => kill(new Error('connectTimeout')));
+      this.client.once?.('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
+      this.client.once?.('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
+      this.client.once?.('error', kill);
+      this.client.once?.('close', () => kill());
+      this.client.once?.('connectTimeout', () => kill(new Error('connectTimeout')));
     } else {
       this.client.on('error', (err) => console.warn('Redis Client notice (non-fatal):', err?.message || err));
       this.client.on('connect', () => console.log('Redis Client Connected Successfully'));

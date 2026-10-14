@@ -54,6 +54,8 @@ baton/
 
 # files the API stores on disk (uploads, website content)
 apps/api/storage/
+.email-debug/
+apps/api/.email-debug/
 
 # >>> baton (generated coordination + KB files — managed block, do not edit)
 **/.baton/*

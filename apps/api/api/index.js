@@ -131,6 +131,29 @@ export default async function (req, res) {
     // the api.js module's top-level (top-level await, init-time module errors
     // that V8 raises synchronously before the Promise job) would NOT be caught
     // by the Promise catch unless wrapped in a sync try + Promise.reject.
+    // Ensure CommonJS dependencies (like @nestjs/throttler) can resolve NestJS 12 ESM packages
+    // (@nestjs/common, @nestjs/core) across all Node.js environments without ERR_REQUIRE_ESM.
+    if (!globalThis.__nestEsmHooked) {
+      globalThis.__nestEsmHooked = true;
+      try {
+        const { createRequire } = await import('node:module');
+        const requireMod = createRequire(import.meta.url);
+        const Module = requireMod('module');
+        const [nestCommon, nestCore] = await Promise.all([
+          import('@nestjs/common'),
+          import('@nestjs/core'),
+        ]);
+        const origRequire = Module.prototype.require;
+        Module.prototype.require = function (id) {
+          if (id === '@nestjs/common') return nestCommon;
+          if (id === '@nestjs/core') return nestCore;
+          return origRequire.apply(this, arguments);
+        };
+      } catch (bridgeErr) {
+        console.warn('VERCEL ENTRY: ESM bridge initialization warning:', bridgeErr?.message || bridgeErr);
+      }
+    }
+
     let handlerMod;
     try {
       handlerMod = await Promise.resolve().then(() => import('../dist/api.js'));

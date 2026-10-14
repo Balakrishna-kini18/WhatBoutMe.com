@@ -421,7 +421,7 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
       // Verify progression evaluateProgression was triggered on PASS
       expect(progressionServiceMock.evaluateProgression).toHaveBeenCalledWith(
         mockEnrolment,
-        { persist: true },
+        { persist: true, forceRecalculate: true },
       );
     });
 

@@ -1,0 +1,44 @@
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  padding: 0.75rem 0.95rem;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border-light, #ece4d7);
+  background: #ffffff;
+  color: var(--text-primary, #14110f);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--border-focus, #c97a1e);
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.15);
+}
+
+.errorText {
+  font-size: 0.8rem;
+  color: var(--status-error, #b91c1c);
+  margin-top: 0.25rem;
+}

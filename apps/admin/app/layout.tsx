@@ -4,6 +4,7 @@ import { DM_Sans, Playfair_Display, Caveat } from "next/font/google";
 import "./globals.css";
 import AdminShell from "./AdminShell";
 import AuthProvider from "./AuthProvider";
+import { ToastProvider } from "./components";
 
 // WhatBoutMe brand fonts
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap" });
@@ -33,7 +34,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${dmSans.variable} ${playfair.variable} ${caveat.variable} ${geistSans.variable} ${geistMono.variable}`}>
         <AuthProvider>
-          <AdminShell>{children}</AdminShell>
+          <ToastProvider>
+            <AdminShell>{children}</AdminShell>
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

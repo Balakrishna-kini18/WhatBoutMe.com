@@ -3,9 +3,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
-import { BatchStatus, Role } from '@prisma/client';
+import { BatchStatus, Role, EnrolmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import {
@@ -119,6 +120,9 @@ export class BatchesService {
             },
           },
           enrolments: {
+            where: {
+              status: { not: EnrolmentStatus.REVOKED },
+            },
             select: {
               id: true,
               userId: true,
@@ -168,7 +172,23 @@ export class BatchesService {
       throw new NotFoundException('Program not found');
     }
 
-    // 2. Validate Capacity
+    // 2. Validate uniqueness of batch name within program
+    if (typeof this.prisma.batch?.findFirst === 'function') {
+      const existing = await this.prisma.batch.findFirst({
+        where: {
+          programId: data.programId,
+          name: { equals: data.name.trim(), mode: 'insensitive' },
+          status: { not: BatchStatus.ARCHIVED },
+        },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `A batch named "${data.name.trim()}" already exists in the selected program`,
+        );
+      }
+    }
+
+    // 3. Validate Capacity
     if (data.capacity < 1) {
       throw new BadRequestException('Capacity must be at least 1');
     }
@@ -293,7 +313,7 @@ export class BatchesService {
       }
 
       const enrolledCount = await this.prisma.enrolment.count({
-        where: { batchId: id },
+        where: { batchId: id, status: { not: EnrolmentStatus.REVOKED } },
       });
 
       if (data.capacity < enrolledCount) {

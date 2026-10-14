@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { ContentStatus, ReleaseSchedule, Role } from '@prisma/client';
+import { ContentStatus, EnrolmentStatus, ReleaseSchedule, Role } from '@prisma/client';
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -71,7 +71,7 @@ export class ProgramsService {
     });
   }
 
-  async findOne(id: string, role?: string) {
+  async findOne(id: string, role?: string, userId?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
     const program = await this.prisma.program.findUnique({
       where: { id },
@@ -88,7 +88,20 @@ export class ProgramsService {
     }
 
     if (!isStaff && (program.status !== ContentStatus.PUBLISHED || !program.isActive)) {
-      throw new NotFoundException(`Program not found`);
+      let isEnrolled = false;
+      if (userId && typeof this.prisma.enrolment?.findFirst === 'function') {
+        const enr = await this.prisma.enrolment.findFirst({
+          where: {
+            userId,
+            programId: id,
+            status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+          },
+        });
+        if (enr) isEnrolled = true;
+      }
+      if (!isEnrolled) {
+        throw new NotFoundException(`Program not found`);
+      }
     }
 
     return program;
@@ -185,9 +198,31 @@ export class ProgramsService {
     ]);
 
     if (batchCount > 0 || enrolmentCount > 0) {
-      this.logger.warn(`Program ${id} is being hard deleted. It has ${batchCount} batches and ${enrolmentCount} enrolments which will be cascade deleted.`);
+      // Dependent batches or student enrolments exist.
+      // Hard deletion is prohibited to preserve student history, accreditation, certificates, and invoices,
+      // and to respect database foreign-key constraints.
+      this.logger.log(
+        `Archiving program ${id} to preserve ${batchCount} batches and ${enrolmentCount} enrolments.`,
+      );
+
+      await this.prisma.program.update({
+        where: { id },
+        data: {
+          status: ContentStatus.ARCHIVED,
+          isActive: false,
+        },
+      });
+
+      await this.cacheHelper.invalidateNamespace('programs');
+      return {
+        id,
+        deleted: false,
+        archived: true,
+        message: `Program "${program.title}" has active cohorts or student history and was safely archived.`,
+      };
     }
 
+    // Program has no batches or enrolments: safe to permanently hard-delete
     try {
       // 1. Program Cover Image
       if (program.description) {
@@ -197,7 +232,11 @@ export class ProgramsService {
             const parts = info.image.split('/');
             const filename = parts[parts.length - 1];
             const publicId = filename.split('.')[0];
-            await this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete program image ${publicId}: ${err.message}`));
+            await this.mediaProvider
+              .deleteMedia(publicId, 'image')
+              .catch((err) =>
+                this.logger.warn(`Failed to delete program image ${publicId}: ${err.message}`),
+              );
           }
         } catch (e) {}
       }
@@ -205,47 +244,57 @@ export class ProgramsService {
       // 2. Lesson Media
       const lessons = await this.prisma.lesson.findMany({
         where: { step: { programId: id } },
-        select: { mediaUrl: true }
+        select: { mediaUrl: true },
       });
       for (const lesson of lessons) {
         if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
           const publicId = lesson.mediaUrl.replace('upload:', '');
-          await this.mediaProvider.deleteMedia(publicId, 'video').catch(err => this.logger.warn(`Failed to delete lesson media ${publicId}: ${err.message}`));
+          await this.mediaProvider
+            .deleteMedia(publicId, 'video')
+            .catch((err) =>
+              this.logger.warn(`Failed to delete lesson media ${publicId}: ${err.message}`),
+            );
         }
       }
 
       // 3. Resource Media
       const resources = await this.prisma.resource.findMany({
         where: { programId: id },
-        select: { mediaUrl: true }
+        select: { mediaUrl: true },
       });
       for (const res of resources) {
         if (res.mediaUrl && res.mediaUrl.includes('cloudinary.com')) {
           const parts = res.mediaUrl.split('/');
           const filename = parts[parts.length - 1];
           const publicId = filename.split('.')[0];
-          // Cloudinary resources uploaded as raw might need 'raw', but images are 'image'.
-          // Let's try 'raw' and fallback to 'image' if needed, or just let it fail gracefully.
-          await this.mediaProvider.deleteMedia(publicId, 'raw').catch(() => 
-            this.mediaProvider.deleteMedia(publicId, 'image').catch(err => this.logger.warn(`Failed to delete resource ${publicId}: ${err.message}`))
+          await this.mediaProvider.deleteMedia(publicId, 'raw').catch(() =>
+            this.mediaProvider
+              .deleteMedia(publicId, 'image')
+              .catch((err) =>
+                this.logger.warn(`Failed to delete resource ${publicId}: ${err.message}`),
+              ),
           );
         }
       }
 
       // 4. Cancel Zoom Meetings
-      const sessions = await this.prisma.session.findMany({
-        where: { batch: { programId: id } },
-        select: { providerMeetingId: true }
-      });
+      const sessions = typeof this.prisma.session?.findMany === 'function'
+        ? await this.prisma.session.findMany({
+            where: { batch: { programId: id } },
+            select: { providerMeetingId: true },
+          })
+        : [];
       for (const sess of sessions) {
-        if (sess.providerMeetingId) {
-          await this.prisma.outboxEvent.create({
-            data: {
-              type: 'sync-meeting',
-              action: 'CANCEL',
-              payload: { providerMeetingId: sess.providerMeetingId }
-            }
-          }).catch(e => this.logger.error('Failed to create Zoom cancel outbox event', e));
+        if (sess.providerMeetingId && this.prisma.outboxEvent) {
+          await this.prisma.outboxEvent
+            .create({
+              data: {
+                type: 'sync-meeting',
+                action: 'CANCEL',
+                payload: { providerMeetingId: sess.providerMeetingId },
+              },
+            })
+            .catch((e) => this.logger.error('Failed to create Zoom cancel outbox event', e));
         }
       }
     } catch (cleanupErr) {
@@ -254,7 +303,12 @@ export class ProgramsService {
 
     await this.prisma.program.delete({ where: { id } });
     await this.cacheHelper.invalidateNamespace('programs');
-    return { id, deleted: true };
+    return {
+      id,
+      deleted: true,
+      archived: false,
+      message: `Program "${program.title}" permanently deleted.`,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -851,7 +851,6 @@ export class EnrollmentsService {
     return this.prisma.enrolment.findMany({
       where: {
         userId,
-        program: { status: { not: 'ARCHIVED' } },
         batch: { status: { not: 'ARCHIVED' } },
       },
       orderBy: { createdAt: 'desc' },
@@ -907,7 +906,6 @@ export class EnrollmentsService {
       where: {
         id,
         userId,
-        program: { status: { not: 'ARCHIVED' } },
         batch: { status: { not: 'ARCHIVED' } },
       },
       include: {

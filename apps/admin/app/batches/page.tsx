@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, ActionMenu, StatusBadge } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast } from "../components";
 
 interface Batch {
   id: string;
@@ -33,6 +33,10 @@ export default function BatchesPage() {
 function BatchesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { success: toastSuccess, error: toastError } = useToast();
+  const [batchToDelete, setBatchToDelete] = useState<Batch | null>(null);
+  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
@@ -72,6 +76,8 @@ function BatchesContent() {
   const [capacity, setCapacity] = useState("");
   const [manager, setManager] = useState("");
   const [awardCertificate, setAwardCertificate] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
   // Filters
   const [search, setSearch] = useState("");
@@ -90,6 +96,17 @@ function BatchesContent() {
       openCreateModal();
     }
   }, [searchParams, isManager]);
+
+  // Auto-filter by target batch if ?id= or ?batchId= is present
+  useEffect(() => {
+    const targetId = searchParams.get("id") || searchParams.get("batchId");
+    if (targetId && batches.length > 0) {
+      const match = batches.find((b) => b.id === targetId);
+      if (match && !search) {
+        setSearch(match.name);
+      }
+    }
+  }, [searchParams, batches]);
 
   useEffect(() => {
     if (isModalOpen || confirmBatch) {
@@ -180,6 +197,7 @@ function BatchesContent() {
     setEndDate("");
     setCapacity("");
     setManager("");
+    setFormError("");
     if (searchParams.get("create") || searchParams.get("action")) {
       router.replace("/batches");
     }
@@ -219,6 +237,7 @@ function BatchesContent() {
     setCapacity("50");
     setManager("");
     setAwardCertificate(true);
+    setFormError("");
     setIsModalOpen(true);
   };
 
@@ -284,25 +303,42 @@ function BatchesContent() {
     }
   };
 
-  const handleDeleteBatch = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this batch?")) return;
+  const confirmDeleteBatch = async () => {
+    if (!batchToDelete) return;
+    setIsDeletingBatch(true);
+    setDeleteError(null);
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/batches/${id}`,
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/batches/${batchToDelete.id}`,
         {
           method: "DELETE",
         }
       );
       if (res.ok) {
+        toastSuccess(`Cohort batch "${batchToDelete.name}" deleted successfully.`);
+        setBatchToDelete(null);
         fetchBatches();
+      } else {
+        const err = await errorMessage(res, "Could not delete batch.");
+        setDeleteError(err);
+        toastError(err);
       }
     } catch (e) {
       console.error("Failed to delete batch", e);
+      setDeleteError("Failed to communicate with the server.");
+      toastError("Failed to communicate with the server.");
+    } finally {
+      setIsDeletingBatch(false);
     }
   };
 
   const handleSaveBatch = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setFormError("");
+
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const payload: any = {
       name: name.trim(),
@@ -344,9 +380,19 @@ function BatchesContent() {
         }
         closeModal();
         fetchBatches();
+      } else {
+        const data = await res.json().catch(() => null);
+        const raw = data?.error?.message ?? data?.message;
+        setFormError(
+          (Array.isArray(raw) ? raw.join(", ") : raw) ||
+            `Could not save the batch (HTTP ${res.status}).`
+        );
       }
     } catch (e) {
       console.error("Failed to save batch", e);
+      setFormError("Could not reach the server. Check that the API is running.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -763,7 +809,7 @@ function BatchesContent() {
                                       ),
                                       danger: true,
                                       dividerAbove: true,
-                                      onClick: () => handleDeleteBatch(batch.id),
+                                      onClick: () => setBatchToDelete(batch),
                                     },
                                   ]
                             }
@@ -868,6 +914,22 @@ function BatchesContent() {
 
             <form className={styles.modalForm} onSubmit={handleSaveBatch}>
               <div className={styles.modalBody}>
+                {formError && (
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      background: "rgba(220, 38, 38, 0.08)",
+                      border: "1px solid rgba(220, 38, 38, 0.3)",
+                      borderRadius: "8px",
+                      color: "#dc2626",
+                      fontSize: "0.88rem",
+                      marginBottom: "1rem",
+                    }}
+                    role="alert"
+                  >
+                    {formError}
+                  </div>
+                )}
                 <div className={styles.formGroup}>
                   <label>Batch Name</label>
                   <input
@@ -1024,17 +1086,57 @@ function BatchesContent() {
                   type="button"
                   className={styles.secondaryBtn}
                   onClick={closeModal}
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </button>
-                <button type="submit" className={styles.primaryBtn}>
-                  {editingBatchId ? "Update Batch" : "Save Batch"}
+                <button
+                  type="submit"
+                  className={styles.primaryBtn}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting
+                    ? "Saving..."
+                    : editingBatchId
+                    ? "Update Batch"
+                    : "Save Batch"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Branded ConfirmDialog for Batch Deletion */}
+      <ConfirmDialog
+        isOpen={Boolean(batchToDelete)}
+        onClose={() => {
+          if (!isDeletingBatch) setBatchToDelete(null);
+        }}
+        onConfirm={confirmDeleteBatch}
+        title="Delete Cohort Batch?"
+        subtitle={batchToDelete?.name}
+        description="Are you sure you want to delete this cohort batch? This will permanently delete the batch schedule and associated sessions."
+        tone="danger"
+        confirmText={isDeletingBatch ? "Deleting..." : "Delete Batch"}
+        cancelText="Cancel"
+        isLoading={isDeletingBatch}
+        error={deleteError}
+        itemDetails={
+          batchToDelete
+            ? [
+                { label: "Cohort Name", value: batchToDelete.name },
+                { label: "Program", value: batchToDelete.program },
+                { label: "Enrolled Students", value: batchToDelete.students },
+                { label: "Status", value: batchToDelete.status },
+              ]
+            : []
+        }
+        callout={{
+          tone: "warning",
+          text: "Permanent action: Associated schedules and sessions for this cohort will be removed.",
+        }}
+      />
     </div>
   );
 }

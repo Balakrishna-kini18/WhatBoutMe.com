@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import styles from "../../../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../../lib/api";
-import { CustomSelect } from "../../../components";
+import { CustomSelect, ConfirmDialog, InputDialog, useToast } from "../../../components";
 
 interface Session {
   id: string;
@@ -25,10 +25,17 @@ interface Session {
 export default function BatchSessionsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const batchId = resolvedParams.id;
+  const { success: toastSuccess, error: toastError } = useToast();
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -103,38 +110,55 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     }
   };
 
-  const handleCancelSession = async (sessionId: string) => {
-    const reason = window.prompt("Reason for cancelling this session:");
-    if (reason === null) return;
-
+  const confirmCancelSession = async (reason: string) => {
+    if (!cancellingSessionId) return;
+    setIsCancelling(true);
+    setCancelError(null);
     try {
-      const res = await fetch(`${API_URL}/sessions/${sessionId}/cancel`, {
+      const res = await fetch(`${API_URL}/sessions/${cancellingSessionId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason.trim() || "Administrative cancellation" }),
       });
       if (res.ok) {
+        toastSuccess("Session cancelled successfully.");
+        setCancellingSessionId(null);
         fetchSessions();
       } else {
-        alert(await errorMessage(res, "Failed to cancel session."));
+        const err = await errorMessage(res, "Failed to cancel session.");
+        setCancelError(err);
+        toastError(err);
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to communicate with server.");
+      setCancelError("Failed to communicate with server.");
+      toastError("Failed to communicate with server.");
+    } finally {
+      setIsCancelling(false);
     }
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
-    if (!confirm("Permanently delete this session record?")) return;
+  const confirmDeleteSession = async () => {
+    if (!deletingSessionId) return;
+    setIsDeleting(true);
+    setDeleteError(null);
     try {
-      const res = await fetch(`${API_URL}/sessions/${sessionId}`, { method: "DELETE" });
+      const res = await fetch(`${API_URL}/sessions/${deletingSessionId}`, { method: "DELETE" });
       if (res.ok) {
+        toastSuccess("Session record permanently deleted.");
+        setDeletingSessionId(null);
         fetchSessions();
       } else {
-        alert(await errorMessage(res, "Failed to delete session."));
+        const err = await errorMessage(res, "Failed to delete session.");
+        setDeleteError(err);
+        toastError(err);
       }
     } catch (e) {
       console.error(e);
+      setDeleteError("Failed to communicate with server.");
+      toastError("Failed to communicate with server.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -421,7 +445,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                             padding: "0.4rem 0.75rem",
                             fontSize: "0.8rem",
                           }}
-                          onClick={() => handleCancelSession(s.id)}
+                          onClick={() => setCancellingSessionId(s.id)}
                         >
                           Cancel
                         </button>
@@ -434,7 +458,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                           padding: "0.4rem 0.75rem",
                           fontSize: "0.8rem",
                         }}
-                        onClick={() => handleDeleteSession(s.id)}
+                        onClick={() => setDeletingSessionId(s.id)}
                       >
                         Delete
                       </button>
@@ -661,6 +685,45 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
       )}
+
+      {/* InputDialog for Cancellation */}
+      <InputDialog
+        isOpen={Boolean(cancellingSessionId)}
+        onClose={() => {
+          if (!isCancelling) setCancellingSessionId(null);
+        }}
+        onSubmit={confirmCancelSession}
+        title="Cancel Live Session?"
+        subtitle="Cohort session status will be updated"
+        description="Provide a cancellation reason. Attendance records will note the cancellation."
+        label="Cancellation Reason"
+        placeholder="e.g., Scheduling conflict, national holiday, trainer ill"
+        confirmText={isCancelling ? "Cancelling..." : "Cancel Session"}
+        cancelText="Keep Session"
+        tone="danger"
+        isLoading={isCancelling}
+        error={cancelError}
+      />
+
+      {/* ConfirmDialog for Deletion */}
+      <ConfirmDialog
+        isOpen={Boolean(deletingSessionId)}
+        onClose={() => {
+          if (!isDeleting) setDeletingSessionId(null);
+        }}
+        onConfirm={confirmDeleteSession}
+        title="Permanently Delete Session?"
+        description="Are you sure you want to permanently delete this session record? This action cannot be undone."
+        tone="danger"
+        confirmText={isDeleting ? "Deleting..." : "Delete Permanently"}
+        cancelText="Cancel"
+        isLoading={isDeleting}
+        error={deleteError}
+        callout={{
+          tone: "warning",
+          text: "All associated attendance records and Zoom links will be deleted.",
+        }}
+      />
     </div>
   );
 }

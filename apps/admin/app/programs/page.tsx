@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
 import { uploadFile } from "../lib/api";
-import { CustomSelect, ActionMenu } from "../components";
+import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -44,6 +44,7 @@ const getCourseImageUrl = (rawUrl?: string | null): string => {
 export default function ProgramsPage() {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const { success: toastSuccess, error: toastError } = useToast();
 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -58,6 +59,16 @@ export default function ProgramsPage() {
   // Modals & Menus
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
+
+  // Deletion modal state
+  const [programToDelete, setProgramToDelete] = useState<Program | null>(null);
+  const [isDeletingProgram, setIsDeletingProgram] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   // Form states
   const [title, setTitle] = useState("");
@@ -169,25 +180,43 @@ export default function ProgramsPage() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteProgram = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this program? This will remove all associated modules, lessons, batches, and student progress.")) return;
+  const handleDeleteProgram = (prog: Program) => {
+    setDeleteError(null);
+    setProgramToDelete(prog);
+  };
+
+  const confirmDeleteProgram = async () => {
+    if (!programToDelete) return;
+    setIsDeletingProgram(true);
+    setDeleteError(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/programs/${id}`, {
+      const res = await fetch(`${API_URL}/programs/${programToDelete.id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
-        setPrograms((prev) => prev.filter((p) => p.id !== id));
+        const result = await res.json().catch(() => null);
+        toastSuccess(
+          result?.archived
+            ? `Program "${programToDelete.title}" archived. Historical records preserved.`
+            : `Program "${programToDelete.title}" removed successfully.`
+        );
+        setPrograms((prev) => prev.filter((p) => p.id !== programToDelete.id));
+        setProgramToDelete(null);
         fetchPrograms();
       } else {
         const errorData = await res.json().catch(() => null);
-        const errorMsg = errorData?.error?.message ?? errorData?.message ?? res.statusText;
-        alert(`Failed to delete program: ${errorMsg}`);
+        const errMsg = errorData?.error?.message ?? errorData?.message ?? res.statusText ?? "Failed to delete program";
+        setDeleteError(errMsg);
+        toastError(`Failed to delete program: ${errMsg}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to delete program", e);
-      alert("Network error: Could not reach the server to delete the program.");
+      const errMsg = e?.message || "Could not reach server";
+      setDeleteError(errMsg);
+      toastError(`Failed to delete program: ${errMsg}`);
+    } finally {
+      setIsDeletingProgram(false);
     }
   };
 
@@ -219,7 +248,10 @@ export default function ProgramsPage() {
         editingProgramId ? `${API_URL}/programs/${editingProgramId}` : `${API_URL}/programs`,
         {
           method: editingProgramId ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
           body: JSON.stringify(payload),
         },
       );
@@ -601,7 +633,7 @@ export default function ProgramsPage() {
                           label: "Delete Track",
                           danger: true,
                           dividerAbove: true,
-                          onClick: () => handleDeleteProgram(prog.id),
+                          onClick: () => handleDeleteProgram(prog),
                           icon: (
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <polyline points="3 6 5 6 21 6" />
@@ -740,7 +772,7 @@ export default function ProgramsPage() {
                               label: "Delete Track",
                               danger: true,
                               dividerAbove: true,
-                              onClick: () => handleDeleteProgram(prog.id),
+                              onClick: () => handleDeleteProgram(prog),
                               icon: (
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                   <polyline points="3 6 5 6 21 6" />
@@ -894,7 +926,7 @@ export default function ProgramsPage() {
                             const url = await uploadFile(file);
                             setImage(url);
                           } catch (err: any) {
-                            alert(err.message || "Failed to upload image");
+                            toastError(err.message || "Failed to upload image");
                           } finally {
                             setIsUploading(false);
                           }
@@ -981,6 +1013,37 @@ export default function ProgramsPage() {
           </div>
         </div>
       )}
+
+      {/* Branded ConfirmDialog for Program Deletion / Archival */}
+      <ConfirmDialog
+        isOpen={Boolean(programToDelete)}
+        onClose={() => {
+          if (!isDeletingProgram) setProgramToDelete(null);
+        }}
+        onConfirm={confirmDeleteProgram}
+        title="Remove Program Track?"
+        subtitle={programToDelete?.title}
+        description="Are you sure you want to remove this program? If active cohorts or enrolments exist, the program will be safely archived from the public catalog to preserve learner progress, certificates, and financial audit history. If no batches or enrolments exist, it will be permanently deleted along with associated media."
+        tone="danger"
+        confirmText={isDeletingProgram ? "Removing..." : "Remove Program"}
+        cancelText="Cancel"
+        isLoading={isDeletingProgram}
+        error={deleteError}
+        itemDetails={
+          programToDelete
+            ? [
+                { label: "Course Title", value: programToDelete.title },
+                { label: "Status", value: programToDelete.isActive ? "Published" : "Draft" },
+                { label: "Modules", value: programToDelete._count?.steps ?? 0 },
+                { label: "Price", value: programToDelete.price ? `$${programToDelete.price}` : "Free" },
+              ]
+            : []
+        }
+        callout={{
+          tone: "info",
+          text: "Student history safety: Archiving removes the course from the public catalog while keeping completed certificates and learner records fully intact.",
+        }}
+      />
     </div>
   );
 }

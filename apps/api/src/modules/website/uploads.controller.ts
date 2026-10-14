@@ -46,6 +46,7 @@ export class UploadsController {
       throw new BadRequestException('The upload was empty');
     }
 
+    const isVideoOrAudio = type.startsWith('video/') || type.startsWith('audio/');
     const isPdfOrDoc =
       type === 'application/pdf' ||
       type === 'application/zip' ||

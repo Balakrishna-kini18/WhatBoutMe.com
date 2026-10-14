@@ -192,7 +192,7 @@ export class ProgramsController {
   @Public()
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
-    return this.programsService.findOne(id, req?.user?.role);
+    return this.programsService.findOne(id, req?.user?.role, req?.user?.sub || req?.user?.id);
   }
 
   @RequirePermission(Permission.PROGRAMS_UPDATE)

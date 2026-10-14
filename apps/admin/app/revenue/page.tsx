@@ -48,15 +48,19 @@ export default function RevenuePage() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/revenue`);
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/revenue`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         const json = await res.json();
         setData(json);
       } else {
         const errJson = await res.json().catch(() => null);
-        setError(errJson?.message || `Unable to load revenue metrics (${res.status})`);
+        setError(errJson?.message || `Failed to load revenue data (HTTP ${res.status})`);
       }
     } catch (e: any) {
+      console.error("Failed to fetch revenue", e);
       setError(e?.message || "Unable to connect to the revenue service. Please check your connection.");
     } finally {
       setIsLoading(false);
@@ -168,28 +172,32 @@ export default function RevenuePage() {
           </div>
           <div className={styles.kpiValueRow}>
             <span className={styles.kpiValue}>
-              {isLoading ? "—" : data?.mrr ?? "$0"}
+              {isLoading ? "—" : data?.mrr ? `$${data.mrr}` : "N/A"}
             </span>
           </div>
           <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>Active recurring program revenue</span>
+            <span className={styles.kpiMeta}>
+              {data?.isRecurringBillingSupported
+                ? "Active recurring revenue"
+                : "Not supported (one-time cohort pricing)"}
+            </span>
           </div>
         </article>
 
         <article className={styles.kpiCard}>
           <div className={styles.kpiTopRow}>
-            <span className={styles.kpiLabel}>Active Subscribers</span>
+            <span className={styles.kpiLabel}>Paid Enrolments</span>
             <div className={styles.kpiIconBox}>
               <Icons.Users />
             </div>
           </div>
           <div className={styles.kpiValueRow}>
             <span className={styles.kpiValue}>
-              {isLoading ? "—" : data?.activeSubscribers ?? "0"}
+              {isLoading ? "—" : (data?.paidTransactionsCount ?? data?.activeSubscribers ?? 0).toLocaleString()}
             </span>
           </div>
           <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>Paid enrolment accounts</span>
+            <span className={styles.kpiMeta}>Recognized paid transactions</span>
           </div>
         </article>
       </section>

@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
-import { Role } from '@prisma/client';
+import { Role, BatchStatus, EnrolmentStatus } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -88,6 +88,7 @@ export class UsersService {
       const userId = reqUser.sub || reqUser.id;
       where.enrolments = {
         some: {
+          status: { not: EnrolmentStatus.REVOKED },
           batch: {
             OR: [
               { managerId: userId },
@@ -107,13 +108,13 @@ export class UsersService {
         orderBy: { createdAt: 'desc' },
         include: {
           enrolments: {
-            take: 1, // just one for demo as per original
             include: {
-              batch: { select: { name: true, programId: true } }
-            }
-          }
-        }
-      })
+              batch: { select: { id: true, name: true, programId: true } },
+              program: { select: { id: true, title: true } },
+            },
+          },
+        },
+      }),
     ]);
 
     const enrolments = users.flatMap(u => u.enrolments);
@@ -180,14 +181,14 @@ export class UsersService {
     }
 
     const data = users.map(user => {
-      const enrolment = user.enrolments[0];
+      const primaryEnrolment = user.enrolments.find(e => e.status === EnrolmentStatus.ACTIVE) || user.enrolments[0];
       let progressPct = 0;
 
-      if (enrolment && enrolment.batch?.programId) {
-        const totalItems = programTotals[enrolment.batch.programId] || 0;
+      if (primaryEnrolment && primaryEnrolment.batch?.programId) {
+        const totalItems = programTotals[primaryEnrolment.batch.programId] || 0;
         const completedItems = Math.min(
           totalItems,
-          enrolmentCompletions[enrolment.id] || 0,
+          enrolmentCompletions[primaryEnrolment.id] || 0,
         );
         if (totalItems > 0) {
           progressPct =
@@ -204,9 +205,20 @@ export class UsersService {
         email: user.email,
         role: user.role,
         permissions: user.permissions || [],
-        status: enrolment?.status || 'Active',
+        status: primaryEnrolment?.status || (user.role === Role.USER ? 'Unenrolled' : 'Active'),
         progress: `${progressPct}%`,
-        cohort: enrolment?.batch?.name || 'Unassigned',
+        cohort: primaryEnrolment?.batch?.name || 'Unassigned',
+        batchId: primaryEnrolment?.batchId || null,
+        enrolmentId: primaryEnrolment?.id || null,
+        programId: primaryEnrolment?.programId || null,
+        enrolments: user.enrolments.map(e => ({
+          id: e.id,
+          batchId: e.batchId,
+          batchName: e.batch?.name || 'Unassigned',
+          programId: e.programId,
+          programTitle: e.program?.title || 'Unknown',
+          status: e.status,
+        })),
         joined: new Date(user.createdAt).toLocaleDateString(),
       };
     });
@@ -229,9 +241,8 @@ export class UsersService {
     }
 
     const bcrypt = await import('bcryptjs');
-    // The request is validated with a plain `password` field; older callers
-    // sent the plain text as `passwordHash`. Either way it is hashed here.
-    const { password, passwordHash, status: _st, ...userData } = data;
+    const targetBatchId = data.batchId || data.cohort;
+    const { password, passwordHash, status: _st, batchId: _bid, cohort: _coh, ...userData } = data;
     const plain = password ?? passwordHash;
     if (plain) {
       userData.passwordHash = await bcrypt.hash(plain, 12);
@@ -247,6 +258,38 @@ export class UsersService {
           meta: { role: created.role, createdBy: reqUser?.sub || reqUser?.id }
         });
       }
+
+      // If a cohort is provided during creation:
+      if (targetBatchId) {
+        if (created.role === Role.USER) {
+          const batch = await this.prisma.batch.findUnique({
+            where: { id: targetBatchId },
+            include: { program: true },
+          });
+          if (!batch) {
+            throw new NotFoundException(`Batch '${targetBatchId}' not found`);
+          }
+          if (batch.status === BatchStatus.COMPLETED || batch.status === BatchStatus.ARCHIVED) {
+            throw new BadRequestException(`Cannot enroll into a ${batch.status} batch`);
+          }
+          await this.prisma.enrolment.create({
+            data: {
+              userId: created.id,
+              programId: batch.programId,
+              batchId: batch.id,
+              status: EnrolmentStatus.ACTIVE,
+            },
+          });
+        } else if ((created.role as any) === 'MANAGER' || (created.role as any) === Role.TEACHER) {
+          await this.prisma.batch.update({
+            where: { id: targetBatchId },
+            data: { managerId: created.id },
+          }).catch(() => null);
+        }
+      }
+
+      await this.cacheHelper.invalidateNamespace('users');
+      await this.cacheHelper.invalidateNamespace('enrolments');
       return created;
     } catch (error: any) {
       if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
@@ -294,7 +337,9 @@ export class UsersService {
       }
     }
 
-    const { passwordHash: _ph, status: _st, cohort: _co, progress: _pr, joined: _jo, ...userData } = data;
+    const targetBatchId = data.batchId || data.cohort;
+    const targetEnrolmentId = data.enrolmentId;
+    const { passwordHash: _ph, status: _st, cohort: _co, batchId: _bid, enrolmentId: _eid, progress: _pr, joined: _jo, ...userData } = data;
     const bcrypt = await import('bcryptjs');
     if (data.password) {
       userData.passwordHash = await bcrypt.hash(data.password, 12);
@@ -312,7 +357,6 @@ export class UsersService {
       shouldRevoke = true;
       revokeReason = 'PASSWORD_CHANGED';
     }
-    // Assuming 'status' means suspension if implemented
     if (data.status === 'SUSPENDED') {
       shouldRevoke = true;
       revokeReason = 'SUSPENDED';
@@ -341,9 +385,97 @@ export class UsersService {
           meta: { oldRole: currentUser.role, newRole: data.role, changedBy: reqUser?.sub || reqUser?.id }
         });
       }
+
+      // Persist Cohort / Batch Assignment for Learner or Manager
+      if (targetBatchId) {
+        if (currentUser.role === Role.USER) {
+          const batch = await this.prisma.batch.findUnique({
+            where: { id: targetBatchId },
+            include: { program: true },
+          });
+          if (!batch) {
+            throw new NotFoundException(`Batch '${targetBatchId}' not found`);
+          }
+          if (batch.status === BatchStatus.COMPLETED || batch.status === BatchStatus.ARCHIVED) {
+            throw new BadRequestException(`Cannot assign learner to a ${batch.status} batch`);
+          }
+
+          if (targetEnrolmentId) {
+            const enrolmentToUpdate = await this.prisma.enrolment.findUnique({
+              where: { id: targetEnrolmentId },
+            });
+            if (!enrolmentToUpdate || enrolmentToUpdate.userId !== id) {
+              throw new NotFoundException(`Enrolment '${targetEnrolmentId}' not found for user`);
+            }
+            if (enrolmentToUpdate.batchId !== targetBatchId) {
+              await this.prisma.enrolment.update({
+                where: { id: enrolmentToUpdate.id },
+                data: {
+                  batchId: targetBatchId,
+                  programId: batch.programId,
+                  status: enrolmentToUpdate.status === EnrolmentStatus.REVOKED ? EnrolmentStatus.ACTIVE : enrolmentToUpdate.status,
+                },
+              });
+              await this.prisma.logAction({
+                actorId: reqUser?.sub || reqUser?.id,
+                action: 'BATCH_TRANSFERRED',
+                entity: 'Enrolment',
+                entityId: enrolmentToUpdate.id,
+                meta: { userId: id, fromBatchId: enrolmentToUpdate.batchId, toBatchId: targetBatchId, changedBy: reqUser?.sub || reqUser?.id }
+              });
+            }
+          } else {
+            const existingProgEnrolment = await this.prisma.enrolment.findUnique({
+              where: { userId_programId: { userId: id, programId: batch.programId } },
+            });
+
+            if (existingProgEnrolment) {
+              if (existingProgEnrolment.batchId !== targetBatchId) {
+                await this.prisma.enrolment.update({
+                  where: { id: existingProgEnrolment.id },
+                  data: {
+                    batchId: targetBatchId,
+                    status: existingProgEnrolment.status === EnrolmentStatus.REVOKED ? EnrolmentStatus.ACTIVE : existingProgEnrolment.status,
+                  },
+                });
+                await this.prisma.logAction({
+                  actorId: reqUser?.sub || reqUser?.id,
+                  action: 'BATCH_TRANSFERRED',
+                  entity: 'Enrolment',
+                  entityId: existingProgEnrolment.id,
+                  meta: { userId: id, fromBatchId: existingProgEnrolment.batchId, toBatchId: targetBatchId, changedBy: reqUser?.sub || reqUser?.id }
+                });
+              }
+            } else {
+              const newEnrolment = await this.prisma.enrolment.create({
+                data: {
+                  userId: id,
+                  programId: batch.programId,
+                  batchId: targetBatchId,
+                  status: EnrolmentStatus.ACTIVE,
+                },
+              });
+              await this.prisma.logAction({
+                actorId: reqUser?.sub || reqUser?.id,
+                action: 'ENROLMENT_CREATED',
+                entity: 'Enrolment',
+                entityId: newEnrolment.id,
+                meta: { userId: id, programId: batch.programId, batchId: targetBatchId, createdBy: reqUser?.sub || reqUser?.id }
+              });
+            }
+          }
+        } else if ((currentUser.role as any) === 'MANAGER' || (currentUser.role as any) === Role.TEACHER) {
+          await this.prisma.batch.update({
+            where: { id: targetBatchId },
+            data: { managerId: id },
+          }).catch(() => null);
+        }
+      }
       
       await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
       await this.cacheHelper.invalidateNamespace('users');
+      await this.cacheHelper.invalidateNamespace('enrolments');
+      await this.cacheHelper.invalidateNamespace('batches');
       return updatedUser;
     } catch (error: any) {
       if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
@@ -405,5 +537,136 @@ export class UsersService {
     });
 
     return res;
+  }
+
+  async revokeAccess(id: string, body?: { enrolmentId?: string; reason?: string }, reqUser?: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        enrolments: {
+          include: {
+            batch: true,
+            program: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    const activeEnrolments = user.enrolments.filter(
+      (e) => e.status !== EnrolmentStatus.REVOKED && e.status !== EnrolmentStatus.COMPLETED,
+    );
+
+    if (activeEnrolments.length === 0) {
+      throw new BadRequestException('Learner has no active enrolments to revoke');
+    }
+
+    let targetEnrolment: (typeof user.enrolments)[0];
+
+    if (body?.enrolmentId) {
+      const found = user.enrolments.find((e) => e.id === body.enrolmentId);
+      if (!found) {
+        throw new NotFoundException(`Enrolment with ID ${body.enrolmentId} not found for this user`);
+      }
+      if (found.status === EnrolmentStatus.REVOKED) {
+        throw new BadRequestException('This enrolment is already revoked');
+      }
+      targetEnrolment = found;
+    } else {
+      if (activeEnrolments.length > 1) {
+        throw new BadRequestException(
+          'Learner has multiple active enrolments. Please specify the enrolmentId to revoke.',
+        );
+      }
+      targetEnrolment = activeEnrolments[0];
+    }
+
+    // Role and manager cohort-scoping checks:
+    if (reqUser && (reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER')) {
+      const myId = reqUser.sub || reqUser.id;
+      let isPermitted = false;
+      if (targetEnrolment.batch) {
+        if (targetEnrolment.batch.managerId === myId) {
+          isPermitted = true;
+        } else {
+          const isTrainer = await this.prisma.batchTrainer.findFirst({
+            where: { batchId: targetEnrolment.batch.id, trainerId: myId },
+          });
+          if (isTrainer) isPermitted = true;
+        }
+      }
+      if (!isPermitted) {
+        throw new ForbiddenException(
+          'Access denied: Managers can only revoke access for learners in their assigned cohorts',
+        );
+      }
+    }
+
+    const reason = body?.reason || 'ADMIN_REVOKED_ACCESS';
+
+    // Update target enrolment to REVOKED
+    await this.prisma.enrolment.update({
+      where: { id: targetEnrolment.id },
+      data: { status: EnrolmentStatus.REVOKED },
+    });
+
+    // Narrowest safe behavior: Only terminate sessions if user has 0 active enrolments remaining
+    const remainingActiveEnrolments = user.enrolments.filter(
+      (e) => e.id !== targetEnrolment.id && e.status === EnrolmentStatus.ACTIVE,
+    );
+
+    let revokedSessionsCount = 0;
+    if (remainingActiveEnrolments.length === 0) {
+      const sessionRes = await this.prisma.userSession.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date(), revokedReason: reason },
+      });
+      revokedSessionsCount = sessionRes.count;
+      forgetSessions();
+    }
+
+    await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
+    await this.cacheHelper.invalidateNamespace('users');
+    await this.cacheHelper.invalidateNamespace('enrolments');
+    await this.cacheHelper.invalidateNamespace('batches');
+
+    await this.prisma.logAction({
+      actorId: reqUser?.sub || reqUser?.id,
+      action: 'LEARNER_ACCESS_REVOKED',
+      entity: 'Enrolment',
+      entityId: targetEnrolment.id,
+      meta: {
+        targetUserId: id,
+        targetUserEmail: user.email,
+        enrolmentId: targetEnrolment.id,
+        programId: targetEnrolment.programId,
+        batchId: targetEnrolment.batchId,
+        programTitle: targetEnrolment.program?.title,
+        batchName: targetEnrolment.batch?.name,
+        revokedEnrolmentsCount: 1,
+        revokedSessionsCount,
+        remainingActiveEnrolmentsCount: remainingActiveEnrolments.length,
+        reason,
+        revokedBy: reqUser?.sub || reqUser?.id,
+      },
+    });
+
+    return {
+      success: true,
+      message: `Access revoked for course "${targetEnrolment.program?.title || 'Program'}" (${targetEnrolment.batch?.name || 'Cohort'}). ${
+        remainingActiveEnrolments.length > 0
+          ? `Learner has ${remainingActiveEnrolments.length} other active enrolment(s); login session preserved.`
+          : `Learner has no other active enrolments; ${revokedSessionsCount} active login session(s) terminated.`
+      }`,
+      enrolmentId: targetEnrolment.id,
+      batchId: targetEnrolment.batchId,
+      programId: targetEnrolment.programId,
+      remainingActiveEnrolmentsCount: remainingActiveEnrolments.length,
+      revokedEnrolmentsCount: 1,
+      revokedSessionsCount,
+    };
   }
 }

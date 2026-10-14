@@ -3,7 +3,15 @@
 import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
-import { CustomSelect, ActionMenu, StatusBadge } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, RevokeAccessModal, useToast } from "../components";
+
+interface UserEnrolment {
+  id: string;
+  batchId: string | null;
+  batchName: string | null;
+  programTitle: string | null;
+  status: string;
+}
 
 interface User {
   id: string;
@@ -13,6 +21,9 @@ interface User {
   status: string;
   progress?: string;
   cohort?: string;
+  batchId?: string | null;
+  enrolmentId?: string | null;
+  enrolments?: UserEnrolment[];
   joined?: string;
   permissions?: string[];
 }
@@ -95,8 +106,11 @@ const ROLE_CARDS = [
 ];
 
 export default function UsersPage() {
+  const { success: toastSuccess } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [revokingUser, setRevokingUser] = useState<User | null>(null);
+  const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [page, setPage] = useState(1);
@@ -117,6 +131,10 @@ export default function UsersPage() {
   const [password, setPassword] = useState("");
   const [permissions, setPermissions] = useState<string[]>([]);
   const [formError, setFormError] = useState("");
+  const [editingEnrolmentId, setEditingEnrolmentId] = useState<string | null>(null);
+  const [editingUserEnrolments, setEditingUserEnrolments] = useState<UserEnrolment[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   // only a super admin may create another super admin
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState("USER");
@@ -202,8 +220,17 @@ export default function UsersPage() {
     const names = user.name ? user.name.split(" ") : ["", ""];
     setFirstName(names[0] || "");
     setLastName(names.slice(1).join(" ") || "");
-    const matchingBatch = batches.find(b => b.name === user.cohort || b.id === user.cohort);
-    setCohort(matchingBatch ? matchingBatch.id : "");
+
+    const userEnrolments = user.enrolments || [];
+    setEditingUserEnrolments(userEnrolments);
+    const activeEnrolment = userEnrolments.find(e => e.status !== "REVOKED") || userEnrolments[0];
+    const initialEnrolmentId = user.enrolmentId || activeEnrolment?.id || null;
+    setEditingEnrolmentId(initialEnrolmentId);
+
+    const initialBatchId = user.batchId || activeEnrolment?.batchId || null;
+    const matchingBatch = batches.find(b => b.id === initialBatchId || b.name === user.cohort || b.id === user.cohort);
+    setCohort(matchingBatch ? matchingBatch.id : (initialBatchId || ""));
+
     const userRole = user.role || "USER";
     setRole(userRole);
     setInitialRole(userRole);
@@ -216,6 +243,8 @@ export default function UsersPage() {
 
   const openCreateModal = () => {
     setEditingUserId(null);
+    setEditingEnrolmentId(null);
+    setEditingUserEnrolments([]);
     setEmail("");
     setFirstName("");
     setLastName("");
@@ -229,24 +258,14 @@ export default function UsersPage() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteUser = async (id: string) => {
-    if (!confirm("Are you sure you want to revoke access and delete this user?")) return;
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        fetchUsers();
-      }
-    } catch (e) {
-      console.error("Failed to delete user", e);
-    }
+  const handleOpenRevokeModal = (user: User) => {
+    setRevokingUser(user);
+    setIsRevokeModalOpen(true);
   };
 
   const handleSaveUser = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setFormError("");
 
     if (role === "SUPER_ADMIN" && !isSuperAdmin) {
@@ -254,11 +273,16 @@ export default function UsersPage() {
       return;
     }
 
+    setIsSubmitting(true);
     const payload: Record<string, any> = {
       email,
       name: `${firstName} ${lastName}`.trim(),
       role,
       permissions,
+      batchId: cohort || null,
+      cohort: cohort || undefined,
+      enrolmentId: editingEnrolmentId || undefined,
+      status,
       ...(password ? { password } : {}),
     };
 
@@ -279,30 +303,14 @@ export default function UsersPage() {
       });
 
       if (res.ok) {
-        const savedData = await res.json().catch(() => null);
-        const targetUserId = editingUserId || savedData?.id;
-
-        // If cohort is assigned for a Manager, link the batch managerId
-        if (cohort && (role === "MANAGER" || role === "TEACHER") && targetUserId) {
-          try {
-            await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches/${cohort}`, {
-              method: "PATCH",
-              headers: { 
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify({ managerId: targetUserId })
-            });
-          } catch (batchErr) {
-            console.warn("Could not assign manager to batch", batchErr);
-          }
-        }
-
         setIsModalOpen(false);
         setEmail("");
         setFirstName("");
         setLastName("");
         setEditingUserId(null);
+        setEditingEnrolmentId(null);
+        setEditingUserEnrolments([]);
+        toastSuccess(editingUserId ? "User updated successfully." : "User created successfully.");
         fetchUsers();
       } else {
         const data = await res.json().catch(() => null);
@@ -312,6 +320,8 @@ export default function UsersPage() {
     } catch (e) {
       console.error("Failed to save user", e);
       setFormError("Could not reach the server. Check that the API is running.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -377,6 +387,13 @@ export default function UsersPage() {
             />
           </div>
         </div>
+
+        {actionError && (
+          <div role="alert" style={{ margin: "0.5rem 0 1rem", padding: "0.75rem 1rem", borderRadius: "8px", background: "#fef2f2", color: "#b91c1c", fontSize: "0.85rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{actionError}</span>
+            <button type="button" onClick={() => setActionError(null)} style={{ background: "none", border: "none", color: "#b91c1c", cursor: "pointer", fontWeight: "bold" }}>×</button>
+          </div>
+        )}
         
         <div className={styles.tableWrapper}>
           <table className={styles.adminTable}>
@@ -480,7 +497,7 @@ export default function UsersPage() {
                                 label: "Revoke Access",
                                 danger: true,
                                 dividerAbove: true,
-                                onClick: () => handleDeleteUser(user.id),
+                                onClick: () => handleOpenRevokeModal(user),
                                 icon: (
                                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <polyline points="3 6 5 6 21 6" />
@@ -658,6 +675,28 @@ export default function UsersPage() {
                 </div>
 
                 {/* 4. ASSIGNED COHORT / BATCH (SEPARATE MANAGER ASSIGNMENT) */}
+                {editingUserEnrolments.length > 1 && role === "USER" && (
+                  <div className={styles.formGroup} style={{ marginTop: "0.35rem" }}>
+                    <label>Enrolment to Update ({editingUserEnrolments.length} total)</label>
+                    <CustomSelect
+                      value={editingEnrolmentId || ""}
+                      onChange={(val) => {
+                        setEditingEnrolmentId(val);
+                        const selected = editingUserEnrolments.find(e => e.id === val);
+                        if (selected?.batchId) {
+                          setCohort(selected.batchId);
+                        }
+                      }}
+                      options={editingUserEnrolments.map((e) => ({
+                        value: e.id,
+                        label: `${e.programTitle || 'Program'} - ${e.batchName || 'Unassigned Batch'} [${e.status}]`,
+                      }))}
+                      fullWidth
+                      ariaLabel="Select enrolment to update"
+                    />
+                  </div>
+                )}
+
                 <div className={styles.formGroup} style={{ marginTop: "0.35rem" }}>
                   <label htmlFor="user-modal-cohort">
                     Assigned Cohort / Batch{" "}
@@ -824,12 +863,22 @@ export default function UsersPage() {
 
               <div className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryBtn} onClick={() => setIsModalOpen(false)}>Cancel</button>
-                <button type="submit" className={styles.primaryBtn}>{editingUserId ? "Save Changes" : "Add User"}</button>
+                <button type="submit" className={styles.primaryBtn} disabled={isSubmitting}>
+                  {isSubmitting ? "Saving..." : (editingUserId ? "Save Changes" : "Add User")}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Branded, Accessible Revoke Access Confirmation Modal */}
+      <RevokeAccessModal
+        isOpen={isRevokeModalOpen}
+        onClose={() => setIsRevokeModalOpen(false)}
+        user={revokingUser}
+        onSuccess={fetchUsers}
+      />
 
     </div>
   );

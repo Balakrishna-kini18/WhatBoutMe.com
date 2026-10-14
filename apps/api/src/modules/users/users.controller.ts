@@ -14,6 +14,8 @@ export class CreateUserDto {
   @IsOptional() @IsEnum(Role) role?: Role;
   @IsOptional() @IsArray() permissions?: string[];
   @IsOptional() @IsString() status?: string;
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsString() cohort?: string;
 }
 
 export class UpdateUserDto {
@@ -24,6 +26,9 @@ export class UpdateUserDto {
   @IsOptional() @IsEnum(Role) role?: Role;
   @IsOptional() @IsArray() permissions?: string[];
   @IsOptional() @IsString() status?: string;
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsString() cohort?: string;
+  @IsOptional() @IsString() enrolmentId?: string;
 }
 
 @Controller('users')
@@ -74,5 +79,15 @@ export class UsersController {
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   revokeUserSessions(@Param('id') id: string) {
     return this.usersService.revokeUserSessions(id);
+  }
+
+  @Post(':id/revoke-access')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  revokeAccess(
+    @Param('id') id: string,
+    @Body() body: { enrolmentId?: string; reason?: string },
+    @Req() req: any,
+  ) {
+    return this.usersService.revokeAccess(id, body, req.user);
   }
 }

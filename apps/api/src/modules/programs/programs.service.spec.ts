@@ -53,6 +53,11 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
         findFirst: vi.fn(),
         create: vi.fn(),
       },
+      resource: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
+        delete: vi.fn(),
+      },
       userLessonProgress: {
         upsert: vi.fn().mockResolvedValue({}),
       },
@@ -215,25 +220,38 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       expect(result.isActive).toBe(true);
     });
 
-    it('hard deletes program and cascades when batches/enrolments exist', async () => {
-      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1', status: ContentStatus.PUBLISHED });
-      prismaMock.batch.findMany.mockResolvedValue([]);
-      prismaMock.program.delete.mockResolvedValue({ id: 'prog-1' });
+    it('archives program when batches or enrolments exist to preserve records and FKs', async () => {
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1', title: 'Leadership 101', status: ContentStatus.PUBLISHED });
+      prismaMock.batch.count.mockResolvedValue(2);
+      prismaMock.enrolment.count.mockResolvedValue(5);
+      prismaMock.program.update.mockResolvedValue({ id: 'prog-1', status: ContentStatus.ARCHIVED, isActive: false });
 
       const result = await service.remove('prog-1');
 
-      expect(prismaMock.program.delete).toHaveBeenCalledWith({ where: { id: 'prog-1' } });
-      expect(result.deleted).toBe(true);
+      expect(prismaMock.program.update).toHaveBeenCalledWith({
+        where: { id: 'prog-1' },
+        data: {
+          status: ContentStatus.ARCHIVED,
+          isActive: false,
+        },
+      });
+      expect(result.archived).toBe(true);
+      expect(result.deleted).toBe(false);
+      expect(cacheHelperMock.invalidateNamespace).toHaveBeenCalledWith('programs');
     });
 
     it('hard deletes program when no batches or enrolments exist', async () => {
-      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-empty' });
-      prismaMock.batch.findMany.mockResolvedValue([]);
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-empty', title: 'Empty Track' });
+      prismaMock.batch.count.mockResolvedValue(0);
+      prismaMock.enrolment.count.mockResolvedValue(0);
+      prismaMock.lesson.findMany.mockResolvedValue([]);
+      prismaMock.resource.findMany.mockResolvedValue([]);
       prismaMock.program.delete.mockResolvedValue({ id: 'prog-empty' });
 
       const result = await service.remove('prog-empty');
 
       expect(result.deleted).toBe(true);
+      expect(result.archived).toBe(false);
       expect(prismaMock.program.delete).toHaveBeenCalledWith({ where: { id: 'prog-empty' } });
     });
   });

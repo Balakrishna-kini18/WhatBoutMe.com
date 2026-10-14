@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "../page.module.css";
 import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect } from "../components";
+import { CustomSelect, ConfirmDialog, InputDialog, useToast } from "../components";
 
 interface TrainerInfo {
   id: string;
@@ -63,9 +63,16 @@ const getProgramTitle = (batch: Batch): string => {
 };
 
 export default function MeetingsPage() {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [isDeletingSession, setIsDeletingSession] = useState(false);
+  const [deleteSessionError, setDeleteSessionError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -292,38 +299,55 @@ export default function MeetingsPage() {
     }
   };
 
-  const handleCancel = async (id: string) => {
-    const reason = window.prompt("Reason for cancelling this session:");
-    if (reason === null) return;
-
+  const confirmCancelSession = async (reason: string) => {
+    if (!cancellingSessionId) return;
+    setIsCancelling(true);
+    setCancelError(null);
     try {
-      const res = await fetch(`${API_URL}/sessions/${id}/cancel`, {
+      const res = await fetch(`${API_URL}/sessions/${cancellingSessionId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason.trim() || "Administrative cancellation" }),
       });
       if (res.ok) {
+        toastSuccess("Session cancelled successfully.");
+        setCancellingSessionId(null);
         load();
       } else {
-        alert(await errorMessage(res, "Could not cancel the session."));
+        const err = await errorMessage(res, "Could not cancel the session.");
+        setCancelError(err);
+        toastError(err);
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to communicate with the server.");
+      setCancelError("Failed to communicate with the server.");
+      toastError("Failed to communicate with the server.");
+    } finally {
+      setIsCancelling(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Permanently delete this session record?")) return;
+  const confirmDeleteSession = async () => {
+    if (!deletingSessionId) return;
+    setIsDeletingSession(true);
+    setDeleteSessionError(null);
     try {
-      const res = await fetch(`${API_URL}/sessions/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_URL}/sessions/${deletingSessionId}`, { method: "DELETE" });
       if (res.ok) {
+        toastSuccess("Session record permanently deleted.");
+        setDeletingSessionId(null);
         load();
       } else {
-        alert(await errorMessage(res, "Could not delete session."));
+        const err = await errorMessage(res, "Could not delete session.");
+        setDeleteSessionError(err);
+        toastError(err);
       }
     } catch (e) {
       console.error(e);
+      setDeleteSessionError("Failed to communicate with the server.");
+      toastError("Failed to communicate with the server.");
+    } finally {
+      setIsDeletingSession(false);
     }
   };
 
@@ -568,7 +592,7 @@ export default function MeetingsPage() {
                             <button
                               type="button"
                               className={styles.secondaryBtnSmall}
-                              onClick={() => handleCancel(m.id)}
+                              onClick={() => setCancellingSessionId(m.id)}
                               title="Cancel session with reason"
                             >
                               Cancel
@@ -598,7 +622,7 @@ export default function MeetingsPage() {
                         <button
                           type="button"
                           className={styles.dangerBtnSmall}
-                          onClick={() => handleDelete(m.id)}
+                          onClick={() => setDeletingSessionId(m.id)}
                           title="Delete session"
                         >
                           Delete
@@ -876,6 +900,45 @@ export default function MeetingsPage() {
           </div>
         </div>
       )}
+
+      {/* Branded InputDialog for Session Cancellation Reason */}
+      <InputDialog
+        isOpen={Boolean(cancellingSessionId)}
+        onClose={() => {
+          if (!isCancelling) setCancellingSessionId(null);
+        }}
+        onSubmit={confirmCancelSession}
+        title="Cancel Live Session?"
+        subtitle="Learners and trainers will be notified"
+        description="Provide a clear reason for cancelling this session. The reason will be recorded in attendance history."
+        label="Cancellation Reason"
+        placeholder="e.g., Trainer emergency, rescheduling to next week, holiday"
+        confirmText={isCancelling ? "Cancelling..." : "Cancel Session"}
+        cancelText="Keep Session"
+        tone="danger"
+        isLoading={isCancelling}
+        error={cancelError}
+      />
+
+      {/* Branded ConfirmDialog for Session Deletion */}
+      <ConfirmDialog
+        isOpen={Boolean(deletingSessionId)}
+        onClose={() => {
+          if (!isDeletingSession) setDeletingSessionId(null);
+        }}
+        onConfirm={confirmDeleteSession}
+        title="Permanently Delete Session?"
+        description="Are you sure you want to permanently delete this session record? This action cannot be undone."
+        tone="danger"
+        confirmText={isDeletingSession ? "Deleting..." : "Delete Permanently"}
+        cancelText="Cancel"
+        isLoading={isDeletingSession}
+        error={deleteSessionError}
+        callout={{
+          tone: "warning",
+          text: "All associated attendance records, Zoom links, and room reconciliation data will be deleted.",
+        }}
+      />
     </div>
   );
 }

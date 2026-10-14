@@ -56,8 +56,23 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
         newInit = { ...init, headers };
       }
     }
-
-    let response = await originalFetch(input, newInit);
+    let response: Response;
+    try {
+      response = await originalFetch(input, newInit);
+    } catch (fetchErr: any) {
+      // If the API server is momentarily restarting or recompiling in watch mode,
+      // attempt an immediate brief retry before bubbling the error
+      if (typeof input === 'string' && (input.includes(':4000') || input.includes(API_URL))) {
+        await new Promise((r) => setTimeout(r, 600));
+        try {
+          response = await originalFetch(input, newInit);
+        } catch {
+          throw fetchErr;
+        }
+      } else {
+        throw fetchErr;
+      }
+    }
     
     // Only for requests made with a sign-in token. A wrong password on the
     // login form is also a 401 and must reach the form untouched.

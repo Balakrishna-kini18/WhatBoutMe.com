@@ -387,6 +387,63 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       </li>
                     );
                   })}
+
+                  {/* Final Milestone: Certificate of Completion (Apna College Flow) */}
+                  <li
+                    className={`${styles.step} ${
+                      percent >= 100
+                        ? styles.stepDone
+                        : current && current.sequence === total
+                        ? styles.stepCurrent
+                        : styles.stepLocked
+                    }`}
+                    style={{
+                      borderLeftColor: percent >= 100 ? "#eab308" : undefined,
+                    }}
+                  >
+                    <span
+                      className={styles.marker}
+                      style={{
+                        background: percent >= 100 ? "linear-gradient(135deg, #eab308, #ca8a04)" : undefined,
+                        color: percent >= 100 ? "#ffffff" : undefined,
+                        borderColor: percent >= 100 ? "#ca8a04" : undefined,
+                      }}
+                      aria-hidden="true"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="8" r="6" />
+                        <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                      </svg>
+                    </span>
+
+                    <div className={styles.stepBody}>
+                      <p className={styles.kicker} style={{ color: percent >= 100 ? "#854d0e" : undefined }}>
+                        FINAL MILESTONE
+                      </p>
+                      <h3 className={styles.stepTitle} style={{ color: percent >= 100 ? "#854d0e" : undefined }}>
+                        Certificate of Completion
+                      </h3>
+                      <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                        {percent >= 100
+                          ? "✓ All activities completed! Your verified certificate is ready to view and download."
+                          : `Complete all ${total} steps and knowledge checks to unlock your official credential.`}
+                      </p>
+                    </div>
+
+                    <div className={styles.stepActionCol}>
+                      <Link
+                        href={`/programs/${id}/certificate`}
+                        className={percent >= 100 ? styles.startBtn : styles.reviewBtn}
+                        style={{
+                          background: percent >= 100 ? "linear-gradient(135deg, #eab308, #ca8a04)" : undefined,
+                          borderColor: percent >= 100 ? "#ca8a04" : undefined,
+                          color: percent >= 100 ? "#ffffff" : undefined,
+                        }}
+                      >
+                        {percent >= 100 ? "Claim Certificate" : "Check Status"}
+                      </Link>
+                    </div>
+                  </li>
                 </ol>
               )}
             </section>
@@ -460,10 +517,16 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                 </>
               ) : done > 0 && done === total ? (
                 <>
-                  <h3 className={styles.upNextTitle}>Final Certification Examination</h3>
-                  <p className={styles.upNextSub}>Comprehensive 50-Question Assessment</p>
-                  <Link href={`/programs/${id}/exam`} className={styles.upNextBtn}>
-                    Take Final Exam &rarr;
+                  <h3 className={styles.upNextTitle}>
+                    {progression?.certificate ? "Certificate of Completion" : "Claim Your Certificate"}
+                  </h3>
+                  <p className={styles.upNextSub}>
+                    {progression?.certificate
+                      ? "Your official credential is ready to view and download"
+                      : "You have completed all course requirements! View your certificate"}
+                  </p>
+                  <Link href={`/programs/${id}/certificate`} className={styles.upNextBtn}>
+                    {progression?.certificate ? "View Certificate →" : "Claim Certificate →"}
                   </Link>
                 </>
               ) : (

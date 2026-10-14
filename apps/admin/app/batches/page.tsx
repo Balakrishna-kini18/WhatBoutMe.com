@@ -71,6 +71,7 @@ function BatchesContent() {
   const [endDate, setEndDate] = useState("");
   const [capacity, setCapacity] = useState("");
   const [manager, setManager] = useState("");
+  const [awardCertificate, setAwardCertificate] = useState(true);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -205,17 +206,19 @@ function BatchesContent() {
     }
     setCapacity(String(batch.capacity || "50"));
     setManager(batch.managerId || "");
+    setAwardCertificate(true);
     setIsModalOpen(true);
   };
 
   const openCreateModal = () => {
     setEditingBatchId(null);
     setName("");
-    setProgramId("");
+    setProgramId(programs[0]?.id || "");
     setStartDate("");
     setEndDate("");
     setCapacity("50");
     setManager("");
+    setAwardCertificate(true);
     setIsModalOpen(true);
   };
 
@@ -329,6 +332,16 @@ function BatchesContent() {
       });
 
       if (res.ok) {
+        if (programId) {
+          await fetch(`${API_URL}/programs/${programId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ hasCertificate: awardCertificate }),
+          }).catch(() => null);
+        }
         closeModal();
         fetchBatches();
       }
@@ -930,6 +943,79 @@ function BatchesContent() {
                       ]}
                     />
                   </div>
+                </div>
+
+                {/* Certificate Award Option */}
+                <div
+                  style={{
+                    padding: "14px 16px",
+                    background: awardCertificate ? "rgba(201, 122, 30, 0.08)" : "var(--bg-card-muted, #fdfbf7)",
+                    border: `1.5px solid ${awardCertificate ? "var(--accent-primary, #c97a1e)" : "var(--border-light)"}`,
+                    borderRadius: "12px",
+                    marginTop: "1.25rem",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "12px",
+                      cursor: "pointer",
+                      margin: 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={awardCertificate}
+                      onChange={(e) => setAwardCertificate(e.target.checked)}
+                      style={{
+                        marginTop: "3px",
+                        width: "18px",
+                        height: "18px",
+                        accentColor: "var(--accent-primary, #c97a1e)",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: "0.92rem",
+                          color: "var(--text-primary)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="var(--accent-primary, #c97a1e)"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <circle cx="12" cy="8" r="6" />
+                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                        </svg>
+                        <span>Award Certificate of Completion for this Batch</span>
+                      </div>
+                      <p
+                        style={{
+                          margin: "4px 0 0",
+                          fontSize: "0.82rem",
+                          color: "var(--text-muted)",
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        Learners in this cohort will have the Certificate milestone at the end of their curriculum (just like Apna College) and unlock it upon completing all activities.
+                      </p>
+                    </div>
+                  </label>
                 </div>
               </div>
 

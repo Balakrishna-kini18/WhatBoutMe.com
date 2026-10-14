@@ -168,3 +168,32 @@ body.auth-page-active div[class*="mainContent"] {
     padding-bottom: 5rem;
   }
 }
+
+/* Printing (certificates): drop the app chrome and use the whole page */
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+
+@media print {
+  aside,
+  header:not(article header),
+  nav {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  main,
+  div[class*="mainContent"],
+  div[class*="appContainer"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+}
+

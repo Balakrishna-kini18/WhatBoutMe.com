@@ -1,154 +1,499 @@
 /*
- * Certificate sheet: A4 landscape, gold band on the left, name and course beside it.
- * Sized in container units so it looks the same on screen and on paper.
+ * Master Certificate Sheet: A4 Landscape, Warm Ivory Palette, Metallic Gold Vertical Ribbon,
+ * Award Rosette & Laurel Wreath Seal, Vector Guilloche Security Waves, and High-DPI Print Alignment.
+ *
+ * Sized in container units (cqw) for 100% fluid scaling on screen previews, modals, and A4 print export.
  * Keep this file identical in the learner portal and the admin app.
  */
+
 .sheet {
-  --gold: #efa944;
-  --gold-deep: #a9670f;
-  --ink: #14110f;
-  --rule: #d9d4cb;
+  --gold-primary: #c59b27;
+  --gold-light: #fef4cc;
+  --gold-deep: #7a4f00;
+  --gold-border: #b8860b;
+  --gold-hairline: #dfc982;
+  --ink-primary: #14110f;
+  --ink-secondary: #4b453e;
+  --ink-muted: #52525b;
+  --ivory-bg: #fdfbf7;
 
   container-type: inline-size;
   position: relative;
-  display: grid;
-  grid-template-columns: 15% 1fr;
   width: 100%;
   max-width: 1100px;
   aspect-ratio: 297 / 210;
   margin: 0 auto;
   overflow: hidden;
-  border: 1px solid var(--rule);
-  background: #ffffff;
-  color: var(--ink);
-  box-shadow: 0 20px 50px -30px rgba(15, 23, 42, 0.35);
-  /* browsers drop backgrounds when printing unless asked to keep them */
+  background-color: var(--ivory-bg);
+  background-image: radial-gradient(circle at 50% 45%, #ffffff 0%, #fdfbf7 55%, #f6f0e2 100%);
+  color: var(--ink-primary);
+  box-shadow: 0 25px 60px -20px rgba(45, 30, 10, 0.28), 0 0 0 1px rgba(184, 134, 11, 0.15);
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 
-.band {
+/* --- Neoclassical Decorative Outer & Inner Frames --- */
+.outerFrame {
+  position: absolute;
+  inset: 1.2cqw;
+  border: 2px solid var(--gold-border);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.innerFrame {
+  position: absolute;
+  inset: 1.7cqw;
+  border: 1px solid var(--gold-hairline);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* --- Victorian Corner Flourishes --- */
+.cornerFlourish {
+  position: absolute;
+  width: 5cqw;
+  height: 5cqw;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cornerTL {
+  top: 1.2cqw;
+  left: 1.2cqw;
+}
+
+.cornerTR {
+  top: 1.2cqw;
+  right: 1.2cqw;
+  transform: scaleX(-1);
+}
+
+.cornerBL {
+  bottom: 1.2cqw;
+  left: 1.2cqw;
+  transform: scaleY(-1);
+}
+
+.cornerBR {
+  bottom: 1.2cqw;
+  right: 1.2cqw;
+  transform: scale(-1);
+}
+
+/* --- Banknote Security Guilloche Waves --- */
+.guillocheSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.9;
+}
+
+/* --- Left Vertical Metallic Gold Ribbon --- */
+.goldRibbon {
+  position: absolute;
+  top: 1.7cqw;
+  bottom: 1.7cqw;
+  left: 4.2cqw;
+  width: 13.5cqw;
+  background: linear-gradient(
+    180deg,
+    #b8860b 0%,
+    #d4af37 18%,
+    #fae69e 36%,
+    #c59b27 54%,
+    #efd782 72%,
+    #996515 100%
+  );
+  border-left: 1px solid #fae69e;
+  border-right: 1.5px solid #7a4f00;
+  box-shadow: 4px 0 16px rgba(122, 79, 0, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 6cqw 0 6cqw 3.2cqw;
-  background: var(--gold);
+  z-index: 4;
 }
 
-.band span {
-  color: #ffffff;
-  font-size: 5.6cqw;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  line-height: 1;
-  text-transform: uppercase;
-  white-space: nowrap;
+.ribbonShimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+  pointer-events: none;
+}
+
+.ribbonContent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2cqw;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
+  white-space: nowrap;
 }
 
-.body {
+.ribbonPrimary {
+  font-family: var(--font-playfair), "Playfair Display", "Cinzel", "Georgia", serif;
+  font-size: 4.8cqw;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(80, 50, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.ribbonSecondary {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.3cqw;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  color: #ffffff;
+  opacity: 0.95;
+  text-shadow: 0 1px 2px rgba(80, 50, 0, 0.35);
+}
+
+/* --- Main Content Body --- */
+.contentBody {
   position: relative;
+  margin-left: 20cqw;
+  margin-right: 2.2cqw;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  padding: 6cqw 6cqw 5cqw 5cqw;
+  padding: 3.4cqw 3.6cqw 3cqw 1.8cqw;
+  z-index: 5;
 }
 
-.logo {
+/* --- Top Header Row --- */
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.brandGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35cqw;
+}
+
+.brandLogoImg {
   display: block;
-  /* a column flex item stretches by default, which would distort the logo */
   align-self: flex-start;
   width: auto;
-  height: 2.6cqw;
+  height: 2.8cqw;
 }
 
-.seal {
-  position: absolute;
-  top: 4.5cqw;
-  right: 6cqw;
-  width: 11cqw;
-  height: auto;
+.brandWordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.25cqw;
 }
 
-.lead {
-  margin: 4.2cqw 0 0;
-  font-size: 1.7cqw;
+.brandNameText {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 2.7cqw;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink-primary);
+  line-height: 1;
 }
 
-.name {
-  max-width: 78%;
-  margin: 1.4cqw 0 0;
-  overflow-wrap: anywhere;
-  color: var(--gold-deep);
-  font-size: 4.6cqw;
+.heartMark {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.1cqw;
+}
+
+.trademark {
+  font-size: 0.9cqw;
   font-weight: 700;
-  letter-spacing: 0.01em;
-  line-height: 1.1;
+  color: var(--ink-muted);
+  align-self: flex-start;
+  margin-top: 0.2cqw;
+}
+
+.brandSubtitle {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 0.85cqw;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  color: #6b7280;
   text-transform: uppercase;
+  margin: 0;
 }
 
-.text {
-  max-width: 86%;
-  margin: 2.6cqw 0 0;
-  font-size: 1.7cqw;
-  line-height: 1.5;
+.headerTaglineWrap {
+  text-align: center;
+  margin-right: 13.5cqw;
+  margin-top: 0.2cqw;
 }
 
-.text strong {
-  display: block;
-  margin-top: 0.4cqw;
-  font-size: 2.5cqw;
+.taglineLine1,
+.taglineLine2 {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 0.82cqw;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  margin: 0;
   line-height: 1.2;
 }
 
-.divider {
-  width: 100%;
-  height: 0.9cqw;
-  margin-top: 2.8cqw;
+.taglineDivider {
+  width: 50px;
+  height: 1px;
+  background: var(--gold-border);
+  margin: 0.3cqw auto;
 }
 
-.foot {
+/* --- Top-Right Award Medal & Rosette --- */
+.awardSeal {
+  position: absolute;
+  top: 1.8cqw;
+  right: 2.6cqw;
+  width: 14.5cqw;
+  height: auto;
+  z-index: 6;
+}
+
+/* --- Center Credential Flow --- */
+.certCenter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-top: 2.2cqw;
+}
+
+.certLead {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.35cqw;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  color: #524a42;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.recipientName {
+  font-family: var(--font-playfair), "Playfair Display", "Cinzel", "Georgia", serif;
+  font-size: 4.8cqw;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.15;
+  text-transform: uppercase;
+  margin: 0.7cqw 0 0.2cqw;
+  background: linear-gradient(
+    135deg,
+    #7a4f00 0%,
+    #b8860b 25%,
+    #d4af37 50%,
+    #996515 75%,
+    #caa13d 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: #8c6014;
+  filter: drop-shadow(0 1px 1px rgba(184, 134, 11, 0.2));
+}
+
+.dividerOrnament {
+  width: 48%;
+  height: 1.4cqw;
+  margin: 0.6cqw auto;
+}
+
+.courseLead {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.22cqw;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #524a42;
+  text-transform: uppercase;
+  margin: 0.3cqw 0 0;
+}
+
+.courseTitle {
+  font-family: var(--font-playfair), "Playfair Display", "Georgia", serif;
+  font-size: 3.2cqw;
+  font-weight: 700;
+  color: var(--ink-primary);
+  line-height: 1.25;
+  margin: 0.5cqw 0 0;
+  max-width: 90%;
+}
+
+.courseDescription {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.35cqw;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--ink-secondary);
+  max-width: 84%;
+  margin: 1cqw auto 0;
+}
+
+/* --- Bottom Official Signoff, Date & Verification --- */
+.footerRow {
+  margin-top: auto;
   display: flex;
   align-items: flex-end;
-  gap: 5cqw;
-  margin-top: auto;
+  justify-content: space-between;
+  width: 100%;
+  padding-top: 1.2cqw;
 }
 
-.verified {
-  margin: 0 0 4.4cqw;
-  font-size: 1.35cqw;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.signature {
+.signerCol {
+  display: flex;
+  flex-direction: column;
   width: 22cqw;
-  padding-top: 0.8cqw;
-  border-top: 1px solid var(--ink);
-  font-size: 1.5cqw;
+}
+
+.signatureSlot {
+  height: 3.6cqw;
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 0.1cqw;
+}
+
+.handwrittenSignature {
+  font-family: var(--font-caveat), "Caveat", "Brush Script MT", cursive;
+  font-size: 3.4cqw;
+  font-weight: 600;
+  color: #1c1917;
+  line-height: 1;
+}
+
+.signatureImg {
+  max-height: 3.4cqw;
+  width: auto;
+  object-fit: contain;
+}
+
+.signerRule {
+  width: 100%;
+  border-bottom: 1.5px solid var(--ink-primary);
+  margin-bottom: 0.5cqw;
+}
+
+.signerName {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.28cqw;
   font-weight: 700;
+  color: var(--ink-primary);
+  margin: 0;
+  line-height: 1.2;
 }
 
-.signature span,
-.number {
-  display: block;
-  font-size: 1.2cqw;
-  font-weight: 400;
+.signerTitle,
+.signerOrg {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.05cqw;
+  color: var(--ink-muted);
+  margin: 0.15cqw 0 0;
+  line-height: 1.2;
 }
 
-.number {
-  margin: 0 0 0 auto;
+.dateCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 18cqw;
+  margin-bottom: 0.7cqw;
+}
+
+.dateValue {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.35cqw;
+  font-weight: 600;
+  color: var(--ink-primary);
+  margin: 0;
+  text-align: center;
+}
+
+.dateRule {
+  width: 100%;
+  border-bottom: 1.5px solid var(--ink-primary);
+  margin: 0.4cqw 0 0.5cqw;
+}
+
+.dateLabel {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.05cqw;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  margin: 0;
+  text-align: center;
+}
+
+.verifyCol {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.6cqw;
+  margin-bottom: 0.4cqw;
+}
+
+.certNoGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   text-align: right;
 }
 
-.number strong {
-  display: block;
-  font-size: 1.3cqw;
+.certNoLabel {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.05cqw;
+  color: var(--ink-muted);
+  margin: 0;
 }
 
-/* the page around the sheet */
+.certNoValue {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 1.22cqw;
+  font-weight: 700;
+  color: var(--ink-primary);
+  margin-top: 0.2cqw;
+}
+
+.qrGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.qrVector,
+.qrImg {
+  width: 5.4cqw;
+  height: 5.4cqw;
+  background: #ffffff;
+  padding: 0.2cqw;
+  border: 1px solid var(--gold-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  display: block;
+}
+
+.qrLabel {
+  font-family: var(--font-dm-sans), sans-serif;
+  font-size: 0.82cqw;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  margin-top: 0.35cqw;
+}
+
+/* --- Container App Chrome & Page Toolbar Layout --- */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -161,13 +506,13 @@
 
 .toolbar h1 {
   margin: 0;
-  font-size: var(--text-xl);
+  font-size: var(--text-xl, 1.5rem);
 }
 
 .toolbar p {
   margin: 0.15rem 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
+  color: var(--text-secondary, #6b7280);
+  font-size: var(--text-sm, 0.875rem);
 }
 
 .actions {
@@ -179,52 +524,57 @@
 .secondary {
   display: inline-flex;
   align-items: center;
-  height: var(--control-height);
+  height: var(--control-height, 2.5rem);
   padding: 0 1.25rem;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--text-sm, 0.875rem);
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .primary {
   border: none;
-  background: var(--accent-primary);
+  background: var(--accent-primary, #b8860b);
   color: #ffffff;
 }
 
 .primary:hover {
-  background: var(--accent-primary-hover);
+  background: var(--accent-primary-hover, #996515);
 }
 
 .secondary {
-  border: 1px solid var(--border-light);
-  background: var(--bg-card);
-  color: var(--text-primary);
+  border: 1px solid var(--border-light, #e5e7eb);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #111827);
+}
+
+.secondary:hover {
+  background: #f9fafb;
 }
 
 .message {
   max-width: 1100px;
   margin: 0 auto;
   padding: 1.25rem 1.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: var(--radius-lg, 8px);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-secondary, #6b7280);
+  font-size: var(--text-sm, 0.875rem);
 }
 
-/* several certificates on one screen, one per page on paper */
 .stack {
   display: grid;
   gap: 1.5rem;
 }
 
+/* --- Print & PDF High-Fidelity Export Rules --- */
 @media print {
   .toolbar,
   .screenOnly {
-    display: none;
+    display: none !important;
   }
 
   .stack {
@@ -233,17 +583,22 @@
 
   .stack .sheet {
     break-after: page;
+    page-break-after: always;
   }
 
   .stack .sheet:last-child {
     break-after: auto;
+    page-break-after: auto;
   }
 
   .sheet {
-    width: 297mm;
-    max-width: none;
-    height: 210mm;
-    border: none;
-    box-shadow: none;
+    width: 297mm !important;
+    height: 210mm !important;
+    max-width: none !important;
+    margin: 0 auto !important;
+    border: none !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 }

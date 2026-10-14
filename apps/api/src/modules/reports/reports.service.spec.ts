@@ -159,4 +159,57 @@ describe('ReportsService - Reports & Exports (R-53)', () => {
       );
     });
   });
+
+  describe('Phase 6: Batch Attendance CSV Export', () => {
+    it('exports batch attendance with UTF-8 BOM, attendance percentage, and session details', async () => {
+      prismaMock.batch.findUnique = vi.fn().mockResolvedValue({
+        id: 'batch-1',
+        name: 'Alpha Cohort',
+        program: { minAttendancePercentage: 75 },
+        trainers: [],
+        sessions: [
+          { id: 's-1', title: 'Session 1', startTime: new Date('2026-10-01T10:00:00Z') },
+        ],
+        enrolments: [
+          {
+            status: 'ACTIVE',
+            userId: 'u-1',
+            user: { id: 'u-1', name: 'Alice', email: 'alice@example.com' },
+          },
+        ],
+      });
+
+      prismaMock.attendance = {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            sessionId: 's-1',
+            userId: 'u-1',
+            status: 'PRESENT',
+            minutesPresent: 60,
+          },
+        ]),
+      };
+
+      const result = await service.exportBatchAttendance('batch-1', adminUser, 'csv');
+
+      expect(result.csv.startsWith('\uFEFF')).toBe(true);
+      expect(result.csv).toContain('Learner Name');
+      expect(result.csv).toContain('Alice');
+      expect(result.csv).toContain('COMPLIANT');
+      expect(result.filename).toContain('alpha-cohort-attendance.csv');
+    });
+
+    it('rejects Manager who is not assigned to the batch', async () => {
+      prismaMock.batch.findUnique = vi.fn().mockResolvedValue({
+        id: 'batch-foreign',
+        name: 'Foreign Batch',
+        managerId: 'other-manager',
+        trainers: [],
+      });
+
+      await expect(
+        service.exportBatchAttendance('batch-foreign', managerUser, 'csv'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
 });

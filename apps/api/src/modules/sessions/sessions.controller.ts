@@ -194,8 +194,7 @@ export class SessionsController {
     @Request() req: any
   ) {
     const actorId = req.user.sub ?? req.user.userId ?? req.user.id;
-    const isPrivileged = req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
-    return this.reconciliationService.dismissUnmatched(unmatchedId, actorId, isPrivileged);
+    return this.reconciliationService.dismissUnmatched(unmatchedId, { id: actorId, role: req.user.role }, 'Dismissed by user');
   }
 
 

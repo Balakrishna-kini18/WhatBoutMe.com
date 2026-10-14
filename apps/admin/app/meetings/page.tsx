@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import styles from "../page.module.css";
 import { API_URL, errorMessage } from "../lib/api";
 import { CustomSelect } from "../components";
@@ -572,6 +573,26 @@ export default function MeetingsPage() {
                             >
                               Cancel
                             </button>
+                          </>
+                        )}
+                        {m.batch?.id && (
+                          <>
+                            <Link
+                              href={`/batches/${m.batch.id}/sessions/${m.id}/attendance`}
+                              className={styles.secondaryBtnSmall}
+                              style={{ textDecoration: "none" }}
+                              title="Manage Attendance"
+                            >
+                              Attendance
+                            </Link>
+                            <Link
+                              href={`/batches/${m.batch.id}/sessions/${m.id}/reconciliation`}
+                              className={styles.secondaryBtnSmall}
+                              style={{ textDecoration: "none" }}
+                              title="Reconcile Zoom/Meet participants"
+                            >
+                              Reconcile
+                            </Link>
                           </>
                         )}
                         <button

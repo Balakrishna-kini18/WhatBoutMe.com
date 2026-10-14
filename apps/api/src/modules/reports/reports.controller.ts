@@ -34,6 +34,27 @@ export class ReportsController {
     return this.reportsService.getCertificateAnalytics(req.user);
   }
 
+  @Get('batches/:batchId/attendance/export')
+  async exportBatchAttendance(
+    @Param('batchId') batchId: string,
+    @Res() res: Response,
+    @Req() req: any,
+  ) {
+    try {
+      const format = req.query?.format === 'xlsx' ? 'xlsx' : 'csv';
+      const result = await this.reportsService.exportBatchAttendance(batchId, req.user, format);
+      res.header('Content-Type', result.contentType);
+      res.attachment(result.filename);
+      return res.send(result.csv);
+    } catch (e: any) {
+      const status = e.status || 400;
+      return res.status(status).json({
+        statusCode: status,
+        message: e.message || 'Export error',
+      });
+    }
+  }
+
   @Get(':type/export')
   async exportCsv(@Param('type') type: string, @Res() res: Response, @Req() req: any) {
     try {

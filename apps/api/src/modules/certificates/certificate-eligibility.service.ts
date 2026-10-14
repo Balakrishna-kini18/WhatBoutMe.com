@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceComplianceService, AttendanceComplianceResult } from '../sessions/attendance-compliance.service.js';
 import {
@@ -84,6 +84,7 @@ export interface CertificateEligibilityEvaluation {
 export class CertificateEligibilityService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => AttendanceComplianceService))
     private readonly attendanceComplianceService: AttendanceComplianceService,
   ) {}
 
@@ -341,8 +342,8 @@ export class CertificateEligibilityService {
       );
     }
 
-    // ── 6. Closing Call Evaluation (Conditional on session availability) ─────
-    const closingCallRequired = closingCallSessions.length > 0;
+    // ── 6. Closing Call Evaluation ──────────────────────────────────────────
+    const closingCallRequired = true;
     const completedClosingCall = closingCallSessions.find((s) => {
       const isCompletedStatus = s.status === SessionStatus.COMPLETED;
       const isBookingAttended = s.bookings.some(
@@ -350,6 +351,7 @@ export class CertificateEligibilityService {
       );
       const isAttendancePresent = s.attendances.some(
         (a) =>
+          a.status === AttendanceStatus.PRESENT ||
           a.status === AttendanceStatus.PRESENT_AUTO ||
           a.status === AttendanceStatus.PRESENT_MANUAL ||
           a.status === AttendanceStatus.CORRECTED,
@@ -357,9 +359,9 @@ export class CertificateEligibilityService {
       return isCompletedStatus || isBookingAttended || isAttendancePresent;
     });
 
-    const closingCallMet = !closingCallRequired || Boolean(completedClosingCall);
+    const closingCallMet = Boolean(completedClosingCall);
 
-    if (closingCallRequired && !closingCallMet) {
+    if (!closingCallMet) {
       unmetRequirements.push(
         'Required 1-on-1 closing call has not been completed.',
       );

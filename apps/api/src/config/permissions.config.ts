@@ -67,6 +67,8 @@ export const Permission = {
 
   // Sessions Domain (1-on-1 coaching, live cohorts, Outlook clash checks)
   SESSIONS_CREATE: 'sessions:create',
+  SESSION_SCHEDULE: 'session:schedule',
+  SESSIONS_SCHEDULE: 'sessions:schedule',
   SESSIONS_READ: 'sessions:read',
   SESSIONS_UPDATE: 'sessions:update',
   SESSIONS_DELETE: 'sessions:delete',
@@ -75,9 +77,11 @@ export const Permission = {
 
   // Attendance Domain (Auto/manual attendance, corrections, Zoom reconciliation)
   ATTENDANCE_READ: 'attendance:read',
+  ATTENDANCE_VIEW: 'attendance:view',
   ATTENDANCE_MARK: 'attendance:mark',
   ATTENDANCE_CORRECT: 'attendance:correct',
   ATTENDANCE_RECONCILE: 'attendance:reconcile',
+  ATTENDANCE_EXPORT: 'attendance:export',
 
   // Oral Assessments Domain (Scoring rubrics, qualitative feedback)
   ORAL_ASSESSMENTS_READ: 'oral_assessments:read',
@@ -192,6 +196,8 @@ export const PERMISSIONS_BY_DOMAIN: Record<string, readonly Permission[]> = {
   ],
   sessions: [
     Permission.SESSIONS_CREATE,
+    Permission.SESSION_SCHEDULE,
+    Permission.SESSIONS_SCHEDULE,
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,
     Permission.SESSIONS_DELETE,
@@ -200,9 +206,11 @@ export const PERMISSIONS_BY_DOMAIN: Record<string, readonly Permission[]> = {
   ],
   attendance: [
     Permission.ATTENDANCE_READ,
+    Permission.ATTENDANCE_VIEW,
     Permission.ATTENDANCE_MARK,
     Permission.ATTENDANCE_CORRECT,
     Permission.ATTENDANCE_RECONCILE,
+    Permission.ATTENDANCE_EXPORT,
   ],
   oral_assessments: [
     Permission.ORAL_ASSESSMENTS_READ,
@@ -344,6 +352,8 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
     // Sessions (Full scheduling, booking & cancellation)
     Permission.SESSIONS_CREATE,
+    Permission.SESSION_SCHEDULE,
+    Permission.SESSIONS_SCHEDULE,
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,
     Permission.SESSIONS_DELETE,
@@ -352,9 +362,11 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
     // Attendance (Full attendance management & reconciliation)
     Permission.ATTENDANCE_READ,
+    Permission.ATTENDANCE_VIEW,
     Permission.ATTENDANCE_MARK,
     Permission.ATTENDANCE_CORRECT,
     Permission.ATTENDANCE_RECONCILE,
+    Permission.ATTENDANCE_EXPORT,
 
     // Oral Assessments (Full grading & rubric review)
     Permission.ORAL_ASSESSMENTS_READ,
@@ -428,15 +440,20 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
     // Sessions (Scheduling, managing & conducting live cohort / 1-on-1 sessions)
     Permission.SESSIONS_CREATE,
+    Permission.SESSION_SCHEDULE,
+    Permission.SESSIONS_SCHEDULE,
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,
     Permission.SESSIONS_DELETE,
     Permission.SESSIONS_CANCEL,
 
-    // Attendance (Viewing, marking & correcting attendance records)
+    // Attendance (Viewing, marking, reconciling & exporting attendance records)
     Permission.ATTENDANCE_READ,
+    Permission.ATTENDANCE_VIEW,
     Permission.ATTENDANCE_MARK,
     Permission.ATTENDANCE_CORRECT,
+    Permission.ATTENDANCE_RECONCILE,
+    Permission.ATTENDANCE_EXPORT,
 
     // Oral Assessments (Conducting assessments, scoring rubrics & recording qualitative notes)
     Permission.ORAL_ASSESSMENTS_READ,
@@ -481,6 +498,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
     // Attendance (Viewing own attendance record)
     Permission.ATTENDANCE_READ,
+    Permission.ATTENDANCE_VIEW,
 
     // Oral Assessments (Viewing own assessment booking/status)
     Permission.ORAL_ASSESSMENTS_READ,

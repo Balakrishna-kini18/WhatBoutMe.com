@@ -74,4 +74,139 @@ export class AttendanceController {
     }
     return this.complianceService.calculateCompliance(enrolmentId);
   }
+
+  /**
+   * Phase 7:
+   * GET /api/attendance/user/:userId
+   * Roles: SUPER_ADMIN, ADMIN, MANAGER (scoped to assigned batch).
+   * Returns individual learner attendance history on Learner Profile view.
+   */
+  @UseGuards(PermissionsGuard)
+  @RequirePermission(Permission.ATTENDANCE_READ)
+  @Get('user/:userId')
+  async getUserAttendance(@Param('userId') userId: string, @Request() req: any) {
+    const actorRole = req.user?.role;
+    const actorId = req.user?.sub ?? req.user?.userId ?? req.user?.id;
+
+    // Manager scoping check: manager must be assigned to at least one batch this user is enrolled in
+    if (actorRole === 'MANAGER' || actorRole === 'TEACHER') {
+      const isAssigned = await this.prisma.enrolment.findFirst({
+        where: {
+          userId,
+          batch: {
+            OR: [
+              { managerId: actorId },
+              { trainers: { some: { trainerId: actorId } } },
+            ],
+          },
+        },
+      });
+
+      if (!isAssigned) {
+        throw new ForbiddenException('You do not have access to view attendance for learners outside your assigned cohorts');
+      }
+    }
+
+    // Find all active enrolments for this learner
+    const enrolments = await this.prisma.enrolment.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        batchId: true,
+        batch: {
+          select: {
+            id: true,
+            name: true,
+            program: {
+              select: {
+                id: true,
+                title: true,
+                minAttendancePercentage: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const batchIds = enrolments.map((e) => e.batchId).filter(Boolean) as string[];
+
+    // Find all sessions for their batches or dedicated to this user
+    const sessions = await this.prisma.session.findMany({
+      where: {
+        OR: [
+          ...(batchIds.length > 0 ? [{ batchId: { in: batchIds } }] : []),
+          { userId },
+          { learnerId: userId },
+        ],
+      },
+      include: {
+        batch: {
+          select: {
+            id: true,
+            name: true,
+            program: { select: { title: true, minAttendancePercentage: true } },
+          },
+        },
+      },
+      orderBy: { startTime: 'desc' },
+    });
+
+    // Fetch this user's attendance records
+    const attendances = await this.prisma.attendance.findMany({
+      where: { userId },
+    });
+
+    const attendanceBySessionId = new Map<string, (typeof attendances)[0]>();
+    for (const att of attendances) {
+      attendanceBySessionId.set(att.sessionId, att);
+    }
+
+    let attendedCount = 0;
+    const history = sessions.map((session) => {
+      const att = attendanceBySessionId.get(session.id);
+      const isPresent =
+        att &&
+        (att.status === 'PRESENT' ||
+          att.status === 'PRESENT_AUTO' ||
+          att.status === 'PRESENT_MANUAL' ||
+          att.status === 'CORRECTED');
+
+      if (isPresent) attendedCount++;
+
+      return {
+        sessionId: session.id,
+        sessionTitle: session.title,
+        sessionType: session.sessionType,
+        batchId: session.batchId,
+        batchName: session.batch?.name || null,
+        programTitle: session.batch?.program?.title || null,
+        startTimeUtc: session.startTime.toISOString(),
+        endTimeUtc: session.endTime.toISOString(),
+        durationMinutes: session.durationMinutes || 60,
+        meetingProvider: session.meetingProvider,
+        joinUrl: session.joinUrl || session.meetingLink,
+        recordingUrl: session.recordingUrl || session.recordingLink,
+        status: att?.status ?? 'ABSENT',
+        minutesPresent: att?.minutesPresent ?? att?.durationMin ?? 0,
+        attendancePercentage: att?.attendancePercentage ?? 0,
+        source: att?.source ?? 'AUTO',
+        overrideReason: att?.overrideReason || att?.correctionReason || null,
+        joinTimeUtc: att?.joinTime ? att.joinTime.toISOString() : null,
+        leaveTimeUtc: att?.leaveTime ? att.leaveTime.toISOString() : null,
+      };
+    });
+
+    const totalScheduled = sessions.length;
+    const overallPercentage =
+      totalScheduled > 0 ? Math.round((attendedCount / totalScheduled) * 100) : 100;
+
+    return {
+      userId,
+      totalScheduledSessions: totalScheduled,
+      totalAttendedSessions: attendedCount,
+      overallAttendancePercentage: overallPercentage,
+      history,
+    };
+  }
 }

@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ZoomMeetingProvider } from './zoom.service.js';
 import { ZoomWebhookController } from './zoom.webhook.controller.js';
+import { GoogleMeetWebhookController } from './google-meet.webhook.controller.js';
 import { ZoomProcessor } from './zoom.processor.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { SessionsModule } from '../sessions/sessions.module.js';
@@ -12,11 +13,12 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
   imports: [
     PrismaModule,
     forwardRef(() => SessionsModule),
-    BullModule.registerQueue({
-      name: 'zoom-events',
-    }),
+    BullModule.registerQueue(
+      { name: 'zoom-events' },
+      { name: 'meeting-sync' },
+    ),
   ],
-  controllers: [ZoomWebhookController],
+  controllers: [ZoomWebhookController, GoogleMeetWebhookController],
   providers: [
     ZoomMeetingProvider,
     ...(isWorkerMode ? [ZoomProcessor] : []),

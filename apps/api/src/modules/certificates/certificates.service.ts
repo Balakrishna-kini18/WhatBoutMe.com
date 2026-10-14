@@ -602,4 +602,72 @@ export class CertificatesService {
 
     return { learners: enrolments.length, issued, alreadyIssued, notFinished };
   }
+
+  /**
+   * Phase 6: Evaluates eligibility downstream of attendance sync or manual correction.
+   * If eligible, transitions certificate to PENDING (pending Admin approval) or ISSUED for corporate tracks.
+   */
+  async checkAndTriggerCertificateEligibility(enrolmentId: string, actorId = 'SYSTEM') {
+    try {
+      const evaluation = await this.eligibilityService.evaluateEligibility(enrolmentId);
+      if (!evaluation.isEligible) {
+        return { isEligible: false, evaluation };
+      }
+
+      const existing = await this.prisma.certificate.findUnique({
+        where: { enrolmentId },
+      });
+
+      if (
+        existing &&
+        (existing.status === CertificateStatus.APPROVED || existing.status === CertificateStatus.ISSUED)
+      ) {
+        return { isEligible: true, certificate: existing };
+      }
+
+      const code = await this.generateUniqueCertificateCode();
+      const cpdHours = evaluation.certificateType === CertificateType.PROFESSIONAL ? 25 : null;
+
+      const cert = await this.prisma.certificate.upsert({
+        where: { enrolmentId },
+        update: {
+          status: CertificateStatus.PENDING,
+          certificateType: evaluation.certificateType,
+          cpdHours,
+          updatedAt: new Date(),
+        },
+        create: {
+          enrolmentId,
+          userId: evaluation.userId,
+          programId: evaluation.programId,
+          certificateCode: code,
+          certificateNumber: code,
+          status: CertificateStatus.PENDING,
+          certificateType: evaluation.certificateType,
+          cpdHours,
+        },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          actorId,
+          action: 'CERTIFICATE_ELIGIBILITY_TRIGGERED',
+          entity: 'Certificate',
+          entityId: cert.id,
+          meta: {
+            enrolmentId,
+            status: CertificateStatus.PENDING,
+            certificateType: evaluation.certificateType,
+          },
+        },
+      });
+
+      return { isEligible: true, certificate: cert };
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to trigger certificate eligibility for ${enrolmentId}: ${error.message}`,
+      );
+      return { isEligible: false, error: error.message };
+    }
+  }
 }

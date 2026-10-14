@@ -123,6 +123,13 @@ enum SessionStatus {
 }
 
 enum SessionType {
+  WELCOME_CALL_11_STEPS
+  CLOSING_CALL_11_STEPS
+  ONE_ON_ONE_WITH_RO
+  VISION_BOARD_WORKSHOP
+  VISION_BOARD_ONLINE
+  SPEAKER_DISCOVERY_CALL
+  BATCH_CLASS
   GROUP_COHORT
   ONE_ON_ONE
 }
@@ -130,6 +137,7 @@ enum SessionType {
 enum MeetingProvider {
   ZOOM
   GOOGLE_MEET
+  IN_PERSON
   MANUAL
 }
 
@@ -143,10 +151,25 @@ enum BookingStatus {
 }
 
 enum AttendanceStatus {
+  PRESENT
   ABSENT
+  EXCUSED
+  PENDING
   PRESENT_AUTO
   PRESENT_MANUAL
   CORRECTED
+}
+
+enum AttendanceSource {
+  AUTO
+  MANUAL
+  QR_CHECKIN
+}
+
+enum DeliveryMode {
+  ONLINE
+  IN_PERSON
+  HYBRID
 }
 
 enum CertificateType {
@@ -225,7 +248,9 @@ model User {
   attendedSessions             Attendance[]               @relation("UserAttendances")
   correctedAttendances         Attendance[]               @relation("CorrectedAttendances")
   resolvedUnmatchedAttendances UnmatchedAttendance[]      @relation("ResolvedUnmatchedAttendances")
+  linkedUnmatchedAttendances   UnmatchedAttendance[]      @relation("LinkedUnmatchedAttendances")
   learnerSessions              Session[]                  @relation("Learner1on1Sessions")
+  userSpecificSessions         Session[]                  @relation("UserSpecificSessions")
   hostedSessions               Session[]                  @relation("HostTrainerSessions")
   certificates                 Certificate[]              @relation("UserCertificates")
   approvedCertificates         Certificate[]              @relation("ApprovedCertificates")
@@ -333,9 +358,12 @@ model Program {
   isActive    Boolean       @default(true)
   status      ContentStatus @default(DRAFT)
 
-  hasCertificate      Boolean @default(false)
-  certificateTemplate String?
-  attendanceThreshold Int     @default(80)
+  hasCertificate          Boolean       @default(false)
+  certificateTemplate     String?
+  attendanceThreshold     Int           @default(80)
+  attendanceRequired      Boolean       @default(true)
+  minAttendancePercentage Int           @default(75)
+  deliveryMode            DeliveryMode  @default(ONLINE)
 
   steps              Step[]
   batches            Batch[]
@@ -814,21 +842,25 @@ model Session {
   id String @id @default(uuid())
 
   // Scoping & Relations
-  batchId String
-  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batchId String?
+  batch   Batch?  @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   learnerId String? // For dedicated 1:1 sessions
   learner   User?   @relation("Learner1on1Sessions", fields: [learnerId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User?   @relation("UserSpecificSessions", fields: [userId], references: [id], onDelete: SetNull)
 
   hostTrainerId String?
   hostTrainer   User?   @relation("HostTrainerSessions", fields: [hostTrainerId], references: [id], onDelete: SetNull)
 
   // Scheduling & Timing
-  title       String
-  description String?
-  startTime   DateTime
-  endTime     DateTime
-  timezone    String?  @default("UTC") // Timezone-aware scheduling
+  title           String
+  description     String?
+  startTime       DateTime
+  endTime         DateTime
+  durationMinutes Int?     // Duration in minutes
+  timezone        String?  @default("UTC") // Timezone-aware scheduling
 
   // Lifecycle & Capacity
   sessionType SessionType   @default(GROUP_COHORT)
@@ -839,11 +871,15 @@ model Session {
   // Meeting Provider Metadata (Provider-Neutral)
   meetingProvider      MeetingProvider @default(ZOOM)
   providerMeetingId    String? // Provider-neutral meeting ID
+  externalMeetingId    String? // Canonical external meeting ID
   zoomMeetingId        String? // Preserved for backward compatibility
   joinUrl              String? // Learner/attendee join URL
+  meetingLink          String? // Alias for meeting link
   hostUrl              String? // Host start/join URL
   recordingUrl         String? // Final recording URL
+  recordingLink        String? // Canonical recording link
   providerRecordingUrl String? // Raw provider cloud recording URL
+  checkinTokenSecret   String? // Secret token for in-person QR/link check-in
 
   // Agenda & Assessment References
   agenda String?
@@ -870,6 +906,7 @@ model Session {
   @@index([status])
   @@index([hostTrainerId])
   @@index([learnerId])
+  @@index([userId])
 }
 
 model SessionBooking {
@@ -906,18 +943,22 @@ model Attendance {
   sessionId String
   session   Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
 
-  enrolmentId String
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  enrolmentId String?
+  enrolment   Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
 
-  userId String?
-  user   User?   @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation("UserAttendances", fields: [userId], references: [id], onDelete: Cascade)
 
   status AttendanceStatus @default(ABSENT)
+  source AttendanceSource @default(AUTO)
 
-  joinTime    DateTime?
-  leaveTime   DateTime?
-  durationMin Int?
+  joinTime             DateTime?
+  leaveTime            DateTime?
+  durationMin          Int?
+  minutesPresent       Int?
+  attendancePercentage Float?
 
+  overrideReason   String?
   correctionReason String?
   correctedById    String?
   correctedBy      User?   @relation("CorrectedAttendances", fields: [correctedById], references: [id], onDelete: SetNull)
@@ -925,8 +966,9 @@ model Attendance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([sessionId, enrolmentId])
-  @@index([sessionId, userId])
+  @@unique([sessionId, userId])
+  @@index([sessionId, enrolmentId])
+  @@index([userId])
   @@index([status])
   @@index([enrolmentId])
 }
@@ -952,14 +994,19 @@ model UnmatchedAttendance {
   participantEmail String?
   participantName  String?
 
-  joinTime    DateTime?
-  leaveTime   DateTime?
-  durationMin Int?
+  joinTime       DateTime?
+  leaveTime      DateTime?
+  durationMin    Int?
+  minutesPresent Int?
+  rawPayload     Json?
 
   status UnmatchedAttendanceStatus @default(UNMATCHED)
 
   linkedEnrolmentId String?
   linkedEnrolment   Enrolment? @relation(fields: [linkedEnrolmentId], references: [id], onDelete: SetNull)
+
+  linkedUserId String?
+  linkedUser   User?   @relation("LinkedUnmatchedAttendances", fields: [linkedUserId], references: [id], onDelete: SetNull)
 
   resolvedById String?
   resolvedBy   User?     @relation("ResolvedUnmatchedAttendances", fields: [resolvedById], references: [id], onDelete: SetNull)
@@ -968,8 +1015,7 @@ model UnmatchedAttendance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([sessionId])
-  @@index([status])
+  @@index([sessionId, status])
   @@index([participantEmail])
 }
 
@@ -1220,6 +1266,10 @@ model AuditLog {
   ip       String?
 
   createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
 }
 
 model Lead {

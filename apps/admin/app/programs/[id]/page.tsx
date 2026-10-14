@@ -3,7 +3,7 @@
 import { useEffect, useState, use, useCallback } from "react";
 import styles from "./curriculum.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../../lib/api";
+import { API_URL, errorMessage, uploadFile } from "../../lib/api";
 import { parseCourseInfo, formatCourseInfo } from "../courseInfo";
 
 // 9-Step Wizard Modular Subcomponents
@@ -18,6 +18,7 @@ import Step6AddPdfLesson from "./components/Step6AddPdfLesson";
 import Step7QuizBuilder from "./components/Step7QuizBuilder";
 import Step8ModulePreview from "./components/Step8ModulePreview";
 import Step9ReviewPublish from "./components/Step9ReviewPublish";
+import BackgroundUploadTray, { BackgroundUploadTask } from "./components/BackgroundUploadTray";
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -54,6 +55,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
   const [isCreateModuleModalOpen, setIsCreateModuleModalOpen] = useState(false);
   const [isCreatingModule, setIsCreatingModule] = useState(false);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundUploadTask[]>([]);
 
   // Fetch Program & Full Steps with Lessons
   const fetchProgramAndSteps = useCallback(async () => {
@@ -202,6 +204,155 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     } finally {
       setIsCreatingModule(false);
     }
+  };
+
+  // Background Video Upload Handler
+  const handleStartBackgroundUpload = (taskInput: {
+    file?: File;
+    videoUrl?: string;
+    title: string;
+    description?: string;
+    durationSec?: number | null;
+    moduleId: string;
+    moduleTitle: string;
+  }) => {
+    const taskId = `bg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const newTask: BackgroundUploadTask = {
+      id: taskId,
+      title: taskInput.title,
+      moduleTitle: taskInput.moduleTitle,
+      moduleId: taskInput.moduleId,
+      progress: 5,
+      status: "UPLOADING",
+      statusText: "Initiating upload...",
+    };
+
+    setBackgroundTasks((prev) => [newTask, ...prev]);
+
+    (async () => {
+      try {
+        let publicId = taskInput.videoUrl || "";
+        let finalDuration = taskInput.durationSec;
+        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+        if (taskInput.file) {
+          const file = taskInput.file;
+          let uploadedDirect = false;
+          try {
+            const sigRes = await fetch(`${API_URL}/media/upload-signature`, {
+              method: "POST",
+              headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            });
+            if (sigRes.ok) {
+              const sigData = await sigRes.json();
+              const formData = new FormData();
+              formData.append("file", file);
+              formData.append("type", "authenticated");
+              formData.append("signature", sigData.signature);
+              formData.append("api_key", sigData.apiKey);
+              formData.append("timestamp", sigData.timestamp);
+
+              const xhr = new XMLHttpRequest();
+              const uploadRes = await new Promise((resolve, reject) => {
+                xhr.open("POST", sigData.uploadUrl);
+                xhr.upload.onprogress = (ev) => {
+                  if (ev.lengthComputable) {
+                    const percent = Math.round((ev.loaded / ev.total) * 90);
+                    setBackgroundTasks((prev) =>
+                      prev.map((t) =>
+                        t.id === taskId
+                          ? { ...t, progress: percent, statusText: `Uploading (${percent}%)...` }
+                          : t
+                      )
+                    );
+                  }
+                };
+                xhr.onload = () => {
+                  if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(JSON.parse(xhr.responseText));
+                  } else {
+                    reject(new Error("Video upload rejected by server"));
+                  }
+                };
+                xhr.onerror = () => reject(new Error("Network error during video upload"));
+                xhr.send(formData);
+              });
+
+              publicId = (uploadRes as any).public_id;
+              if ((uploadRes as any).duration) {
+                finalDuration = Math.round((uploadRes as any).duration);
+              }
+              uploadedDirect = true;
+            }
+          } catch {}
+
+          if (!uploadedDirect) {
+            setBackgroundTasks((prev) =>
+              prev.map((t) =>
+                t.id === taskId ? { ...t, progress: 45, statusText: "Uploading to server..." } : t
+              )
+            );
+            const uploadedUrl = await uploadFile(file);
+            publicId = uploadedUrl;
+            setBackgroundTasks((prev) =>
+              prev.map((t) =>
+                t.id === taskId ? { ...t, progress: 90, statusText: "Processing file..." } : t
+              )
+            );
+          }
+        }
+
+        setBackgroundTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId ? { ...t, progress: 95, status: "SAVING", statusText: "Attaching to module..." } : t
+          )
+        );
+
+        const finalMediaUrl = taskInput.videoUrl?.trim()
+          ? taskInput.videoUrl.trim()
+          : publicId
+          ? (publicId.startsWith("http") || publicId.startsWith("/") ? publicId : `upload:${publicId}`)
+          : `upload:video-${Date.now()}`;
+
+        const res = await fetch(`${API_URL}/programs/steps/${taskInput.moduleId}/lessons`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            title: taskInput.title.trim(),
+            type: "VIDEO",
+            mediaUrl: finalMediaUrl,
+            durationSec: finalDuration ?? 0,
+            content: taskInput.description?.trim() || undefined,
+            status: "PUBLISHED",
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(await errorMessage(res, "Failed to save lesson"));
+        }
+
+        setBackgroundTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, progress: 100, status: "COMPLETED", statusText: "Upload complete & attached!" }
+              : t
+          )
+        );
+
+        fetchProgramAndSteps();
+      } catch (err: any) {
+        setBackgroundTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, status: "ERROR", statusText: "Upload failed", error: err.message || "Failed" }
+              : t
+          )
+        );
+      }
+    })();
   };
 
   // Delete Module Action
@@ -457,6 +608,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
             fetchProgramAndSteps();
             setWizardStep("MODULE_DETAILS");
           }}
+          onStartBackgroundUpload={handleStartBackgroundUpload}
         />
       )}
 
@@ -516,6 +668,12 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         defaultSequence={steps.reduce((max, s) => Math.max(max, s.sequence), 0) + 1}
         onCreateModule={handleCreateModule}
         isCreating={isCreatingModule}
+      />
+      {/* Background Upload Floating Tray */}
+      <BackgroundUploadTray
+        tasks={backgroundTasks}
+        onDismissTask={(id) => setBackgroundTasks((prev) => prev.filter((t) => t.id !== id))}
+        onClearCompleted={() => setBackgroundTasks((prev) => prev.filter((t) => t.status !== "COMPLETED"))}
       />
     </div>
   );

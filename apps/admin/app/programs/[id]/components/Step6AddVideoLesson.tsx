@@ -9,6 +9,15 @@ interface Step6AddVideoLessonProps {
   moduleId: string;
   onBackToChooser: () => void;
   onLessonSaved: () => void;
+  onStartBackgroundUpload?: (task: {
+    file?: File;
+    videoUrl?: string;
+    title: string;
+    description?: string;
+    durationSec?: number | null;
+    moduleId: string;
+    moduleTitle: string;
+  }) => void;
 }
 
 export default function Step6AddVideoLesson({
@@ -16,6 +25,7 @@ export default function Step6AddVideoLesson({
   moduleId,
   onBackToChooser,
   onLessonSaved,
+  onStartBackgroundUpload,
 }: Step6AddVideoLessonProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -23,6 +33,7 @@ export default function Step6AddVideoLesson({
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [durationSec, setDurationSec] = useState<number | null>(null);
   const [isFreePreview, setIsFreePreview] = useState(false);
+  const [videoUrlInput, setVideoUrlInput] = useState("");
 
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string>("");
@@ -47,14 +58,42 @@ export default function Step6AddVideoLesson({
     setDurationSec(dur);
   };
 
+  const handleBackgroundSubmit = () => {
+    if (!title.trim()) {
+      setErrorMsg("Lesson title is required.");
+      return;
+    }
+    if (!selectedFile && !videoPreviewUrl && !videoUrlInput.trim()) {
+      setErrorMsg("Please choose a video file to upload or enter a direct video URL.");
+      return;
+    }
+    setErrorMsg(null);
+    onStartBackgroundUpload?.({
+      file: selectedFile || undefined,
+      videoUrl: videoUrlInput.trim() || undefined,
+      title: title.trim(),
+      description: description.trim(),
+      durationSec,
+      moduleId,
+      moduleTitle,
+    });
+    // Reset form so admin can immediately add another video
+    setTitle("");
+    setDescription("");
+    setSelectedFile(null);
+    setVideoPreviewUrl(null);
+    setDurationSec(null);
+    setVideoUrlInput("");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       setErrorMsg("Lesson title is required.");
       return;
     }
-    if (!selectedFile && !videoPreviewUrl) {
-      setErrorMsg("Please choose a video file to upload.");
+    if (!selectedFile && !videoPreviewUrl && !videoUrlInput.trim()) {
+      setErrorMsg("Please choose a video file to upload or enter a direct video URL.");
       return;
     }
 
@@ -66,7 +105,9 @@ export default function Step6AddVideoLesson({
       let finalDuration = durationSec;
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
-      if (selectedFile) {
+      if (videoUrlInput.trim()) {
+        publicId = videoUrlInput.trim();
+      } else if (selectedFile) {
         setUploadStatus("Uploading video asset...");
         setUploadProgress(15);
 
@@ -128,7 +169,9 @@ export default function Step6AddVideoLesson({
 
       setUploadStatus("Attaching video lesson to module...");
 
-      const finalMediaUrl = publicId
+      const finalMediaUrl = videoUrlInput.trim()
+        ? videoUrlInput.trim()
+        : publicId
         ? (publicId.startsWith("http") || publicId.startsWith("/") ? publicId : `upload:${publicId}`)
         : (videoPreviewUrl && !videoPreviewUrl.startsWith("blob:") ? videoPreviewUrl : `upload:video-${Date.now()}`);
 
@@ -144,6 +187,7 @@ export default function Step6AddVideoLesson({
           mediaUrl: finalMediaUrl,
           durationSec: finalDuration ?? 0,
           content: description.trim() || undefined,
+          status: "PUBLISHED",
         }),
       });
 
@@ -249,6 +293,33 @@ export default function Step6AddVideoLesson({
               </span>
             </label>
 
+            {/* Or Direct Video URL input */}
+            <div style={{ marginTop: "0.85rem", marginBottom: "1rem" }}>
+              <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                Or Direct Video / Cloudinary URL
+              </label>
+              <input
+                type="url"
+                value={videoUrlInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setVideoUrlInput(val);
+                  if (val.trim().startsWith("http")) {
+                    setVideoPreviewUrl(val.trim());
+                  }
+                }}
+                placeholder="https://res.cloudinary.com/... or https://..."
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-light)",
+                  fontSize: "0.85rem",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+
             {/* Video Preview Canvas */}
             {videoPreviewUrl && (
               <div style={{ background: "#000000", borderRadius: 14, overflow: "hidden", aspectRatio: "16 / 9", marginBottom: "1rem" }}>
@@ -321,7 +392,7 @@ export default function Step6AddVideoLesson({
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border-light)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border-light)", flexWrap: "wrap", gap: "12px" }}>
           <button
             type="button"
             className={styles.btnBack}
@@ -331,13 +402,38 @@ export default function Step6AddVideoLesson({
             &larr; Back
           </button>
 
-          <button
-            type="submit"
-            disabled={isSaving}
-            className={styles.btnPrimary}
-          >
-            {isSaving ? "Saving Lesson..." : "Save Lesson"}
-          </button>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {onStartBackgroundUpload && (
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleBackgroundSubmit}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--accent-primary, #0284c7)",
+                  background: "#f0f9ff",
+                  color: "var(--accent-primary, #0284c7)",
+                  fontWeight: 600,
+                  fontSize: "0.88rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span>⚡ Upload in Background &amp; Add Another</span>
+              </button>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className={styles.btnPrimary}
+            >
+              {isSaving ? "Saving Lesson..." : "Save Lesson"}
+            </button>
+          </div>
         </div>
       </form>
     </section>

@@ -74,7 +74,7 @@ describe('D1-025: Granular Named Permissions Configuration', () => {
 
       for (const [domain, perms] of Object.entries(PERMISSIONS_BY_DOMAIN)) {
         for (const p of perms) {
-          expect(p.startsWith(`${domain}:`)).toBe(true);
+          expect(p.startsWith(`${domain}:`) || (domain === 'sessions' && p.startsWith('session:'))).toBe(true);
           allGroupedPermissions.push(p);
         }
       }

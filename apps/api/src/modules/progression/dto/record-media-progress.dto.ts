@@ -1,4 +1,4 @@
-import { IsDefined, IsNumber, Min } from 'class-validator';
+import { IsDefined, IsNumber, Min, IsOptional, IsBoolean } from 'class-validator';
 
 export class RecordMediaProgressDto {
   @IsDefined({ message: 'positionSec is required' })
@@ -8,4 +8,13 @@ export class RecordMediaProgressDto {
   )
   @Min(0, { message: 'positionSec must be greater than or equal to 0' })
   positionSec: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  videoDurationSec?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isEnded?: boolean;
 }

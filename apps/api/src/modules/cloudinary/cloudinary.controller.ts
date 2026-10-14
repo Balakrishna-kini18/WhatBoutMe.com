@@ -134,18 +134,11 @@ export class CloudinaryController {
       throw new NotFoundException('Media resource not found');
     }
 
-    // If multiple programs claim the same media key, ownership is ambiguous across programs
-    if (matchingProgramIds.size > 1) {
-      throw new ForbiddenException('Ambiguous media resource mapping');
-    }
-
-    const targetProgramId = Array.from(matchingProgramIds)[0];
-
-    // Verify learner has active/completed enrolment in the specific program owning this media
+    // Verify learner has active/completed enrolment in ANY program owning this media
     const activeEnrolment = await this.prisma.enrolment.findFirst({
       where: {
         userId,
-        programId: targetProgramId,
+        programId: { in: Array.from(matchingProgramIds) },
         status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
       },
     });
@@ -159,15 +152,19 @@ export class CloudinaryController {
 
   private async handleStreamRedirect(key: string, res: Response) {
     try {
+      // Allow browser <video> across origins to stream seamlessly
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      if (key.startsWith('http://') || key.startsWith('https://')) {
+        return res.redirect(302, key);
+      }
+
       // 1. Get the securely signed Cloudinary URL with a 5-minute TTL
       const signedUrl = await this.objectStorage.getPresignedGetUrl(key, 300);
-      
-      // 2. helmet() sends CORP: same-origin, which makes the browser block a
-      // <video> on the LMS origin from loading this route. Allow it here only.
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      // 3. Redirect the client to the CDN URL to properly support Range requests and seeking
-      res.redirect(302, signedUrl);
+      // 2. Redirect the client to the CDN URL to properly support Range requests and seeking
+      return res.redirect(302, signedUrl);
     } catch (error: any) {
       console.error('Error generating signed URL:', error);
       res.status(500).send('Internal Server Error');

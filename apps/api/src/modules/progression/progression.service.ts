@@ -1149,6 +1149,8 @@ export class ProgressionService {
     lessonId: string,
     actor: any,
     positionSec: number,
+    videoDurationSec?: number,
+    isEnded?: boolean,
   ): Promise<LessonProgressResult> {
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
@@ -1223,13 +1225,30 @@ export class ProgressionService {
     // Call D1-033/D1-034 step access gate
     await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
 
-    // Calculate percentage server-side from authoritative Lesson.durationSec
+    // Determine effective duration
+    let effectiveDuration = lesson.durationSec;
+    if (videoDurationSec && videoDurationSec > 0) {
+      effectiveDuration = Math.round(videoDurationSec);
+      if (!lesson.durationSec || Math.abs(lesson.durationSec - effectiveDuration) > 5) {
+        await this.prisma.lesson.update({
+          where: { id: lesson.id },
+          data: { durationSec: effectiveDuration },
+        }).catch(() => {});
+      }
+    }
+
+    // Calculate percentage server-side
     let clampedPosition = positionSec;
     let calculatedPercent = 0;
 
-    if (lesson.durationSec && lesson.durationSec > 0) {
-      clampedPosition = Math.min(positionSec, lesson.durationSec);
-      calculatedPercent = (clampedPosition / lesson.durationSec) * 100;
+    if (effectiveDuration && effectiveDuration > 0) {
+      clampedPosition = Math.min(positionSec, effectiveDuration);
+      calculatedPercent = (clampedPosition / effectiveDuration) * 100;
+    }
+
+    if (isEnded || (effectiveDuration && clampedPosition >= effectiveDuration - 2)) {
+      calculatedPercent = 100;
+      clampedPosition = effectiveDuration || positionSec;
     }
 
     const existingProgress = await this.prisma.userLessonProgress.findUnique({
@@ -1248,13 +1267,13 @@ export class ProgressionService {
     const lastPositionSec = clampedPosition;
 
     // Authoritative completion rule:
-    // If lesson.durationSec is null or <= 0: do NOT award completion.
-    // Otherwise, completion awarded when newProgressPercent >= DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT.
-    // viewed is irreversible once true.
+    // Award completion if video is ended, 100% reached, or meets completion threshold
     const earnedCompletion =
-      lesson.durationSec != null &&
-      lesson.durationSec > 0 &&
-      newProgressPercent >= DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT;
+      Boolean(isEnded) ||
+      newProgressPercent >= 90 ||
+      (effectiveDuration != null &&
+        effectiveDuration > 0 &&
+        newProgressPercent >= DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT);
 
     const viewed = (existingProgress?.viewed ?? false) || earnedCompletion;
 
@@ -1342,11 +1361,9 @@ export class ProgressionService {
       lesson.type === ContentType.VIDEO ||
       lesson.type === ContentType.AUDIO
     ) {
-      if (lesson.durationSec && lesson.durationSec > 0) {
-        throw new BadRequestException(
-          'Video and audio lessons cannot be completed manually. Use heartbeat tracking',
-        );
-      }
+      throw new BadRequestException(
+        'Media lessons (VIDEO/AUDIO) must be completed via media progress heartbeat',
+      );
     }
 
     const enrolment = await this.prisma.enrolment.findFirst({

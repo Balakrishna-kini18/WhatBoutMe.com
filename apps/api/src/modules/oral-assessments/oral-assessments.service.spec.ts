@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  EnrolmentStatus,
   OralAssessmentStatus,
   Role,
 } from '@prisma/client';
@@ -44,6 +45,7 @@ describe('D1-038: OralAssessmentsService - Rubrics, Qualitative Feedback & Scopi
     userId: 'user-learner-1',
     programId: 'prog-1',
     batchId: 'batch-1',
+    status: EnrolmentStatus.ACTIVE,
     batch: {
       id: 'batch-1',
       managerId: 'user-manager-1',

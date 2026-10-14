@@ -31,6 +31,8 @@ export class LessonProgressController {
       lessonId,
       req.user,
       dto.positionSec,
+      dto.videoDurationSec,
+      dto.isEnded,
     );
   }
 

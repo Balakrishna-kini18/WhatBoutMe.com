@@ -80,7 +80,8 @@ describe('Phase 5: SessionCheckinController - In-Person QR Check-in', () => {
         'learner-1',
         'secret-123',
       );
-      expect(result.source).toBe(AttendanceSource.QR_CHECKIN);
+      expect(result.attendance.source).toBe(AttendanceSource.QR_CHECKIN);
+      expect(result.message).toBe('Check-in confirmed successfully');
     });
 
     it('rejects check-in when token is missing', async () => {

@@ -102,6 +102,10 @@ export class SessionCheckinController {
       throw new BadRequestException('Check-in token is required');
     }
 
-    return this.attendanceService.checkInWithToken(sessionId, userId, body.token);
+    const result = await this.attendanceService.checkInWithToken(sessionId, userId, body.token);
+    return {
+      message: 'Check-in confirmed successfully',
+      attendance: result,
+    };
   }
 }

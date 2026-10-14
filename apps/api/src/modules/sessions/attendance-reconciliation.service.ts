@@ -397,11 +397,11 @@ export class AttendanceReconciliationService {
       // Batch isolation verification for MANAGER
       if (
         (actor.role === Role.MANAGER || actor.role === 'MANAGER' || actor.role === 'TEACHER') &&
-        unmatched.session.batch
+        unmatched.session?.batch
       ) {
         const isAssigned =
           unmatched.session.batch.managerId === actor.id ||
-          unmatched.session.batch.trainers.some((t: any) => t.trainerId === actor.id);
+          unmatched.session.batch.trainers?.some((t: any) => t.trainerId === actor.id);
 
         if (!isAssigned) {
           throw new ForbiddenException('Access denied: You are not assigned to manage this batch');
@@ -410,7 +410,7 @@ export class AttendanceReconciliationService {
 
       // Verify target user is enrolled in the session batch (if batch session)
       let targetEnrolmentId: string | null = null;
-      if (unmatched.session.batchId) {
+      if (unmatched.session?.batchId) {
         const enrolment = await tx.enrolment.findUnique({
           where: {
             userId_batchId: {
@@ -438,8 +438,8 @@ export class AttendanceReconciliationService {
       });
 
       // Recalculate duration & percentage against the 75% threshold rule
-      let sessionDurationMin = unmatched.session.durationMinutes || 0;
-      if (sessionDurationMin <= 0 && unmatched.session.startTime && unmatched.session.endTime) {
+      let sessionDurationMin = unmatched.session?.durationMinutes || 0;
+      if (sessionDurationMin <= 0 && unmatched.session?.startTime && unmatched.session?.endTime) {
         sessionDurationMin = Math.round(
           (new Date(unmatched.session.endTime).getTime() -
             new Date(unmatched.session.startTime).getTime()) /
@@ -449,7 +449,7 @@ export class AttendanceReconciliationService {
       if (sessionDurationMin <= 0) sessionDurationMin = 60;
 
       const minThreshold =
-        unmatched.session.batch?.program?.minAttendancePercentage ?? 75;
+        unmatched.session?.batch?.program?.minAttendancePercentage ?? 75;
       const minutesPresent = unmatched.minutesPresent || unmatched.durationMin || 0;
       const percentage = (minutesPresent / sessionDurationMin) * 100;
       const meetsThreshold = percentage >= minThreshold;

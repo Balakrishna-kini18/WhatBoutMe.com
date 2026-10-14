@@ -6,6 +6,9 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "build": "node scripts/safe-prisma-generate.js && nest build",

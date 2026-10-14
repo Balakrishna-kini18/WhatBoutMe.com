@@ -45,6 +45,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [viewingPdf, setViewingPdf] = useState<{ id: string; title: string; url: string } | null>(null);
 
   const [userEmail, setUserEmail] = useState<string>("Learner");
+  const isFetchingRef = useRef<boolean>(false);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -60,8 +61,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   }, []);
 
   const fetchStepAndProgression = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
+      isFetchingRef.current = false;
       router.push("/login");
       return;
     }
@@ -173,6 +178,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       console.error(err);
       setLoadError(err.message || "Failed to load step information");
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
   }, [stepId, router]);
@@ -183,7 +189,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Handle starting/resuming a quiz attempt via server engine
   const handleStartQuiz = async () => {
-    if (!step?.quiz?.id) return;
+    if (isStartingQuiz || !step?.quiz?.id) return;
     setQuizError(null);
     setIsStartingQuiz(true);
 

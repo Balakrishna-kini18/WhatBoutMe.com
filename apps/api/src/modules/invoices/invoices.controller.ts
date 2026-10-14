@@ -3,6 +3,7 @@ import { InvoicesService } from './invoices.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto.js';
+import { CreateInvoiceDto } from './dto/create-invoice.dto.js';
 
 @Controller('invoices')
 @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -12,6 +13,11 @@ export class InvoicesController {
   @Get()
   findAll() {
     return this.invoicesService.findAll();
+  }
+
+  @Post()
+  create(@Body() body: CreateInvoiceDto, @Req() req: any) {
+    return this.invoicesService.create(body, req.user);
   }
 
   @Get('credit-notes')

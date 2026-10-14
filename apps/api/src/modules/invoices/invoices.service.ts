@@ -8,10 +8,110 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { InvoiceStatus } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto.js';
+import { CreateInvoiceDto } from './dto/create-invoice.dto.js';
 
 @Injectable()
 export class InvoicesService {
   constructor(private prisma: PrismaService) {}
+
+  async create(dto: CreateInvoiceDto, user?: any) {
+    return this.prisma.$transaction(async (tx: any) => {
+      // 1. Acquire PostgreSQL advisory transaction lock on the enrolment ID to prevent concurrent duplicate invoices
+      if (typeof tx.$executeRaw === 'function') {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.enrolmentId}))`;
+      }
+
+      const enrolment = await tx.enrolment.findUnique({
+        where: { id: dto.enrolmentId },
+        include: {
+          user: true,
+          program: true,
+          payments: { include: { invoice: true } },
+        },
+      });
+
+      if (!enrolment) {
+        throw new NotFoundException('Enrolment not found');
+      }
+
+      // Check if an active invoice already exists for this enrolment
+      const existingInvoice = enrolment.payments?.find((p: any) => p.invoice)?.invoice;
+      if (existingInvoice && existingInvoice.status !== InvoiceStatus.CANCELLED) {
+        throw new ConflictException(
+          `Enrolment already has an active invoice (${existingInvoice.invoiceNumber})`,
+        );
+      }
+
+      const payment = await tx.payment.create({
+        data: {
+          enrolmentId: enrolment.id,
+          amount: dto.amount,
+          currency: dto.currency || 'USD',
+          stripeSessionId: `manual_${Date.now()}_${randomUUID().slice(0, 8)}`,
+          status: dto.status === InvoiceStatus.PAID ? 'succeeded' : 'pending',
+        },
+      });
+
+      const invoiceNumber = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      const invoice = await tx.invoice.create({
+        data: {
+          paymentId: payment.id,
+          invoiceNumber,
+          amount: dto.amount,
+          currency: dto.currency || 'USD',
+          status: dto.status || InvoiceStatus.PAID,
+        },
+      });
+
+      if (typeof tx.logAction === 'function') {
+        await tx.logAction({
+          actorId: user?.sub || user?.id || null,
+          action: 'INVOICE_CREATED',
+          entity: 'Invoice',
+          entityId: invoice.id,
+          meta: {
+            invoiceNumber,
+            amount: dto.amount,
+            enrolmentId: enrolment.id,
+            userId: enrolment.userId,
+          },
+        });
+      } else if (tx.auditLog?.create) {
+        await tx.auditLog.create({
+          data: {
+            actorId: user?.sub || user?.id || null,
+            action: 'INVOICE_CREATED',
+            entity: 'Invoice',
+            entityId: invoice.id,
+            meta: {
+              invoiceNumber,
+              amount: dto.amount,
+              enrolmentId: enrolment.id,
+              userId: enrolment.userId,
+            },
+          },
+        });
+      }
+
+      return {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        client: enrolment.user?.name || 'Unknown',
+        clientEmail: enrolment.user?.email || null,
+        amount: `$${invoice.amount.toLocaleString()}`,
+        numericAmount: invoice.amount,
+        currency: invoice.currency,
+        status: invoice.status,
+        date: new Date(invoice.createdAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        createdAt: invoice.createdAt,
+      };
+    });
+  }
 
   async findAll() {
     const invoices = await this.prisma.invoice.findMany({

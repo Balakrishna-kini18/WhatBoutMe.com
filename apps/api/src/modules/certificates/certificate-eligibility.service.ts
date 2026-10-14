@@ -147,6 +147,8 @@ export class CertificateEligibilityService {
       examAttempts,
       oralAssessments,
       closingCallSessions,
+      programExamCount,
+      programOralCount,
     ] = await Promise.all([
       // 1. Published steps and quizzes for the program
       this.prisma.step.findMany({
@@ -217,6 +219,16 @@ export class CertificateEligibilityService {
           attendances: { where: { enrolmentId: enrolment.id } },
         },
       }),
+
+      // 8. Check if program has configured exams
+      this.prisma.exam.count({
+        where: { programId: enrolment.programId },
+      }),
+
+      // 9. Check if program has configured oral assessments
+      this.prisma.oralAssessment.count({
+        where: { programId: enrolment.programId },
+      }),
     ]);
 
     // ── 1. Steps Evaluation ──────────────────────────────────────────────────
@@ -277,23 +289,25 @@ export class CertificateEligibilityService {
       );
     }
 
-    // ── 3. Final 50-Question Exam Evaluation ─────────────────────────────────
+    // ── 3. Final Exam Evaluation (Conditional on program configuration) ──────
+    const finalExamRequired = programExamCount > 0;
     const passedExamAttempt = examAttempts.find(
       (ea) => ea.status === AttemptStatus.PASSED || ea.passed === true,
     );
-    const finalExamMet = Boolean(passedExamAttempt);
+    const finalExamMet = !finalExamRequired || Boolean(passedExamAttempt);
 
-    if (!finalExamMet) {
+    if (finalExamRequired && !finalExamMet) {
       unmetRequirements.push('Final 50-question exam not passed.');
     }
 
-    // ── 4. Oral Assessment Evaluation ────────────────────────────────────────
+    // ── 4. Oral Assessment Evaluation (Conditional on program configuration) ──
+    const oralAssessmentRequired = programOralCount > 0;
     const passedOralAssessment = oralAssessments.find(
       (oa) => oa.status === OralAssessmentStatus.PASSED || oa.passed === true,
     );
-    const oralAssessmentMet = Boolean(passedOralAssessment);
+    const oralAssessmentMet = !oralAssessmentRequired || Boolean(passedOralAssessment);
 
-    if (!oralAssessmentMet) {
+    if (oralAssessmentRequired && !oralAssessmentMet) {
       unmetRequirements.push('Oral assessment not marked as PASSED.');
     }
 
@@ -327,7 +341,8 @@ export class CertificateEligibilityService {
       );
     }
 
-    // ── 6. Closing Call Evaluation ───────────────────────────────────────────
+    // ── 6. Closing Call Evaluation (Conditional on session availability) ─────
+    const closingCallRequired = closingCallSessions.length > 0;
     const completedClosingCall = closingCallSessions.find((s) => {
       const isCompletedStatus = s.status === SessionStatus.COMPLETED;
       const isBookingAttended = s.bookings.some(
@@ -342,9 +357,9 @@ export class CertificateEligibilityService {
       return isCompletedStatus || isBookingAttended || isAttendancePresent;
     });
 
-    const closingCallMet = Boolean(completedClosingCall);
+    const closingCallMet = !closingCallRequired || Boolean(completedClosingCall);
 
-    if (!closingCallMet) {
+    if (closingCallRequired && !closingCallMet) {
       unmetRequirements.push(
         'Required 1-on-1 closing call has not been completed.',
       );
@@ -382,17 +397,17 @@ export class CertificateEligibilityService {
         unpassedQuizStepTitles,
       },
       finalExam: {
-        required: true,
-        passed: finalExamMet,
+        required: finalExamRequired,
+        passed: Boolean(passedExamAttempt),
         score: passedExamAttempt?.score ?? null,
         attemptCount: examAttempts.length,
         isMet: finalExamMet,
       },
       oralAssessment: {
-        required: true,
-        passed: oralAssessmentMet,
+        required: oralAssessmentRequired,
+        passed: Boolean(passedOralAssessment),
         score: passedOralAssessment?.overallScore ?? null,
-        status: passedOralAssessment?.status ?? (oralAssessments[0]?.status || null),
+        status: passedOralAssessment?.status ?? null,
         isMet: oralAssessmentMet,
       },
       attendance: {
@@ -405,11 +420,11 @@ export class CertificateEligibilityService {
         isMet: attendanceMet,
       },
       closingCall: {
-        required: true,
-        completed: closingCallMet,
+        required: closingCallRequired,
+        completed: Boolean(completedClosingCall),
         sessionId: completedClosingCall?.id ?? null,
         sessionTitle: completedClosingCall?.title ?? null,
-        completedAt: completedClosingCall?.endTime ?? null,
+        completedAt: completedClosingCall?.updatedAt ?? null,
         isMet: closingCallMet,
       },
       unmetRequirements,

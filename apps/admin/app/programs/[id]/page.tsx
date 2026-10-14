@@ -409,6 +409,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       {wizardStep === "MODULE_LIST" && (
         <Step2ModuleList
           steps={steps}
+          programTitle={programData?.title}
           onOpenCreateModal={() => setIsCreateModuleModalOpen(true)}
           onManageModule={(mod) => {
             setActiveModuleId(mod.id);

@@ -1,0 +1,450 @@
+.container {
+  min-height: 100vh;
+  background-color: var(--bg-soft, #f8f6f0);
+  color: var(--text-primary, #1c1917);
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+}
+
+.topBar {
+  background: var(--bg-card, #ffffff);
+  border-bottom: 1px solid var(--border-light, #e7e5e4);
+  padding: 16px 28px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.topNavRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+  gap: 16px;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-secondary, #57534e);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.backLink:hover {
+  color: var(--accent-primary, #c97a1e);
+}
+
+.courseHeaderMeta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.courseTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary, #1c1917);
+  margin: 0;
+}
+
+.progressWrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.progressTrack {
+  flex: 1;
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.progressFillGold {
+  background: linear-gradient(90deg, #eab308 0%, #ca8a04 100%);
+}
+
+.percentLabel {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary, #1c1917);
+  min-width: 38px;
+  text-align: right;
+}
+
+/* =========================================================================
+   Apna College Incomplete State (Matching Screenshot 2)
+   ========================================================================= */
+
+.centerHero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px 80px;
+  max-width: 860px;
+  margin: 0 auto;
+  width: 100%;
+  text-align: center;
+}
+
+.sadFaceCircle {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: #4f46e5;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 28px;
+  box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.4);
+}
+
+.sadFaceIcon {
+  width: 48px;
+  height: 48px;
+}
+
+.lockedTitle {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  text-transform: uppercase;
+  margin: 0 0 16px;
+  line-height: 1.2;
+}
+
+.lockedSub {
+  font-size: 1.05rem;
+  color: #64748b;
+  max-width: 580px;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+.actionBtnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 14px 28px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  transition: all 0.2s ease;
+}
+
+.actionBtnPrimary:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+}
+
+/* Activities Breakdown Checklist */
+.checklistCard {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7e5e4);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 36px;
+  text-align: left;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.checklistHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-light, #e7e5e4);
+}
+
+.checklistTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activitiesBadge {
+  background: #f1f5f9;
+  color: #475569;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.remainingList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remainingItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  transition: all 0.15s ease;
+}
+
+.remainingItem:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.itemInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.itemTypeIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #e2e8f0;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.itemText {
+  display: flex;
+  flex-direction: column;
+}
+
+.itemTitle {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.itemStepContext {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.itemJumpBtn {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #3b82f6;
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.itemJumpBtn:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+/* =========================================================================
+   Completed / Earned Certificate State
+   ========================================================================= */
+
+.celebrationHero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 24px 80px;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.goldMedalCircle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 25px rgba(217, 119, 6, 0.35);
+  animation: pulseGold 2s infinite ease-in-out;
+}
+
+@keyframes pulseGold {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 10px 25px rgba(217, 119, 6, 0.35);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 15px 35px rgba(217, 119, 6, 0.5);
+  }
+}
+
+.celebrationTitle {
+  font-size: clamp(1.8rem, 3.5vw, 2.5rem);
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0 0 10px;
+  text-align: center;
+}
+
+.celebrationSub {
+  font-size: 1.05rem;
+  color: #78716c;
+  max-width: 620px;
+  text-align: center;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+/* Certificate Actions Toolbar */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.downloadBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #1c1917;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 12px 24px;
+  border-radius: 10px;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.downloadBtn:hover {
+  background: #292524;
+  transform: translateY(-1px);
+}
+
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #1c1917;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 12px 20px;
+  border-radius: 10px;
+  text-decoration: none;
+  border: 1px solid var(--border-light, #e7e5e4);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.secondaryBtn:hover {
+  background: #f5f5f4;
+}
+
+.certSheetWrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.12));
+  overflow-x: auto;
+  padding: 10px 0;
+}
+
+/* Loading & Error States */
+.loadingBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 16px;
+  color: #78716c;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  border-top-color: #0f172a;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .topNavRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .courseHeaderMeta {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .progressWrap {
+    width: 100%;
+  }
+  .centerHero {
+    padding: 40px 16px;
+  }
+  .toolbar {
+    flex-direction: column;
+    width: 100%;
+  }
+  .downloadBtn, .secondaryBtn {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import styles from "../curriculum.module.css";
+import Certificate from "../../../certificates/Certificate";
 
 interface Step {
   id: string;
@@ -14,6 +15,7 @@ interface Step {
 
 interface Step2ModuleListProps {
   steps: Step[];
+  programTitle?: string;
   onOpenCreateModal: () => void;
   onManageModule: (step: Step) => void;
   onPreviewModule: (step: Step) => void;
@@ -24,6 +26,7 @@ interface Step2ModuleListProps {
 
 export default function Step2ModuleList({
   steps,
+  programTitle,
   onOpenCreateModal,
   onManageModule,
   onPreviewModule,
@@ -31,6 +34,7 @@ export default function Step2ModuleList({
   onBackToBasicDetails,
   onContinueToReview,
 }: Step2ModuleListProps) {
+  const [isPreviewCertOpen, setIsPreviewCertOpen] = useState(false);
   return (
     <section className={styles.cardSurface}>
       {/* Header */}
@@ -159,6 +163,166 @@ export default function Step2ModuleList({
               </div>
             );
           })}
+
+          {/* Final Milestone: Certificate of Completion (Apna College Flow) */}
+          <div
+            className={styles.moduleItemCard}
+            style={{
+              background: "linear-gradient(135deg, rgba(254, 249, 195, 0.35) 0%, rgba(255, 255, 255, 1) 100%)",
+              borderColor: "#fde047",
+              boxShadow: "0 4px 16px rgba(234, 179, 8, 0.08)",
+            }}
+          >
+            <div className={styles.moduleLeftInfo}>
+              <div
+                className={styles.moduleSeqCircle}
+                style={{
+                  background: "linear-gradient(135deg, #eab308 0%, #ca8a04 100%)",
+                  color: "#ffffff",
+                  boxShadow: "0 2px 8px rgba(202, 138, 4, 0.3)",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="6" />
+                  <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                </svg>
+              </div>
+
+              <div className={styles.moduleMetaCol}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <h3 className={styles.moduleCardTitle} style={{ color: "#854d0e" }}>
+                    Final Milestone: Certificate of Completion
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      background: "#fef08a",
+                      color: "#713f12",
+                      padding: "2px 8px",
+                      borderRadius: "6px",
+                    }}
+                  >
+                    Automatic Milestone
+                  </span>
+                </div>
+                <div className={styles.moduleStatsRow}>
+                  <span style={{ color: "#713f12", fontWeight: 600 }}>Unlocks at 100% Course Progress</span>
+                  <span>&bull;</span>
+                  <span>Awarded after completing all {steps.length} {steps.length === 1 ? "module" : "modules"} &amp; quizzes</span>
+                  <span>&bull;</span>
+                  <span>Learners receive downloadable PDF &amp; verifiable credential ID</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.moduleRightActions}>
+              <button
+                type="button"
+                className={styles.secondaryActionBtn}
+                onClick={() => setIsPreviewCertOpen(true)}
+                title="Preview what learners see upon completing this course"
+                style={{
+                  borderColor: "#fde047",
+                  background: "#fefce8",
+                  color: "#854d0e",
+                  fontWeight: 600,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>Preview Certificate</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Certificate Preview Modal */}
+      {isPreviewCertOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+          }}
+          onClick={() => setIsPreviewCertOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "16px",
+              maxWidth: "850px",
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+              padding: "24px",
+              position: "relative",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border-light)", paddingBottom: "12px" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Learner Certificate Preview
+                </h3>
+                <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                  Learners will unlock and download this credential upon completing all {steps.length} modules.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPreviewCertOpen(false)}
+                style={{
+                  background: "var(--bg-soft)",
+                  border: "none",
+                  borderRadius: "50%",
+                  width: "32px",
+                  height: "32px",
+                  fontSize: "1.2rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ padding: "16px 0", display: "flex", justifyContent: "center" }}>
+              <Certificate
+                recipientName="Alice Learner"
+                courseName={programTitle || "11 Steps to You Programme"}
+                issueDate={new Date().toISOString()}
+                certificateNo="CERT-WBM-11S-2026-001"
+                issuerName="Roweena Britto"
+                issuerTitle="Founder & Lead Facilitator"
+                brandName="whatboutme"
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+              <button
+                type="button"
+                className={styles.addModuleHeaderBtn}
+                onClick={() => setIsPreviewCertOpen(false)}
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

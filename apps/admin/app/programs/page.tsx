@@ -128,7 +128,7 @@ export default function ProgramsPage() {
         setPrograms(data);
       }
     } catch (e) {
-      console.error("Failed to fetch programs", e);
+      console.warn("Notice: could not retrieve programs list", e);
     } finally {
       setIsLoading(false);
     }

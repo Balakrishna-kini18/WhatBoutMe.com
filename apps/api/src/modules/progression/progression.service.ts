@@ -127,6 +127,15 @@ export interface EnrolmentProgressionResponse {
   currentStepSequence: number;
   totalItems?: number;
   completedItems?: number;
+  hasCertificate?: boolean;
+  certificateTemplate?: string | null;
+  certificate?: {
+    id: string;
+    status: string;
+    certificateCode: string;
+    issuedAt?: Date | null;
+    pdfUrl?: string | null;
+  } | null;
   steps: StepProgressionItem[];
 }
 
@@ -146,12 +155,12 @@ export class ProgressionService {
     user?: any,
     options?: { persist?: boolean; forceRecalculate?: boolean },
   ): Promise<EnrolmentProgressionResponse> {
-    // 1. Fetch enrolment with batch, trainers, program
+    // 1. Fetch enrolment with batch, trainers, program, certificate
     const enrolment = await this.prisma.enrolment.findUnique({
       where: { id: enrolmentId },
       include: {
         program: {
-          select: { id: true, title: true, slug: true, status: true },
+          select: { id: true, title: true, slug: true, status: true, hasCertificate: true, certificateTemplate: true },
         },
         batch: {
           include: {
@@ -160,6 +169,7 @@ export class ProgressionService {
           },
         },
         signedAgreement: true,
+        certificate: true,
       },
     });
 
@@ -191,7 +201,7 @@ export class ProgressionService {
       },
       include: {
         program: {
-          select: { id: true, title: true, slug: true, status: true },
+          select: { id: true, title: true, slug: true, status: true, hasCertificate: true, certificateTemplate: true },
         },
         batch: {
           include: {
@@ -200,6 +210,7 @@ export class ProgressionService {
           },
         },
         signedAgreement: true,
+        certificate: true,
       },
     });
 
@@ -209,7 +220,7 @@ export class ProgressionService {
         where: { userId, programId },
         include: {
           program: {
-            select: { id: true, title: true, slug: true, status: true },
+            select: { id: true, title: true, slug: true, status: true, hasCertificate: true, certificateTemplate: true },
           },
           batch: {
             include: {
@@ -218,6 +229,7 @@ export class ProgressionService {
             },
           },
           signedAgreement: true,
+          certificate: true,
         },
       });
 
@@ -1027,6 +1039,17 @@ export class ProgressionService {
       currentStepSequence,
       totalItems,
       completedItems,
+      hasCertificate: enrolment.program?.hasCertificate ?? true,
+      certificateTemplate: enrolment.program?.certificateTemplate ?? null,
+      certificate: enrolment.certificate
+        ? {
+            id: enrolment.certificate.id,
+            status: enrolment.certificate.status,
+            certificateCode: enrolment.certificate.certificateCode,
+            issuedAt: enrolment.certificate.issuedAt || enrolment.certificate.createdAt,
+            pdfUrl: enrolment.certificate.pdfUrl,
+          }
+        : null,
       steps: evaluatedSteps,
     };
   }

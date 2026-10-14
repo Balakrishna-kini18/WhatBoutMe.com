@@ -762,7 +762,6 @@ export class SessionsService {
       where: { 
         userId, 
         status: { in: ['ACTIVE', 'COMPLETED'] },
-        program: { status: { not: 'ARCHIVED' } },
         batch: { status: { not: 'ARCHIVED' } },
       },
       select: { id: true, batchId: true, batch: { select: { name: true, program: { select: { title: true } } } } },

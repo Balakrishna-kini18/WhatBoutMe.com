@@ -56,7 +56,7 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
         newInit = { ...init, headers };
       }
     }
-    let response: Response;
+    let response!: Response;
     try {
       response = await originalFetch(input, newInit);
     } catch (fetchErr: any) {

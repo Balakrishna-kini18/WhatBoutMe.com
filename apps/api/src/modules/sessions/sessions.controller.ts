@@ -9,9 +9,11 @@ import {
   Query,
   Request,
   UseGuards,
+  Optional,
 } from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
+import { SessionLifecycleService } from './session-lifecycle.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
@@ -23,8 +25,22 @@ import { CreateSessionDto, UpdateSessionDto, QuerySessionsDto } from './dto/inde
 export class SessionsController {
   constructor(
     private readonly sessionsService: SessionsService,
-    private readonly reconciliationService: AttendanceReconciliationService
+    private readonly reconciliationService: AttendanceReconciliationService,
+    @Optional() private readonly lifecycleService?: SessionLifecycleService,
   ) {}
+
+  /**
+   * Trigger lifecycle transition sweep (Scheduled -> Active -> Completed)
+   * and reminder dispatches. Can be invoked on demand by admins or cron workers.
+   */
+  @RequirePermission(Permission.SESSIONS_UPDATE)
+  @Post('lifecycle-sweep')
+  async triggerLifecycleSweep() {
+    if (!this.lifecycleService) {
+      return { activatedCount: 0, completedCount: 0, reminders24hSent: 0, reminders1hSent: 0 };
+    }
+    return this.lifecycleService.processLifecycleTransitions();
+  }
 
   /**
    * Filter sessions by batch, sessionType, trainer, status, or date range.

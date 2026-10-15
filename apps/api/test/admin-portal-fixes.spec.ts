@@ -603,7 +603,7 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         isLockHeld = true;
       });
 
-      prismaMock.$transaction.mockImplementation(async (callback) => {
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
         try {
           return await callback(prismaMock);
         } finally {
@@ -696,15 +696,12 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
       });
 
       await expect(
-        service.create(
-          {
-            name: 'Cohort Alpha',
-            programId: 'prog-1',
-            startDate: new Date(),
-            endDate: new Date(),
-          },
-          { sub: 'admin-1', role: Role.ADMIN }
-        )
+        service.create({
+          name: 'Cohort Alpha',
+          programId: 'prog-1',
+          startDate: new Date(),
+          endDate: new Date(),
+        } as any)
       ).rejects.toThrow(ConflictException);
     });
 
@@ -727,15 +724,12 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         _count: { enrolments: 0 },
       });
 
-      const result = await service.create(
-        {
-          name: 'Cohort Unique',
-          programId: 'prog-1',
-          startDate: new Date(),
-          endDate: new Date(),
-        },
-        { sub: 'admin-1', role: Role.ADMIN }
-      );
+      const result = await service.create({
+        name: 'Cohort Unique',
+        programId: 'prog-1',
+        startDate: new Date(),
+        endDate: new Date(),
+      } as any);
 
       expect(result.id).toBe('batch-new');
       expect(prismaMock.batch.create).toHaveBeenCalled();
@@ -1004,15 +998,12 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         _count: { enrolments: 0 },
       });
 
-      const result = await batchService.create(
-        {
-          name: 'Cohort Alpha',
-          programId: 'prog-2',
-          startDate: new Date(),
-          endDate: new Date(),
-        },
-        { sub: 'admin-1', role: Role.ADMIN }
-      );
+      const result = await batchService.create({
+        name: 'Cohort Alpha',
+        programId: 'prog-2',
+        startDate: new Date(),
+        endDate: new Date(),
+      } as any);
 
       expect(result.id).toBe('batch-prog2');
       expect(result.name).toBe('Cohort Alpha');

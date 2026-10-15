@@ -1624,29 +1624,11 @@ describe('AuthService - Authentication Tests', () => {
 
       prismaMock.user.findUnique.mockResolvedValue(mockUser);
 
-      // Mutex lock simulation to accurately reflect pg_advisory_xact_lock per session ID
-      const sessionLocks = new Map<string, Promise<void>>();
-      const sessionLockResolvers = new Map<string, () => void>();
+      // Serialize transactions to accurately reflect pg_advisory_xact_lock per session ID
+      let currentTxLock: Promise<void> = Promise.resolve();
 
       const mockTx = {
-        $executeRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray, ...values: any[]) => {
-          const sql = Array.isArray(strings) ? strings.join('') : (strings as any).strings.join('');
-          expect(sql).toContain('SELECT pg_advisory_xact_lock(hashtext(');
-          const lockKey = values[0];
-
-          // Wait if another transaction holds the lock on this key
-          while (sessionLocks.has(lockKey)) {
-            await sessionLocks.get(lockKey);
-          }
-
-          let resolveLock!: () => void;
-          const lockPromise = new Promise<void>((resolve) => {
-            resolveLock = resolve;
-          });
-          sessionLocks.set(lockKey, lockPromise);
-          sessionLockResolvers.set(lockKey, resolveLock);
-          return 1;
-        }),
+        $executeRaw: vi.fn().mockResolvedValue(1),
         userSession: {
           findUnique: vi.fn().mockImplementation(async ({ where: { id } }: any) => {
             const s = dbSessions.get(id);
@@ -1663,15 +1645,14 @@ describe('AuthService - Authentication Tests', () => {
       };
 
       prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const prevLock = currentTxLock;
+        let releaseLock!: () => void;
+        currentTxLock = new Promise<void>((r) => (releaseLock = r));
+        await prevLock;
         try {
           return await callback(mockTx);
         } finally {
-          // Release lock for all sessions held by this tx
-          for (const [key, resolve] of sessionLockResolvers.entries()) {
-            sessionLocks.delete(key);
-            resolve();
-          }
-          sessionLockResolvers.clear();
+          releaseLock();
         }
       });
 

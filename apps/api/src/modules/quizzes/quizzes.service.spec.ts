@@ -158,6 +158,16 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
 
     cacheHelperMock = {
       invalidateNamespace: vi.fn().mockResolvedValue(undefined),
+      invalidateTag: vi.fn().mockImplementation(async (tag: string) => {
+        await cacheHelperMock.invalidateNamespace(tag);
+        return 1;
+      }),
+      invalidateTags: vi.fn().mockImplementation(async (tags: string[]) => {
+        for (const tag of tags) {
+          await cacheHelperMock.invalidateNamespace(tag);
+        }
+        return tags.length;
+      }),
     };
 
     progressionServiceMock = {

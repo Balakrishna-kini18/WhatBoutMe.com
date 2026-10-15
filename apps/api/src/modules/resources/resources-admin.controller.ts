@@ -20,6 +20,7 @@ import {
   QueryResourceDto,
 } from './dto/index.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
+import { AdminCache } from '../../common/decorators/cache-control.decorator.js';
 import { Role } from '@prisma/client';
 
 @Controller('admin/resources')
@@ -35,6 +36,7 @@ export class ResourcesAdminController {
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @AdminCache(15, 60)
   @Get('categories')
   async getCategories() {
     return this.resourcesService.findAllCategories();
@@ -66,6 +68,7 @@ export class ResourcesAdminController {
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @AdminCache(15, 60)
   @Get()
   async getResources(@Query() query: QueryResourceDto, @Request() req: any) {
     const userId = req.user?.sub || req.user?.id;
@@ -86,6 +89,7 @@ export class ResourcesAdminController {
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @AdminCache(15, 60)
   @Get(':id')
   async getResource(@Param('id') id: string, @Request() req: any) {
     const userId = req.user?.sub || req.user?.id;

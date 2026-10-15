@@ -21,6 +21,7 @@ import {
   type IObjectStorageProvider,
 } from '../../common/interfaces/object-storage-provider.interface.js';
 import { EmailService } from '../email/email.service.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 
 @Injectable()
 export class CertificatesService {
@@ -35,6 +36,8 @@ export class CertificatesService {
     private readonly objectStorage?: IObjectStorageProvider,
     @Optional()
     private readonly emailService?: EmailService,
+    @Optional()
+    private readonly cacheHelper?: CacheHelperService,
   ) {}
 
   /**
@@ -260,6 +263,7 @@ export class CertificatesService {
       },
     });
 
+    await this.cacheHelper?.invalidateTags(['certificates', 'dashboard']);
     return updatedCert;
   }
 
@@ -307,6 +311,7 @@ export class CertificatesService {
       },
     });
 
+    await this.cacheHelper?.invalidateTags(['certificates', 'dashboard']);
     return updatedCert;
   }
 
@@ -412,6 +417,7 @@ export class CertificatesService {
       }
     }
 
+    await this.cacheHelper?.invalidateTags(['certificates', 'dashboard']);
     return issuedCert;
   }
 
@@ -419,51 +425,65 @@ export class CertificatesService {
   async verifyCertificate(code: string) {
     const cleanCode = code.trim();
 
-    const certificate = await this.prisma.certificate.findFirst({
-      where: {
-        OR: [{ certificateCode: cleanCode }, { certificateNumber: cleanCode }],
-      },
-      include: {
-        enrolment: {
-          include: {
-            user: { select: { name: true } },
-            program: { select: { title: true } },
+    const fetcher = async () => {
+      const certificate = await this.prisma.certificate.findFirst({
+        where: {
+          OR: [
+            { id: cleanCode },
+            { certificateCode: cleanCode },
+            { certificateNumber: cleanCode },
+          ],
+        },
+        include: {
+          enrolment: {
+            include: {
+              user: { select: { name: true } },
+              program: { select: { title: true } },
+            },
           },
         },
-      },
-    });
+      });
 
-    if (
-      !certificate ||
-      (certificate.status !== CertificateStatus.ISSUED &&
-        certificate.status !== CertificateStatus.APPROVED)
-    ) {
-      throw new NotFoundException('Certificate not found or not yet issued');
-    }
+      if (
+        !certificate ||
+        (certificate.status !== CertificateStatus.ISSUED &&
+          certificate.status !== CertificateStatus.APPROVED)
+      ) {
+        throw new NotFoundException('Certificate not found or not yet issued');
+      }
 
-    const issueDate = certificate.issueDate || certificate.issuedAt || certificate.createdAt;
-    const issueYear = issueDate.getFullYear();
-    const issueMonth = issueDate.getMonth() + 1;
-    const appUrl = process.env.APP_URL || 'https://whatboutme.com';
-    const certCode = certificate.certificateCode || certificate.certificateNumber || cleanCode;
+      const issueDate = certificate.issueDate || certificate.issuedAt || certificate.createdAt;
+      const issueYear = issueDate.getFullYear();
+      const issueMonth = issueDate.getMonth() + 1;
+      const appUrl = process.env.APP_URL || 'https://whatboutme.com';
+      const certCode = certificate.certificateCode || certificate.certificateNumber || cleanCode;
 
-    return {
-      valid: !certificate.revokedAt,
-      certificateCode: certCode,
-      recipientName: certificate.enrolment.user.name,
-      programName: certificate.enrolment.program.title,
-      certificateType: certificate.certificateType,
-      issueDate: issueDate.toISOString(),
-      validityState: certificate.revokedAt ? 'REVOKED' : 'VALID',
-      cpdHours: certificate.cpdHours,
-      linkedInParameters: {
-        certName: `${certificate.enrolment.program.title} Certification`,
-        organizationId: 'whatboutme',
-        issueYear,
-        issueMonth,
-        certUrl: `${appUrl}/verify/${certCode}`,
-      },
+      return {
+        valid: !certificate.revokedAt,
+        certificateCode: certCode,
+        recipientName: certificate.enrolment.user.name,
+        programName: certificate.enrolment.program.title,
+        certificateType: certificate.certificateType,
+        issueDate: issueDate.toISOString(),
+        validityState: certificate.revokedAt ? 'REVOKED' : 'VALID',
+        cpdHours: certificate.cpdHours,
+        linkedInParameters: {
+          certName: `${certificate.enrolment.program.title} Certification`,
+          organizationId: 'whatboutme',
+          issueYear,
+          issueMonth,
+          certUrl: `${appUrl}/verify/${certCode}`,
+        },
+      };
     };
+
+    if (!this.cacheHelper) return fetcher();
+    return this.cacheHelper.getOrSet(
+      `certificate:verify:${cleanCode}`,
+      fetcher,
+      3600,
+      ['certificates']
+    );
   }
 
   // 7. Get Learner's Certificates
@@ -606,6 +626,7 @@ export class CertificatesService {
       issued++;
     }
 
+    await this.cacheHelper?.invalidateTags(['certificates', 'dashboard']);
     return { learners: enrolments.length, issued, alreadyIssued, notFinished };
   }
 

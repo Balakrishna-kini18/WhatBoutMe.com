@@ -112,7 +112,7 @@ async function getActivePrograms(): Promise<Program[]> {
 async function fetchActivePrograms(): Promise<Program[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/programs`, {
-      cache: "no-store",
+      next: { revalidate: 60, tags: ['programs'] },
       signal: AbortSignal.timeout(4000),
     });
     if (res.ok) {

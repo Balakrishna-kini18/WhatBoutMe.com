@@ -34,7 +34,8 @@ import { SentryModule } from '@sentry/nestjs/setup';
 import { CacheHelperModule } from './common/cache/cache-helper.module.js';
 import { AuditModule } from './common/audit/audit.module.js';
 
-import { APP_GUARD, Reflector } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { CacheControlInterceptor } from './common/interceptors/cache-control.interceptor.js';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
@@ -117,6 +118,10 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CacheControlInterceptor,
     },
     Reflector
   ],

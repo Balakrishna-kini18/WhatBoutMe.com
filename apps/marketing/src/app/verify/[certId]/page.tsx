@@ -61,7 +61,7 @@ export default async function VerifyCertificatePage({
     const res = await fetch(
       `${API_BASE_URL}/certificates/verify/${encodeURIComponent(cleanId)}`,
       {
-        cache: "no-store",
+        next: { revalidate: 60, tags: ['certificates'] },
       },
     );
 

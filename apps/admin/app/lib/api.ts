@@ -22,7 +22,9 @@ export interface CacheEntry {
   ttlMs: number;
 }
 
-// In-memory SWR cache for idempotent GET requests
+export const MAX_CACHE_ENTRIES = 500;
+
+// In-memory LRU SWR cache for idempotent GET requests
 export const apiCache = new Map<string, CacheEntry>();
 
 // In-flight request deduplication map
@@ -74,6 +76,24 @@ export function invalidateCache(resourceOrRegex?: string | RegExp): void {
   }
 }
 
+/**
+ * Tag-based cache invalidation for grouped resource purging
+ */
+export function invalidateTag(tag: string): number {
+  let count = 0;
+  for (const key of Array.from(apiCache.keys())) {
+    if (key.includes(`/${tag}`) || key.includes(`:${tag}`)) {
+      apiCache.delete(key);
+      count++;
+    }
+  }
+  return count;
+}
+
+export function invalidateTags(tags: string[]): number {
+  return tags.reduce((sum, tag) => sum + invalidateTag(tag), 0);
+}
+
 export function clearApiCache(): void {
   apiCache.clear();
 }
@@ -101,6 +121,9 @@ export function autoInvalidateOnMutation(url: string): void {
     "categories",
     "resources",
     "media",
+    "site-content",
+    "website",
+    "dashboard",
   ];
 
   for (const r of resources) {
@@ -110,7 +133,14 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "invoices" || r === "credit-notes") invalidateCache("/revenue");
       if (r === "revenue") invalidateCache("/invoices");
       if (r === "batches") invalidateCache("/sessions");
-      if (r === "programs") invalidateCache("/steps");
+      if (r === "programs") {
+        invalidateCache("/steps");
+        invalidateCache("/dashboard");
+      }
+      if (r === "site-content" || r === "website") {
+        invalidateCache("/site-content");
+        invalidateCache("/website");
+      }
       break;
     }
   }
@@ -199,7 +229,9 @@ export async function cachedFetch(
     if (cached) {
       const age = Date.now() - cached.timestamp;
       if (age < cached.ttlMs) {
-        // Fresh hit: serve immediately without network round trip
+        // Fresh hit: touch LRU order and serve immediately without network round trip
+        apiCache.delete(cacheKey);
+        apiCache.set(cacheKey, cached);
         return new Response(cached.bodyText, {
           status: cached.status,
           statusText: cached.statusText,
@@ -207,6 +239,8 @@ export async function cachedFetch(
         });
       } else if (age < cached.ttlMs * 2) {
         // Stale-While-Revalidate window: serve cached data immediately, revalidate in background
+        apiCache.delete(cacheKey);
+        apiCache.set(cacheKey, cached);
         triggerBackgroundRevalidate(url, init, cacheKey, ttlMs, timeoutMs);
         return new Response(cached.bodyText, {
           status: cached.status,
@@ -280,8 +314,14 @@ export async function cachedFetch(
         headers: headersArray,
       };
 
-      // Only cache successful 2xx responses
+      // Only cache successful 2xx responses with bounded LRU eviction
       if (isGet && cacheKey && res.ok) {
+        while (apiCache.size >= MAX_CACHE_ENTRIES) {
+          const oldestKey = apiCache.keys().next().value;
+          if (!oldestKey) break;
+          apiCache.delete(oldestKey);
+        }
+
         apiCache.set(cacheKey, {
           ...payload,
           timestamp: Date.now(),

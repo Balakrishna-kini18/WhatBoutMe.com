@@ -28,6 +28,16 @@ export class ProgramsService {
     private mediaProvider: CloudinaryMediaProvider,
   ) {}
 
+  private async safeInvalidateTags(tags: string[]) {
+    if (typeof (this.cacheHelper as any)?.invalidateTags === 'function') {
+      await this.cacheHelper.invalidateTags(tags);
+    } else if (typeof (this.cacheHelper as any)?.invalidateNamespace === 'function') {
+      for (const tag of tags) {
+        await (this.cacheHelper as any).invalidateNamespace(tag);
+      }
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. PROGRAMS
   // ─────────────────────────────────────────────────────────────────────────────
@@ -68,46 +78,59 @@ export class ProgramsService {
         },
         orderBy: { createdAt: 'desc' },
       });
-    });
+    }, 3600, ['programs']);
   }
 
   async findOne(id: string, role?: string, userId?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
     const shouldCheckEnrolment = !isStaff && !!userId && typeof this.prisma.enrolment?.findFirst === 'function';
 
-    const [program, enr] = await Promise.all([
-      this.prisma.program.findUnique({
-        where: { id },
-        include: {
-          steps: {
-            where: isStaff ? undefined : { status: ContentStatus.PUBLISHED },
-            orderBy: { sequence: 'asc' },
-          },
-        },
-      }),
-      shouldCheckEnrolment
-        ? this.prisma.enrolment.findFirst({
-            where: {
-              userId,
-              programId: id,
-              status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+    const cacheKey = await this.cacheHelper.getEndpointKey(
+      'programs',
+      (role as any) || 'GUEST',
+      { action: 'findOne', id, userId: shouldCheckEnrolment ? userId : 'public' },
+    );
+
+    return this.cacheHelper.getOrSet(
+      cacheKey,
+      async () => {
+        const [program, enr] = await Promise.all([
+          this.prisma.program.findUnique({
+            where: { id },
+            include: {
+              steps: {
+                where: isStaff ? undefined : { status: ContentStatus.PUBLISHED },
+                orderBy: { sequence: 'asc' },
+              },
             },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
-    ]);
+          }),
+          shouldCheckEnrolment
+            ? this.prisma.enrolment.findFirst({
+                where: {
+                  userId,
+                  programId: id,
+                  status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+                },
+                select: { id: true },
+              })
+            : Promise.resolve(null),
+        ]);
 
-    if (!program) {
-      throw new NotFoundException(`Program not found`);
-    }
+        if (!program) {
+          throw new NotFoundException(`Program not found`);
+        }
 
-    if (!isStaff && (program.status !== ContentStatus.PUBLISHED || !program.isActive)) {
-      if (!enr) {
-        throw new NotFoundException(`Program not found`);
-      }
-    }
+        if (!isStaff && (program.status !== ContentStatus.PUBLISHED || !program.isActive)) {
+          if (!enr) {
+            throw new NotFoundException(`Program not found`);
+          }
+        }
 
-    return program;
+        return program;
+      },
+      1800,
+      ['programs', `program:${id}`],
+    );
   }
 
   async create(data: CreateProgramDto) {
@@ -138,7 +161,7 @@ export class ProgramsService {
       },
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs']);
     return program;
   }
 
@@ -167,7 +190,7 @@ export class ProgramsService {
       data: updateData,
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', `program:${id}`]);
     return updated;
   }
 
@@ -185,7 +208,7 @@ export class ProgramsService {
       },
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', `program:${id}`]);
     return updated;
   }
 
@@ -275,7 +298,7 @@ export class ProgramsService {
         },
       });
 
-      await this.cacheHelper.invalidateNamespace('programs');
+      await this.safeInvalidateTags(['programs', 'batches', `program:${id}`]);
       return {
         id,
         deleted: false,
@@ -370,8 +393,7 @@ export class ProgramsService {
     }
 
     await this.prisma.program.delete({ where: { id } });
-    await this.cacheHelper.invalidateNamespace('programs');
-    await this.cacheHelper.invalidateNamespace('batches');
+    await this.safeInvalidateTags(['programs', 'batches', `program:${id}`]);
     return {
       id,
       deleted: true,
@@ -416,7 +438,7 @@ export class ProgramsService {
       }
 
       return steps;
-    });
+    }, 1800, ['programs', 'steps', `program:${programId}`]);
   }
 
   async getStep(stepId: string, role?: string) {
@@ -486,7 +508,7 @@ export class ProgramsService {
       }
 
       return step;
-    });
+    }, 1800, ['programs', 'steps', `step:${stepId}`]);
   }
 
   async previewStep(stepId: string) {
@@ -561,7 +583,7 @@ export class ProgramsService {
       });
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', `program:${programId}`]);
     return createdStep;
   }
 
@@ -588,7 +610,7 @@ export class ProgramsService {
       data: updateData,
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', `program:${step.programId}`, `step:${stepId}`]);
     return updated;
   }
 
@@ -622,7 +644,7 @@ export class ProgramsService {
       return tx.step.findUnique({ where: { id: step.id } });
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', `program:${step.programId}`]);
     return updated!;
   }
 
@@ -666,7 +688,7 @@ export class ProgramsService {
       }
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', `program:${programId}`]);
 
     return this.prisma.step.findMany({
       where: { programId },
@@ -685,7 +707,7 @@ export class ProgramsService {
       data: { status: dto.status },
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', `program:${step.programId}`, `step:${stepId}`]);
     return updated;
   }
 
@@ -767,7 +789,7 @@ export class ProgramsService {
       }
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', `program:${step.programId}`, `step:${stepId}`]);
     return { id: stepId, deleted: true };
   }
 
@@ -810,7 +832,7 @@ export class ProgramsService {
       }
 
       return lessons;
-    });
+    }, 1800, ['programs', 'lessons', `step:${stepId}`]);
   }
 
   async previewLesson(lessonId: string) {
@@ -876,7 +898,7 @@ export class ProgramsService {
       });
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${stepId}`, `program:${step.programId}`]);
     return createdLesson;
   }
 
@@ -903,7 +925,7 @@ export class ProgramsService {
       data: updateData,
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${lesson.stepId}`]);
     return updated;
   }
 
@@ -929,7 +951,7 @@ export class ProgramsService {
       return tx.lesson.findUnique({ where: { id: lesson.id } });
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${lesson.stepId}`]);
     return updated!;
   }
 
@@ -964,7 +986,7 @@ export class ProgramsService {
       }
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${stepId}`]);
 
     return this.prisma.lesson.findMany({
       where: { stepId },
@@ -983,7 +1005,7 @@ export class ProgramsService {
       data: { status: dto.status },
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${lesson.stepId}`]);
     return updated;
   }
 
@@ -1022,7 +1044,7 @@ export class ProgramsService {
       }
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${lesson.stepId}`]);
     return { id: lessonId, deleted: true };
   }
 

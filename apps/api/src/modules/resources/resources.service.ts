@@ -5,7 +5,9 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { IObjectStorageProvider } from '../../common/interfaces/object-storage-provider.interface.js';
 import { OBJECT_STORAGE_PROVIDER } from '../../common/interfaces/object-storage-provider.interface.js';
@@ -35,6 +37,8 @@ export class ResourcesService {
     @Inject(OBJECT_STORAGE_PROVIDER)
     private readonly storageProvider: IObjectStorageProvider,
     private readonly auditLogService: AuditLogService,
+    @Optional()
+    private readonly cacheHelper?: CacheHelperService,
   ) {}
 
   // =========================================================================
@@ -173,6 +177,7 @@ export class ResourcesService {
       },
     });
 
+    await this.cacheHelper?.invalidateTags(['resources']);
     return resource;
   }
 
@@ -337,6 +342,7 @@ export class ResourcesService {
       },
     });
 
+    await this.cacheHelper?.invalidateTags(['resources']);
     return updated;
   }
 
@@ -377,6 +383,7 @@ export class ResourcesService {
       },
     });
 
+    await this.cacheHelper?.invalidateTags(['resources']);
     return { success: true, message: 'Resource deleted successfully' };
   }
 
@@ -385,19 +392,24 @@ export class ResourcesService {
   // =========================================================================
 
   async findAllCategories() {
-    const categories = await this.prisma.resourceCategory.findMany({
-      orderBy: { order: 'asc' },
-      include: {
-        _count: {
-          select: { items: true },
+    const fetcher = async () => {
+      const categories = await this.prisma.resourceCategory.findMany({
+        orderBy: { order: 'asc' },
+        include: {
+          _count: {
+            select: { items: true },
+          },
         },
-      },
-    });
+      });
 
-    return categories.map((c) => ({
-      ...c,
-      itemCount: c._count.items,
-    }));
+      return categories.map((c) => ({
+        ...c,
+        itemCount: c._count.items,
+      }));
+    };
+
+    if (!this.cacheHelper) return fetcher();
+    return this.cacheHelper.getOrSet('resources:categories', fetcher, 1800, ['resources']);
   }
 
   async createCategory(dto: CreateCategoryDto, userId: string) {
@@ -428,6 +440,7 @@ export class ResourcesService {
       metadata: { name: category.name, slug: category.slug },
     });
 
+    await this.cacheHelper?.invalidateTags(['resources']);
     return category;
   }
 
@@ -454,6 +467,7 @@ export class ResourcesService {
       metadata: { changes: dto },
     });
 
+    await this.cacheHelper?.invalidateTags(['resources']);
     return updated;
   }
 
@@ -480,6 +494,7 @@ export class ResourcesService {
       metadata: { name: category.name, slug: category.slug },
     });
 
+    await this.cacheHelper?.invalidateTags(['resources']);
     return { success: true, message: 'Category deleted successfully' };
   }
 

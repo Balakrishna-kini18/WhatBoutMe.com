@@ -13,6 +13,7 @@ import { CertificatesService } from './certificates.service.js';
 import { CertificateEligibilityService } from './certificate-eligibility.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { PublicCache } from '../../common/decorators/cache-control.decorator.js';
 import { Role, CertificateType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -29,6 +30,7 @@ export class CertificatesController {
    * GET /certificates/verify/:code and GET /api/certificates/verify/:code
    */
   @Public()
+  @PublicCache(60, 300)
   @Get('verify/:code')
   verifyCertificate(@Param('code') code: string) {
     return this.certificatesService.verifyCertificate(code);
@@ -143,5 +145,12 @@ export class CertificatesController {
   @Get(':id/download')
   downloadCertificatePdf(@Param('id') id: string, @Request() req: any) {
     return this.certificatesService.getCertificatePdfDownload(id, req.user);
+  }
+
+  @Public()
+  @PublicCache(60, 300)
+  @Get(':id')
+  getCertificateByIdOrCode(@Param('id') id: string) {
+    return this.certificatesService.verifyCertificate(id);
   }
 }

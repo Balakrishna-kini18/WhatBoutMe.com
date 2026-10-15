@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use, FormEvent } from "react";
+import Image from "next/image";
 import styles from "../../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../lib/api";
@@ -584,11 +585,15 @@ export default function AgreementTemplateDetailPage({
                         </td>
                         <td>
                           {rec.drawnSignature && rec.drawnSignature.startsWith("data:image") ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <Image
                               src={rec.drawnSignature}
                               alt="Drawn signature"
-                              style={{ maxHeight: "32px", border: "1px solid var(--border-light)", borderRadius: "4px", background: "#fff" }}
+                              width={96}
+                              height={32}
+                              unoptimized
+                              quality={80}
+                              loading="lazy"
+                              style={{ maxHeight: "32px", width: "auto", border: "1px solid var(--border-light)", borderRadius: "4px", background: "#fff" }}
                             />
                           ) : (
                             <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Captured</span>

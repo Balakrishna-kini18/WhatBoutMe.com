@@ -2,6 +2,7 @@
 
 import styles from "./login.module.css";
 import { useEffect, useState, FormEvent } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 
@@ -285,8 +286,15 @@ export default function AdminLogin() {
           <span aria-hidden className={styles.glowBottom} />
 
           <div className={styles.panelTop}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/logo-light.png" alt="whatboutme" className={styles.logo} />
+            <Image
+              src="/brand/logo-light.png"
+              alt="whatboutme"
+              width={168}
+              height={24}
+              priority
+              quality={80}
+              className={styles.logo}
+            />
           </div>
 
           <div className={styles.panelBody}>
@@ -302,8 +310,15 @@ export default function AdminLogin() {
         <section className={styles.formSide}>
           <div className={styles.formInner}>
             <div className={styles.mobileLogo}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/logo-dark.png" alt="whatboutme" className={styles.logo} />
+              <Image
+                src="/brand/logo-dark.png"
+                alt="whatboutme"
+                width={168}
+                height={24}
+                priority
+                quality={80}
+                className={styles.logo}
+              />
             </div>
 
             {/* Mode 1: Initial Email & Password Login */}
@@ -457,8 +472,16 @@ export default function AdminLogin() {
                 </p>
 
                 <div className={styles.qrWrapper}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={setupData.qrDataUrl} alt="2FA QR Code" className={styles.qrImage} />
+                  <Image
+                    src={setupData.qrDataUrl}
+                    alt="2FA QR Code"
+                    width={180}
+                    height={180}
+                    unoptimized
+                    quality={80}
+                    loading="lazy"
+                    className={styles.qrImage}
+                  />
                 </div>
 
                 <div className={styles.secretBox}>

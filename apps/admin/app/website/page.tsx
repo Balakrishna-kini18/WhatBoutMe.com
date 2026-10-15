@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import styles from "../page.module.css";
 import { API_URL, errorMessage, uploadFile } from "../lib/api";
 
@@ -50,8 +51,16 @@ function ImageField({ label, value, onChange }: { label: string; value: string; 
       <label>{label}</label>
       <div style={{ display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.25rem" }}>
         {value && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={value} alt="" style={{ width: "72px", height: "72px", objectFit: "cover", borderRadius: "10px", border: "1px solid var(--border-light)" }} />
+          <Image
+            src={value}
+            alt="Preview"
+            width={72}
+            height={72}
+            quality={80}
+            loading="lazy"
+            unoptimized={!value.startsWith("/")}
+            style={{ width: "72px", height: "72px", objectFit: "cover", borderRadius: "10px", border: "1px solid var(--border-light)" }}
+          />
         )}
         <label className={styles.secondaryBtn} style={{ cursor: "pointer", margin: 0, display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -197,16 +197,63 @@ function triggerBackgroundRevalidate(
 }
 
 /**
+ * Development-only performance logger:
+ * Logs a console table whenever an API call takes >500ms so developers
+ * and SREs can immediately spot and diagnose slow endpoints in DevTools.
+ */
+export function logSlowApiCall(
+  method: string,
+  url: string,
+  status: number,
+  durationMs: number,
+  headers: Headers | [string, string][],
+  source: "Network" | "Deduplicated" | "Cache" = "Network"
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  if (durationMs <= 500) return;
+
+  const roundedDuration = Math.round(durationMs * 10) / 10;
+  const headerMap = headers instanceof Headers ? headers : new Headers(headers);
+
+  // Parse Server-Timing: db;dur=X, total;dur=Y
+  const serverTiming = headerMap.get("server-timing") || headerMap.get("Server-Timing");
+  const dbMatch = serverTiming?.match(/db;dur=([\d.]+)/);
+  const totalMatch = serverTiming?.match(/total;dur=([\d.]+)/);
+
+  // Read Prisma queries header if available
+  const prismaQueries =
+    headerMap.get("x-prisma-queries") || headerMap.get("X-Prisma-Queries") || "-";
+
+  console.warn(`[Slow API Warning] ${method} ${url} took ${roundedDuration}ms (>500ms threshold)`);
+  if (typeof console.table === "function") {
+    console.table([
+      {
+        Method: method,
+        URL: url,
+        Status: status,
+        "Client Total": `${roundedDuration}ms`,
+        "Server Total": totalMatch ? `${totalMatch[1]}ms` : "N/A",
+        "Server DB": dbMatch ? `${dbMatch[1]}ms` : "N/A",
+        "DB Queries": prismaQueries,
+        Source: source,
+      },
+    ]);
+  }
+}
+
+/**
  * Upgraded fetch with:
  * 1. In-flight request deduplication for identical concurrent GET requests
  * 2. Lightweight short-lived SWR in-memory caching
  * 3. Automatic cache invalidation on POST/PUT/PATCH/DELETE
  * 4. Configurable request timeouts (default 15s) and AbortController cancellation
+ * 5. Dev-mode slow API console table logger for requests > 500ms
  */
 export async function cachedFetch(
   input: RequestInfo | URL,
   init?: ApiRequestOptions
 ): Promise<Response> {
+  const startTime = typeof performance !== "undefined" ? performance.now() : Date.now();
   let url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   url = onThisHost(url);
 
@@ -258,6 +305,8 @@ export async function cachedFetch(
   if (isGet && cacheKey && inFlightRequests.has(cacheKey)) {
     const inFlight = inFlightRequests.get(cacheKey)!;
     const resPayload = await inFlight;
+    const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
+    logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
     return new Response(resPayload.bodyText, {
       status: resPayload.status,
       statusText: resPayload.statusText,
@@ -332,6 +381,10 @@ export async function cachedFetch(
       return payload;
     } catch (err: any) {
       clearTimeout(timeoutTimer);
+      const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
+      if (process.env.NODE_ENV !== "production" && durationMs > 500) {
+        console.warn(`[Slow API Error] ${method} ${url} failed after ${Math.round(durationMs)}ms`);
+      }
       if (timedOut) {
         throw new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
       }
@@ -348,6 +401,8 @@ export async function cachedFetch(
   }
 
   const result = await fetchPromise;
+  const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
+  logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
   return new Response(result.bodyText, {
     status: result.status,
     statusText: result.statusText,

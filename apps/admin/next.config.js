@@ -11,6 +11,17 @@ const lanAddresses = Object.values(networkInterfaces())
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: lanAddresses,
+  compress: true,
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
+  experimental: {
+    optimizePackageImports: [
+      "@mux/mux-player-react",
+      "@mux/mux-uploader-react",
+      "qrcode",
+    ],
+  },
 };
 
 export default nextConfig;

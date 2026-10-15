@@ -13,6 +13,13 @@ const nextConfig = {
   allowedDevOrigins: lanAddresses,
   // the dev badge floats over the bottom tab bar and swallows taps on Home
   devIndicators: false,
+  compress: true,
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
+  experimental: {
+    optimizePackageImports: ["@mux/mux-player-react"],
+  },
 };
 
 export default nextConfig;

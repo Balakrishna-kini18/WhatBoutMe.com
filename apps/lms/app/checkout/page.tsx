@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import styles from "../login/auth.module.css";
@@ -115,10 +116,14 @@ function CheckoutContent() {
         <div style={{ background: "var(--bg-soft)", padding: "1.5rem", borderRadius: "12px", textAlign: "left", marginBottom: "1.5rem", border: "1px solid var(--border-light)" }}>
           {courseInfo?.image && (
             <div style={{ width: "100%", height: "160px", borderRadius: "8px", overflow: "hidden", marginBottom: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-light)" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={courseInfo.image}
                 alt={program.title}
+                width={480}
+                height={160}
+                quality={80}
+                loading="lazy"
+                unoptimized={!courseInfo.image.startsWith("/")}
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                 onError={(e) => {
                   if (e.currentTarget.parentElement) {

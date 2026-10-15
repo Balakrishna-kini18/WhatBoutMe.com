@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Image from "next/image";
 import styles from "../curriculum.module.css";
 
 interface Step9ReviewPublishProps {
@@ -57,10 +58,14 @@ export default function Step9ReviewPublish({
             <div className={styles.coursePreviewHeroCard}>
               <div className={styles.courseCoverBanner}>
                 {programData?.thumbnailUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Image
                     src={programData.thumbnailUrl}
                     alt={programData.title}
+                    width={400}
+                    height={200}
+                    quality={80}
+                    loading="lazy"
+                    unoptimized={!programData.thumbnailUrl.startsWith("/")}
                     className={styles.courseBannerImg}
                   />
                 ) : (

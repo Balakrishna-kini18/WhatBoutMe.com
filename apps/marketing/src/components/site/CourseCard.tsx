@@ -20,6 +20,8 @@ export default function CourseCard({ course }: { course: Course }) {
             src={course.image}
             alt={course.alt || course.title || "Course"}
             fill
+            quality={80}
+            loading="lazy"
             unoptimized={!isOptimisable(course.image)}
             sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 360px"
             className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"

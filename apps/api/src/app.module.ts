@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ServerTimingMiddleware } from './common/middleware/server-timing.middleware.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -126,4 +127,8 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     Reflector
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(ServerTimingMiddleware).forRoutes('*');
+  }
+}

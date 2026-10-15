@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import Image from "next/image";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
 import { Modal, StatusBadge, CustomSelect } from "../../../../../components";
@@ -536,9 +537,14 @@ export default function SessionAttendancePage({
                   Learners can scan this QR code or click the check-in URL on their mobile phones to check in.
                 </p>
                 <div style={{ display: "inline-block", padding: "16px", background: "#ffffff", borderRadius: "12px", border: "2px dashed #cbd5e1", marginBottom: "16px" }}>
-                  <img
+                  <Image
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrModal.checkInUrl)}`}
                     alt="Check-in QR code"
+                    width={200}
+                    height={200}
+                    unoptimized
+                    quality={80}
+                    loading="lazy"
                     style={{ width: "200px", height: "200px" }}
                   />
                 </div>

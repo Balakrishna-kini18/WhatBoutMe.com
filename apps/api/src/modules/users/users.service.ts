@@ -12,6 +12,26 @@ export class UsersService {
   ) {}
 
   async findOne(id: string, reqUser?: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        enrolments: {
+          include: {
+            batch: {
+              include: {
+                program: true,
+                trainers: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
     if (reqUser) {
       if (reqUser.role === Role.USER) {
         const myId = reqUser.sub || reqUser.id;
@@ -21,17 +41,12 @@ export class UsersService {
       } else if (reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER') {
         const myId = reqUser.sub || reqUser.id;
         if (id !== myId) {
-          const isAssigned = await this.prisma.enrolment.findFirst({
-            where: {
-              userId: id,
-              batch: {
-                OR: [
-                  { managerId: myId },
-                  { trainers: { some: { trainerId: myId } } },
-                ],
-              },
-            },
-          });
+          const isAssigned = user.enrolments?.some(
+            (e: any) =>
+              e.batch &&
+              (e.batch.managerId === myId ||
+                e.batch.trainers?.some((t: any) => t.trainerId === myId)),
+          );
           if (!isAssigned) {
             throw new ForbiddenException('Access denied: Managers can only view learners enrolled in their assigned cohorts');
           }
@@ -39,23 +54,6 @@ export class UsersService {
       }
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      include: {
-        enrolments: {
-          include: {
-            batch: {
-              include: {
-                program: true,
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
     const { passwordHash, ...safeUser } = user;
     return safeUser;
   }

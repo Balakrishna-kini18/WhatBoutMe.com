@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Req } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Req, Query } from '@nestjs/common';
 import { InvoicesService } from './invoices.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
@@ -11,8 +11,12 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Get()
-  findAll() {
-    return this.invoicesService.findAll();
+  findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
+    const query = page || limit ? {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    } : undefined;
+    return this.invoicesService.findAll(query);
   }
 
   @Post()
@@ -21,8 +25,12 @@ export class InvoicesController {
   }
 
   @Get('credit-notes')
-  findAllCreditNotes() {
-    return this.invoicesService.findAllCreditNotes();
+  findAllCreditNotes(@Query('page') page?: string, @Query('limit') limit?: string) {
+    const query = page || limit ? {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    } : undefined;
+    return this.invoicesService.findAllCreditNotes(query);
   }
 
   @Get(':id')

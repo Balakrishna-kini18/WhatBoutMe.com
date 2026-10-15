@@ -73,33 +73,36 @@ export class ProgramsService {
 
   async findOne(id: string, role?: string, userId?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN;
-    const program = await this.prisma.program.findUnique({
-      where: { id },
-      include: {
-        steps: {
-          where: isStaff ? undefined : { status: ContentStatus.PUBLISHED },
-          orderBy: { sequence: 'asc' },
+    const shouldCheckEnrolment = !isStaff && !!userId && typeof this.prisma.enrolment?.findFirst === 'function';
+
+    const [program, enr] = await Promise.all([
+      this.prisma.program.findUnique({
+        where: { id },
+        include: {
+          steps: {
+            where: isStaff ? undefined : { status: ContentStatus.PUBLISHED },
+            orderBy: { sequence: 'asc' },
+          },
         },
-      },
-    });
+      }),
+      shouldCheckEnrolment
+        ? this.prisma.enrolment.findFirst({
+            where: {
+              userId,
+              programId: id,
+              status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
 
     if (!program) {
       throw new NotFoundException(`Program not found`);
     }
 
     if (!isStaff && (program.status !== ContentStatus.PUBLISHED || !program.isActive)) {
-      let isEnrolled = false;
-      if (userId && typeof this.prisma.enrolment?.findFirst === 'function') {
-        const enr = await this.prisma.enrolment.findFirst({
-          where: {
-            userId,
-            programId: id,
-            status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
-          },
-        });
-        if (enr) isEnrolled = true;
-      }
-      if (!isEnrolled) {
+      if (!enr) {
         throw new NotFoundException(`Program not found`);
       }
     }
@@ -339,17 +342,27 @@ export class ProgramsService {
             select: { providerMeetingId: true },
           })
         : [];
-      for (const sess of sessions) {
-        if (sess.providerMeetingId && this.prisma.outboxEvent) {
-          await this.prisma.outboxEvent
-            .create({
-              data: {
-                type: 'sync-meeting',
-                action: 'CANCEL',
-                payload: { providerMeetingId: sess.providerMeetingId },
-              },
-            })
-            .catch((e) => this.logger.error('Failed to create Zoom cancel outbox event', e));
+      const outboxPayloads = sessions
+        .filter((sess) => sess.providerMeetingId && this.prisma.outboxEvent)
+        .map((sess) => ({
+          type: 'sync-meeting',
+          action: 'CANCEL',
+          payload: { providerMeetingId: sess.providerMeetingId },
+        }));
+
+      if (outboxPayloads.length > 0) {
+        if (typeof (this.prisma.outboxEvent as any)?.createMany === 'function') {
+          await (this.prisma.outboxEvent as any).createMany({
+            data: outboxPayloads,
+          }).catch((e: any) => this.logger.error('Failed to create Zoom cancel outbox events', e));
+        } else {
+          await Promise.all(
+            outboxPayloads.map((data) =>
+              this.prisma.outboxEvent.create({ data }).catch((e) =>
+                this.logger.error('Failed to create Zoom cancel outbox event', e),
+              ),
+            ),
+          );
         }
       }
     } catch (cleanupErr: any) {
@@ -380,7 +393,20 @@ export class ProgramsService {
     );
 
     return this.cacheHelper.getOrSet(cacheKey, async () => {
-      const program = await this.prisma.program.findUnique({ where: { id: programId } });
+      const [program, steps] = await Promise.all([
+        this.prisma.program.findUnique({
+          where: { id: programId },
+          select: { id: true, status: true, isActive: true },
+        }),
+        this.prisma.step.findMany({
+          where: {
+            programId,
+            ...(isStaff ? {} : { status: ContentStatus.PUBLISHED }),
+          },
+          orderBy: { sequence: 'asc' },
+        }),
+      ]);
+
       if (!program) {
         throw new NotFoundException(`Program not found`);
       }
@@ -389,13 +415,7 @@ export class ProgramsService {
         throw new NotFoundException(`Program not found`);
       }
 
-      return this.prisma.step.findMany({
-        where: {
-          programId,
-          ...(isStaff ? {} : { status: ContentStatus.PUBLISHED }),
-        },
-        orderBy: { sequence: 'asc' },
-      });
+      return steps;
     });
   }
 
@@ -1103,19 +1123,25 @@ export class ProgramsService {
     const viewedSet = new Set(viewedLessons.map((vl) => vl.lessonId));
     const uncompletedLessons = step.lessons.filter((l) => !viewedSet.has(l.id));
 
-    // If remaining uncompleted lessons are TEXT, auto-complete them on manual finish
-    for (const l of uncompletedLessons) {
-      if (l.type === 'TEXT') {
-        await this.prisma.userLessonProgress.upsert({
-          where: { enrolmentId_lessonId: { enrolmentId: enrolment.id, lessonId: l.id } },
-          create: { enrolmentId: enrolment.id, lessonId: l.id, viewed: true, progressPercent: 100 },
-          update: { viewed: true, progressPercent: 100 },
-        });
-      } else {
-        throw new BadRequestException(
-          'Step cannot be completed yet: all video, audio, and document materials must be reviewed first',
-        );
-      }
+    // Validate that non-TEXT lessons are all completed before doing any database writes
+    const nonTextUncompleted = uncompletedLessons.find((l) => l.type !== 'TEXT');
+    if (nonTextUncompleted) {
+      throw new BadRequestException(
+        'Step cannot be completed yet: all video, audio, and document materials must be reviewed first',
+      );
+    }
+
+    // Auto-complete all remaining TEXT lessons concurrently
+    if (uncompletedLessons.length > 0) {
+      await Promise.all(
+        uncompletedLessons.map((l) =>
+          this.prisma.userLessonProgress.upsert({
+            where: { enrolmentId_lessonId: { enrolmentId: enrolment.id, lessonId: l.id } },
+            create: { enrolmentId: enrolment.id, lessonId: l.id, viewed: true, progressPercent: 100 },
+            update: { viewed: true, progressPercent: 100 },
+          }),
+        ),
+      );
     }
 
     // Verify quiz requirement if step has a quiz

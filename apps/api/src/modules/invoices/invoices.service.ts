@@ -113,8 +113,14 @@ export class InvoicesService {
     });
   }
 
-  async findAll() {
+  async findAll(query?: { page?: number; limit?: number }) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const invoices = await this.prisma.invoice.findMany({
+      skip,
+      take: limit,
       select: {
         id: true,
         invoiceNumber: true,
@@ -375,11 +381,17 @@ export class InvoicesService {
     return invoice.creditNote || invoice.creditNotes[invoice.creditNotes.length - 1];
   }
 
-  async findAllCreditNotes() {
+  async findAllCreditNotes(query?: { page?: number; limit?: number }) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const invoices = await this.prisma.invoice.findMany({
       where: {
         OR: [{ creditNoteId: { not: null } }, { status: InvoiceStatus.REFUNDED }],
       },
+      skip,
+      take: limit,
       include: {
         payment: {
           include: {

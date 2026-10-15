@@ -149,7 +149,17 @@ export class AdminAgreementTemplatesController {
 
   @RequirePermission(Permission.AGREEMENTS_READ)
   @Get(':id/signed')
-  async getSignedAgreementsForTemplate(@Param('id') templateId: string) {
+  async getSignedAgreementsForTemplate(
+    @Param('id') templateId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (page || limit) {
+      return this.agreementsService.getSignedAgreementsForTemplate(templateId, {
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? parseInt(limit, 10) : undefined,
+      });
+    }
     return this.agreementsService.getSignedAgreementsForTemplate(templateId);
   }
 }

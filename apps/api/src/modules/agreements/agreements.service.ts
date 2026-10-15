@@ -79,14 +79,20 @@ export class AgreementsService {
     return template;
   }
 
-  async findAllTemplates(query: QueryAgreementTemplatesDto) {
+  async findAllTemplates(query: QueryAgreementTemplatesDto & { page?: number; limit?: number }) {
     const where: any = {};
     if (query.programId) {
       where.programId = query.programId;
     }
 
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const templates = await this.prisma.agreementTemplate.findMany({
       where,
+      skip,
+      take: limit,
       include: {
         program: { select: { id: true, title: true, slug: true } },
         versions: {
@@ -924,37 +930,49 @@ export class AgreementsService {
   /**
    * Admin view: lists all signed agreements for a specific template.
    */
-  async getSignedAgreementsForTemplate(templateId: string) {
-    const template = await this.prisma.agreementTemplate.findUnique({
-      where: { id: templateId },
-      select: { id: true },
-    });
+  async getSignedAgreementsForTemplate(
+    templateId: string,
+    query?: { page?: number; limit?: number },
+  ) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
+    const [template, signedAgreements] = await Promise.all([
+      this.prisma.agreementTemplate.findUnique({
+        where: { id: templateId },
+        select: { id: true },
+      }),
+      this.prisma.signedAgreement.findMany({
+        where: { templateId },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          enrolmentId: true,
+          userId: true,
+          programId: true,
+          templateId: true,
+          versionId: true,
+          templateVersion: true,
+          consentGiven: true,
+          typedName: true,
+          signedPdfUrl: true,
+          status: true,
+          signedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          user: { select: { id: true, email: true, name: true } },
+          version: { select: { id: true, version: true, publishedAt: true } },
+        },
+        orderBy: { signedAt: 'desc' },
+      }),
+    ]);
 
     if (!template) {
       throw new NotFoundException(`Agreement template with ID ${templateId} not found`);
     }
 
-    return this.prisma.signedAgreement.findMany({
-      where: { templateId },
-      select: {
-        id: true,
-        enrolmentId: true,
-        userId: true,
-        programId: true,
-        templateId: true,
-        versionId: true,
-        templateVersion: true,
-        consentGiven: true,
-        typedName: true,
-        signedPdfUrl: true,
-        status: true,
-        signedAt: true,
-        createdAt: true,
-        updatedAt: true,
-        user: { select: { id: true, email: true, name: true } },
-        version: { select: { id: true, version: true, publishedAt: true } },
-      },
-      orderBy: { signedAt: 'desc' },
-    });
+    return signedAgreements;
   }
 }

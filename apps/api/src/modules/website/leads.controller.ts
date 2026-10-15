@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Optional } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Optional, Query } from '@nestjs/common';
 // import { Throttle } from '@nestjs/throttler';
 import { LeadStatus, Role } from '@prisma/client';
 import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
@@ -55,8 +55,14 @@ export class LeadsController {
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
   @Get()
-  list() {
+  list(@Query('page') page?: string, @Query('limit') limit?: string) {
+    const pageNum = Math.max(1, parseInt(page || '1', 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit || '50', 10) || 50));
+    const skip = (pageNum - 1) * limitNum;
+
     return this.prisma.lead.findMany({
+      skip,
+      take: limitNum,
       select: {
         id: true,
         name: true,

@@ -66,8 +66,12 @@ export class CertificatesController {
   // Admin: Get all certificates
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findAll() {
-    return this.certificatesService.findAll();
+  findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
+    const query = page || limit ? {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    } : undefined;
+    return this.certificatesService.findAll(query);
   }
 
   // Learner: Get their approved or issued certificates

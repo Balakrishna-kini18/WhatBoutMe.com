@@ -63,8 +63,14 @@ export class CertificatesService {
   }
 
   // 1. Get all certificates (for Admin queue)
-  async findAll() {
+  async findAll(query?: { page?: number; limit?: number }) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     return this.prisma.certificate.findMany({
+      skip,
+      take: limit,
       include: {
         enrolment: {
           include: {

@@ -164,40 +164,47 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async create(data: CreateBatchDto) {
-    // 1. Validate Program exists
-    const program = await this.prisma.program.findUnique({
-      where: { id: data.programId },
-    });
+    // 1-4. Parallelize independent validation queries concurrently in a single round-trip
+    const [program, existing, manager, trainers] = await Promise.all([
+      this.prisma.program.findUnique({
+        where: { id: data.programId },
+      }),
+      typeof this.prisma.batch?.findFirst === 'function'
+        ? this.prisma.batch.findFirst({
+            where: {
+              programId: data.programId,
+              name: { equals: data.name.trim(), mode: 'insensitive' },
+              status: { not: BatchStatus.ARCHIVED },
+            },
+          })
+        : Promise.resolve(null),
+      data.managerId
+        ? this.prisma.user.findUnique({
+            where: { id: data.managerId },
+          })
+        : Promise.resolve(null),
+      data.trainerIds && data.trainerIds.length > 0
+        ? this.prisma.user.findMany({
+            where: { id: { in: data.trainerIds } },
+          })
+        : Promise.resolve([]),
+    ]);
+
     if (!program) {
       throw new NotFoundException('Program not found');
     }
 
-    // 2. Validate uniqueness of batch name within program
-    if (typeof this.prisma.batch?.findFirst === 'function') {
-      const existing = await this.prisma.batch.findFirst({
-        where: {
-          programId: data.programId,
-          name: { equals: data.name.trim(), mode: 'insensitive' },
-          status: { not: BatchStatus.ARCHIVED },
-        },
-      });
-      if (existing) {
-        throw new ConflictException(
-          `A batch named "${data.name.trim()}" already exists in the selected program`,
-        );
-      }
+    if (existing) {
+      throw new ConflictException(
+        `A batch named "${data.name.trim()}" already exists in the selected program`,
+      );
     }
 
-    // 3. Validate Capacity
     if (data.capacity < 1) {
       throw new BadRequestException('Capacity must be at least 1');
     }
 
-    // 3. Validate Manager if specified
     if (data.managerId) {
-      const manager = await this.prisma.user.findUnique({
-        where: { id: data.managerId },
-      });
       if (!manager) {
         throw new NotFoundException('Manager user not found');
       }
@@ -208,11 +215,7 @@ export class BatchesService {
       }
     }
 
-    // 4. Validate initial trainers if specified
     if (data.trainerIds && data.trainerIds.length > 0) {
-      const trainers = await this.prisma.user.findMany({
-        where: { id: { in: data.trainerIds } },
-      });
       if (trainers.length !== data.trainerIds.length) {
         throw new NotFoundException('One or more specified trainers not found');
       }
@@ -240,13 +243,24 @@ export class BatchesService {
       });
 
       if (data.trainerIds && data.trainerIds.length > 0) {
-        for (const trainerId of data.trainerIds) {
-          await tx.batchTrainer.create({
-            data: {
+        if (typeof (tx as any).batchTrainer?.createMany === 'function') {
+          await (tx as any).batchTrainer.createMany({
+            data: data.trainerIds.map((trainerId) => ({
               batchId: batch.id,
               trainerId,
-            },
+            })),
           });
+        } else {
+          await Promise.all(
+            data.trainerIds.map((trainerId) =>
+              tx.batchTrainer.create({
+                data: {
+                  batchId: batch.id,
+                  trainerId,
+                },
+              }),
+            ),
+          );
         }
       }
 

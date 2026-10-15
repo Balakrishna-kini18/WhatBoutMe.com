@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Res, Req } from '@nestjs/common';
+import { Controller, Get, Param, Res, Req, Query } from '@nestjs/common';
 import { ReportsService } from './reports.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
@@ -25,8 +25,16 @@ export class ReportsController {
   }
 
   @Get('payments')
-  async getPaymentAnalytics(@Req() req: any) {
-    return this.reportsService.getPaymentAnalytics(req.user);
+  async getPaymentAnalytics(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const query = page || limit ? {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    } : undefined;
+    return this.reportsService.getPaymentAnalytics(req.user, query);
   }
 
   @Get('certificates')

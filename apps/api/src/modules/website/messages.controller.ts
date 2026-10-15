@@ -149,9 +149,16 @@ export class MessagesController {
    * Collapses unread counts for all conversations into a single batched groupBy query.
    */
   @Get('conversations')
-  async conversations(@Request() req: any) {
+  async conversations(
+    @Request() req: any,
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+  ) {
     const me = req.user;
     const myId = me.sub || me.id;
+    const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(limitStr || '50', 10) || 50));
+    const skip = (page - 1) * limit;
     let where: any;
 
     if (this.isAdmin(me)) {
@@ -181,8 +188,9 @@ export class MessagesController {
 
     const conversations = await this.prisma.conversation.findMany({
       where,
+      skip,
+      take: limit,
       orderBy: { updatedAt: 'desc' },
-      take: 100, // Capped to avoid loading millions of conversations in one query
       select: {
         id: true,
         participantIds: true,

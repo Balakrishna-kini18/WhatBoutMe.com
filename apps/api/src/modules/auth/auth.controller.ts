@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Request, Query, Delete, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Patch, Request, Query, Delete, Param } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { AuthService } from './auth.service.js';
@@ -221,6 +221,14 @@ export class AuthController {
   @Get('me')
   getProfile(@Request() req: any) {
     return this.authService.getProfile(req.user.sub);
+  }
+
+  /**
+   * Update the authenticated user's preferred timezone: PATCH /auth/me/timezone
+   */
+  @Patch('me/timezone')
+  updateTimezone(@Request() req: any, @Body() body: { timezone: string }) {
+    return this.authService.updateTimezone(req.user.sub, body.timezone);
   }
 
   /**

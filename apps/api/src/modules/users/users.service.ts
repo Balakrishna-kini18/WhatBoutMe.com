@@ -3,6 +3,7 @@ import { forgetSessions } from '../../common/session-cache.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { Role, BatchStatus, EnrolmentStatus } from '@prisma/client';
+import { isValidIanaTimezone } from '../../common/timezone/timezone.util.js';
 
 @Injectable()
 export class UsersService {
@@ -240,6 +241,10 @@ export class UsersService {
       }
     }
 
+    if (data.timezone && !isValidIanaTimezone(data.timezone)) {
+      throw new BadRequestException(`Invalid IANA timezone: ${data.timezone}`);
+    }
+
     const bcrypt = await import('bcryptjs');
     const targetBatchId = data.batchId || data.cohort;
     const { password, passwordHash, status: _st, batchId: _bid, cohort: _coh, ...userData } = data;
@@ -339,6 +344,10 @@ export class UsersService {
 
     const targetBatchId = data.batchId || data.cohort;
     const targetEnrolmentId = data.enrolmentId;
+    if (data.timezone && !isValidIanaTimezone(data.timezone)) {
+      throw new BadRequestException(`Invalid IANA timezone: ${data.timezone}`);
+    }
+
     const { passwordHash: _ph, status: _st, cohort: _co, batchId: _bid, enrolmentId: _eid, progress: _pr, joined: _jo, ...userData } = data;
     const bcrypt = await import('bcryptjs');
     if (data.password) {

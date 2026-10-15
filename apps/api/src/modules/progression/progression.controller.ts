@@ -7,9 +7,10 @@ import {
   Request,
 } from '@nestjs/common';
 import { ProgressionService } from './progression.service.js';
-import { StepOverrideDto } from './dto/index.js';
+import { CreateProgressShareDto, StepOverrideDto } from './dto/index.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
+import { Public } from '../../common/decorators/public.decorator.js';
 
 @Controller('progression')
 export class ProgressionController {
@@ -26,6 +27,27 @@ export class ProgressionController {
   ) {
     const userId = req.user?.sub ?? req.user?.id;
     return this.progressionService.getMyProgression(userId, programId);
+  }
+
+  /**
+   * Learner creates a public progress share card for their own enrolment.
+   */
+  @Post('share')
+  async createProgressShare(
+    @Body() dto: CreateProgressShareDto,
+    @Request() req: any,
+  ) {
+    return this.progressionService.createProgressShare(dto, req.user);
+  }
+
+  /**
+   * Public retrieval of a shared progress card by share token.
+   * Unauthenticated, read-only, exposes ZERO sensitive learner info.
+   */
+  @Public()
+  @Get('shared/:shareToken')
+  async getSharedProgress(@Param('shareToken') shareToken: string) {
+    return this.progressionService.getSharedProgress(shareToken);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

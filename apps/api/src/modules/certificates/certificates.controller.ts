@@ -63,17 +63,24 @@ export class CertificatesController {
     );
   }
 
-  // Admin: Get all certificates
+  // Admin & Manager: Get certificates (scoped by assigned batch for managers)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findAll() {
-    return this.certificatesService.findAll();
+  findAll(@Request() req: any) {
+    return this.certificatesService.findAll(req.user);
   }
 
   // Learner: Get their approved or issued certificates
   @Get('mine')
   getMyCertificates(@Request() req: any) {
     return this.certificatesService.getMyCertificates(req.user.sub);
+  }
+
+  // Get certificate by ID (Admin: all; Manager: assigned batch only; Learner: own only)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.USER)
+  @Get(':id')
+  findOne(@Param('id') id: string, @Request() req: any) {
+    return this.certificatesService.findOne(id, req.user);
   }
 
   // Learner or Admin: Request a certificate for an enrolment (ELIGIBLE -> PENDING)

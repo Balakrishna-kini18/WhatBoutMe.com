@@ -1663,15 +1663,38 @@ describe('AuthService - Authentication Tests', () => {
       };
 
       prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const txLocks = new Set<string>();
+        const tx = {
+          ...mockTx,
+          $executeRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray, ...values: any[]) => {
+            const sql = Array.isArray(strings) ? strings.join('') : (strings as any).strings.join('');
+            expect(sql).toContain('SELECT pg_advisory_xact_lock(hashtext(');
+            const lockKey = values[0];
+
+            while (sessionLocks.has(lockKey)) {
+              await sessionLocks.get(lockKey);
+            }
+
+            let resolveLock!: () => void;
+            const lockPromise = new Promise<void>((resolve) => {
+              resolveLock = resolve;
+            });
+            sessionLocks.set(lockKey, lockPromise);
+            sessionLockResolvers.set(lockKey, resolveLock);
+            txLocks.add(lockKey);
+            return 1;
+          }),
+        };
+
         try {
-          return await callback(mockTx);
+          return await callback(tx);
         } finally {
-          // Release lock for all sessions held by this tx
-          for (const [key, resolve] of sessionLockResolvers.entries()) {
+          for (const key of txLocks) {
+            const resolve = sessionLockResolvers.get(key);
             sessionLocks.delete(key);
-            resolve();
+            sessionLockResolvers.delete(key);
+            if (resolve) resolve();
           }
-          sessionLockResolvers.clear();
         }
       });
 

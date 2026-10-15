@@ -12,46 +12,63 @@ export class UsersService {
   ) {}
 
   async findOne(id: string, reqUser?: any) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      include: {
-        enrolments: {
-          include: {
-            batch: {
-              include: {
-                program: true,
-                trainers: true,
+    if (reqUser && reqUser.role === Role.USER) {
+      const myId = reqUser.sub || reqUser.id;
+      if (id !== myId) {
+        throw new ForbiddenException('Access denied: You can only view your own user profile');
+      }
+    }
+
+    const isManager = reqUser && (reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER');
+    const myId = reqUser?.sub || reqUser?.id;
+    const shouldCheckManagerScoping = isManager && id !== myId;
+
+    const [user, cohortLearner] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id },
+        include: {
+          enrolments: {
+            include: {
+              batch: {
+                include: {
+                  program: true,
+                  trainers: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      }),
+      shouldCheckManagerScoping && typeof this.prisma.enrolment?.findFirst === 'function'
+        ? this.prisma.enrolment.findFirst({
+            where: {
+              userId: id,
+              status: { not: EnrolmentStatus.REVOKED },
+              batch: {
+                OR: [
+                  { managerId: myId },
+                  { trainers: { some: { trainerId: myId } } },
+                ],
+              },
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (shouldCheckManagerScoping) {
+      const isAssigned = cohortLearner || user?.enrolments?.some(
+        (e: any) =>
+          e.batch &&
+          (e.batch.managerId === myId ||
+            e.batch.trainers?.some((t: any) => t.trainerId === myId)),
+      );
+      if (!isAssigned) {
+        throw new ForbiddenException('Access denied: Managers can only view learners enrolled in their assigned cohorts');
+      }
+    }
 
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    if (reqUser) {
-      if (reqUser.role === Role.USER) {
-        const myId = reqUser.sub || reqUser.id;
-        if (id !== myId) {
-          throw new ForbiddenException('Access denied: You can only view your own user profile');
-        }
-      } else if (reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER') {
-        const myId = reqUser.sub || reqUser.id;
-        if (id !== myId) {
-          const isAssigned = user.enrolments?.some(
-            (e: any) =>
-              e.batch &&
-              (e.batch.managerId === myId ||
-                e.batch.trainers?.some((t: any) => t.trainerId === myId)),
-          );
-          if (!isAssigned) {
-            throw new ForbiddenException('Access denied: Managers can only view learners enrolled in their assigned cohorts');
-          }
-        }
-      }
     }
 
     const { passwordHash, ...safeUser } = user;

@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
@@ -29,7 +29,7 @@ export class HealthController {
         },
       };
     } catch (error: any) {
-      return {
+      throw new ServiceUnavailableException({
         status: 'error',
         database: 'disconnected',
         error: error?.message || String(error),
@@ -37,7 +37,7 @@ export class HealthController {
         info: {
           database: { status: 'down', error: error?.message },
         },
-      };
+      });
     }
   }
 

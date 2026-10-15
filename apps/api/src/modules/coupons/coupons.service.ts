@@ -68,7 +68,7 @@ export class CouponsService {
 
     if (typeof this.prisma.couponRedemption?.groupBy === 'function') {
       try {
-        redemptionSums = await this.prisma.couponRedemption.groupBy({
+        redemptionSums = await (this.prisma.couponRedemption as any).groupBy({
           by: ['currency'],
           _sum: {
             discountAmount: true,
@@ -80,12 +80,14 @@ export class CouponsService {
     }
 
     if (!redemptionSums || redemptionSums.length === 0 || !redemptionSums[0]?._sum) {
-      redemptionsList = await this.prisma.couponRedemption.findMany({
-        select: {
-          currency: true,
-          discountAmount: true,
-        },
-      });
+      if (totalRedemptions > 0) {
+        redemptionsList = await this.prisma.couponRedemption.findMany({
+          select: {
+            currency: true,
+            discountAmount: true,
+          },
+        });
+      }
     }
 
     const totalDiscountGiven: Record<string, number> = {

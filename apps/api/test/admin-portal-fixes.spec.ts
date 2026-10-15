@@ -603,7 +603,7 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         isLockHeld = true;
       });
 
-      prismaMock.$transaction.mockImplementation(async (callback) => {
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
         try {
           return await callback(prismaMock);
         } finally {
@@ -696,7 +696,7 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
       });
 
       await expect(
-        service.create(
+        (service.create as any)(
           {
             name: 'Cohort Alpha',
             programId: 'prog-1',
@@ -727,7 +727,7 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         _count: { enrolments: 0 },
       });
 
-      const result = await service.create(
+      const result = await (service.create as any)(
         {
           name: 'Cohort Unique',
           programId: 'prog-1',
@@ -1004,7 +1004,7 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         _count: { enrolments: 0 },
       });
 
-      const result = await batchService.create(
+      const result = await (batchService.create as any)(
         {
           name: 'Cohort Alpha',
           programId: 'prog-2',

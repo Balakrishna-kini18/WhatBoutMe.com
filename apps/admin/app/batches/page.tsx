@@ -308,14 +308,14 @@ function BatchesContent() {
     setIsDeletingBatch(true);
     setDeleteError(null);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/batches/${batchToDelete.id}`,
-        {
-          method: "DELETE",
-        }
-      );
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/batches/${batchToDelete.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         toastSuccess(`Cohort batch "${batchToDelete.name}" deleted successfully.`);
+        setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);
         fetchBatches();
       } else {

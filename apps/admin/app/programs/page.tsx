@@ -201,11 +201,12 @@ export default function ProgramsPage() {
             ? `Program "${programToDelete.title}" archived. Historical records preserved.`
             : `Program "${programToDelete.title}" removed successfully.`
         );
+        setPrograms((prev) => prev.filter((p) => p.id !== programToDelete.id));
         setProgramToDelete(null);
         fetchPrograms();
       } else {
         const errorData = await res.json().catch(() => null);
-        const errMsg = errorData?.message || res.statusText || "Failed to delete program";
+        const errMsg = errorData?.error?.message ?? errorData?.message ?? res.statusText ?? "Failed to delete program";
         setDeleteError(errMsg);
         toastError(`Failed to delete program: ${errMsg}`);
       }

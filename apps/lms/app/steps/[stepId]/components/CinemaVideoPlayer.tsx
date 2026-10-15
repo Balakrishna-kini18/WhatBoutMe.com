@@ -13,7 +13,7 @@ interface CinemaVideoPlayerProps {
   onChangeSpeed: () => void;
   resumedFrom: { lessonId: string; timeSec: number } | null;
   onClearResume: () => void;
-  onHeartbeat: (lessonId: string, positionSec: number) => void;
+  onHeartbeat: (lessonId: string, positionSec: number, isEnded?: boolean, videoDurationSec?: number) => void;
   onVideoEnded: () => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   isVideoDone: boolean;
@@ -46,13 +46,17 @@ export default function CinemaVideoPlayer({
     );
   }
 
-  // Resolve upload streaming key or direct Cloudinary/S3 URL
+  // Resolve upload streaming key or direct Cloudinary/S3 URL with auth token
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
-  let videoSrc = currentMedia.mediaUrl;
+  let videoSrc = currentMedia.mediaUrl || "";
   if (isUpload) {
     const publicId = currentMedia.mediaUrl.replace("upload:", "");
     const streamingKey = publicId.includes(".") ? publicId : `${publicId}.mp4`;
-    videoSrc = `${API_URL}/media/stream/${streamingKey}`;
+    videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  } else if (videoSrc && !videoSrc.startsWith("http") && !videoSrc.startsWith("/")) {
+    const streamingKey = videoSrc.includes(".") ? videoSrc : `${videoSrc}.mp4`;
+    videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   }
 
   return (
@@ -85,8 +89,9 @@ export default function CinemaVideoPlayer({
           ref={videoRef}
           key={currentMedia.id}
           controls
+          playsInline
+          preload="metadata"
           controlsList="nodownload"
-          className={styles.videoElement}
           onLoadedMetadata={(e) => {
             if (playbackSpeed !== 1) {
               e.currentTarget.playbackRate = playbackSpeed;
@@ -94,18 +99,30 @@ export default function CinemaVideoPlayer({
           }}
           onTimeUpdate={(e) => {
             const currentSec = Math.floor(e.currentTarget.currentTime);
+            const duration = Math.floor(e.currentTarget.duration || 0);
+            if (duration > 0 && (currentSec >= duration - 2 || currentSec / duration >= 0.85)) {
+              onHeartbeat(currentMedia.id, duration, true, duration);
+              onVideoEnded();
+              return;
+            }
             const now = Date.now();
             if (now - lastHeartbeatTimeRef.current > 15000) {
               lastHeartbeatTimeRef.current = now;
-              onHeartbeat(currentMedia.id, currentSec);
+              onHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
             }
           }}
           onPause={(e) => {
-            onHeartbeat(currentMedia.id, Math.floor(e.currentTarget.currentTime));
+            const currentSec = Math.floor(e.currentTarget.currentTime);
+            const duration = Math.floor(e.currentTarget.duration || 0);
+            if (duration > 0 && (currentSec >= duration - 2 || currentSec / duration >= 0.85)) {
+              onHeartbeat(currentMedia.id, duration, true, duration);
+            } else {
+              onHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
+            }
           }}
           onEnded={() => {
             const duration = Math.floor(videoRef.current?.duration || 0);
-            onHeartbeat(currentMedia.id, duration);
+            onHeartbeat(currentMedia.id, duration, true, duration);
             onVideoEnded();
           }}
           src={videoSrc}

@@ -113,7 +113,7 @@ describe('CloudinaryController - Program-Scoped Media Authorization (SEC-01)', (
       expect(prisma.enrolment.findFirst).toHaveBeenCalledWith({
         where: {
           userId: 'learner-1',
-          programId: 'program-A',
+          programId: { in: ['program-A'] },
           status: { in: ['ACTIVE', 'COMPLETED'] },
         },
       });
@@ -177,7 +177,7 @@ describe('CloudinaryController - Program-Scoped Media Authorization (SEC-01)', (
       expect(prisma.enrolment.findFirst).toHaveBeenCalledWith({
         where: {
           userId: 'learner-1',
-          programId: 'program-resource-1',
+          programId: { in: ['program-resource-1'] },
           status: { in: ['ACTIVE', 'COMPLETED'] },
         },
       });

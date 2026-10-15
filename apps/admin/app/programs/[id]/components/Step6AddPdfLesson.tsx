@@ -65,6 +65,7 @@ export default function Step6AddPdfLesson({
           type: "PDF",
           mediaUrl,
           content: description.trim() || undefined,
+          status: "PUBLISHED",
         }),
       });
 

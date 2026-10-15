@@ -186,6 +186,65 @@ export class ProgramsService {
     return updated;
   }
 
+  private extractCloudinaryPublicId(urlOrId?: string | null): { publicId: string; resourceType: 'video' | 'image' | 'raw' } | null {
+    if (!urlOrId || typeof urlOrId !== 'string') return null;
+    const trimmed = urlOrId.trim();
+    if (!trimmed) return null;
+
+    if (trimmed.startsWith('upload:')) {
+      const id = trimmed.replace('upload:', '');
+      return { publicId: id, resourceType: 'video' };
+    }
+
+    if (trimmed.includes('cloudinary.com')) {
+      try {
+        const url = new URL(trimmed);
+        const pathname = url.pathname;
+        const segments = pathname.split('/').filter(Boolean);
+        let resourceType: 'video' | 'image' | 'raw' = 'video';
+        if (segments.includes('image')) resourceType = 'image';
+        else if (segments.includes('raw')) resourceType = 'raw';
+        else if (segments.includes('video')) resourceType = 'video';
+        else {
+          if (pathname.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i)) resourceType = 'image';
+          else if (pathname.match(/\.(pdf|doc|docx|zip)$/i)) resourceType = 'raw';
+          else resourceType = 'video';
+        }
+
+        const uploadIdx = segments.indexOf('upload');
+        if (uploadIdx !== -1 && uploadIdx < segments.length - 1) {
+          let idParts = segments.slice(uploadIdx + 1);
+          if (idParts[0] && /^v\d+$/.test(idParts[0])) {
+            idParts = idParts.slice(1);
+          }
+          let publicId = idParts.join('/');
+          if (resourceType !== 'raw') {
+            publicId = publicId.replace(/\.[^/.]+$/, '');
+          }
+          return { publicId, resourceType };
+        }
+
+        const last = segments[segments.length - 1];
+        const publicId = resourceType === 'raw' ? last : last.replace(/\.[^/.]+$/, '');
+        return { publicId, resourceType };
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  private async safeDeleteCloudinaryMedia(urlOrId?: string | null, fallbackType: 'video' | 'image' | 'raw' = 'video') {
+    const extracted = this.extractCloudinaryPublicId(urlOrId);
+    if (!extracted) return;
+    try {
+      await this.mediaProvider.deleteMedia(extracted.publicId, extracted.resourceType || fallbackType).catch((err) => {
+        this.logger.warn(`Could not delete Cloudinary asset ${extracted.publicId}: ${err.message}`);
+      });
+    } catch {}
+  }
+
   async remove(id: string) {
     const program = await this.prisma.program.findUnique({ where: { id } });
     if (!program) {
@@ -224,60 +283,56 @@ export class ProgramsService {
 
     // Program has no batches or enrolments: safe to permanently hard-delete
     try {
-      // 1. Program Cover Image
+      // 1a. Program cover image
       if (program.description) {
         try {
           const info = JSON.parse(program.description);
-          if (info.image && info.image.includes('cloudinary.com')) {
-            const parts = info.image.split('/');
-            const filename = parts[parts.length - 1];
-            const publicId = filename.split('.')[0];
-            await this.mediaProvider
-              .deleteMedia(publicId, 'image')
-              .catch((err) =>
-                this.logger.warn(`Failed to delete program image ${publicId}: ${err.message}`),
-              );
+          if (info.image) {
+            await this.safeDeleteCloudinaryMedia(info.image, 'image');
           }
-        } catch (e) {}
+        } catch {}
       }
 
-      // 2. Lesson Media
+      // 1b. All lessons in all steps
       const lessons = await this.prisma.lesson.findMany({
         where: { step: { programId: id } },
-        select: { mediaUrl: true },
+        select: { id: true, mediaUrl: true, type: true },
       });
       for (const lesson of lessons) {
-        if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
-          const publicId = lesson.mediaUrl.replace('upload:', '');
-          await this.mediaProvider
-            .deleteMedia(publicId, 'video')
-            .catch((err) =>
-              this.logger.warn(`Failed to delete lesson media ${publicId}: ${err.message}`),
-            );
+        if (lesson.mediaUrl) {
+          await this.safeDeleteCloudinaryMedia(
+            lesson.mediaUrl,
+            lesson.type === 'VIDEO' ? 'video' : 'raw',
+          );
         }
       }
 
-      // 3. Resource Media
+      // 1c. All resources
       const resources = await this.prisma.resource.findMany({
         where: { programId: id },
         select: { mediaUrl: true },
       });
       for (const res of resources) {
-        if (res.mediaUrl && res.mediaUrl.includes('cloudinary.com')) {
-          const parts = res.mediaUrl.split('/');
-          const filename = parts[parts.length - 1];
-          const publicId = filename.split('.')[0];
-          await this.mediaProvider.deleteMedia(publicId, 'raw').catch(() =>
-            this.mediaProvider
-              .deleteMedia(publicId, 'image')
-              .catch((err) =>
-                this.logger.warn(`Failed to delete resource ${publicId}: ${err.message}`),
-              ),
-          );
+        if (res.mediaUrl) {
+          await this.safeDeleteCloudinaryMedia(res.mediaUrl, 'raw');
         }
       }
 
-      // 4. Cancel Zoom Meetings
+      // 1d. All resource items
+      if (typeof (this.prisma as any).resourceItem?.findMany === 'function') {
+        const resourceItems = await (this.prisma as any).resourceItem.findMany({
+          where: { programId: id },
+          select: { storageKey: true, type: true },
+        });
+        for (const item of resourceItems) {
+          if (item.storageKey) {
+            const rType = item.type === 'GUIDED_AUDIO' ? 'video' : 'raw';
+            await this.safeDeleteCloudinaryMedia(item.storageKey, rType);
+          }
+        }
+      }
+
+      // 2. Cancel Zoom Meetings
       const sessions = typeof this.prisma.session?.findMany === 'function'
         ? await this.prisma.session.findMany({
             where: { batch: { programId: id } },
@@ -297,12 +352,13 @@ export class ProgramsService {
             .catch((e) => this.logger.error('Failed to create Zoom cancel outbox event', e));
         }
       }
-    } catch (cleanupErr) {
-      this.logger.error(`Failed to clean up Cloudinary media for program ${id}:`, cleanupErr);
+    } catch (cleanupErr: any) {
+      this.logger.warn(`Media/session cleanup notice during program deletion: ${cleanupErr.message}`);
     }
 
     await this.prisma.program.delete({ where: { id } });
     await this.cacheHelper.invalidateNamespace('programs');
+    await this.cacheHelper.invalidateNamespace('batches');
     return {
       id,
       deleted: true,
@@ -362,6 +418,9 @@ export class ProgramsService {
             where: isPrivileged ? undefined : { status: ContentStatus.PUBLISHED },
             orderBy: { order: 'asc' },
           },
+          resources: {
+            where: isPrivileged ? undefined : { status: ContentStatus.PUBLISHED },
+          },
           quiz: {
             include: {
               questions: {
@@ -378,6 +437,23 @@ export class ProgramsService {
 
       if (!isPrivileged && step.status !== ContentStatus.PUBLISHED) {
         throw new NotFoundException(`Step not found`);
+      }
+
+      // Query standalone ResourceLibrary items tagged for this step sequence or stepId
+      try {
+        const resourceItems = await this.prisma.resourceItem.findMany({
+          where: {
+            isPublished: true,
+            OR: [
+              { requiredStepId: stepId },
+              { programId: step.programId, stepTagNumber: step.sequence },
+            ],
+          },
+          include: { category: true },
+        });
+        (step as any).resourceItems = resourceItems;
+      } catch {
+        (step as any).resourceItems = [];
       }
 
       // Hide quiz answer keys from learners and guests
@@ -599,7 +675,55 @@ export class ProgramsService {
       throw new NotFoundException(`Step not found`);
     }
 
+    // 1. Delete all lessons' media from Cloudinary
+    try {
+      const lessons = await this.prisma.lesson.findMany({
+        where: { stepId },
+        select: { mediaUrl: true, type: true },
+      });
+      for (const lesson of lessons) {
+        if (lesson.mediaUrl) {
+          await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
+        }
+      }
+    } catch (mediaErr: any) {
+      this.logger.warn(`Media cleanup notice during step deletion: ${mediaErr.message}`);
+    }
+
     await this.prisma.$transaction(async (tx) => {
+      // Clean quiz relations if any
+      if (typeof (tx as any).quiz?.findUnique === 'function') {
+        const quiz = await (tx as any).quiz.findUnique({ where: { stepId } });
+        if (quiz) {
+          if (typeof (tx as any).question?.findMany === 'function') {
+            const questions = await (tx as any).question.findMany({ where: { quizId: quiz.id }, select: { id: true } });
+            const questionIds = questions.map((q: any) => q.id);
+            if (questionIds.length > 0) {
+              await (tx as any).option?.deleteMany?.({ where: { questionId: { in: questionIds } } }).catch(() => {});
+              await (tx as any).question?.deleteMany?.({ where: { id: { in: questionIds } } });
+            }
+          }
+          await (tx as any).attempt?.deleteMany?.({ where: { quizId: quiz.id } }).catch(() => {});
+          await (tx as any).quiz?.delete?.({ where: { id: quiz.id } });
+        }
+      }
+
+      // Clean lesson progress and lessons
+      const stepLessons = await tx.lesson.findMany({ where: { stepId }, select: { id: true } });
+      const lessonIds = stepLessons.map((l) => l.id);
+      if (lessonIds.length > 0) {
+        if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
+          await (tx as any).userLessonProgress.deleteMany({ where: { lessonId: { in: lessonIds } } }).catch(() => {});
+        }
+        await tx.lesson.deleteMany({ where: { id: { in: lessonIds } } });
+      }
+
+      if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
+        await (tx as any).batchStepOverride.deleteMany({ where: { stepId } }).catch(() => {});
+      }
+      if (typeof (tx as any).stepProgress?.deleteMany === 'function') {
+        await (tx as any).stepProgress.deleteMany({ where: { stepId } }).catch(() => {});
+      }
       await tx.step.delete({ where: { id: stepId } });
 
       // Renumber remaining sibling steps to preserve contiguous 1..N sequence
@@ -849,17 +973,20 @@ export class ProgramsService {
       throw new NotFoundException(`Lesson not found`);
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.lesson.delete({ where: { id: lessonId } });
-
-      // If the lesson had an uploaded media file, delete it from Cloudinary
-      if (lesson.mediaUrl && lesson.mediaUrl.startsWith('upload:')) {
-        const publicId = lesson.mediaUrl.replace('upload:', '');
-        const resourceType = lesson.type === 'VIDEO' ? 'video' : 'raw';
-        this.mediaProvider.deleteMedia(publicId, resourceType).catch(err => {
-          console.error(`Failed to delete media ${publicId} from Cloudinary:`, err);
-        });
+    // Delete media from Cloudinary (video or document)
+    try {
+      if (lesson.mediaUrl) {
+        await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
       }
+    } catch (mediaErr: any) {
+      this.logger.warn(`Media cleanup notice during lesson deletion: ${mediaErr.message}`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
+        await (tx as any).userLessonProgress.deleteMany({ where: { lessonId } }).catch(() => {});
+      }
+      await tx.lesson.delete({ where: { id: lessonId } });
 
       // Renumber remaining sibling lessons
       const remaining = await tx.lesson.findMany({

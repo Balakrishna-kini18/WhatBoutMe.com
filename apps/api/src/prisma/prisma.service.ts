@@ -82,14 +82,16 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     if (typeof (this as any).$use === 'function') {
       (this as any).$use(async (params: any, next: any) => {
         const start = performance.now();
-        const result = await next(params);
-        const dur = Math.round((performance.now() - start) * 10) / 10;
-        recordDbDuration(dur);
-        if (dur > 300) {
-          const model = params.model ? `${params.model}.` : '';
-          console.warn(`[Prisma] Slow Query Warning: ${model}${params.action} took ${dur}ms`);
+        try {
+          return await next(params);
+        } finally {
+          const dur = Math.round((performance.now() - start) * 10) / 10;
+          recordDbDuration(dur);
+          if (dur > 300) {
+            const model = params.model ? `${params.model}.` : '';
+            console.warn(`[Prisma] Slow Query Warning: ${model}${params.action} took ${dur}ms`);
+          }
         }
-        return result;
       });
     }
   }

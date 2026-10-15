@@ -17,6 +17,8 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { randomBytes } from 'node:crypto';
+import { CreateProgressShareDto } from './dto/index.js';
 
 export const DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT = 90.0;
 
@@ -141,10 +143,125 @@ export interface EnrolmentProgressionResponse {
 
 @Injectable()
 export class ProgressionService {
+  private readonly localShareCache = new Map<string, any>();
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly cacheHelper?: CacheHelperService,
   ) {}
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1a. PUBLIC PROGRESS SHARING (CLIENT PDF P.10 SECTION 9)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async createProgressShare(
+    dto: CreateProgressShareDto,
+    user: any,
+  ) {
+    const userId = user?.sub ?? user?.id;
+    if (!userId) {
+      throw new ForbiddenException('Access denied: Authentication required');
+    }
+
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id: dto.enrolmentId },
+      include: {
+        user: { select: { id: true, name: true } },
+        program: {
+          select: { id: true, title: true, slug: true, status: true, hasCertificate: true, certificateTemplate: true },
+        },
+        batch: {
+          include: {
+            overrides: true,
+            trainers: { select: { trainerId: true } },
+          },
+        },
+        signedAgreement: true,
+        certificate: true,
+      },
+    });
+
+    if (!enrolment) {
+      throw new NotFoundException('Enrolment not found');
+    }
+
+    // Anti-IDOR check: learner can only share their own enrolment
+    if (user.role === Role.USER && enrolment.userId !== userId) {
+      throw new ForbiddenException('Access denied: You can only share your own progress');
+    }
+
+    const tree = await this.evaluateProgression(enrolment, { persist: false });
+    const totalSteps = tree.steps.length;
+    const completedSteps = tree.steps.filter((s) => s.isCompleted).length;
+    const currentStep = tree.currentStepSequence || completedSteps || 1;
+    const progressPercent = Math.round(tree.overallProgressPercent || 0);
+
+    const shareToken = randomBytes(16).toString('hex');
+    const milestoneText = `Completed Step ${completedSteps} of ${totalSteps}`;
+    const displayName =
+      dto.showName !== false
+        ? enrolment.user?.name || 'A WhatBoutMe Learner'
+        : 'A WhatBoutMe Learner';
+
+    const sharePayload = {
+      shareToken,
+      learnerName: displayName,
+      programTitle: enrolment.program.title,
+      milestone: dto.showMilestone !== false ? milestoneText : null,
+      currentStep: dto.showMilestone !== false ? currentStep : null,
+      completedSteps: dto.showMilestone !== false ? completedSteps : null,
+      totalSteps: dto.showMilestone !== false ? totalSteps : null,
+      progressPercent: dto.showProgressPercent !== false ? progressPercent : null,
+      customMessage: dto.customMessage?.trim() || null,
+      sharedAt: new Date().toISOString(),
+      verified: true,
+    };
+
+    const cacheKey = `progression_share:${shareToken}`;
+    this.localShareCache.set(shareToken, sharePayload);
+    if (this.cacheHelper) {
+      await this.cacheHelper.set(cacheKey, sharePayload, 90 * 86400); // 90 days TTL
+    }
+
+    const shareUrl = `/share/progress/${shareToken}`;
+    const shareText = encodeURIComponent(
+      `${displayName} reached a milestone in "${enrolment.program.title}": ${milestoneText}!`,
+    );
+
+    return {
+      shareToken,
+      shareUrl,
+      shareCard: {
+        ...sharePayload,
+        shareLinks: {
+          linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
+          whatsapp: `https://api.whatsapp.com/send?text=${shareText}%20${encodeURIComponent(shareUrl)}`,
+          x: `https://twitter.com/intent/tweet?text=${shareText}&url=${encodeURIComponent(shareUrl)}`,
+        },
+      },
+    };
+  }
+
+  async getSharedProgress(shareToken: string) {
+    if (!shareToken || shareToken.length < 10) {
+      throw new NotFoundException('Invalid share token');
+    }
+
+    const cacheKey = `progression_share:${shareToken}`;
+    let card: any = null;
+    if (this.cacheHelper) {
+      card = await this.cacheHelper.get(cacheKey);
+    }
+    if (!card) {
+      card = this.localShareCache.get(shareToken);
+    }
+
+    if (!card) {
+      throw new NotFoundException('Shared progress card not found or has expired');
+    }
+
+    return card;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. EVALUATE ENROLMENT PROGRESSION TREE

@@ -269,4 +269,107 @@ describe('D1-052 & D1-053: CertificatesService (Workflow, Code & Public Verifica
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('Manager Certificate Scoping & Batch Isolation (Role Audit Gap 2 Fix)', () => {
+    const assignedManager = { id: 'mgr-assigned', sub: 'mgr-assigned', role: Role.MANAGER };
+    const unassignedManager = { id: 'mgr-other', sub: 'mgr-other', role: Role.MANAGER };
+    const adminUser = { id: 'admin-1', sub: 'admin-1', role: Role.ADMIN };
+    const learnerOwner = { id: 'learner-1', sub: 'learner-1', role: Role.USER };
+    const learnerOther = { id: 'learner-2', sub: 'learner-2', role: Role.USER };
+
+    const batchCertificate = {
+      id: 'cert-101',
+      certificateCode: 'WBM-2026-B101',
+      certificateNumber: 'WBM-2026-B101',
+      pdfUrl: 'https://storage.whatboutme.com/certificates/WBM-2026-B101.pdf',
+      enrolmentId: 'enrol-101',
+      enrolment: {
+        userId: 'learner-1',
+        user: { id: 'learner-1', name: 'John Doe', email: 'john@example.com' },
+        batch: {
+          id: 'batch-1',
+          managerId: 'mgr-assigned',
+          trainers: [{ trainerId: 'mgr-assigned' }],
+          program: { title: '11 Steps' },
+        },
+      },
+    };
+
+    it('findAll scopes query to assigned batches when called by a Manager', async () => {
+      prismaMock.certificate.findMany.mockResolvedValue([batchCertificate]);
+
+      const results = await service.findAll(assignedManager);
+
+      expect(prismaMock.certificate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            enrolment: {
+              batch: {
+                OR: [
+                  { managerId: 'mgr-assigned' },
+                  { trainers: { some: { trainerId: 'mgr-assigned' } } },
+                ],
+              },
+            },
+          },
+        }),
+      );
+      expect(results).toHaveLength(1);
+    });
+
+    it('findAll returns platform-wide certificates when called by an Admin', async () => {
+      prismaMock.certificate.findMany.mockResolvedValue([batchCertificate]);
+
+      const results = await service.findAll(adminUser);
+
+      expect(prismaMock.certificate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: {} }),
+      );
+      expect(results).toHaveLength(1);
+    });
+
+    it('findOne allows assigned Manager to view batch certificate', async () => {
+      prismaMock.certificate.findFirst.mockResolvedValue(batchCertificate);
+
+      const cert = await service.findOne('cert-101', assignedManager);
+      expect(cert.id).toBe('cert-101');
+    });
+
+    it('findOne rejects unassigned Manager attempting to view cross-batch certificate', async () => {
+      prismaMock.certificate.findFirst.mockResolvedValue(batchCertificate);
+
+      await expect(service.findOne('cert-101', unassignedManager)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('findOne allows owning learner and rejects another learner', async () => {
+      prismaMock.certificate.findFirst.mockResolvedValue(batchCertificate);
+
+      const ownCert = await service.findOne('cert-101', learnerOwner);
+      expect(ownCert.id).toBe('cert-101');
+
+      await expect(service.findOne('cert-101', learnerOther)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('getCertificatePdfDownload rejects unassigned Manager from downloading PDF', async () => {
+      prismaMock.certificate.findUnique.mockResolvedValue(batchCertificate);
+
+      await expect(
+        service.getCertificatePdfDownload('cert-101', unassignedManager),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('getCertificatePdfDownload allows assigned Manager and Admin to download PDF', async () => {
+      prismaMock.certificate.findUnique.mockResolvedValue(batchCertificate);
+
+      const mgrDownload = await service.getCertificatePdfDownload('cert-101', assignedManager);
+      expect(mgrDownload.downloadUrl).toBe(batchCertificate.pdfUrl);
+
+      const adminDownload = await service.getCertificatePdfDownload('cert-101', adminUser);
+      expect(adminDownload.downloadUrl).toBe(batchCertificate.pdfUrl);
+    });
+  });
 });

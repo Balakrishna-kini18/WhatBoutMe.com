@@ -62,9 +62,32 @@ export class CertificatesService {
     return `WBM-${year}-${fallbackHex}`;
   }
 
-  // 1. Get all certificates (for Admin queue)
-  async findAll() {
+  // 1. Get all certificates (Admin: all, Manager: assigned batches only, Learner: own only)
+  async findAll(user?: any) {
+    const where: any = {};
+    if (user) {
+      const userId = user.sub || user.userId || user.id;
+      if (
+        user.role === Role.MANAGER ||
+        user.role === 'MANAGER' ||
+        user.role === Role.TEACHER ||
+        user.role === 'TEACHER'
+      ) {
+        where.enrolment = {
+          batch: {
+            OR: [
+              { managerId: userId },
+              { trainers: { some: { trainerId: userId } } },
+            ],
+          },
+        };
+      } else if (user.role === Role.USER) {
+        where.enrolment = { userId };
+      }
+    }
+
     return this.prisma.certificate.findMany({
+      where,
       include: {
         enrolment: {
           include: {
@@ -75,6 +98,65 @@ export class CertificatesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  // 1b. Get single certificate by ID or code (Admin: all, Manager: assigned batch only, Learner: own only)
+  async findOne(id: string, actorUser?: any) {
+    const cert = await this.prisma.certificate.findFirst({
+      where: {
+        OR: [{ id }, { certificateCode: id }, { certificateNumber: id }],
+      },
+      include: {
+        enrolment: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            batch: {
+              include: {
+                program: true,
+                trainers: { select: { trainerId: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!cert) {
+      throw new NotFoundException(`Certificate '${id}' not found`);
+    }
+
+    if (actorUser) {
+      const actorId = actorUser.sub || actorUser.userId || actorUser.id;
+      const isSuperOrAdmin =
+        actorUser.role === Role.ADMIN ||
+        actorUser.role === Role.SUPER_ADMIN;
+
+      if (!isSuperOrAdmin) {
+        if (
+          actorUser.role === Role.MANAGER ||
+          actorUser.role === 'MANAGER' ||
+          actorUser.role === Role.TEACHER ||
+          actorUser.role === 'TEACHER'
+        ) {
+          const isAssigned =
+            cert.enrolment?.batch?.managerId === actorId ||
+            (Array.isArray(cert.enrolment?.batch?.trainers) &&
+              cert.enrolment.batch.trainers.some((t: any) => t.trainerId === actorId));
+
+          if (!isAssigned) {
+            throw new ForbiddenException(
+              'Access denied: You can only access certificates for your assigned batches',
+            );
+          }
+        } else if (cert.enrolment?.userId !== actorId) {
+          throw new ForbiddenException(
+            'Access denied: You can only access your own certificates',
+          );
+        }
+      }
+    }
+
+    return cert;
   }
 
   // 2. D1-052: Request a certificate (Learner or Admin) -> transitions to PENDING (pending approval)
@@ -480,7 +562,17 @@ export class CertificatesService {
     const cert = await this.prisma.certificate.findUnique({
       where: { id },
       include: {
-        enrolment: { select: { userId: true } },
+        enrolment: {
+          select: {
+            userId: true,
+            batch: {
+              select: {
+                managerId: true,
+                trainers: { select: { trainerId: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -489,15 +581,32 @@ export class CertificatesService {
     }
 
     const actorId = actorUser.sub || actorUser.userId || actorUser.id;
-    const isPrivileged =
+    const isSuperOrAdmin =
       actorUser.role === Role.ADMIN ||
-      actorUser.role === Role.SUPER_ADMIN ||
-      actorUser.role === Role.MANAGER;
+      actorUser.role === Role.SUPER_ADMIN;
 
-    if (!isPrivileged && cert.enrolment?.userId !== actorId) {
-      throw new ForbiddenException(
-        'Access denied: You can only access your own certificates',
-      );
+    if (!isSuperOrAdmin) {
+      if (
+        actorUser.role === Role.MANAGER ||
+        actorUser.role === 'MANAGER' ||
+        actorUser.role === Role.TEACHER ||
+        actorUser.role === 'TEACHER'
+      ) {
+        const isAssigned =
+          cert.enrolment?.batch?.managerId === actorId ||
+          (Array.isArray(cert.enrolment?.batch?.trainers) &&
+            cert.enrolment.batch.trainers.some((t: any) => t.trainerId === actorId));
+
+        if (!isAssigned) {
+          throw new ForbiddenException(
+            'Access denied: You can only download certificates for your assigned batches',
+          );
+        }
+      } else if (cert.enrolment?.userId !== actorId) {
+        throw new ForbiddenException(
+          'Access denied: You can only access your own certificates',
+        );
+      }
     }
 
     if (!cert.pdfUrl) {

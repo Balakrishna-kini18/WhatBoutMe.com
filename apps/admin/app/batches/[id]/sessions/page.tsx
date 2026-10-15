@@ -53,29 +53,39 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
   const [trainers, setTrainers] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    fetchSessions();
-    fetchQuizzes();
-    fetchTrainers();
+    const controller = new AbortController();
+    setIsLoading(true);
+    Promise.all([
+      fetchSessions(controller.signal),
+      fetchQuizzes(controller.signal),
+      fetchTrainers(controller.signal),
+    ]).finally(() => {
+      setIsLoading(false);
+    });
+    return () => controller.abort();
   }, [batchId]);
 
-  const fetchQuizzes = async () => {
+  const fetchQuizzes = async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`${API_URL}/quizzes`);
+      const res = await fetch(`${API_URL}/quizzes`, { signal });
       if (res.ok) {
         const data = await res.json();
         setQuizzes(data);
       }
-    } catch (e) {
-      console.error("Failed to fetch quizzes", e);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.error("Failed to fetch quizzes", e);
+      }
     }
   };
 
-  const fetchTrainers = async () => {
+  const fetchTrainers = async (signal?: AbortSignal) => {
     try {
       // D1-043: Load available trainers
       const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/users?limit=1000`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       if (res.ok) {
         const result = await res.json();
@@ -90,46 +100,58 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
           )
         );
       }
-    } catch (e) {
-      console.error("Failed to fetch trainers", e);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.error("Failed to fetch trainers", e);
+      }
     }
   };
 
-  const fetchSessions = async () => {
-    setIsLoading(true);
+  const fetchSessions = async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`${API_URL}/sessions?batchId=${batchId}`);
+      const res = await fetch(`${API_URL}/sessions?batchId=${batchId}`, { signal });
       if (res.ok) {
         const data = await res.json();
         setSessions(data);
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.error(e);
+      }
     }
   };
 
   const confirmCancelSession = async (reason: string) => {
     if (!cancellingSessionId) return;
+    const targetId = cancellingSessionId;
+    const previousSessions = sessions;
+
+    // Optimistic UI update: immediately mark session status as CANCELLED
+    setSessions((prev) =>
+      prev.map((s) => (s.id === targetId ? { ...s, status: "CANCELLED" as const } : s))
+    );
+    toastSuccess("Session cancelled successfully.");
+    setCancellingSessionId(null);
     setIsCancelling(true);
     setCancelError(null);
+
     try {
-      const res = await fetch(`${API_URL}/sessions/${cancellingSessionId}/cancel`, {
+      const res = await fetch(`${API_URL}/sessions/${targetId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason.trim() || "Administrative cancellation" }),
       });
-      if (res.ok) {
-        toastSuccess("Session cancelled successfully.");
-        setCancellingSessionId(null);
-        fetchSessions();
-      } else {
+      if (!res.ok) {
+        // Rollback on server error
+        setSessions(previousSessions);
         const err = await errorMessage(res, "Failed to cancel session.");
         setCancelError(err);
         toastError(err);
+      } else {
+        fetchSessions();
       }
     } catch (e) {
+      setSessions(previousSessions);
       console.error(e);
       setCancelError("Failed to communicate with server.");
       toastError("Failed to communicate with server.");
@@ -140,20 +162,29 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
 
   const confirmDeleteSession = async () => {
     if (!deletingSessionId) return;
+    const targetId = deletingSessionId;
+    const previousSessions = sessions;
+
+    // Optimistic UI update: immediately remove from sessions array
+    setSessions((prev) => prev.filter((s) => s.id !== targetId));
+    toastSuccess("Session record permanently deleted.");
+    setDeletingSessionId(null);
     setIsDeleting(true);
     setDeleteError(null);
+
     try {
-      const res = await fetch(`${API_URL}/sessions/${deletingSessionId}`, { method: "DELETE" });
-      if (res.ok) {
-        toastSuccess("Session record permanently deleted.");
-        setDeletingSessionId(null);
-        fetchSessions();
-      } else {
+      const res = await fetch(`${API_URL}/sessions/${targetId}`, { method: "DELETE" });
+      if (!res.ok) {
+        // Rollback on server error
+        setSessions(previousSessions);
         const err = await errorMessage(res, "Failed to delete session.");
         setDeleteError(err);
         toastError(err);
+      } else {
+        fetchSessions();
       }
     } catch (e) {
+      setSessions(previousSessions);
       console.error(e);
       setDeleteError("Failed to communicate with server.");
       toastError("Failed to communicate with server.");

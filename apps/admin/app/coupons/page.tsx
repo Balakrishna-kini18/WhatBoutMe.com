@@ -133,8 +133,9 @@ export default function CouponsPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
-    loadPrograms();
+    const controller = new AbortController();
+    loadAll(controller.signal);
+    return () => controller.abort();
   }, []);
 
   const showToast = (msg: string) => {
@@ -142,13 +143,15 @@ export default function CouponsPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const loadData = async () => {
+  const loadAll = async (signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      const [kpisRes, couponsRes] = await Promise.all([
-        fetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include" }),
-        fetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include" }),
+      // Kill Waterfall: Load KPIs, Coupons, and Programs concurrently in a single window
+      const [kpisRes, couponsRes, programsRes] = await Promise.all([
+        fetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include", signal }),
+        fetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include", signal }),
+        fetch(`${API_URL}/programs`, { credentials: "include", signal }).catch(() => null),
       ]);
 
       if (kpisRes.ok) {
@@ -163,25 +166,22 @@ export default function CouponsPage() {
         const errJson = await couponsRes.json().catch(() => null);
         setError(errJson?.message || `Failed to load coupons (${couponsRes.status})`);
       }
+
+      if (programsRes && programsRes.ok) {
+        const data = await programsRes.json();
+        const list = Array.isArray(data) ? data : data?.items || [];
+        setPrograms(list.map((p: any) => ({ id: p.id, title: p.title })));
+      }
     } catch (err: any) {
-      setError(err?.message || "Error loading coupon data. Please check connection.");
+      if (err?.name !== "AbortError") {
+        setError(err?.message || "Error loading coupon data. Please check connection.");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadPrograms = async () => {
-    try {
-      const res = await fetch(`${API_URL}/programs`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data?.items || [];
-        setPrograms(list.map((p: any) => ({ id: p.id, title: p.title })));
-      }
-    } catch {
-      // Non-blocking fallback
-    }
-  };
+  const loadData = () => loadAll();
 
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -304,19 +304,30 @@ export default function CouponsPage() {
   };
 
   const handleToggleActive = async (coupon: Coupon) => {
+    const nextActive = !coupon.isActive;
+    const previousCoupons = coupons;
+
+    // Optimistic UI update: immediately toggle status in local state
+    setCoupons((prev) =>
+      prev.map((c) => (c.id === coupon.id ? { ...c, isActive: nextActive } : c))
+    );
+    showToast(`Coupon ${coupon.code} ${nextActive ? "activated" : "deactivated"}`);
+
     try {
       const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ isActive: !coupon.isActive }),
+        body: JSON.stringify({ isActive: nextActive }),
       });
 
-      if (res.ok) {
-        showToast(`Coupon ${coupon.code} ${coupon.isActive ? "deactivated" : "activated"}`);
-        loadData();
+      if (!res.ok) {
+        // Rollback on server error
+        setCoupons(previousCoupons);
+        showToast("Failed to update status");
       }
     } catch {
+      setCoupons(previousCoupons);
       showToast("Failed to update status");
     }
   };
@@ -329,21 +340,32 @@ export default function CouponsPage() {
 
     if (!window.confirm(confirmPrompt)) return;
 
+    const previousCoupons = coupons;
+
+    // Optimistic UI update: immediately deactivate or remove from local array
+    if (isDeactivation) {
+      setCoupons((prev) =>
+        prev.map((c) => (c.id === coupon.id ? { ...c, isActive: false } : c))
+      );
+    } else {
+      setCoupons((prev) => prev.filter((c) => c.id !== coupon.id));
+    }
+    showToast(`Coupon "${coupon.code}" ${isDeactivation ? "deactivated" : "removed"}`);
+
     try {
       const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "DELETE",
         credentials: "include",
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        showToast(data.message || "Coupon processed successfully");
-        loadData();
-      } else {
+      if (!res.ok) {
+        // Rollback on server error
+        setCoupons(previousCoupons);
         const errJson = await res.json().catch(() => null);
         alert(errJson?.message || "Failed to delete coupon");
       }
     } catch {
+      setCoupons(previousCoupons);
       alert("Failed to delete coupon");
     }
   };

@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import page from "../../page.module.css";
-import Certificate from "../Certificate";
 import styles from "../Certificate.module.css";
 import { API_URL } from "../../lib/api";
+
+const Certificate = dynamic(() => import("../Certificate"), { ssr: false });
 
 const today = () => {
   const now = new Date();

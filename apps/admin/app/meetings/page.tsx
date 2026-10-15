@@ -301,24 +301,35 @@ export default function MeetingsPage() {
 
   const confirmCancelSession = async (reason: string) => {
     if (!cancellingSessionId) return;
+    const targetId = cancellingSessionId;
+    const previousMeetings = meetings;
+
+    // Optimistic UI update: immediately mark session status as CANCELLED
+    setMeetings((prev) =>
+      prev.map((m) => (m.id === targetId ? { ...m, status: "CANCELLED" as const } : m))
+    );
+    toastSuccess("Session cancelled.");
+    setCancellingSessionId(null);
     setIsCancelling(true);
     setCancelError(null);
+
     try {
-      const res = await fetch(`${API_URL}/sessions/${cancellingSessionId}/cancel`, {
+      const res = await fetch(`${API_URL}/sessions/${targetId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason.trim() || "Administrative cancellation" }),
       });
-      if (res.ok) {
-        toastSuccess("Session cancelled successfully.");
-        setCancellingSessionId(null);
-        load();
-      } else {
+      if (!res.ok) {
+        // Rollback on server error
+        setMeetings(previousMeetings);
         const err = await errorMessage(res, "Could not cancel the session.");
         setCancelError(err);
         toastError(err);
+      } else {
+        load();
       }
     } catch (e) {
+      setMeetings(previousMeetings);
       console.error(e);
       setCancelError("Failed to communicate with the server.");
       toastError("Failed to communicate with the server.");
@@ -329,20 +340,29 @@ export default function MeetingsPage() {
 
   const confirmDeleteSession = async () => {
     if (!deletingSessionId) return;
+    const targetId = deletingSessionId;
+    const previousMeetings = meetings;
+
+    // Optimistic UI update: immediately remove meeting from local view
+    setMeetings((prev) => prev.filter((m) => m.id !== targetId));
+    toastSuccess("Session record removed.");
+    setDeletingSessionId(null);
     setIsDeletingSession(true);
     setDeleteSessionError(null);
+
     try {
-      const res = await fetch(`${API_URL}/sessions/${deletingSessionId}`, { method: "DELETE" });
-      if (res.ok) {
-        toastSuccess("Session record permanently deleted.");
-        setDeletingSessionId(null);
-        load();
-      } else {
+      const res = await fetch(`${API_URL}/sessions/${targetId}`, { method: "DELETE" });
+      if (!res.ok) {
+        // Rollback on server error
+        setMeetings(previousMeetings);
         const err = await errorMessage(res, "Could not delete session.");
         setDeleteSessionError(err);
         toastError(err);
+      } else {
+        load();
       }
     } catch (e) {
+      setMeetings(previousMeetings);
       console.error(e);
       setDeleteSessionError("Failed to communicate with the server.");
       toastError("Failed to communicate with the server.");

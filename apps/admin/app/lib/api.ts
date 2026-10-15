@@ -1,11 +1,406 @@
-export const API_URL =
+import { onThisHost } from "./host";
+
+export const API_URL = onThisHost(
   process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
-    ? "https://what-bout-me-com.vercel.app"
-    : "http://localhost:4000");
+    (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
+      ? "https://what-bout-me-com.vercel.app"
+      : "http://localhost:4000")
+);
+
+export interface ApiRequestOptions extends RequestInit {
+  timeoutMs?: number;
+  skipCache?: boolean;
+  ttlMs?: number;
+}
+
+export interface CacheEntry {
+  bodyText: string;
+  status: number;
+  statusText: string;
+  headers: [string, string][];
+  timestamp: number;
+  ttlMs: number;
+}
+
+// In-memory SWR cache for idempotent GET requests
+export const apiCache = new Map<string, CacheEntry>();
+
+// In-flight request deduplication map
+export const inFlightRequests = new Map<
+  string,
+  Promise<{
+    bodyText: string;
+    status: number;
+    statusText: string;
+    headers: [string, string][];
+  }>
+>();
+
+/**
+ * Builds a deterministic cache key for in-memory caching and request deduplication.
+ */
+export function getCacheKey(url: string, headers?: HeadersInit): string {
+  let token = "";
+  if (typeof window !== "undefined") {
+    token = localStorage.getItem("token") || "";
+  }
+  if (headers) {
+    const h = new Headers(headers);
+    const auth = h.get("Authorization");
+    if (auth) token = auth;
+  }
+  return `GET:${url}:${token}`;
+}
+
+/**
+ * Invalidates cached GET requests matching a specific resource prefix or RegExp pattern.
+ * If called without arguments, clears the entire API cache.
+ */
+export function invalidateCache(resourceOrRegex?: string | RegExp): void {
+  if (!resourceOrRegex) {
+    apiCache.clear();
+    return;
+  }
+  for (const key of Array.from(apiCache.keys())) {
+    if (typeof resourceOrRegex === "string") {
+      if (key.includes(resourceOrRegex)) {
+        apiCache.delete(key);
+      }
+    } else if (resourceOrRegex instanceof RegExp) {
+      if (resourceOrRegex.test(key)) {
+        apiCache.delete(key);
+      }
+    }
+  }
+}
+
+export function clearApiCache(): void {
+  apiCache.clear();
+}
+
+/**
+ * Automatically purges cached GET responses when mutating endpoints are called.
+ */
+export function autoInvalidateOnMutation(url: string): void {
+  const resources = [
+    "users",
+    "programs",
+    "batches",
+    "sessions",
+    "attendance",
+    "invoices",
+    "credit-notes",
+    "revenue",
+    "coupons",
+    "certificates",
+    "messages",
+    "leads",
+    "agreements",
+    "quizzes",
+    "questions",
+    "categories",
+    "resources",
+    "media",
+  ];
+
+  for (const r of resources) {
+    if (url.includes(`/${r}`)) {
+      invalidateCache(`/${r}`);
+      // Invalidate related / dependent domains
+      if (r === "invoices" || r === "credit-notes") invalidateCache("/revenue");
+      if (r === "revenue") invalidateCache("/invoices");
+      if (r === "batches") invalidateCache("/sessions");
+      if (r === "programs") invalidateCache("/steps");
+      break;
+    }
+  }
+}
+
+/**
+ * Triggers a non-blocking background revalidation to keep cached data fresh.
+ */
+function triggerBackgroundRevalidate(
+  url: string,
+  init: ApiRequestOptions | undefined,
+  cacheKey: string,
+  ttlMs: number,
+  timeoutMs: number
+) {
+  if (inFlightRequests.has(cacheKey)) return;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const p = (async () => {
+    try {
+      const rawFetch =
+        typeof window !== "undefined" && (window as any).__rawOriginalFetch
+          ? (window as any).__rawOriginalFetch
+          : fetch;
+
+      const res = await rawFetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const bodyText = await res.text();
+        const headersArray: [string, string][] = [];
+        res.headers.forEach((val: string, key: string) => headersArray.push([key, val]));
+
+        apiCache.set(cacheKey, {
+          bodyText,
+          status: res.status,
+          statusText: res.statusText,
+          headers: headersArray,
+          timestamp: Date.now(),
+          ttlMs,
+        });
+      }
+    } catch {
+      // Silent background revalidation failure
+    } finally {
+      clearTimeout(timer);
+      inFlightRequests.delete(cacheKey);
+    }
+  })();
+
+  inFlightRequests.set(cacheKey, p as any);
+}
+
+/**
+ * Upgraded fetch with:
+ * 1. In-flight request deduplication for identical concurrent GET requests
+ * 2. Lightweight short-lived SWR in-memory caching
+ * 3. Automatic cache invalidation on POST/PUT/PATCH/DELETE
+ * 4. Configurable request timeouts (default 15s) and AbortController cancellation
+ */
+export async function cachedFetch(
+  input: RequestInfo | URL,
+  init?: ApiRequestOptions
+): Promise<Response> {
+  let url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  url = onThisHost(url);
+
+  const method = (init?.method || "GET").toUpperCase();
+  const isGet = method === "GET";
+  const skipCache = init?.skipCache ?? false;
+  const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
+  const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
+
+  // Auto-bust cache on mutations
+  if (!isGet) {
+    autoInvalidateOnMutation(url);
+  }
+
+  const cacheKey = isGet ? getCacheKey(url, init?.headers) : null;
+
+  // 1. SWR / In-Memory Cache Check for GET requests
+  if (isGet && !skipCache && cacheKey) {
+    const cached = apiCache.get(cacheKey);
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      if (age < cached.ttlMs) {
+        // Fresh hit: serve immediately without network round trip
+        return new Response(cached.bodyText, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: new Headers(cached.headers),
+        });
+      } else if (age < cached.ttlMs * 2) {
+        // Stale-While-Revalidate window: serve cached data immediately, revalidate in background
+        triggerBackgroundRevalidate(url, init, cacheKey, ttlMs, timeoutMs);
+        return new Response(cached.bodyText, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: new Headers(cached.headers),
+        });
+      } else {
+        // Stale past SWR window: remove
+        apiCache.delete(cacheKey);
+      }
+    }
+  }
+
+  // 2. In-flight Deduplication for identical concurrent GET requests
+  if (isGet && cacheKey && inFlightRequests.has(cacheKey)) {
+    const inFlight = inFlightRequests.get(cacheKey)!;
+    const resPayload = await inFlight;
+    return new Response(resPayload.bodyText, {
+      status: resPayload.status,
+      statusText: resPayload.statusText,
+      headers: new Headers(resPayload.headers),
+    });
+  }
+
+  // 3. Setup AbortController with Timeout and consumer cancellation
+  const abortController = new AbortController();
+  let timedOut = false;
+
+  const timeoutTimer = setTimeout(() => {
+    timedOut = true;
+    abortController.abort(
+      new DOMException(`Request timed out after ${timeoutMs}ms`, "TimeoutError")
+    );
+  }, timeoutMs);
+
+  if (init?.signal) {
+    if (init.signal.aborted) {
+      clearTimeout(timeoutTimer);
+      abortController.abort(init.signal.reason);
+    } else {
+      init.signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeoutTimer);
+          abortController.abort(init.signal?.reason);
+        },
+        { once: true }
+      );
+    }
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const rawFetch =
+        typeof window !== "undefined" && (window as any).__rawOriginalFetch
+          ? (window as any).__rawOriginalFetch
+          : fetch;
+
+      const res = await rawFetch(url, { ...init, signal: abortController.signal });
+      clearTimeout(timeoutTimer);
+
+      const clone = res.clone();
+      const bodyText = await clone.text();
+      const headersArray: [string, string][] = [];
+      res.headers.forEach((val: string, key: string) => headersArray.push([key, val]));
+
+      const payload = {
+        bodyText,
+        status: res.status,
+        statusText: res.statusText,
+        headers: headersArray,
+      };
+
+      // Only cache successful 2xx responses
+      if (isGet && cacheKey && res.ok) {
+        apiCache.set(cacheKey, {
+          ...payload,
+          timestamp: Date.now(),
+          ttlMs,
+        });
+      }
+
+      return payload;
+    } catch (err: any) {
+      clearTimeout(timeoutTimer);
+      if (timedOut) {
+        throw new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      if (cacheKey) {
+        inFlightRequests.delete(cacheKey);
+      }
+    }
+  })();
+
+  if (isGet && cacheKey) {
+    inFlightRequests.set(cacheKey, fetchPromise);
+  }
+
+  const result = await fetchPromise;
+  return new Response(result.bodyText, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: new Headers(result.headers),
+  });
+}
+
+/**
+ * Type-safe API request helpers with automatic JSON parsing and error wrapping.
+ */
+export async function apiFetch<T = any>(
+  endpoint: string,
+  options?: ApiRequestOptions
+): Promise<T> {
+  const fullUrl =
+    endpoint.startsWith("http://") || endpoint.startsWith("https://")
+      ? endpoint
+      : `${API_URL}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+
+  const res = await cachedFetch(fullUrl, options);
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, `API error (${res.status})`));
+  }
+  return res.json() as Promise<T>;
+}
+
+export function apiGet<T = any>(endpoint: string, options?: ApiRequestOptions): Promise<T> {
+  return apiFetch<T>(endpoint, { ...options, method: "GET" });
+}
+
+export function apiPost<T = any>(
+  endpoint: string,
+  body?: any,
+  options?: ApiRequestOptions
+): Promise<T> {
+  const headers = new Headers(options?.headers);
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  return apiFetch<T>(endpoint, {
+    ...options,
+    method: "POST",
+    headers,
+    body: isFormData ? body : JSON.stringify(body),
+  });
+}
+
+export function apiPatch<T = any>(
+  endpoint: string,
+  body?: any,
+  options?: ApiRequestOptions
+): Promise<T> {
+  const headers = new Headers(options?.headers);
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  return apiFetch<T>(endpoint, {
+    ...options,
+    method: "PATCH",
+    headers,
+    body: isFormData ? body : JSON.stringify(body),
+  });
+}
+
+export function apiPut<T = any>(
+  endpoint: string,
+  body?: any,
+  options?: ApiRequestOptions
+): Promise<T> {
+  const headers = new Headers(options?.headers);
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  return apiFetch<T>(endpoint, {
+    ...options,
+    method: "PUT",
+    headers,
+    body: isFormData ? body : JSON.stringify(body),
+  });
+}
+
+export function apiDelete<T = any>(
+  endpoint: string,
+  options?: ApiRequestOptions
+): Promise<T> {
+  return apiFetch<T>(endpoint, { ...options, method: "DELETE" });
+}
 
 /** The API wraps errors as { error: { code, message } }. */
-export async function errorMessage(res: Response, fallback: string) {
+export async function errorMessage(res: Response, fallback: string): Promise<string> {
   const data = await res.json().catch(() => null);
   const raw = data?.error?.message ?? data?.message;
   return (Array.isArray(raw) ? raw.join(", ") : raw) || `${fallback} (error ${res.status}).`;
@@ -13,7 +408,7 @@ export async function errorMessage(res: Response, fallback: string) {
 
 /** Uploads an image or PDF and returns its public address. */
 export async function uploadFile(file: File): Promise<string> {
-  const res = await fetch(`${API_URL}/uploads`, {
+  const res = await cachedFetch(`${API_URL}/uploads`, {
     method: "POST",
     headers: { "Content-Type": file.type },
     body: file,

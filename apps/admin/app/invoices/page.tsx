@@ -42,16 +42,19 @@ export default function InvoicesPage() {
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    fetchInvoices();
+    const controller = new AbortController();
+    fetchInvoices(controller.signal);
+    return () => controller.abort();
   }, []);
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = async (signal?: AbortSignal) => {
     setIsLoading(true);
     setFetchError(null);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const res = await fetch(`${API_URL}/invoices`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -59,9 +62,11 @@ export default function InvoicesPage() {
       } else {
         setFetchError(`Could not load invoices (HTTP ${res.status}).`);
       }
-    } catch (e) {
-      console.error("Failed to fetch invoices", e);
-      setFetchError("Could not reach the server. Please check your connection.");
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.error("Failed to fetch invoices", e);
+        setFetchError("Could not reach the server. Please check your connection.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -211,7 +216,7 @@ export default function InvoicesPage() {
                 <tr>
                   <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--status-error, #dc2626)" }}>
                     <p style={{ margin: "0 0 12px" }}>{fetchError}</p>
-                    <button type="button" className={styles.secondaryBtn} onClick={fetchInvoices}>
+                    <button type="button" className={styles.secondaryBtn} onClick={() => fetchInvoices()}>
                       Retry
                     </button>
                   </td>

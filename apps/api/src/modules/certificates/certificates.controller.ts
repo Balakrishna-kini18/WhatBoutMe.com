@@ -65,21 +65,32 @@ export class CertificatesController {
     );
   }
 
-  // Admin: Get all certificates
+  // Admin & Manager: Get certificates (scoped by assigned batch for managers with pagination)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
+  findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
     const query = page || limit ? {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     } : undefined;
-    return this.certificatesService.findAll(query);
+    return this.certificatesService.findAll(req?.user, query);
   }
 
   // Learner: Get their approved or issued certificates
   @Get('mine')
   getMyCertificates(@Request() req: any) {
     return this.certificatesService.getMyCertificates(req.user.sub);
+  }
+
+  // Get certificate by ID (Admin: all; Manager: assigned batch only; Learner: own only)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.USER)
+  @Get(':id')
+  findOne(@Param('id') id: string, @Request() req: any) {
+    return this.certificatesService.findOne(id, req.user);
   }
 
   // Learner or Admin: Request a certificate for an enrolment (ELIGIBLE -> PENDING)

@@ -6,24 +6,44 @@ import { CreateCreditNoteDto } from './dto/create-credit-note.dto.js';
 import { CreateInvoiceDto } from './dto/create-invoice.dto.js';
 
 @Controller('invoices')
-@Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.USER)
   @Get()
-  findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
+  findAll(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
     const query = page || limit ? {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     } : undefined;
-    return this.invoicesService.findAll(query);
+    return this.invoicesService.findAll(req?.user, query);
   }
 
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.USER)
+  @Get('mine')
+  findMine(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const query = page || limit ? {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    } : undefined;
+    return this.invoicesService.findAll(req?.user, query);
+  }
+
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @Post()
   create(@Body() body: CreateInvoiceDto, @Req() req: any) {
     return this.invoicesService.create(body, req.user);
   }
 
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @Get('credit-notes')
   findAllCreditNotes(@Query('page') page?: string, @Query('limit') limit?: string) {
     const query = page || limit ? {
@@ -33,11 +53,13 @@ export class InvoicesController {
     return this.invoicesService.findAllCreditNotes(query);
   }
 
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.USER)
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.invoicesService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    return this.invoicesService.findOne(id, req.user);
   }
 
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @Post(':id/credit-note')
   createCreditNote(
     @Param('id') id: string,
@@ -47,6 +69,7 @@ export class InvoicesController {
     return this.invoicesService.createCreditNote(id, body, req.user);
   }
 
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @Get(':id/credit-note')
   getCreditNote(@Param('id') id: string) {
     return this.invoicesService.getCreditNote(id);

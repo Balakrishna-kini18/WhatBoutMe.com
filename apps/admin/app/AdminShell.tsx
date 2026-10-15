@@ -289,12 +289,12 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
   },
   {
     id: "meetings",
-    title: "Announcements & Meetings",
-    description: "Live broadcast schedules, webinars, and announcements",
+    title: "Calendar & Live Sessions",
+    description: "Single calendar system, scheduling, and Outlook sync",
     href: "/meetings",
     category: "Communication",
     iconName: "Announcements",
-    keywords: ["zoom", "live", "webinars", "events", "calendar"],
+    keywords: ["zoom", "live", "webinars", "events", "calendar", "outlook", "schedule"],
   },
   {
     id: "website",

@@ -10,7 +10,7 @@
  * Does NOT implement reschedule/cancel (D1-046) or timezone utilities (D1-045).
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import styles from "./live.module.css";
@@ -41,7 +41,7 @@ type BookingState =
   | { type: "success"; message: string }
   | { type: "error"; message: string; code?: string };
 
-type Tab = "upcoming" | "past";
+type Tab = "upcoming" | "calendar" | "past";
 
 // ─── Icon helpers ─────────────────────────────────────────────────────────────
 
@@ -427,9 +427,103 @@ export default function LiveSessionsPage() {
     }
   };
 
+  const [calDate, setCalDate] = useState<Date>(new Date());
+
+  const calendarDays = useMemo(() => {
+    const year = calDate.getFullYear();
+    const month = calDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startDayOfWeek = firstDay.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const today = new Date();
+    const isCurrentMonthYear = today.getFullYear() === year && today.getMonth() === month;
+
+    const days: Array<{
+      date: Date;
+      dateStr: string;
+      dayNum: number;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+      events: Session[];
+    }> = [];
+
+    for (let i = startDayOfWeek - 1; i >= 0; i--) {
+      const dayNum = daysInPrevMonth - i;
+      const d = new Date(year, month - 1, dayNum);
+      const dateStr = d.toISOString().split("T")[0] ?? "";
+      days.push({
+        date: d,
+        dateStr,
+        dayNum,
+        isCurrentMonth: false,
+        isToday: false,
+        events: sessions.filter((s) => {
+          const mDate = new Date(s.startTime);
+          return (
+            mDate.getFullYear() === d.getFullYear() &&
+            mDate.getMonth() === d.getMonth() &&
+            mDate.getDate() === d.getDate()
+          );
+        }),
+      });
+    }
+
+    for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+      const d = new Date(year, month, dayNum);
+      const dateStr = d.toISOString().split("T")[0] ?? "";
+      const isToday = isCurrentMonthYear && today.getDate() === dayNum;
+      days.push({
+        date: d,
+        dateStr,
+        dayNum,
+        isCurrentMonth: true,
+        isToday,
+        events: sessions.filter((s) => {
+          const mDate = new Date(s.startTime);
+          return (
+            mDate.getFullYear() === year &&
+            mDate.getMonth() === month &&
+            mDate.getDate() === dayNum
+          );
+        }),
+      });
+    }
+
+    const totalCells = days.length <= 35 ? 35 : 42;
+    const remaining = totalCells - days.length;
+    for (let dayNum = 1; dayNum <= remaining; dayNum++) {
+      const d = new Date(year, month + 1, dayNum);
+      const dateStr = d.toISOString().split("T")[0] ?? "";
+      days.push({
+        date: d,
+        dateStr,
+        dayNum,
+        isCurrentMonth: false,
+        isToday: false,
+        events: sessions.filter((s) => {
+          const mDate = new Date(s.startTime);
+          return (
+            mDate.getFullYear() === d.getFullYear() &&
+            mDate.getMonth() === d.getMonth() &&
+            mDate.getDate() === d.getDate()
+          );
+        }),
+      });
+    }
+
+    return days;
+  }, [calDate, sessions]);
+
+  const prevMonth = () => setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() - 1, 1));
+  const nextMonth = () => setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1));
+  const goToToday = () => setCalDate(new Date());
+  const calMonthTitle = calDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
   const tabs: { value: Tab; label: string; count: number }[] = [
     { value: "upcoming", label: "Upcoming", count: upcoming.length },
-    { value: "past", label: "Past", count: past.length },
+    { value: "calendar", label: "Calendar Schedule", count: sessions.length },
+    { value: "past", label: "Past & Recordings", count: past.length },
   ];
 
   return (
@@ -461,6 +555,78 @@ export default function LiveSessionsPage() {
       {loading ? (
         <div className={styles.emptyState} role="status" aria-live="polite">
           <p>Loading your sessions…</p>
+        </div>
+      ) : tab === "calendar" ? (
+        <div className={styles.calendarWrap}>
+          <div className={styles.calendarToolbar}>
+            <div className={styles.calendarNav}>
+              <button type="button" className={styles.calNavBtn} onClick={prevMonth} aria-label="Previous Month">
+                &larr; Prev
+              </button>
+              <button type="button" className={styles.calNavBtn} onClick={goToToday}>
+                Today
+              </button>
+              <button type="button" className={styles.calNavBtn} onClick={nextMonth} aria-label="Next Month">
+                Next &rarr;
+              </button>
+            </div>
+            <div className={styles.calMonthTitle}>{calMonthTitle}</div>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+              Timezone: <strong>{getUserTimeZone() || "UTC"}</strong>
+            </div>
+          </div>
+
+          <div className={styles.weekdayRow}>
+            <div>Sun</div>
+            <div>Mon</div>
+            <div>Tue</div>
+            <div>Wed</div>
+            <div>Thu</div>
+            <div>Fri</div>
+            <div>Sat</div>
+          </div>
+
+          <div className={styles.calDaysGrid}>
+            {calendarDays.map((cell: { date: Date; dateStr: string; dayNum: number; isCurrentMonth: boolean; isToday: boolean; events: Session[] }, idx: number) => (
+              <div
+                key={`${cell.dateStr}-${idx}`}
+                className={`${styles.calDayCell} ${!cell.isCurrentMonth ? styles.calDayCellOutside : ""} ${cell.isToday ? styles.calDayCellToday : ""}`}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className={`${styles.calDayNum} ${cell.isToday ? styles.calDayNumToday : ""}`}>
+                    {cell.dayNum}
+                  </span>
+                </div>
+                <div className={styles.calEventsStack}>
+                  {cell.events.map((evt: Session) => {
+                    const isBooked =
+                      evt.bookingStatus === "BOOKED" ||
+                      evt.bookingStatus === "CONFIRMED" ||
+                      evt.bookingStatus === "ATTENDED";
+                    return (
+                      <div
+                        key={evt.id}
+                        className={`${styles.calPill} ${isBooked ? styles.calPillBooked : styles.calPillAvailable}`}
+                        title={`${evt.title} (${formatTime(new Date(evt.startTime))})`}
+                        onClick={() => {
+                          if (evt.joinUrl) {
+                            window.open(evt.joinUrl, "_blank");
+                          }
+                        }}
+                      >
+                        <span className={styles.calPillTitle}>
+                          {isBooked ? "✓ " : ""}{evt.title}
+                        </span>
+                        <span className={styles.calPillTime}>
+                          {formatTime(new Date(evt.startTime))}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : visible.length === 0 ? (
         <div

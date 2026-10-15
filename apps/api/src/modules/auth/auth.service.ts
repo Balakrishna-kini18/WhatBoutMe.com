@@ -18,6 +18,7 @@ import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { forgetSessions } from '../../common/session-cache.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { getRolePermissions } from '../../config/permissions.config.js';
+import { isValidIanaTimezone } from '../../common/timezone/timezone.util.js';
 import {
   generateTotpSecret,
   generateOtpauthUri,
@@ -881,6 +882,8 @@ export class AuthService {
         role: true,
         permissions: true,
         companyId: true,
+        country: true,
+        timezone: true,
         createdAt: true,
         enrolments: {
           select: {
@@ -1015,10 +1018,35 @@ export class AuthService {
       name: user.name,
       role: user.role,
       companyId: user.companyId,
+      country: user.country,
+      timezone: user.timezone,
       enrolledPrograms,
       upcomingSessions: sessions,
     };
   });
+  }
+
+  /**
+   * Update the authenticated user's preferred timezone.
+   */
+  async updateTimezone(userId: string, timezone: string) {
+    if (!timezone || !isValidIanaTimezone(timezone)) {
+      throw new BadRequestException(`Invalid IANA timezone: ${timezone}`);
+    }
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { timezone: timezone.trim() },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        timezone: true,
+        country: true,
+      },
+    });
+    const cacheKey = await this.cacheHelper.getVersionedKey(`auth_user:${userId}`, 'profile');
+    await this.cacheHelper.del(cacheKey);
+    return updated;
   }
 
   /**

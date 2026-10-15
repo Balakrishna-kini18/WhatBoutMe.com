@@ -59,6 +59,30 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: "/11-steps-to-u",
+        destination: "/courses/11-steps-to-you",
+        permanent: true,
+      },
+      {
+        source: "/vision-boards",
+        destination: "/courses/vision-board-workshop",
+        permanent: true,
+      },
+      {
+        source: "/speaker",
+        destination: "/courses/resilience-speaker",
+        permanent: true,
+      },
+      {
+        source: "/lets-talk",
+        destination: "/contact",
+        permanent: true,
+      },
+    ];
+  },
 
 };
 

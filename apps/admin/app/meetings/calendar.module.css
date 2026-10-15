@@ -1,0 +1,921 @@
+/* =========================================================================
+   WhatBoutMe Admin Portal - Calendar & Session Management Module Styles
+   Warm Organic SaaS Theme (Warm Sand #faf6f0, Ivory, Amber #c97a1e)
+   ========================================================================= */
+
+.meetingsContainer {
+  padding: 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* =========================================================================
+   1. Page Header & Primary Action
+   ========================================================================= */
+.pageHeader {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.headerInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.headerTitle {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+.headerSubtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #4a443d);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.primaryOrangeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.28);
+  white-space: nowrap;
+}
+
+.primaryOrangeBtn:hover {
+  background: var(--accent-primary-hover, #b46b18);
+  box-shadow: 0 4px 12px rgba(201, 122, 30, 0.35);
+  transform: translateY(-1px);
+}
+
+.primaryOrangeBtn:active {
+  background: var(--accent-primary-active, #9f5b12);
+  transform: translateY(0);
+}
+
+/* =========================================================================
+   2. Responsive Controls Toolbar (Filters, Segmented View Switcher, Timezone)
+   ========================================================================= */
+.controlsToolbar {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  padding: 0.875rem 1.25rem;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.filtersGroup {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.filterItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filterLabel {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  white-space: nowrap;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* Segmented Control Switcher */
+.viewSwitcher {
+  display: inline-flex;
+  background: var(--bg-soft, #f5ece1);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #ece4d7);
+}
+
+.viewSwitcherBtn {
+  border: none;
+  background: transparent;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.viewSwitcherBtnActive {
+  background: #ffffff;
+  color: var(--text-primary, #14110f);
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.08);
+}
+
+.viewSwitcherBtn:hover:not(.viewSwitcherBtnActive) {
+  color: var(--text-primary, #14110f);
+}
+
+/* Timezone Pill */
+.timezoneBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #4a443d);
+  background: var(--bg-card-muted, #fdfbf7);
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #ece4d7);
+  white-space: nowrap;
+}
+
+.timezoneSelect {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  cursor: pointer;
+  outline: none;
+  padding: 0.1rem 0;
+}
+
+.timezoneSelect option {
+  background: #ffffff;
+  color: #14110f;
+  font-weight: 400;
+}
+
+.syncDot {
+  width: 7px;
+  height: 7px;
+  background: #16a34a;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
+}
+
+/* =========================================================================
+   3. Calendar View (Single Calendar System)
+   ========================================================================= */
+.calendarContainer {
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+}
+
+.calendarToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  background: var(--bg-card-muted, #fdfbf7);
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.calendarNavGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.navButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.navButton:hover {
+  background: var(--bg-soft, #f5ece1);
+  border-color: var(--accent-primary, #c97a1e);
+}
+
+.monthHeading {
+  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  min-width: 190px;
+  text-align: center;
+}
+
+.legendGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #4a443d);
+  flex-wrap: wrap;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+
+.legendColorBox {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* 7-Column Calendar Grid */
+.weekdayGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: var(--bg-card-muted, #fdfbf7);
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #78716a);
+  padding: 0.65rem 0;
+}
+
+.daysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: var(--border-light, #ece4d7);
+  gap: 1px;
+}
+
+.dayCell {
+  background: #ffffff;
+  min-height: 125px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.dayCell:hover {
+  background: #fffdfa;
+}
+
+.dayCellOutside {
+  background: #faf7f2;
+  color: #a8a199;
+}
+
+.dayCellToday {
+  background: #fffdf9;
+}
+
+.dayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.15rem;
+}
+
+.dayNumber {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.todayNumber {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.addSlotBtn {
+  opacity: 0;
+  border: none;
+  background: var(--bg-soft, #f5ece1);
+  color: var(--accent-primary, #c97a1e);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dayCell:hover .addSlotBtn {
+  opacity: 1;
+}
+
+.addSlotBtn:hover {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+}
+
+/* Event Stacks inside Day Cells */
+.eventsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 0;
+}
+
+.eventPill {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.25;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eventPill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(20, 17, 15, 0.08);
+}
+
+.eventTime {
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.eventTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Color-Coded Event Types */
+.pillCohort {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.pillOneOnOne {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+
+.pillWorkshop {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border-color: #e9d5ff;
+}
+
+.pillDiscovery {
+  background: #ffe4e6;
+  color: #9f1239;
+  border-color: #fecdd3;
+}
+
+.pillCancelled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  text-decoration: line-through;
+}
+
+/* "+N more" expansion button */
+.moreEventsBtn {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--accent-primary, #c97a1e);
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.45rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.moreEventsBtn:hover {
+  background: var(--accent-highlight, #f4ecdf);
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary-hover, #b46b18);
+}
+
+/* =========================================================================
+   4. Table View (Clean, Non-Clipped, Responsive Table Layout)
+   ========================================================================= */
+.tableCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+}
+
+.tableHeaderBar {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card-muted, #fdfbf7);
+}
+
+.tableTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+}
+
+.tableCountBadge {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #78716a);
+  font-weight: 500;
+}
+
+.tableWrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sessionsTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1100px;
+  text-align: left;
+}
+
+.sessionsTable th {
+  padding: 0.875rem 1rem;
+  background: var(--bg-card-muted, #fdfbf7);
+  color: var(--text-secondary, #4a443d);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  white-space: nowrap;
+}
+
+.sessionsTable td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  color: var(--text-primary, #14110f);
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+
+.sessionsTable tr:hover td {
+  background: #fdfbf7;
+}
+
+.sessionTitleLink {
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.sessionTitleLink:hover {
+  color: var(--accent-primary, #c97a1e);
+  text-decoration: underline;
+}
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.actionBtnGroup {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.tableActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: #ffffff;
+  color: var(--text-primary, #14110f);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tableActionBtn:hover {
+  background: var(--bg-soft, #f5ece1);
+  border-color: var(--border-focus, #c97a1e);
+}
+
+.tableCancelBtn {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #ffffff;
+}
+
+.tableCancelBtn:hover {
+  background: #fee2e2;
+  border-color: #dc2626;
+}
+
+/* =========================================================================
+   5. Form Grid & Input Styling (Modals: Schedule & Edit)
+   ========================================================================= */
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  width: 100%;
+}
+
+.formGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  width: 100%;
+}
+
+.formGrid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.875rem;
+  width: 100%;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.formFieldFull {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.formLabel {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.requiredStar {
+  color: var(--accent-primary, #c97a1e);
+  margin-left: 2px;
+}
+
+.formHelpText {
+  font-size: 0.75rem;
+  color: var(--text-muted, #78716a);
+  font-weight: 400;
+  margin-top: 0.15rem;
+  line-height: 1.35;
+}
+
+.inputControl {
+  height: 42px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--text-primary, #14110f);
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.inputControl:focus {
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.14);
+}
+
+.inputControl:disabled {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-disabled, #b8b0a5);
+  cursor: not-allowed;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.infoBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: var(--bg-card-muted, #fdfbf7);
+  border: 1px solid var(--border-light, #ece4d7);
+  color: var(--text-secondary, #4a443d);
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+}
+
+.modalFooterActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.modalCancelBtn {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  color: var(--text-secondary, #4a443d);
+  padding: 0.6rem 1.15rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modalCancelBtn:hover {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+}
+
+.modalSubmitBtn {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  border: none;
+  padding: 0.6rem 1.35rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.28);
+}
+
+.modalSubmitBtn:hover:not(:disabled) {
+  background: var(--accent-primary-hover, #b46b18);
+  box-shadow: 0 4px 12px rgba(201, 122, 30, 0.35);
+  transform: translateY(-1px);
+}
+
+.modalSubmitBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =========================================================================
+   6. Event Details & Day Sessions Modals
+   ========================================================================= */
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.875rem;
+  gap: 1rem;
+}
+
+.detailRow:last-child {
+  border-bottom: none;
+}
+
+.detailLabel {
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.detailValue {
+  color: var(--text-primary, #14110f);
+  text-align: right;
+  word-break: break-word;
+  flex: 1;
+}
+
+/* Day Sessions Modal list */
+.daySessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.daySessionCard {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #ece4d7);
+  background: var(--bg-card-muted, #fdfbf7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.daySessionCard:hover {
+  background: #ffffff;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+  transform: translateY(-1px);
+}
+
+.daySessionCardLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.daySessionCardTitle {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary, #14110f);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.daySessionCardMeta {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #4a443d);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* =========================================================================
+   7. Responsive Adaptations
+   ========================================================================= */
+@media (max-width: 900px) {
+  .formGrid2 {
+    grid-template-columns: 1fr;
+  }
+  .formGrid3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .controlsToolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.875rem;
+  }
+  .toolbarRight {
+    margin-left: 0;
+    justify-content: space-between;
+    width: 100%;
+  }
+  .calendarToolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .calendarNavGroup {
+    justify-content: center;
+  }
+  .monthHeading {
+    min-width: 0;
+  }
+  .legendGroup {
+    justify-content: center;
+  }
+  .dayCell {
+    min-height: 90px;
+    padding: 0.35rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .pageHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .headerActions {
+    width: 100%;
+  }
+  .primaryOrangeBtn {
+    width: 100%;
+    justify-content: center;
+  }
+}

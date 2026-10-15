@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InvoicesService } from './invoices.service.js';
-import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { InvoiceStatus } from '@prisma/client';
+import { NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { InvoiceStatus, Role } from '@prisma/client';
 
 describe('InvoicesService - Credit Notes & Financial Integrity (FIN-01, FIN-02, R-19)', () => {
   let service: InvoicesService;
@@ -336,6 +336,86 @@ describe('InvoicesService - Credit Notes & Financial Integrity (FIN-01, FIN-02, 
       prismaMock.invoice.findFirst.mockResolvedValue(mockInvoice);
 
       await expect(service.getCreditNote('inv-123')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('Learner Invoices & Role Scoping (Role Audit Gap 1 Fix)', () => {
+    const learnerAlice = { id: 'alice-id', sub: 'alice-id', role: Role.USER };
+    const learnerBob = { id: 'bob-id', sub: 'bob-id', role: Role.USER };
+    const managerUser = { id: 'mgr-id', sub: 'mgr-id', role: Role.MANAGER };
+    const adminUser = { id: 'admin-id', sub: 'admin-id', role: Role.ADMIN };
+
+    const aliceInvoice = {
+      ...mockInvoice,
+      id: 'inv-alice',
+      invoiceNumber: 'INV-ALICE-001',
+      payment: {
+        enrolment: {
+          userId: 'alice-id',
+          user: { name: 'Alice Learner', email: 'alice@example.com' },
+        },
+      },
+    };
+
+    it('allows a learner to query their own invoices via findAll', async () => {
+      prismaMock.invoice.findMany.mockResolvedValue([aliceInvoice]);
+
+      const results = await service.findAll(learnerAlice);
+
+      expect(prismaMock.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            payment: {
+              enrolment: {
+                userId: 'alice-id',
+              },
+            },
+          },
+        }),
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0].invoiceNumber).toBe('INV-ALICE-001');
+    });
+
+    it('allows a learner to view their own invoice by ID via findOne', async () => {
+      prismaMock.invoice.findFirst.mockResolvedValue(aliceInvoice);
+
+      const result = await service.findOne('inv-alice', learnerAlice);
+      expect(result.id).toBe('inv-alice');
+      expect(result.client).toBe('Alice Learner');
+    });
+
+    it('rejects a learner attempting to view another learner invoice (Anti-IDOR)', async () => {
+      prismaMock.invoice.findFirst.mockResolvedValue(aliceInvoice);
+
+      await expect(service.findOne('inv-alice', learnerBob)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects a manager attempting to view any invoice', async () => {
+      prismaMock.invoice.findFirst.mockResolvedValue(aliceInvoice);
+
+      await expect(service.findOne('inv-alice', managerUser)).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(service.findAll(managerUser)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('allows an admin to view all invoices and any specific invoice without restriction', async () => {
+      prismaMock.invoice.findMany.mockResolvedValue([aliceInvoice]);
+      prismaMock.invoice.findFirst.mockResolvedValue(aliceInvoice);
+
+      const all = await service.findAll(adminUser);
+      expect(prismaMock.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: {} }),
+      );
+      expect(all).toHaveLength(1);
+
+      const single = await service.findOne('inv-alice', adminUser);
+      expect(single.id).toBe('inv-alice');
     });
   });
 });

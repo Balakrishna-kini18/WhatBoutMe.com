@@ -178,6 +178,30 @@ export class SessionsService {
           `Host trainer is already scheduled for session "${trainerClash.title}" from ${trainerClash.startTime.toISOString()} to ${trainerClash.endTime.toISOString()}.`,
         );
       }
+
+      // Outlook free/busy check for trainer
+      if (this.calendarProvider) {
+        const trainerUser = await this.prisma.user.findUnique({
+          where: { id: hostTrainerId },
+          select: { email: true },
+        });
+        if (trainerUser?.email) {
+          try {
+            const busySlots = await this.calendarProvider.getBusySlots(trainerUser.email, start, end);
+            const hasClash = busySlots.some(
+              (slot) => slot.startTime.getTime() < end.getTime() && slot.endTime.getTime() > start.getTime(),
+            );
+            if (hasClash) {
+              throw new ConflictException(
+                'The host trainer has an existing Outlook calendar clash during this time window.',
+              );
+            }
+          } catch (err: any) {
+            if (err instanceof ConflictException) throw err;
+            this.logger.warn(`Calendar busy check failed on session creation: ${err.message}`);
+          }
+        }
+      }
     }
 
     // Learner Double-Booking Clash (for 1:1 sessions)
@@ -321,6 +345,29 @@ export class SessionsService {
 
     // 9. Dispatch Email Notifications & In-App Reminders to Enrolled Learners
     await this.notifyEnrolledLearnersOfSession(session, batch);
+
+    // 10. Synchronize calendar event with Microsoft Graph / Outlook
+    if (this.calendarProvider) {
+      try {
+        const attendeeEmails: string[] = [];
+        if (session.learner?.email) {
+          attendeeEmails.push(session.learner.email);
+        }
+        await this.calendarProvider.createEvent({
+          sessionId: session.id,
+          subject: session.title,
+          body: `<p>${session.description || session.title}</p>${session.joinUrl ? `<p>Join Link: <a href="${session.joinUrl}">${session.joinUrl}</a></p>` : ''}`,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          timezone: session.timezone || 'UTC',
+          location: session.joinUrl ? `Online (${session.meetingProvider})` : 'Online',
+          attendees: attendeeEmails,
+          organizerEmail: session.hostTrainer?.email,
+        });
+      } catch (calErr: any) {
+        this.logger.warn(`Failed to create calendar event for session ${session.id}: ${calErr.message}`);
+      }
+    }
 
     return session;
   }
@@ -500,6 +547,30 @@ export class SessionsService {
             `Host trainer is already booked for session "${trainerClash.title}" during this time window.`,
           );
         }
+
+        // Outlook free/busy check for trainer
+        if (this.calendarProvider) {
+          const trainerUser = await this.prisma.user.findUnique({
+            where: { id: hostTrainerId },
+            select: { email: true },
+          });
+          if (trainerUser?.email) {
+            try {
+              const busySlots = await this.calendarProvider.getBusySlots(trainerUser.email, start, end);
+              const hasClash = busySlots.some(
+                (slot) => slot.startTime.getTime() < end.getTime() && slot.endTime.getTime() > start.getTime(),
+              );
+              if (hasClash) {
+                throw new ConflictException(
+                  'The host trainer has an existing Outlook calendar clash during this time window.',
+                );
+              }
+            } catch (err: any) {
+              if (err instanceof ConflictException) throw err;
+              this.logger.warn(`Calendar busy check failed on session update: ${err.message}`);
+            }
+          }
+        }
       }
     }
 
@@ -564,7 +635,7 @@ export class SessionsService {
         });
       }
       return updatedSession;
-    });
+    }, { timeout: 15000, maxWait: 10000 });
 
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
     if (outboxToQueue && this.meetingSyncQueue) {
@@ -579,6 +650,34 @@ export class SessionsService {
       }
     }
 
+    if (this.calendarProvider && typeof this.calendarProvider.updateEvent === 'function') {
+      try {
+        await this.calendarProvider.updateEvent(sessionId, {
+          subject: updated.title,
+          body: `<p>${updated.description || updated.title}</p>${updated.joinUrl ? `<p>Join Link: <a href="${updated.joinUrl}">${updated.joinUrl}</a></p>` : ''}`,
+          startTime: updated.startTime,
+          endTime: updated.endTime,
+          timezone: updated.timezone || 'UTC',
+          location: updated.joinUrl ? `Online (${updated.meetingProvider})` : 'Online',
+          organizerEmail: updated.hostTrainer?.email,
+        });
+      } catch (calErr: any) {
+        this.logger.warn(`Failed to update calendar event for session ${sessionId}: ${calErr.message}`);
+      }
+    }
+
+    if (data.startTime && this.prisma.notification?.deleteMany) {
+      try {
+        await this.prisma.notification.deleteMany({
+          where: {
+            type: { in: [`SESSION_REMINDER_24H:${sessionId}`, `SESSION_REMINDER_1H:${sessionId}`] },
+          },
+        });
+      } catch (notifErr: any) {
+        this.logger.warn(`Could not clear past reminders for rescheduled session ${sessionId}: ${notifErr.message}`);
+      }
+    }
+
     return updated;
   }
 
@@ -588,7 +687,7 @@ export class SessionsService {
   async cancelSession(sessionId: string, cancelReason: string | undefined, actorUser: any) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      include: { batch: true },
+      include: { batch: true, hostTrainer: true },
     });
 
     if (!session) {
@@ -641,7 +740,7 @@ export class SessionsService {
       }
 
       return updatedSession;
-    });
+    }, { timeout: 15000, maxWait: 10000 });
 
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
     if (outboxToQueue && this.meetingSyncQueue) {
@@ -656,6 +755,26 @@ export class SessionsService {
       }
     }
 
+    if (this.calendarProvider) {
+      try {
+        await this.calendarProvider.deleteEvent(sessionId, session.hostTrainer?.email);
+      } catch (calErr: any) {
+        this.logger.warn(`Failed to delete calendar event for cancelled session ${sessionId}: ${calErr.message}`);
+      }
+    }
+
+    if (this.prisma.notification?.deleteMany) {
+      try {
+        await this.prisma.notification.deleteMany({
+          where: {
+            type: { in: [`SESSION_REMINDER_24H:${sessionId}`, `SESSION_REMINDER_1H:${sessionId}`] },
+          },
+        });
+      } catch (notifErr: any) {
+        this.logger.warn(`Could not clear past reminders for cancelled session ${sessionId}: ${notifErr.message}`);
+      }
+    }
+
     return cancelled;
   }
 
@@ -667,6 +786,7 @@ export class SessionsService {
       where: { id: sessionId },
       include: {
         _count: { select: { attendances: true, bookings: true } },
+        hostTrainer: true,
       },
     });
 
@@ -722,6 +842,14 @@ export class SessionsService {
         });
       } catch (err: any) {
         this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
+      }
+    }
+
+    if (this.calendarProvider) {
+      try {
+        await this.calendarProvider.deleteEvent(sessionId, session.hostTrainer?.email);
+      } catch (calErr: any) {
+        this.logger.warn(`Failed to delete calendar event for deleted session ${sessionId}: ${calErr.message}`);
       }
     }
 

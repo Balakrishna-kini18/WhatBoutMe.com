@@ -12,6 +12,9 @@ export interface CreateCalendarEventParams {
   location?: string;
   attendees?: string[];
   timezone?: string;
+  organizerEmail?: string;
+  sessionId?: string;
+  id?: string;
 }
 
 export interface CalendarEventDetails {
@@ -31,9 +34,14 @@ export interface ICalendarProvider {
   createEvent(params: CreateCalendarEventParams): Promise<CalendarEventDetails>;
 
   /**
+   * Updates an existing calendar event on the external calendar service.
+   */
+  updateEvent?(eventId: string, params: Partial<CreateCalendarEventParams>): Promise<CalendarEventDetails>;
+
+  /**
    * Deletes or cancels a calendar event.
    */
-  deleteEvent(eventId: string): Promise<void>;
+  deleteEvent(eventId: string, organizerEmail?: string): Promise<void>;
 }
 
 export const CALENDAR_PROVIDER = 'CALENDAR_PROVIDER';

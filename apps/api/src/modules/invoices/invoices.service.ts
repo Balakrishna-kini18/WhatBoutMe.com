@@ -3,9 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus, Role } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto.js';
 import { CreateInvoiceDto } from './dto/create-invoice.dto.js';
@@ -113,12 +114,33 @@ export class InvoicesService {
     });
   }
 
-  async findAll(query?: { page?: number; limit?: number }) {
-    const page = Math.max(1, Number(query?.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
-    const skip = (page - 1) * limit;
+  async findAll(user?: any, query?: { page?: number; limit?: number }) {
+    const where: any = {};
+    if (user) {
+      if (
+        user.role === Role.MANAGER ||
+        user.role === 'MANAGER' ||
+        user.role === Role.TEACHER ||
+        user.role === 'TEACHER'
+      ) {
+        throw new ForbiddenException('Access denied: Managers cannot access invoices');
+      }
+      if (user.role === Role.USER) {
+        const userId = user.sub || user.userId || user.id;
+        where.payment = {
+          enrolment: {
+            userId,
+          },
+        };
+      }
+    }
+
+    const page = query?.page ? Math.max(1, Number(query.page)) : undefined;
+    const limit = query?.limit ? Math.min(100, Math.max(1, Number(query.limit))) : undefined;
+    const skip = page && limit ? (page - 1) * limit : undefined;
 
     const invoices = await this.prisma.invoice.findMany({
+      where,
       skip,
       take: limit,
       select: {
@@ -166,7 +188,7 @@ export class InvoicesService {
     }));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: any) {
     const invoice = await this.prisma.invoice.findFirst({
       where: {
         OR: [{ id }, { invoiceNumber: id }],
@@ -184,6 +206,25 @@ export class InvoicesService {
 
     if (!invoice) {
       throw new NotFoundException(`Invoice with ID or Number '${id}' not found`);
+    }
+
+    if (user) {
+      if (
+        user.role === Role.MANAGER ||
+        user.role === 'MANAGER' ||
+        user.role === Role.TEACHER ||
+        user.role === 'TEACHER'
+      ) {
+        throw new ForbiddenException('Access denied: Managers cannot access invoices');
+      }
+      if (user.role === Role.USER) {
+        const userId = user.sub || user.userId || user.id;
+        if (invoice.payment?.enrolment?.userId !== userId) {
+          throw new ForbiddenException(
+            'Access denied: You can only access your own invoices',
+          );
+        }
+      }
     }
 
     const taxFields = invoice.taxFields as any;

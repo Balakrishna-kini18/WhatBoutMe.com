@@ -67,7 +67,6 @@ export const Permission = {
 
   // Sessions Domain (1-on-1 coaching, live cohorts, Outlook clash checks)
   SESSIONS_CREATE: 'sessions:create',
-  SESSION_SCHEDULE: 'session:schedule',
   SESSIONS_SCHEDULE: 'sessions:schedule',
   SESSIONS_READ: 'sessions:read',
   SESSIONS_UPDATE: 'sessions:update',
@@ -196,7 +195,6 @@ export const PERMISSIONS_BY_DOMAIN: Record<string, readonly Permission[]> = {
   ],
   sessions: [
     Permission.SESSIONS_CREATE,
-    Permission.SESSION_SCHEDULE,
     Permission.SESSIONS_SCHEDULE,
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,
@@ -352,7 +350,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
     // Sessions (Full scheduling, booking & cancellation)
     Permission.SESSIONS_CREATE,
-    Permission.SESSION_SCHEDULE,
     Permission.SESSIONS_SCHEDULE,
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,
@@ -440,7 +437,6 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
 
     // Sessions (Scheduling, managing & conducting live cohort / 1-on-1 sessions)
     Permission.SESSIONS_CREATE,
-    Permission.SESSION_SCHEDULE,
     Permission.SESSIONS_SCHEDULE,
     Permission.SESSIONS_READ,
     Permission.SESSIONS_UPDATE,

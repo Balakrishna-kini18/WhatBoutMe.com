@@ -277,7 +277,10 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             Schedule live cohort sessions or 1-on-1 coaching, track attendance, and link recordings.
           </p>
         </div>
-        <div className={styles.headerActions}>
+        <div className={styles.headerActions} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <Link href="/meetings" className={styles.secondaryBtn} style={{ textDecoration: "none" }}>
+            View Full Calendar
+          </Link>
           <button className={styles.primaryBtn} onClick={() => { setFormError(""); setIsModalOpen(true); }}>
             + Schedule Session
           </button>

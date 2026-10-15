@@ -60,6 +60,21 @@
 		}
 	}
 
+	@transform_port_3003 query XTransformPort=3003
+	handle @transform_port_3003 {
+		reverse_proxy localhost:3003 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+
+			transport http {
+				keepalive 30s
+				keepalive_idle_conns 32
+			}
+		}
+	}
+
 	@transform_port_4000 query XTransformPort=4000
 	handle @transform_port_4000 {
 		reverse_proxy localhost:4000 {
@@ -81,9 +96,9 @@
 		respond "Forbidden upstream port" 403
 	}
 
-	# Default upstream handler: Marketing frontend (port 3000)
+	# Default upstream handler: Marketing frontend (port 3001)
 	handle {
-		reverse_proxy localhost:3000 {
+		reverse_proxy localhost:3001 {
 			header_up Host {host}
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}

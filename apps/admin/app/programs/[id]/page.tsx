@@ -6,19 +6,23 @@ import Link from "next/link";
 import { API_URL, errorMessage, uploadFile } from "../../lib/api";
 import { parseCourseInfo, formatCourseInfo } from "../courseInfo";
 
+import dynamic from "next/dynamic";
+
 // 9-Step Wizard Modular Subcomponents
 import CurriculumStepper from "./components/CurriculumStepper";
 import Step1CourseSetup from "./components/Step1CourseSetup";
 import Step2ModuleList from "./components/Step2ModuleList";
-import Step3CreateModuleModal from "./components/Step3CreateModuleModal";
 import Step4ModuleDetails from "./components/Step4ModuleDetails";
 import Step5AddLessonChooser, { LessonTypeChoice } from "./components/Step5AddLessonChooser";
 import Step6AddVideoLesson from "./components/Step6AddVideoLesson";
 import Step6AddPdfLesson from "./components/Step6AddPdfLesson";
-import Step7QuizBuilder from "./components/Step7QuizBuilder";
-import Step8ModulePreview from "./components/Step8ModulePreview";
 import Step9ReviewPublish from "./components/Step9ReviewPublish";
 import BackgroundUploadTray, { BackgroundUploadTask } from "./components/BackgroundUploadTray";
+
+// Lazy-load heavy off-screen modals and builders
+const Step3CreateModuleModal = dynamic(() => import("./components/Step3CreateModuleModal"), { ssr: false });
+const Step7QuizBuilder = dynamic(() => import("./components/Step7QuizBuilder"), { ssr: false });
+const Step8ModulePreview = dynamic(() => import("./components/Step8ModulePreview"), { ssr: false });
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -57,25 +61,27 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const [isCreatingModule, setIsCreatingModule] = useState(false);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundUploadTask[]>([]);
 
-  // Fetch Program & Full Steps with Lessons
+  // Fetch Program & Full Steps with Lessons in parallel
   const fetchProgramAndSteps = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch Program details
-      const progRes = await fetch(`${API_URL}/programs`);
+      // Kill Waterfall: Fetch program list and steps list simultaneously
+      const [progRes, stepsRes] = await Promise.all([
+        fetch(`${API_URL}/programs`),
+        fetch(`${API_URL}/programs/${programId}/steps`),
+      ]);
+
       if (progRes.ok) {
         const progs = await progRes.json();
         const found = progs.find((p: any) => p.id === programId);
         if (found) setProgramData(found);
       }
 
-      // 2. Fetch Steps List
-      const stepsRes = await fetch(`${API_URL}/programs/${programId}/steps`);
       if (stepsRes.ok) {
         const stepsData: Step[] = await stepsRes.json();
         const sorted = [...stepsData].sort((a, b) => a.sequence - b.sequence);
 
-        // Fetch detailed lessons and quiz for each step
+        // Fetch detailed lessons and quiz for each step in parallel
         const detailedSteps = await Promise.all(
           sorted.map(async (s) => {
             try {

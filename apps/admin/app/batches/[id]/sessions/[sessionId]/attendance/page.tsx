@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import Image from "next/image";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
 import { Modal, StatusBadge, CustomSelect } from "../../../../../components";
@@ -91,12 +92,13 @@ export default function SessionAttendancePage({
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const fetchAttendanceData = async () => {
+  const fetchAttendanceData = async (signal?: AbortSignal) => {
     setIsLoading(true);
     setErrorMessage("");
     try {
       const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/attendance`, {
         headers: getAuthHeaders(),
+        signal,
       });
 
       if (!res.ok) {
@@ -107,14 +109,18 @@ export default function SessionAttendancePage({
       const json: AttendanceResponse = await res.json();
       setData(json);
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to load session attendance data");
+      if (err?.name !== "AbortError") {
+        setErrorMessage(err.message || "Failed to load session attendance data");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAttendanceData();
+    const controller = new AbortController();
+    fetchAttendanceData(controller.signal);
+    return () => controller.abort();
   }, [batchId, sessionId]);
 
   const handleOpenOverride = (learner: LearnerAttendanceItem) => {
@@ -138,10 +144,41 @@ export default function SessionAttendancePage({
       return;
     }
 
-    setOverrideModal((prev) => ({ ...prev, loading: true, error: "" }));
+    const targetUserId = overrideModal.learner.userId;
+    const newStatus = overrideModal.status;
+    const newMinutes = Number(overrideModal.minutesPresent) || 0;
+    const newReason = overrideModal.reason.trim();
+    const previousData = data;
+
+    // Optimistic UI update: immediately reflect modified status and recompute presentCount
+    if (data) {
+      const updatedLearners = data.learners.map((l) =>
+        l.userId === targetUserId
+          ? {
+              ...l,
+              status: newStatus,
+              minutesPresent: newMinutes,
+              overrideReason: newReason,
+            }
+          : l
+      );
+      const newPresentCount = updatedLearners.filter(
+        (l) => l.status === "PRESENT" || l.status === "EXCUSED"
+      ).length;
+
+      setData({
+        ...data,
+        learners: updatedLearners,
+        presentCount: newPresentCount,
+      });
+    }
+
+    // Dismiss modal immediately for instant tactile responsiveness
+    setOverrideModal((prev) => ({ ...prev, isOpen: false, loading: false, error: "" }));
+
     try {
       const res = await fetch(
-        `${API_URL}/batches/${batchId}/sessions/${sessionId}/attendance/${overrideModal.learner.userId}`,
+        `${API_URL}/batches/${batchId}/sessions/${sessionId}/attendance/${targetUserId}`,
         {
           method: "PATCH",
           headers: {
@@ -149,22 +186,26 @@ export default function SessionAttendancePage({
             ...getAuthHeaders(),
           },
           body: JSON.stringify({
-            status: overrideModal.status,
-            minutesPresent: Number(overrideModal.minutesPresent) || 0,
-            reason: overrideModal.reason.trim(),
+            status: newStatus,
+            minutesPresent: newMinutes,
+            reason: newReason,
           }),
         },
       );
 
       if (!res.ok) {
+        // Rollback on server failure
+        setData(previousData);
         const err = await res.json().catch(() => null);
-        throw new Error(err?.message || "Failed to update attendance");
+        setErrorMessage(err?.message || "Failed to update attendance on server");
+        return;
       }
 
-      setOverrideModal((prev) => ({ ...prev, isOpen: false, loading: false }));
-      await fetchAttendanceData();
+      // Background re-fetch to ensure synchronization
+      fetchAttendanceData();
     } catch (err: any) {
-      setOverrideModal((prev) => ({ ...prev, loading: false, error: err.message || "Network error" }));
+      setData(previousData);
+      setErrorMessage(err.message || "Network error while saving attendance");
     }
   };
 
@@ -496,9 +537,14 @@ export default function SessionAttendancePage({
                   Learners can scan this QR code or click the check-in URL on their mobile phones to check in.
                 </p>
                 <div style={{ display: "inline-block", padding: "16px", background: "#ffffff", borderRadius: "12px", border: "2px dashed #cbd5e1", marginBottom: "16px" }}>
-                  <img
+                  <Image
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrModal.checkInUrl)}`}
                     alt="Check-in QR code"
+                    width={200}
+                    height={200}
+                    unoptimized
+                    quality={80}
+                    loading="lazy"
                     style={{ width: "200px", height: "200px" }}
                   />
                 </div>

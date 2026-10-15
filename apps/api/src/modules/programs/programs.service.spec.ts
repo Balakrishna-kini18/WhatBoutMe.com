@@ -80,6 +80,16 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       getEndpointKey: vi.fn().mockImplementation((ns, role, params) => `${ns}:${role}:${JSON.stringify(params)}`),
       getOrSet: vi.fn().mockImplementation(async (_key, fetcher) => fetcher()),
       invalidateNamespace: vi.fn().mockResolvedValue(undefined),
+      invalidateTag: vi.fn().mockImplementation(async (tag: string) => {
+        await cacheHelperMock.invalidateNamespace(tag);
+        return 1;
+      }),
+      invalidateTags: vi.fn().mockImplementation(async (tags: string[]) => {
+        for (const tag of tags) {
+          await cacheHelperMock.invalidateNamespace(tag);
+        }
+        return tags.length;
+      }),
     };
 
     const mediaProviderMock = {

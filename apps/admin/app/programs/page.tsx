@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
 import pstyles from "./programs.module.css";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
@@ -520,10 +521,15 @@ export default function ProgramsPage() {
                 {/* Visual Banner Header */}
                 <div className={pstyles.cardMediaHeader}>
                   {info.image && !failedImages[prog.id] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <Image
                       src={getCourseImageUrl(info.image)}
                       alt={prog.title}
+                      width={400}
+                      height={200}
+                      quality={80}
+                      loading="lazy"
+                      sizes="(max-width: 768px) 100vw, 360px"
+                      unoptimized={!getCourseImageUrl(info.image).startsWith("/")}
                       className={pstyles.cardMediaImage}
                       onError={() =>
                         setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
@@ -687,10 +693,14 @@ export default function ProgramsPage() {
                           }}
                         >
                           {hasValidImage ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <Image
                               src={imageUrl}
                               alt={prog.title}
+                              width={36}
+                              height={36}
+                              quality={80}
+                              loading="lazy"
+                              unoptimized={!imageUrl.startsWith("/")}
                               style={{ width: "100%", height: "100%", objectFit: "cover" }}
                               onError={() =>
                                 setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
@@ -947,9 +957,14 @@ export default function ProgramsPage() {
                         border: "1px solid var(--border-light)",
                       }}
                     >
-                      <img
+                      <Image
                         src={getCourseImageUrl(image)}
                         alt="Preview"
+                        width={48}
+                        height={36}
+                        quality={80}
+                        loading="lazy"
+                        unoptimized={!getCourseImageUrl(image).startsWith("/")}
                         style={{ width: "48px", height: "36px", objectFit: "cover", borderRadius: "4px" }}
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = "none";

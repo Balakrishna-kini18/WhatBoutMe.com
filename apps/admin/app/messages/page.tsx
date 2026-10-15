@@ -283,6 +283,24 @@ export default function MessagesPage() {
     const attachmentUrl = pendingFile?.url;
     if ((!content && !attachmentUrl) || !activeId || sending) return;
 
+    // Optimistic UI update: immediately display message in chat stream
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      senderId: myId || "current-user",
+      senderName: "You",
+      content,
+      attachmentUrl,
+      read: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setDraft("");
+    setPendingFile(null);
+    setEmojiOpen(false);
+    if (soundEnabled) playTone(800, 1200, 0.08);
+
     setSending(true);
     try {
       const res = await fetch(`${API_URL}/messages/conversations/${activeId}`, {
@@ -294,12 +312,11 @@ export default function MessagesPage() {
         }),
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not send the message"));
-      setDraft("");
-      setPendingFile(null);
-      setEmojiOpen(false);
-      if (soundEnabled) playTone(800, 1200, 0.08);
       await Promise.all([loadMessages(activeId), loadConversations()]);
     } catch (err) {
+      // Rollback optimistic message on network error and restore draft
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setDraft(content);
       setError(err instanceof Error ? err.message : "Could not send the message");
     } finally {
       setSending(false);

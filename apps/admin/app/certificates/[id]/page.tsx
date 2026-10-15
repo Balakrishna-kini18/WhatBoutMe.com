@@ -2,9 +2,12 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import Certificate, { type CertificateDetails } from "../Certificate";
+import dynamic from "next/dynamic";
+import type { CertificateDetails } from "../Certificate";
 import styles from "../Certificate.module.css";
 import { API_URL } from "../../lib/api";
+
+const Certificate = dynamic(() => import("../Certificate"), { ssr: false });
 
 type Row = {
   id: string;

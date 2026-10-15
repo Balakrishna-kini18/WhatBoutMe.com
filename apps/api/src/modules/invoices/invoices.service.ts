@@ -114,7 +114,7 @@ export class InvoicesService {
     });
   }
 
-  async findAll(user?: any) {
+  async findAll(user?: any, query?: { page?: number; limit?: number }) {
     const where: any = {};
     if (user) {
       if (
@@ -135,13 +135,33 @@ export class InvoicesService {
       }
     }
 
+    const page = query?.page ? Math.max(1, Number(query.page)) : undefined;
+    const limit = query?.limit ? Math.min(100, Math.max(1, Number(query.limit))) : undefined;
+    const skip = page && limit ? (page - 1) * limit : undefined;
+
     const invoices = await this.prisma.invoice.findMany({
       where,
-      include: {
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        amount: true,
+        currency: true,
+        status: true,
+        creditNoteId: true,
+        createdAt: true,
         payment: {
-          include: {
+          select: {
             enrolment: {
-              include: { user: true },
+              select: {
+                user: {
+                  select: {
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -402,11 +422,17 @@ export class InvoicesService {
     return invoice.creditNote || invoice.creditNotes[invoice.creditNotes.length - 1];
   }
 
-  async findAllCreditNotes() {
+  async findAllCreditNotes(query?: { page?: number; limit?: number }) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const invoices = await this.prisma.invoice.findMany({
       where: {
         OR: [{ creditNoteId: { not: null } }, { status: InvoiceStatus.REFUNDED }],
       },
+      skip,
+      take: limit,
       include: {
         payment: {
           include: {

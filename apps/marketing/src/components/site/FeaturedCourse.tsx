@@ -66,6 +66,7 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
             alt={course.alt || course.title || "Featured course"}
             fill
             priority
+            quality={80}
             unoptimized={!isOptimisable(course.image)}
             sizes="(max-width: 1024px) 100vw, 620px"
             className="object-cover"

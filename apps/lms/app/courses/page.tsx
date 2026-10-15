@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import dash from "../page.module.css";
@@ -221,24 +222,45 @@ function Courses() {
                   <div className={styles.blockHead}>
                     {isActive ? (
                       <Link href={resume} className={styles.cover} aria-label={`${action}: ${course.programTitle}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <Image
+                          src="/brand/session.png"
+                          alt=""
+                          width={220}
+                          height={124}
+                          quality={80}
+                          loading="lazy"
+                          sizes="220px"
+                        />
                         <span className={styles.play} aria-hidden="true">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                         </span>
                       </Link>
                     ) : course.status === "PENDING_AGREEMENT" ? (
                       <Link href="/agreement" className={styles.cover} aria-label={`Sign Agreement: ${course.programTitle}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <Image
+                          src="/brand/session.png"
+                          alt=""
+                          width={220}
+                          height={124}
+                          quality={80}
+                          loading="lazy"
+                          sizes="220px"
+                        />
                         <span className={styles.play} aria-hidden="true">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
                         </span>
                       </Link>
                     ) : (
                       <div className={styles.cover} style={{ cursor: "not-allowed", opacity: 0.7 }} aria-label={`Gated: ${course.programTitle}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <Image
+                          src="/brand/session.png"
+                          alt=""
+                          width={220}
+                          height={124}
+                          quality={80}
+                          loading="lazy"
+                          sizes="220px"
+                        />
                       </div>
                     )}
                     <div className={dash.rowMain}>

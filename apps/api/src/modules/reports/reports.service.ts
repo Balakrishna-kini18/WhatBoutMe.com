@@ -168,12 +168,18 @@ export class ReportsService {
   }
 
   // Financial & Payment analytics (Restricted to SUPER_ADMIN and ADMIN)
-  async getPaymentAnalytics(user?: any) {
+  async getPaymentAnalytics(user?: any, query?: { page?: number; limit?: number }) {
     if (user && (user.role === Role.MANAGER || user.role === 'MANAGER' || user.role === 'TEACHER')) {
       throw new ForbiddenException('Managers do not have permission to access financial reports');
     }
 
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const payments = await this.prisma.payment.findMany({
+      skip,
+      take: limit,
       include: {
         invoice: true,
         enrolment: {

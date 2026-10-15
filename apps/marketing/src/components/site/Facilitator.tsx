@@ -27,11 +27,12 @@ export default function Facilitator({ image }: { image: string }) {
             <span className="absolute inset-x-0 bottom-0 aspect-square rounded-full bg-[linear-gradient(160deg,#f8cf86,#efa944)]" />
             <Image
               src={image}
-            unoptimized={!isLocalImage(image)}
+              unoptimized={!isLocalImage(image)}
               alt="Roweena Britto, Brain Health Coach"
               width={623}
               height={1289}
               priority
+              quality={80}
               sizes="(max-width: 640px) 80vw, 400px"
               className="absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
             />
@@ -65,6 +66,9 @@ export default function Facilitator({ image }: { image: string }) {
             alt="Roweena Britto signature"
             width={488}
             height={208}
+            quality={80}
+            loading="lazy"
+            sizes="(max-width: 768px) 180px, 240px"
             className="mt-8 h-20 w-auto"
           />
         </div>
@@ -114,6 +118,8 @@ export default function Facilitator({ image }: { image: string }) {
               src="/site/about-photo.jpg"
               alt="Roweena Britto smiling, seated on a motorbike"
               fill
+              quality={80}
+              loading="lazy"
               sizes="(max-width: 1024px) 100vw, 480px"
               className="object-cover"
             />
@@ -158,6 +164,9 @@ export default function Facilitator({ image }: { image: string }) {
                   alt={badge.alt}
                   width={320}
                   height={320}
+                  quality={80}
+                  loading="lazy"
+                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 160px"
                   className="max-h-full w-auto max-w-full object-contain"
                 />
               </li>

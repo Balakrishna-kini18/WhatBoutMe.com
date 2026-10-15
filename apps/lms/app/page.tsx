@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./page.module.css";
+import Image from "next/image";
 import Link from "next/link";
 import { SITE_URL } from "./lib/site";
 import { useEffect, useState } from "react";
@@ -300,8 +301,16 @@ export default function LearnerDashboard() {
               <ul className={styles.list}>
                 {user.enrolledPrograms.map((prog) => (
                   <li key={prog.programId} className={styles.course}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/brand/session.png" alt="" className={styles.thumb} />
+                    <Image
+                      src="/brand/session.png"
+                      alt=""
+                      width={104}
+                      height={72}
+                      quality={80}
+                      loading="lazy"
+                      sizes="104px"
+                      className={styles.thumb}
+                    />
                     <div className={styles.rowMain}>
                       <p className={styles.rowTitle}>{prog.programTitle}</p>
                       <p className={styles.muted} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

@@ -576,6 +576,25 @@ export class AttendanceReconciliationService {
   async getUnmatchedForSession(sessionId: string) {
     return this.prisma.unmatchedAttendance.findMany({
       where: { sessionId },
+      select: {
+        id: true,
+        sessionId: true,
+        provider: true,
+        providerId: true,
+        participantEmail: true,
+        participantName: true,
+        joinTime: true,
+        leaveTime: true,
+        durationMin: true,
+        minutesPresent: true,
+        status: true,
+        linkedEnrolmentId: true,
+        linkedUserId: true,
+        resolvedById: true,
+        resolvedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: { joinTime: 'asc' },
     });
   }

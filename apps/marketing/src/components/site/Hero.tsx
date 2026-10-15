@@ -64,6 +64,7 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
             width={623}
             height={1289}
             priority
+            quality={80}
             sizes="(max-width: 640px) 80vw, 420px"
             className="absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
           />

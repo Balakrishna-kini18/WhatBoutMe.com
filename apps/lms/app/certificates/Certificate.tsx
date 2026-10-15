@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "next/image";
 import styles from "./Certificate.module.css";
 
 export type CertificateDetails = {
@@ -426,8 +427,16 @@ export default function Certificate({
         <header className={styles.headerRow}>
           <div className={styles.brandGroup}>
             {logoImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoImage} alt={finalBrand} className={styles.brandLogoImg} />
+              <Image
+                src={logoImage}
+                alt={finalBrand}
+                width={160}
+                height={40}
+                quality={80}
+                loading="lazy"
+                unoptimized={!logoImage.startsWith("/")}
+                className={styles.brandLogoImg}
+              />
             ) : (
               <div className={styles.brandWordmark}>
                 <span className={styles.brandNameText}>{finalBrand}</span>
@@ -482,8 +491,16 @@ export default function Certificate({
           <div className={styles.signerCol}>
             <div className={styles.signatureSlot}>
               {signatureImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={signatureImage} alt={finalIssuer} className={styles.signatureImg} />
+                <Image
+                  src={signatureImage}
+                  alt={finalIssuer}
+                  width={180}
+                  height={50}
+                  quality={80}
+                  loading="lazy"
+                  unoptimized={!signatureImage.startsWith("/")}
+                  className={styles.signatureImg}
+                />
               ) : (
                 <span className={styles.handwrittenSignature}>{finalIssuer}</span>
               )}
@@ -510,8 +527,16 @@ export default function Certificate({
 
             <div className={styles.qrGroup}>
               {qrCodeImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrCodeImage} alt="Certificate QR" className={styles.qrImg} />
+                <Image
+                  src={qrCodeImage}
+                  alt="Certificate QR"
+                  width={64}
+                  height={64}
+                  quality={80}
+                  loading="lazy"
+                  unoptimized={!qrCodeImage.startsWith("/")}
+                  className={styles.qrImg}
+                />
               ) : (
                 <VectorQrCode className={styles.qrVector} />
               )}

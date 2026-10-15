@@ -59,6 +59,8 @@ export default function AboutTeaser({ image }: { image: string }) {
             alt="Roweena Britto, Brain Health Coach"
             width={623}
             height={1289}
+            quality={80}
+            loading="lazy"
             sizes="(max-width: 1024px) 80vw, 420px"
             className="absolute left-1/2 top-[4%] h-[190%] w-auto max-w-none -translate-x-1/2"
           />

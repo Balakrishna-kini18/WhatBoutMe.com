@@ -13,6 +13,7 @@ import { CertificatesService } from './certificates.service.js';
 import { CertificateEligibilityService } from './certificate-eligibility.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { PublicCache } from '../../common/decorators/cache-control.decorator.js';
 import { Role, CertificateType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -29,6 +30,7 @@ export class CertificatesController {
    * GET /certificates/verify/:code and GET /api/certificates/verify/:code
    */
   @Public()
+  @PublicCache(60, 300)
   @Get('verify/:code')
   verifyCertificate(@Param('code') code: string) {
     return this.certificatesService.verifyCertificate(code);
@@ -63,11 +65,19 @@ export class CertificatesController {
     );
   }
 
-  // Admin & Manager: Get certificates (scoped by assigned batch for managers)
+  // Admin & Manager: Get certificates (scoped by assigned batch for managers with pagination)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findAll(@Request() req: any) {
-    return this.certificatesService.findAll(req.user);
+  findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string
+  ) {
+    const query = page || limit ? {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    } : undefined;
+    return this.certificatesService.findAll(req?.user, query);
   }
 
   // Learner: Get their approved or issued certificates
@@ -146,5 +156,12 @@ export class CertificatesController {
   @Get(':id/download')
   downloadCertificatePdf(@Param('id') id: string, @Request() req: any) {
     return this.certificatesService.getCertificatePdfDownload(id, req.user);
+  }
+
+  @Public()
+  @PublicCache(60, 300)
+  @Get(':id')
+  getCertificateByIdOrCode(@Param('id') id: string) {
+    return this.certificatesService.verifyCertificate(id);
   }
 }

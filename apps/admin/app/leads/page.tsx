@@ -42,19 +42,39 @@ export default function LeadsPage() {
     load();
   }, []);
 
-  const setStatus = async (id: string, status: string) => {
-    const res = await fetch(`${API_URL}/leads/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) setLeads((all) => all.map((l) => (l.id === id ? { ...l, status } : l)));
+  const setStatus = async (id: string, nextStatus: string) => {
+    const previous = leads;
+    // Optimistic UI update: immediately reflect new lead status
+    setLeads((all) => all.map((l) => (l.id === id ? { ...l, status: nextStatus } : l)));
+    try {
+      const res = await fetch(`${API_URL}/leads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        // Rollback on server error
+        setLeads(previous);
+      }
+    } catch {
+      setLeads(previous);
+    }
   };
 
   const remove = async (id: string) => {
     if (!confirm("Delete this enquiry permanently?")) return;
-    const res = await fetch(`${API_URL}/leads/${id}`, { method: "DELETE" });
-    if (res.ok) setLeads((all) => all.filter((l) => l.id !== id));
+    const previous = leads;
+    // Optimistic UI update: immediately remove from view
+    setLeads((all) => all.filter((l) => l.id !== id));
+    try {
+      const res = await fetch(`${API_URL}/leads/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        // Rollback on server error
+        setLeads(previous);
+      }
+    } catch {
+      setLeads(previous);
+    }
   };
 
   const visible = filter === "ALL" ? leads : leads.filter((l) => l.status === filter);

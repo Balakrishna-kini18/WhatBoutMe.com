@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import styles from "./live.module.css";
 import { API_URL, getAuthHeaders, parseApiError } from "../lib/api";
@@ -673,10 +674,14 @@ export default function LiveSessionsPage() {
               >
                 {/* Media banner */}
                 <div className={styles.cardBanner}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src="/brand/session.png"
                     alt=""
+                    width={400}
+                    height={200}
+                    quality={80}
+                    loading="lazy"
+                    sizes="(max-width: 768px) 100vw, 400px"
                     className={styles.bannerImg}
                     aria-hidden="true"
                   />
@@ -723,10 +728,14 @@ export default function LiveSessionsPage() {
 
                   {/* Facilitator row */}
                   <div className={styles.hostRow}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <Image
                       src="/brand/roweena.png"
                       alt="Roweena Britto"
+                      width={30}
+                      height={30}
+                      quality={80}
+                      loading="lazy"
+                      sizes="30px"
                       className={styles.hostAvatar}
                     />
                     <div className={styles.hostInfo}>

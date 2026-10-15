@@ -46,6 +46,7 @@ async function bootstrap() {
       return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
+    exposedHeaders: ['Server-Timing', 'X-Prisma-Queries', 'Cache-Control'],
   });
 
 

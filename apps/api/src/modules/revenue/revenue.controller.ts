@@ -12,11 +12,27 @@ export class RevenueController {
   async getRevenueStats(@Req() _req: any) {
     const [invoices, standalonePayments] = await Promise.all([
       this.prisma.invoice.findMany({
-        include: {
+        take: 200,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          amount: true,
+          status: true,
+          creditNoteId: true,
+          taxFields: true,
+          createdAt: true,
           payment: {
-            include: {
+            select: {
+              enrolmentId: true,
               enrolment: {
-                include: { user: true, program: true },
+                select: {
+                  user: {
+                    select: {
+                      name: true,
+                      email: true,
+                    },
+                  },
+                },
               },
             },
           },
@@ -26,9 +42,23 @@ export class RevenueController {
       typeof this.prisma.payment?.findMany === 'function'
         ? this.prisma.payment.findMany({
             where: { invoice: null },
-            include: {
+            take: 200,
+            select: {
+              id: true,
+              stripeSessionId: true,
+              amount: true,
+              status: true,
+              enrolmentId: true,
+              createdAt: true,
               enrolment: {
-                include: { user: true, program: true },
+                select: {
+                  user: {
+                    select: {
+                      name: true,
+                      email: true,
+                    },
+                  },
+                },
               },
             },
             orderBy: { createdAt: 'desc' },

@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
-import { CustomSelect, ActionMenu, StatusBadge, RevokeAccessModal, useToast } from "../components";
+import dynamic from "next/dynamic";
+import { CustomSelect, ActionMenu, StatusBadge, useToast } from "../components";
+
+const RevokeAccessModal = dynamic(
+  () => import("../components/RevokeAccessModal").then((mod) => mod.RevokeAccessModal),
+  { ssr: false }
+);
 
 interface UserEnrolment {
   id: string;
@@ -172,12 +178,23 @@ export default function UsersPage() {
     }
   }, [isModalOpen]);
 
+  const userFetchAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     setIsLoading(true);
+    if (userFetchAbortRef.current) {
+      userFetchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    userFetchAbortRef.current = controller;
+
     const delay = setTimeout(() => {
-      fetchUsers();
+      fetchUsers(controller.signal);
     }, 300); // debounce search
-    return () => clearTimeout(delay);
+    return () => {
+      clearTimeout(delay);
+      controller.abort();
+    };
   }, [page, search, viewMode]);
 
   const fetchBatches = async () => {
@@ -195,20 +212,23 @@ export default function UsersPage() {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (signal?: AbortSignal) => {
     try {
       const token = localStorage.getItem("token");
       const roleParam = viewMode === "LEARNERS" ? "USER" : "STAFF";
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&role=${roleParam}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       if (res.ok) {
         const json = await res.json();
         setUsers(json.data || []);
         setTotalUsers(json.total || 0);
       }
-    } catch (e) {
-      console.error("Failed to fetch users", e);
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.error("Failed to fetch users", e);
+      }
     } finally {
       setIsLoading(false);
     }

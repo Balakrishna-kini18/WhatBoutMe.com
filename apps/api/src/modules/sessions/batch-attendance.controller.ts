@@ -48,20 +48,25 @@ export class BatchAttendanceController {
     @Param('batchId') batchId: string,
     @Param('sessionId') sessionId: string,
   ) {
-    const session = await this.prisma.session.findUnique({
-      where: { id: sessionId },
-      include: {
-        batch: {
-          include: {
-            program: true,
-            enrolments: {
-              where: { status: 'ACTIVE' },
-              include: { user: true },
+    const [session, attendanceRecords] = await Promise.all([
+      this.prisma.session.findUnique({
+        where: { id: sessionId },
+        include: {
+          batch: {
+            include: {
+              program: true,
+              enrolments: {
+                where: { status: 'ACTIVE' },
+                include: { user: true },
+              },
             },
           },
         },
-      },
-    });
+      }),
+      this.prisma.attendance.findMany({
+        where: { sessionId },
+      }),
+    ]);
 
     if (!session || session.batchId !== batchId) {
       throw new NotFoundException('Session not found for the specified batch');
@@ -72,13 +77,8 @@ export class BatchAttendanceController {
       (session.batch as any)?.attendanceThreshold ??
       75;
 
-    // Fetch existing attendance records for this session
-    const attendanceRecords = await this.prisma.attendance.findMany({
-      where: { sessionId },
-    });
-
-    const attendanceMap = new Map<string, (typeof attendanceRecords)[0]>();
-    for (const record of attendanceRecords) {
+    const attendanceMap = new Map<string, any>();
+    for (const record of (attendanceRecords || [])) {
       attendanceMap.set(record.userId, record);
     }
 
@@ -183,38 +183,36 @@ export class BatchAttendanceController {
     @Param('batchId') batchId: string,
     @Param('sessionId') sessionId: string,
   ) {
-    const session = await this.prisma.session.findUnique({
-      where: { id: sessionId },
-      include: {
-        batch: {
-          include: {
-            program: true,
-            enrolments: {
-              where: { status: 'ACTIVE' },
-              include: { user: true },
+    const [session, unmatched, attendances] = await Promise.all([
+      this.prisma.session.findUnique({
+        where: { id: sessionId },
+        include: {
+          batch: {
+            include: {
+              program: true,
+              enrolments: {
+                where: { status: 'ACTIVE' },
+                include: { user: true },
+              },
             },
           },
         },
-      },
-    });
+      }),
+      this.prisma.unmatchedAttendance.findMany({
+        where: {
+          sessionId,
+          status: 'UNMATCHED',
+        },
+        orderBy: { joinTime: 'asc' },
+      }),
+      this.prisma.attendance.findMany({
+        where: { sessionId },
+      }),
+    ]);
 
     if (!session || session.batchId !== batchId) {
       throw new NotFoundException('Session not found for the specified batch');
     }
-
-    // 1. Unmatched participants
-    const unmatched = await this.prisma.unmatchedAttendance.findMany({
-      where: {
-        sessionId,
-        status: 'UNMATCHED',
-      },
-      orderBy: { joinTime: 'asc' },
-    });
-
-    // 2. Enrolled batch learners who are currently unlinked / absent
-    const attendances = await this.prisma.attendance.findMany({
-      where: { sessionId },
-    });
 
     const presentUserIds = new Set(
       attendances

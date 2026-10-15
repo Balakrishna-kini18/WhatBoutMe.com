@@ -83,7 +83,9 @@ function Curriculum() {
                 alt="Roweena Britto"
                 width={200}
                 height={200}
-                priority
+                sizes="96px"
+                quality={80}
+                loading="lazy"
                 className="absolute left-1/2 top-1 h-[175%] w-auto max-w-none -translate-x-1/2 object-cover"
               />
             </div>
@@ -95,6 +97,8 @@ function Curriculum() {
                 alt="Roweena Britto"
                 width={623}
                 height={1289}
+                quality={80}
+                loading="lazy"
                 sizes="(max-width: 768px) 60vw, 360px"
                 className="absolute left-1/2 top-6 h-[170%] w-auto max-w-none -translate-x-1/2 md:top-10"
               />

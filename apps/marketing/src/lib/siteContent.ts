@@ -90,7 +90,7 @@ export async function getSiteContent(): Promise<SiteContent> {
 async function fetchSiteContent(): Promise<SiteContent> {
   try {
     const res = await fetch(`${API_BASE_URL}/site-content`, {
-      cache: "no-store",
+      next: { revalidate: 60, tags: ['website'] },
       signal: AbortSignal.timeout(4000),
     });
     if (res.ok) {

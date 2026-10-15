@@ -41,7 +41,7 @@ export class CouponsService {
   async getSummaryKpis(): Promise<CouponSummaryKpis> {
     const now = new Date();
 
-    const [activeCount, depletedCount, expiredCount, totalRedemptions, redemptions] =
+    const [activeCount, depletedCount, expiredCount, totalRedemptions] =
       await Promise.all([
         this.prisma.coupon.count({
           where: {
@@ -61,13 +61,34 @@ export class CouponsService {
           },
         }),
         this.prisma.couponRedemption.count(),
-        this.prisma.couponRedemption.findMany({
+      ]);
+
+    let redemptionSums: any[] = [];
+    let redemptionsList: any[] = [];
+
+    if (typeof this.prisma.couponRedemption?.groupBy === 'function') {
+      try {
+        redemptionSums = await (this.prisma.couponRedemption as any).groupBy({
+          by: ['currency'],
+          _sum: {
+            discountAmount: true,
+          },
+        });
+      } catch {
+        redemptionSums = [];
+      }
+    }
+
+    if (!redemptionSums || redemptionSums.length === 0 || !redemptionSums[0]?._sum) {
+      if (totalRedemptions > 0) {
+        redemptionsList = await this.prisma.couponRedemption.findMany({
           select: {
             currency: true,
             discountAmount: true,
           },
-        }),
-      ]);
+        });
+      }
+    }
 
     const totalDiscountGiven: Record<string, number> = {
       INR: 0,
@@ -75,9 +96,16 @@ export class CouponsService {
       USD: 0,
     };
 
-    for (const r of redemptions) {
-      const curr = (r.currency || 'USD').toUpperCase();
-      totalDiscountGiven[curr] = Math.round(((totalDiscountGiven[curr] || 0) + r.discountAmount) * 100) / 100;
+    if (redemptionSums && redemptionSums.length > 0 && redemptionSums[0]?._sum) {
+      for (const r of redemptionSums) {
+        const curr = (r.currency || 'USD').toUpperCase();
+        totalDiscountGiven[curr] = Math.round((r._sum.discountAmount || 0) * 100) / 100;
+      }
+    } else {
+      for (const r of redemptionsList) {
+        const curr = (r.currency || 'USD').toUpperCase();
+        totalDiscountGiven[curr] = Math.round(((totalDiscountGiven[curr] || 0) + r.discountAmount) * 100) / 100;
+      }
     }
 
     return {
@@ -136,7 +164,22 @@ export class CouponsService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          discountType: true,
+          discountValue: true,
+          currency: true,
+          scope: true,
+          maxTotalUses: true,
+          currentUses: true,
+          maxUsesPerUser: true,
+          validFrom: true,
+          expiresAt: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
           programs: {
             select: { id: true, title: true, slug: true },
           },

@@ -5,14 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-
-interface UserData {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  permissions?: string[];
-}
+import { useAuth, type UserData } from "./AuthProvider";
 
 // Crisp, uniform 1.75px stroke icons matching the WhatBoutMe brand identity
 const Icons = {
@@ -317,7 +310,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<UserData | null>(null);
+  const { user, logout: authLogout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -329,25 +322,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load user session and sidebar preference
+  // Set up sidebar preference, theme, and keyboard shortcuts once on mount
   useEffect(() => {
-    if (pathname === "/login") return;
-
-    const token = localStorage.getItem("token");
-    const storedUser = localStorage.getItem("user");
-
-    if (!token || !storedUser) {
-      router.push("/login");
-      return;
-    }
-
-    try {
-      setUser(JSON.parse(storedUser));
-    } catch {
-      localStorage.removeItem("user");
-      router.push("/login");
-    }
-
     const savedCollapsed = localStorage.getItem("admin_sidebar_collapsed");
     if (savedCollapsed !== null) {
       setIsCollapsed(savedCollapsed === "true");
@@ -366,7 +342,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         setSearchShortcut("⌘K");
       }
     }
-  }, [pathname, router]);
+  }, []);
 
   // Keyboard shortcut for command palette (Ctrl+K / Cmd+K) and Escape handler
   useEffect(() => {
@@ -433,14 +409,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     try {
       setIsLoggingOut(true);
       setLogoutError(null);
-      localStorage.removeItem("token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("user");
-      setUser(null);
       setShowSignOutConfirm(false);
-      setIsLoggingOut(false);
       setUserDropdownOpen(false);
-      router.push("/login");
+      await authLogout();
     } catch (err) {
       setIsLoggingOut(false);
       setLogoutError(err instanceof Error ? err.message : "Failed to sign out. Please try again.");

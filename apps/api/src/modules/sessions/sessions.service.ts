@@ -865,7 +865,19 @@ export class SessionsService {
       include: {
         hostTrainer: { select: { id: true, name: true } },
         learner: { select: { id: true, name: true } },
-        attendances: true,
+        attendances: {
+          select: {
+            id: true,
+            sessionId: true,
+            userId: true,
+            enrolmentId: true,
+            status: true,
+            joinTime: true,
+            leaveTime: true,
+            durationMin: true,
+            minutesPresent: true,
+          },
+        },
       },
     });
   }
@@ -876,7 +888,13 @@ export class SessionsService {
       orderBy: { startTime: 'desc' },
       take: limit,
       include: {
-        batch: { include: { program: { select: { id: true, title: true } } } },
+        batch: {
+          select: {
+            id: true,
+            name: true,
+            program: { select: { id: true, title: true } },
+          },
+        },
         hostTrainer: { select: { id: true, name: true, email: true } },
         learner: { select: { id: true, name: true, email: true } },
         _count: { select: { attendances: true, bookings: true } },
@@ -886,19 +904,21 @@ export class SessionsService {
 
   // Learner: their own sessions with attendance (preserved)
   async getMySessions(userId: string, viewerTimezone?: string | null) {
-    const enrolments = await this.prisma.enrolment.findMany({
-      where: { 
-        userId, 
-        status: { in: ['ACTIVE', 'COMPLETED'] },
-        batch: { status: { not: 'ARCHIVED' } },
-      },
-      select: { id: true, batchId: true, batch: { select: { name: true, program: { select: { title: true } } } } },
-    });
-
-    const oneOnOnes = await this.prisma.session.findMany({
-      where: { learnerId: userId },
-      orderBy: { startTime: 'desc' },
-    });
+    // Parallelize independent enrolment and 1:1 session queries in a single round trip
+    const [enrolments, oneOnOnes] = await Promise.all([
+      this.prisma.enrolment.findMany({
+        where: { 
+          userId, 
+          status: { in: ['ACTIVE', 'COMPLETED'] },
+          batch: { status: { not: 'ARCHIVED' } },
+        },
+        select: { id: true, batchId: true, batch: { select: { name: true, program: { select: { title: true } } } } },
+      }),
+      this.prisma.session.findMany({
+        where: { learnerId: userId },
+        orderBy: { startTime: 'desc' },
+      }),
+    ]);
 
     const cohortSessions = enrolments.length > 0
       ? await this.prisma.session.findMany({
@@ -1968,6 +1988,7 @@ export class SessionsService {
       const absentUserIds = new Set(attendances.map((a) => a.userId));
       const absentLearners = session.batch.enrolments.filter((e) => absentUserIds.has(e.userId));
 
+      const auditEntries: any[] = [];
       for (const enrolment of absentLearners) {
         if (!enrolment.user?.email) continue;
 
@@ -1983,22 +2004,28 @@ export class SessionsService {
             });
           }
 
-          await this.prisma.auditLog.create({
-            data: {
-              actorId: 'SYSTEM',
-              action: 'MISSED_SESSION_NOTIFICATION_SENT',
-              entity: 'Session',
-              entityId: session.id,
-              meta: {
-                recipientUserId: enrolment.userId,
-                recipientEmail: enrolment.user.email,
-                recordingUrl,
-              },
+          auditEntries.push({
+            actorId: 'SYSTEM',
+            action: 'MISSED_SESSION_NOTIFICATION_SENT',
+            entity: 'Session',
+            entityId: session.id,
+            meta: {
+              recipientUserId: enrolment.userId,
+              recipientEmail: enrolment.user.email,
+              recordingUrl,
             },
           });
         } catch (err: any) {
           this.logger.warn(`Failed to dispatch missed session alert to ${enrolment.user.email}: ${err.message}`);
         }
+      }
+
+      if (auditEntries.length > 0) {
+        await this.prisma.auditLog.createMany({
+          data: auditEntries,
+        }).catch((err) => {
+          this.logger.warn(`Failed to batch insert missed session audit logs: ${err.message}`);
+        });
       }
     } catch (err: any) {
       this.logger.error(`Error in triggerMissedSessionNotifications: ${err.message}`);

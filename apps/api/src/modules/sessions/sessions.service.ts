@@ -737,7 +737,19 @@ export class SessionsService {
       include: {
         hostTrainer: { select: { id: true, name: true } },
         learner: { select: { id: true, name: true } },
-        attendances: true,
+        attendances: {
+          select: {
+            id: true,
+            sessionId: true,
+            userId: true,
+            enrolmentId: true,
+            status: true,
+            joinTime: true,
+            leaveTime: true,
+            durationMin: true,
+            minutesPresent: true,
+          },
+        },
       },
     });
   }
@@ -748,7 +760,13 @@ export class SessionsService {
       orderBy: { startTime: 'desc' },
       take: limit,
       include: {
-        batch: { include: { program: { select: { id: true, title: true } } } },
+        batch: {
+          select: {
+            id: true,
+            name: true,
+            program: { select: { id: true, title: true } },
+          },
+        },
         hostTrainer: { select: { id: true, name: true, email: true } },
         learner: { select: { id: true, name: true, email: true } },
         _count: { select: { attendances: true, bookings: true } },

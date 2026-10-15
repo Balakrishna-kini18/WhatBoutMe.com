@@ -183,7 +183,22 @@ export class MessagesController {
       where,
       orderBy: { updatedAt: 'desc' },
       take: 100, // Capped to avoid loading millions of conversations in one query
-      include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      select: {
+        id: true,
+        participantIds: true,
+        updatedAt: true,
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            content: true,
+            attachmentUrl: true,
+            createdAt: true,
+            senderId: true,
+            read: true,
+          },
+        },
+      },
     });
 
     // Deduplicate conversations having identical participants

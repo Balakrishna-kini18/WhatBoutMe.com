@@ -106,9 +106,19 @@ export class UsersService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          permissions: true,
+          createdAt: true,
           enrolments: {
-            include: {
+            select: {
+              id: true,
+              batchId: true,
+              programId: true,
+              status: true,
               batch: { select: { id: true, name: true, programId: true } },
               program: { select: { id: true, title: true } },
             },

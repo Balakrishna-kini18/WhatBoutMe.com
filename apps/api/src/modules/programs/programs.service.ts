@@ -48,8 +48,8 @@ export class ProgramsService {
           },
           include: {
             _count: {
-              select: { steps: true }
-            }
+              select: { steps: true },
+            },
           },
           orderBy: { createdAt: 'desc' },
         });
@@ -63,8 +63,8 @@ export class ProgramsService {
         },
         include: {
           _count: {
-            select: { steps: true }
-          }
+            select: { steps: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
       });

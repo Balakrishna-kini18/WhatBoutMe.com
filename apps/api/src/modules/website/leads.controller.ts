@@ -56,7 +56,18 @@ export class LeadsController {
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
   @Get()
   list() {
-    return this.prisma.lead.findMany({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.lead.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        message: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)

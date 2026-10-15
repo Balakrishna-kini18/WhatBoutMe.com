@@ -115,11 +115,25 @@ export class InvoicesService {
 
   async findAll() {
     const invoices = await this.prisma.invoice.findMany({
-      include: {
+      select: {
+        id: true,
+        invoiceNumber: true,
+        amount: true,
+        currency: true,
+        status: true,
+        creditNoteId: true,
+        createdAt: true,
         payment: {
-          include: {
+          select: {
             enrolment: {
-              include: { user: true },
+              select: {
+                user: {
+                  select: {
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
             },
           },
         },

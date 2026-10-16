@@ -3,7 +3,8 @@
 import { useEffect, useState, use, FormEvent } from "react";
 import styles from "../../../page.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../../../lib/api";
+import { API_URL, cachedFetch, errorMessage } from "../../../lib/api";
+import { ConfirmDialog, useToast } from "../../../components";
 
 interface Option {
   id?: string;
@@ -53,6 +54,11 @@ export default function EditQuizPage({
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageSuccess, setPageSuccess] = useState<string | null>(null);
 
+  const { success: toastSuccess, error: toastError } = useToast();
+  const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
+  const [isDeletingQuestion, setIsDeletingQuestion] = useState(false);
+  const [deleteQuestionError, setDeleteQuestionError] = useState<string | null>(null);
+
   // Settings Form State
   const [passMark, setPassMark] = useState(75);
   const [maxAttempts, setMaxAttempts] = useState(3);
@@ -100,10 +106,10 @@ export default function EditQuizPage({
     setLoading(true);
     setPageError(null);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/quizzes/${quizId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const [res, qRes] = await Promise.all([
+        cachedFetch(`${API_URL}/quizzes/${quizId}`, { ttlMs: 30_000 }),
+        cachedFetch(`${API_URL}/quizzes/${quizId}/questions`, { ttlMs: 30_000 }).catch(() => null),
+      ]);
       if (!res.ok) {
         throw new Error(await errorMessage(res, "Failed to load quiz details"));
       }
@@ -115,11 +121,7 @@ export default function EditQuizPage({
       setQuestionCount(data.questionCount ?? "");
       setRetryGuidance(data.retryGuidance ?? "");
 
-      // Load questions
-      const qRes = await fetch(`${API_URL}/quizzes/${quizId}/questions`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (qRes.ok) {
+      if (qRes && qRes.ok) {
         const qData = await qRes.json();
         setQuestions(qData);
       } else if (data.questions) {
@@ -265,25 +267,32 @@ export default function EditQuizPage({
     }
   }
 
-  // Delete Question
-  async function handleDeleteQuestion(questionId: string) {
-    if (!window.confirm("Are you sure you want to delete this question?")) return;
+  // Delete Question with in-website popup & optimistic UI
+  async function confirmDeleteQuestion() {
+    if (!questionToDelete) return;
+    setIsDeletingQuestion(true);
+    setDeleteQuestionError(null);
 
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/quizzes/questions/${questionId}`, {
+      const res = await cachedFetch(`${API_URL}/quizzes/questions/${questionToDelete.id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       if (!res.ok) {
         throw new Error(await errorMessage(res, "Failed to delete question"));
       }
 
+      const deletedId = questionToDelete.id;
+      setQuestions((prev) => prev.filter((q) => q.id !== deletedId));
+      toastSuccess("Question removed.");
       setPageSuccess("Question removed.");
-      await loadQuizData();
+      setQuestionToDelete(null);
     } catch (err: any) {
-      setPageError(err.message);
+      const msg = err.message || "Failed to delete question";
+      setDeleteQuestionError(msg);
+      toastError(msg);
+    } finally {
+      setIsDeletingQuestion(false);
     }
   }
 
@@ -404,7 +413,10 @@ export default function EditQuizPage({
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleDeleteQuestion(q.id)}
+                          onClick={() => {
+                            setDeleteQuestionError(null);
+                            setQuestionToDelete(q);
+                          }}
                           className={styles.removeBtn}
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -703,6 +715,41 @@ export default function EditQuizPage({
           </div>
         </div>
       )}
+
+      {/* In-website branded ConfirmDialog for Question Deletion */}
+      <ConfirmDialog
+        isOpen={Boolean(questionToDelete)}
+        onClose={() => {
+          if (!isDeletingQuestion) {
+            setQuestionToDelete(null);
+            setDeleteQuestionError(null);
+          }
+        }}
+        onConfirm={confirmDeleteQuestion}
+        title="Delete Assessment Question"
+        subtitle={quiz?.step?.title ? `Step: ${quiz.step.title}` : undefined}
+        description={
+          <>
+            Are you sure you want to delete this question?
+            <div style={{ marginTop: "8px", padding: "10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.88rem" }}>
+              &ldquo;{questionToDelete?.text}&rdquo;
+            </div>
+          </>
+        }
+        tone="danger"
+        confirmText={isDeletingQuestion ? "Deleting..." : "Delete Question"}
+        cancelText="Cancel"
+        isLoading={isDeletingQuestion}
+        error={deleteQuestionError}
+        itemDetails={
+          questionToDelete
+            ? [
+                { label: "Points", value: `${questionToDelete.points || 1} pt` },
+                { label: "Answer Options", value: `${questionToDelete.options?.length || 0} options` },
+              ]
+            : []
+        }
+      />
     </div>
   );
 }

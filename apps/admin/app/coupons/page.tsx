@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import styles from "./coupons.module.css";
-import { API_URL } from "../lib/api";
-import { Modal, CustomSelect, StatusBadge, ActionMenu } from "../components";
+import { API_URL, cachedFetch, errorMessage } from "../lib/api";
+import { Modal, CustomSelect, StatusBadge, ActionMenu, ConfirmDialog } from "../components";
 import type { StatusTone } from "../components";
 
 interface Coupon {
@@ -99,6 +99,9 @@ export default function CouponsPage() {
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [couponToDelete, setCouponToDelete] = useState<Coupon | null>(null);
+  const [isDeletingCoupon, setIsDeletingCoupon] = useState(false);
+  const [deleteCouponError, setDeleteCouponError] = useState<string | null>(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -332,13 +335,12 @@ export default function CouponsPage() {
     }
   };
 
-  const handleDelete = async (coupon: Coupon) => {
+  const confirmDeleteCoupon = async () => {
+    if (!couponToDelete) return;
+    const coupon = couponToDelete;
     const isDeactivation = (coupon.currentUses || 0) > 0 || (coupon._count?.redemptions || 0) > 0;
-    const confirmPrompt = isDeactivation
-      ? `Coupon "${coupon.code}" has historical redemptions. Deactivating it will prevent new redemptions while preserving past invoice integrity. Proceed?`
-      : `Are you sure you want to delete coupon "${coupon.code}"?`;
-
-    if (!window.confirm(confirmPrompt)) return;
+    setIsDeletingCoupon(true);
+    setDeleteCouponError(null);
 
     const previousCoupons = coupons;
 
@@ -351,22 +353,24 @@ export default function CouponsPage() {
       setCoupons((prev) => prev.filter((c) => c.id !== coupon.id));
     }
     showToast(`Coupon "${coupon.code}" ${isDeactivation ? "deactivated" : "removed"}`);
+    setCouponToDelete(null);
 
     try {
-      const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "DELETE",
         credentials: "include",
       });
 
       if (!res.ok) {
-        // Rollback on server error
         setCoupons(previousCoupons);
         const errJson = await res.json().catch(() => null);
-        alert(errJson?.message || "Failed to delete coupon");
+        showToast(errJson?.message || "Failed to delete coupon");
       }
     } catch {
       setCoupons(previousCoupons);
-      alert("Failed to delete coupon");
+      showToast("Failed to delete coupon");
+    } finally {
+      setIsDeletingCoupon(false);
     }
   };
 
@@ -691,7 +695,10 @@ export default function CouponsPage() {
                             {
                               label: (coupon.currentUses || 0) > 0 ? "Archive Coupon" : "Delete Coupon",
                               danger: true,
-                              onClick: () => handleDelete(coupon),
+                              onClick: () => {
+                                setDeleteCouponError(null);
+                                setCouponToDelete(coupon);
+                              },
                             },
                           ]}
                         />
@@ -985,6 +992,61 @@ export default function CouponsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* In-website branded ConfirmDialog for Coupon Deletion / Archival */}
+      <ConfirmDialog
+        isOpen={Boolean(couponToDelete)}
+        onClose={() => {
+          if (!isDeletingCoupon) {
+            setCouponToDelete(null);
+            setDeleteCouponError(null);
+          }
+        }}
+        onConfirm={confirmDeleteCoupon}
+        title={
+          couponToDelete && ((couponToDelete.currentUses || 0) > 0 || (couponToDelete._count?.redemptions || 0) > 0)
+            ? "Deactivate Coupon & Preserve Invoices"
+            : "Delete Coupon Code"
+        }
+        subtitle={couponToDelete ? `Code: ${couponToDelete.code}` : undefined}
+        description={
+          couponToDelete && ((couponToDelete.currentUses || 0) > 0 || (couponToDelete._count?.redemptions || 0) > 0) ? (
+            <>
+              Coupon <strong>{couponToDelete.code}</strong> has historical student redemptions. Deactivating it will prevent new redemptions while preserving past invoice and accounting integrity.
+            </>
+          ) : (
+            <>
+              Are you sure you want to permanently delete coupon <strong>{couponToDelete?.code}</strong>? This action cannot be undone.
+            </>
+          )
+        }
+        tone="danger"
+        confirmText={
+          isDeletingCoupon
+            ? "Processing..."
+            : couponToDelete && ((couponToDelete.currentUses || 0) > 0 || (couponToDelete._count?.redemptions || 0) > 0)
+            ? "Deactivate Coupon"
+            : "Delete Coupon"
+        }
+        cancelText="Cancel"
+        isLoading={isDeletingCoupon}
+        error={deleteCouponError}
+        itemDetails={
+          couponToDelete
+            ? [
+                { label: "Code", value: couponToDelete.code },
+                {
+                  label: "Discount",
+                  value:
+                    couponToDelete.discountType === "PERCENTAGE"
+                      ? `${couponToDelete.discountValue}% OFF`
+                      : `${couponToDelete.currency} ${couponToDelete.discountValue} OFF`,
+                },
+                { label: "Times Used", value: `${couponToDelete.currentUses || 0} times` },
+              ]
+            : []
+        }
+      />
     </div>
   );
 }

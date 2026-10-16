@@ -98,6 +98,61 @@ export function clearApiCache(): void {
   apiCache.clear();
 }
 
+// One renewal at a time, shared by every request that hits an expired token
+let renewing: Promise<string | "signed-out" | null> | null = null;
+export function renewOnce(
+  rawFetch?: typeof fetch,
+  failedToken?: string | null
+): Promise<string | "signed-out" | null> {
+  const fetchFn =
+    rawFetch ||
+    (typeof window !== "undefined" && (window as any).__rawOriginalFetch
+      ? (window as any).__rawOriginalFetch
+      : fetch);
+
+  const current = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  if (current && failedToken && current !== failedToken) {
+    return Promise.resolve(current);
+  }
+
+  if (!renewing) {
+    renewing = (async () => {
+      const refreshToken =
+        typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
+      if (!refreshToken) return "signed-out" as const;
+
+      try {
+        const res = await fetchFn(`${API_URL}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const newToken = data.access_token as string;
+          if (typeof window !== "undefined" && newToken) {
+            localStorage.setItem("token", newToken);
+            if (data.refresh_token) {
+              localStorage.setItem("refresh_token", data.refresh_token);
+            }
+          }
+          return newToken || null;
+        }
+
+        return res.status === 401 ? ("signed-out" as const) : null;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      renewing = null;
+    });
+  }
+
+  return renewing;
+}
+
+
 /**
  * Automatically purges cached GET responses when mutating endpoints are called.
  */
@@ -263,12 +318,21 @@ export async function cachedFetch(
   const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
   const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
 
+  // Auto-inject Authorization token from localStorage if in browser and not explicitly provided
+  const requestHeaders = new Headers(init?.headers);
+  if (typeof window !== "undefined" && !requestHeaders.has("Authorization")) {
+    const token = localStorage.getItem("token");
+    if (token) {
+      requestHeaders.set("Authorization", `Bearer ${token}`);
+    }
+  }
+
   // Auto-bust cache on mutations
   if (!isGet) {
     autoInvalidateOnMutation(url);
   }
 
-  const cacheKey = isGet ? getCacheKey(url, init?.headers) : null;
+  const cacheKey = isGet ? getCacheKey(url, requestHeaders) : null;
 
   // 1. SWR / In-Memory Cache Check for GET requests
   if (isGet && !skipCache && cacheKey) {
@@ -348,8 +412,45 @@ export async function cachedFetch(
           ? (window as any).__rawOriginalFetch
           : fetch;
 
-      const res = await rawFetch(url, { ...init, signal: abortController.signal });
+      let res = await rawFetch(url, { ...init, headers: requestHeaders, signal: abortController.signal });
       clearTimeout(timeoutTimer);
+
+      // Handle transparent 401 token refresh for authenticated requests
+      const isAuthRoute = /\/auth\/(login|signup|admin-login|refresh|2fa)/.test(url);
+      if (res.status === 401 && !isAuthRoute && typeof window !== "undefined") {
+        const currentToken = localStorage.getItem("token");
+        const renewedToken = await renewOnce(rawFetch, currentToken);
+
+        if (renewedToken && renewedToken !== "signed-out") {
+          requestHeaders.set("Authorization", `Bearer ${renewedToken}`);
+          res = await rawFetch(url, { ...init, headers: requestHeaders, signal: abortController.signal });
+        } else if (renewedToken === "signed-out") {
+          try {
+            const clone = res.clone();
+            const errData = await clone.json();
+            const errCode = typeof errData.error === "string" ? errData.error : errData.error?.code;
+            if (errCode === "SESSION_REVOKED") {
+              localStorage.clear();
+              clearApiCache();
+              if (window.location.pathname !== "/login") {
+                alert("You were signed out because your account was logged into on another device.");
+                window.location.href = "/login";
+              }
+              return {
+                bodyText: JSON.stringify(errData),
+                status: 401,
+                statusText: "Unauthorized",
+                headers: [],
+              };
+            }
+          } catch {}
+          localStorage.clear();
+          clearApiCache();
+          if (window.location.pathname !== "/login") {
+            window.location.href = "/login";
+          }
+        }
+      }
 
       const clone = res.clone();
       const bodyText = await clone.text();
@@ -503,9 +604,36 @@ export async function errorMessage(res: Response, fallback: string): Promise<str
 
 /** Uploads an image or PDF and returns its public address. */
 export async function uploadFile(file: File): Promise<string> {
+  const mimeType =
+    file.type ||
+    (/\.pdf$/i.test(file.name)
+      ? "application/pdf"
+      : /\.png$/i.test(file.name)
+      ? "image/png"
+      : /\.(jpe?g)$/i.test(file.name)
+      ? "image/jpeg"
+      : /\.webp$/i.test(file.name)
+      ? "image/webp"
+      : /\.gif$/i.test(file.name)
+      ? "image/gif"
+      : /\.docx?$/i.test(file.name)
+      ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      : /\.txt$/i.test(file.name)
+      ? "text/plain"
+      : /\.mp4$/i.test(file.name)
+      ? "video/mp4"
+      : /\.mp3$/i.test(file.name)
+      ? "audio/mpeg"
+      : "application/octet-stream");
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const headers: Record<string, string> = { "Content-Type": mimeType };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   const res = await cachedFetch(`${API_URL}/uploads`, {
     method: "POST",
-    headers: { "Content-Type": file.type },
+    headers,
     body: file,
   });
   if (!res.ok) throw new Error(await errorMessage(res, "Could not upload the file"));

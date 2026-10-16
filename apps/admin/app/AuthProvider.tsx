@@ -3,10 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { onThisHost } from "./lib/host";
-import { cachedFetch, autoInvalidateOnMutation, clearApiCache } from "./lib/api";
-
-// Resolved host for the device showing the page
-const API_URL = onThisHost(process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000");
+import { API_URL, cachedFetch, autoInvalidateOnMutation, clearApiCache, renewOnce } from "./lib/api";
 
 export interface UserData {
   id: string;
@@ -48,37 +45,6 @@ function getInitialToken(): string | null {
   }
 }
 
-// One renewal at a time, shared by every request that hit an expired token
-let renewing: Promise<string | "signed-out" | null> | null = null;
-function renewOnce(rawFetch: typeof fetch, failedToken: string) {
-  const current = localStorage.getItem("token");
-  if (current && current !== failedToken) return Promise.resolve(current);
-  if (!renewing) {
-    renewing = (async () => {
-      const refreshToken = localStorage.getItem("refresh_token");
-      if (!refreshToken) return "signed-out" as const;
-      try {
-        const res = await rawFetch(`${API_URL}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem("token", data.access_token);
-          if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token);
-          return data.access_token as string;
-        }
-        return res.status === 401 ? ("signed-out" as const) : null;
-      } catch {
-        return null;
-      }
-    })().finally(() => {
-      renewing = null;
-    });
-  }
-  return renewing;
-}
 
 // Monkey-patch window.fetch synchronously outside React so it catches the very first render's fetches
 if (typeof window !== "undefined" && !(window as any).__fetchPatched) {

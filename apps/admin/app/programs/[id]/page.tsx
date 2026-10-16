@@ -3,8 +3,9 @@
 import { useEffect, useState, use, useCallback } from "react";
 import styles from "./curriculum.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage, uploadFile } from "../../lib/api";
+import { API_URL, errorMessage, uploadFile, cachedFetch } from "../../lib/api";
 import { parseCourseInfo, formatCourseInfo } from "../courseInfo";
+import { ConfirmDialog, useToast } from "../../components";
 
 import dynamic from "next/dynamic";
 
@@ -60,6 +61,16 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const [isCreateModuleModalOpen, setIsCreateModuleModalOpen] = useState(false);
   const [isCreatingModule, setIsCreatingModule] = useState(false);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundUploadTask[]>([]);
+  const toast = useToast();
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    subtitle?: string;
+    description: React.ReactNode;
+    confirmText?: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Fetch Program & Full Steps with Lessons in parallel
   const fetchProgramAndSteps = useCallback(async () => {
@@ -320,11 +331,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           ? (publicId.startsWith("http") || publicId.startsWith("/") ? publicId : `upload:${publicId}`)
           : `upload:video-${Date.now()}`;
 
-        const res = await fetch(`${API_URL}/programs/steps/${taskInput.moduleId}/lessons`, {
+        const res = await cachedFetch(`${API_URL}/programs/steps/${taskInput.moduleId}/lessons`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
             title: taskInput.title.trim(),
@@ -361,51 +371,87 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     })();
   };
 
-  // Delete Module Action
+  // Delete Module Action with in-website popup
   const handleDeleteModule = async (stepId: string) => {
-    if (!confirm("Are you sure you want to delete this module and all its attached lessons?")) return;
-    try {
-      const res = await fetch(`${API_URL}/programs/steps/${stepId}`, { method: "DELETE" });
-      if (res.ok) {
-        setSteps((prev) => prev.filter((s) => s.id !== stepId));
-        if (activeModuleId === stepId) {
-          setActiveModuleId(null);
-          setWizardStep("MODULE_LIST");
+    const step = steps.find((s) => s.id === stepId);
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Module",
+      subtitle: step?.title,
+      description: `Are you sure you want to delete module "${step?.title || "this module"}" and all its attached lessons? This cannot be undone.`,
+      confirmText: "Delete Module",
+      onConfirm: async () => {
+        setIsConfirming(true);
+        try {
+          const res = await cachedFetch(`${API_URL}/programs/steps/${stepId}`, { method: "DELETE" });
+          if (res.ok) {
+            setSteps((prev) => prev.filter((s) => s.id !== stepId));
+            if (activeModuleId === stepId) {
+              setActiveModuleId(null);
+              setWizardStep("MODULE_LIST");
+            }
+            toast.success("Module deleted successfully.");
+          } else {
+            toast.error("Failed to delete module.");
+          }
+        } finally {
+          setIsConfirming(false);
+          setConfirmConfig(null);
         }
-      } else {
-        alert("Failed to delete module.");
-      }
-    } catch (e) {
-      console.error(e);
-    }
+      },
+    });
   };
 
-  // Delete Lesson Action
+  // Delete Lesson Action with in-website popup
   const handleDeleteLesson = async (lessonId: string) => {
-    if (!confirm("Delete this lesson from the module?")) return;
-    try {
-      const res = await fetch(`${API_URL}/programs/lessons/${lessonId}`, { method: "DELETE" });
-      if (res.ok) {
-        fetchProgramAndSteps();
-      } else {
-        alert("Failed to delete lesson.");
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Lesson",
+      description: "Are you sure you want to delete this lesson from the module? This action cannot be undone.",
+      confirmText: "Delete Lesson",
+      onConfirm: async () => {
+        setIsConfirming(true);
+        try {
+          const res = await cachedFetch(`${API_URL}/programs/lessons/${lessonId}`, { method: "DELETE" });
+          if (res.ok) {
+            toast.success("Lesson deleted successfully.");
+            fetchProgramAndSteps();
+          } else {
+            toast.error("Failed to delete lesson.");
+          }
+        } finally {
+          setIsConfirming(false);
+          setConfirmConfig(null);
+        }
+      },
+    });
   };
 
-  // Delete Quiz Action
+  // Delete Quiz Action with in-website popup
   const handleDeleteQuiz = async () => {
-    if (!activeModule?.quiz?.id || !confirm("Delete this knowledge check quiz completely?")) return;
-    try {
-      const res = await fetch(`${API_URL}/quizzes/${activeModule.quiz.id}`, { method: "DELETE" });
-      if (res.ok) {
-        fetchProgramAndSteps();
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    if (!activeModule?.quiz?.id) return;
+    const qId = activeModule.quiz.id;
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Quiz",
+      description: "Are you sure you want to delete this knowledge check quiz completely? Attached questions and learner progress will be removed.",
+      confirmText: "Delete Quiz",
+      onConfirm: async () => {
+        setIsConfirming(true);
+        try {
+          const res = await cachedFetch(`${API_URL}/quizzes/${qId}`, { method: "DELETE" });
+          if (res.ok) {
+            toast.success("Quiz deleted successfully.");
+            fetchProgramAndSteps();
+          } else {
+            toast.error("Failed to delete quiz.");
+          }
+        } finally {
+          setIsConfirming(false);
+          setConfirmConfig(null);
+        }
+      },
+    });
   };
 
   // Content Type Chooser Selection
@@ -680,6 +726,22 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         tasks={backgroundTasks}
         onDismissTask={(id) => setBackgroundTasks((prev) => prev.filter((t) => t.id !== id))}
         onClearCompleted={() => setBackgroundTasks((prev) => prev.filter((t) => t.status !== "COMPLETED"))}
+      />
+
+      {/* In-website branded ConfirmDialog */}
+      <ConfirmDialog
+        isOpen={Boolean(confirmConfig?.isOpen)}
+        onClose={() => {
+          if (!isConfirming) setConfirmConfig(null);
+        }}
+        onConfirm={confirmConfig?.onConfirm || (() => {})}
+        title={confirmConfig?.title || "Confirm Action"}
+        subtitle={confirmConfig?.subtitle}
+        description={confirmConfig?.description || "Are you sure you want to proceed?"}
+        confirmText={isConfirming ? "Processing..." : confirmConfig?.confirmText || "Confirm"}
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={isConfirming}
       />
     </div>
   );

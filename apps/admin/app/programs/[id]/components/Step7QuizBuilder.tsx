@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import styles from "../curriculum.module.css";
-import { API_URL } from "../../../lib/api";
+import { API_URL, cachedFetch } from "../../../lib/api";
+import { ConfirmDialog, useToast } from "../../../components";
 
 interface Option {
   id?: string;
@@ -42,9 +43,12 @@ export default function Step7QuizBuilder({
   const [maxAttempts, setMaxAttempts] = useState(existingQuiz?.maxAttempts ?? 3);
   const [cooldownHours, setCooldownHours] = useState(existingQuiz?.cooldownHours ?? 24);
   const [showExplanations, setShowExplanations] = useState(true);
+  const toast = useToast();
 
   // Questions
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionToDelete, setQuestionToDelete] = useState<Question | null>(null);
+  const [isDeletingQuestion, setIsDeletingQuestion] = useState(false);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
 
   // New Question Form State
@@ -128,11 +132,11 @@ export default function Step7QuizBuilder({
 
     const validOpts = newOptions.filter((o) => o.text.trim().length > 0);
     if (validOpts.length < 2) {
-      alert("At least 2 choices are required.");
+      toast.error("At least 2 choices are required.");
       return;
     }
     if (!validOpts.some((o) => o.isCorrect)) {
-      alert("Please designate at least one option as the correct answer.");
+      toast.error("Please designate at least one option as the correct answer.");
       return;
     }
 
@@ -171,27 +175,30 @@ export default function Step7QuizBuilder({
         { text: "", isCorrect: false },
       ]);
       setFeedbackMsg("Question added successfully");
+      toast.success("Question added successfully.");
       setTimeout(() => setFeedbackMsg(null), 2500);
     } catch (err: any) {
-      alert(err.message || "Failed to append question");
+      toast.error(err.message || "Failed to append question");
     } finally {
       setIsAddingQuestion(false);
     }
   };
 
-  const handleDeleteQuestion = async (questionId: string) => {
-    if (!quizId || !confirm("Delete this question?")) return;
+  const confirmDeleteQuestion = async () => {
+    if (!quizId || !questionToDelete) return;
+    setIsDeletingQuestion(true);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/quizzes/${quizId}/questions/${questionId}`, {
+      const qId = questionToDelete.id;
+      setQuestions((prev) => prev.filter((q) => q.id !== qId));
+      setQuestionToDelete(null);
+
+      await cachedFetch(`${API_URL}/quizzes/${quizId}/questions/${qId}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.ok) {
-        setQuestions((prev) => prev.filter((q) => q.id !== questionId));
-      }
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsDeletingQuestion(false);
     }
   };
 
@@ -216,9 +223,10 @@ export default function Step7QuizBuilder({
         }),
       });
 
+      toast.success("Quiz settings updated.");
       onQuizSaved();
     } catch (err: any) {
-      alert(err.message || "Failed to update quiz settings");
+      toast.error(err.message || "Failed to update quiz settings");
     } finally {
       setIsSavingAll(false);
     }
@@ -317,7 +325,7 @@ export default function Step7QuizBuilder({
                 </span>
                 <button
                   type="button"
-                  onClick={() => handleDeleteQuestion(q.id)}
+                  onClick={() => setQuestionToDelete(q)}
                   className={styles.deleteItemBtn}
                 >
                   Delete
@@ -488,6 +496,28 @@ export default function Step7QuizBuilder({
           </svg>
         </button>
       </div>
+
+      {/* In-website branded ConfirmDialog */}
+      <ConfirmDialog
+        isOpen={Boolean(questionToDelete)}
+        onClose={() => {
+          if (!isDeletingQuestion) setQuestionToDelete(null);
+        }}
+        onConfirm={confirmDeleteQuestion}
+        title="Delete Question"
+        description={
+          <>
+            Are you sure you want to delete this question?
+            <div style={{ marginTop: "8px", padding: "10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.88rem" }}>
+              &ldquo;{questionToDelete?.text}&rdquo;
+            </div>
+          </>
+        }
+        tone="danger"
+        confirmText={isDeletingQuestion ? "Deleting..." : "Delete Question"}
+        cancelText="Cancel"
+        isLoading={isDeletingQuestion}
+      />
     </section>
   );
 }

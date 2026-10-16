@@ -544,90 +544,144 @@ export class BatchesService {
     });
     const sessionIds = sessions.map((s) => s.id);
 
-    // 2. Execute full relational cleanup inside transaction
-    await this.prisma.$transaction(async (tx) => {
-      if (sessionIds.length > 0) {
-        // Attendance records & audit logs
-        const attendances = await tx.attendance.findMany({
-          where: { sessionId: { in: sessionIds } },
-          select: { id: true },
-        });
-        const attendanceIds = attendances.map((a) => a.id);
+    // 2. Execute full relational cleanup inside transaction with extended timeout
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (sessionIds.length > 0) {
+          // Attendance records
+          if (typeof (tx as any).attendance?.deleteMany === 'function') {
+            await (tx as any).attendance.deleteMany({
+              where: { sessionId: { in: sessionIds } },
+            });
+          }
 
-        if (attendanceIds.length > 0) {
-          await (tx as any).attendanceAuditLog?.deleteMany?.({
-            where: { attendanceId: { in: attendanceIds } },
-          }).catch(() => {});
-          await (tx as any).attendanceEventLog?.deleteMany?.({
-            where: { attendanceId: { in: attendanceIds } },
-          }).catch(() => {});
-          await tx.attendance.deleteMany({
-            where: { id: { in: attendanceIds } },
-          });
+          // Unmatched attendances
+          if (typeof (tx as any).unmatchedAttendance?.deleteMany === 'function') {
+            await (tx as any).unmatchedAttendance.deleteMany({
+              where: { sessionId: { in: sessionIds } },
+            });
+          }
+
+          // Session bookings
+          if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+            await (tx as any).sessionBooking.deleteMany({
+              where: { sessionId: { in: sessionIds } },
+            });
+          }
+
+          // Sessions
+          if (typeof (tx as any).session?.deleteMany === 'function') {
+            await (tx as any).session.deleteMany({
+              where: { id: { in: sessionIds } },
+            });
+          }
         }
 
-        // Unmatched attendances
-        await tx.unmatchedAttendance.deleteMany({
-          where: { sessionId: { in: sessionIds } },
-        }).catch(() => {});
+        // 3. Clean up enrolments and all nested progress/attempts
+        const enrolments =
+          typeof (tx as any).enrolment?.findMany === 'function'
+            ? await (tx as any).enrolment.findMany({
+                where: { batchId: id },
+                select: { id: true },
+              })
+            : [];
+        const enrolmentIds = enrolments.map((e: any) => e.id);
 
-        // Session bookings
-        await tx.sessionBooking.deleteMany({
-          where: { sessionId: { in: sessionIds } },
-        });
+        if (enrolmentIds.length > 0) {
+          if (typeof (tx as any).attendance?.deleteMany === 'function') {
+            await (tx as any).attendance.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).unmatchedAttendance?.deleteMany === 'function') {
+            await (tx as any).unmatchedAttendance.deleteMany({ where: { linkedEnrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+            await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).attempt?.deleteMany === 'function') {
+            await (tx as any).attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).examAttempt?.deleteMany === 'function') {
+            await (tx as any).examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).oralAssessment?.deleteMany === 'function') {
+            await (tx as any).oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
+            await (tx as any).userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).stepProgress?.deleteMany === 'function') {
+            await (tx as any).stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).signedAgreement?.deleteMany === 'function') {
+            await (tx as any).signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).certificate?.deleteMany === 'function') {
+            await (tx as any).certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).couponRedemption?.deleteMany === 'function') {
+            await (tx as any).couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
 
-        // Sessions
-        await tx.session.deleteMany({
-          where: { id: { in: sessionIds } },
-        });
-      }
-
-      // 3. Clean up enrolments and all nested progress/attempts
-      const enrolments =
-        typeof (tx as any).enrolment?.findMany === 'function'
-          ? await (tx as any).enrolment.findMany({
-              where: { batchId: id },
+          // Invoices linked to payments must be deleted before deleting payments
+          if (typeof (tx as any).payment?.findMany === 'function') {
+            const payments = await (tx as any).payment.findMany({
+              where: { enrolmentId: { in: enrolmentIds } },
               select: { id: true },
-            })
-          : [];
-      const enrolmentIds = enrolments.map((e: any) => e.id);
+            });
+            const paymentIds = payments.map((p: any) => p.id);
+            if (paymentIds.length > 0 && typeof (tx as any).invoice?.deleteMany === 'function') {
+              await (tx as any).invoice.deleteMany({ where: { paymentId: { in: paymentIds } } });
+            }
+          }
+          if (typeof (tx as any).payment?.deleteMany === 'function') {
+            await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).enrolment?.deleteMany === 'function') {
+            await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+          }
+        }
 
-      if (enrolmentIds.length > 0) {
-        await tx.attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
-      }
+        // 4. Clean up batch metadata relations
+        if (typeof (tx as any).batchTrainer?.deleteMany === 'function') {
+          await (tx as any).batchTrainer.deleteMany({ where: { batchId: id } });
+        }
+        if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
+          await (tx as any).batchStepOverride.deleteMany({ where: { batchId: id } });
+        }
+        if (typeof (tx as any).batchAnnouncement?.deleteMany === 'function') {
+          await (tx as any).batchAnnouncement.deleteMany({ where: { batchId: id } });
+        }
 
-      // 4. Clean up batch metadata relations
-      if (typeof (tx as any).batchTrainer?.deleteMany === 'function') {
-        await (tx as any).batchTrainer.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
-        await (tx as any).batchStepOverride.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).batchAnnouncement?.deleteMany === 'function') {
-        await (tx as any).batchAnnouncement.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).conversation?.deleteMany === 'function') {
-        await (tx as any).conversation.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).resource?.deleteMany === 'function') {
-        await (tx as any).resource.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
-        await (tx as any).resourceItem.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
+        // Clean up conversations and messages
+        if (typeof (tx as any).conversation?.findMany === 'function') {
+          const convs = await (tx as any).conversation.findMany({
+            where: { batchId: id },
+            select: { id: true },
+          });
+          const convIds = convs.map((c: any) => c.id);
+          if (convIds.length > 0) {
+            if (typeof (tx as any).message?.deleteMany === 'function') {
+              await (tx as any).message.deleteMany({ where: { conversationId: { in: convIds } } });
+            }
+            await (tx as any).conversation.deleteMany({ where: { id: { in: convIds } } });
+          }
+        }
 
-      // 5. Clean delete batch record
-      await tx.batch.delete({ where: { id } });
-    });
+        if (typeof (tx as any).resource?.deleteMany === 'function') {
+          await (tx as any).resource.deleteMany({ where: { batchId: id } });
+        }
+        if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
+          await (tx as any).resourceItem.deleteMany({ where: { batchId: id } });
+        }
+
+        // 5. Clean delete batch record
+        await tx.batch.delete({ where: { id } });
+      },
+      {
+        maxWait: 15000,
+        timeout: 30000,
+      }
+    );
 
     // 3. Create Zoom cancel outbox events
     try {

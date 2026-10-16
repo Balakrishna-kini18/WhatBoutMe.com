@@ -69,29 +69,37 @@ function Courses() {
       router.push("/login");
       return;
     }
-    fetch(`${API_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error();
-        return res.json();
-      })
-      .then((profile) => setCourses(profile.enrolledPrograms || []))
-      .catch(() =>
-        setError(
-          "We could not load your courses. Please try again in a moment.",
-        ),
-      )
-      .finally(() => setLoading(false));
+    const headers = { Authorization: `Bearer ${token}` };
+    const authPromise = fetch(`${API_URL}/auth/me`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
 
-    const extra = (path: string) =>
-      fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } }).then((res) => (res.ok ? res.json() : null));
-    extra("/attendance/mine")
-      .then((data) => setDaysPresent(Array.isArray(data?.days) ? data.days.length : 0))
-      .catch(() => setDaysPresent(0));
-    extra("/certificates/mine")
-      .then((data) => setCertificates(Array.isArray(data) ? data.filter((c: { status?: string }) => c.status === "APPROVED").length : 0))
-      .catch(() => setCertificates(0));
+    const attPromise = fetch(`${API_URL}/attendance/mine`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+
+    const certPromise = fetch(`${API_URL}/certificates/mine`, { headers })
+      .then((res) => (res.ok ? res.json() : []))
+      .catch(() => []);
+
+    Promise.all([authPromise, attPromise, certPromise])
+      .then(([profile, attData, certData]) => {
+        if (profile) {
+          setCourses(profile.enrolledPrograms || []);
+        } else {
+          setError("We could not load your courses. Please try again in a moment.");
+        }
+        setDaysPresent(Array.isArray(attData?.days) ? attData.days.length : 0);
+        setCertificates(
+          Array.isArray(certData)
+            ? certData.filter((c: { status?: string }) => c.status === "APPROVED" || c.status === "ISSUED").length
+            : 0
+        );
+      })
+      .catch(() => {
+        setError("We could not load your courses. Please try again in a moment.");
+      })
+      .finally(() => setLoading(false));
   }, [router]);
 
   const hit = (...text: string[]) => text.some((t) => t.toLowerCase().includes(query));

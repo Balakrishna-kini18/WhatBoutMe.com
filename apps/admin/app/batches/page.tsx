@@ -163,18 +163,28 @@ function BatchesContent() {
       const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
-        const mappedBatches = data.map((b: any) => ({
-          ...b,
-          program: b.program?.title || "Unknown",
-          manager: b.manager?.name || "Unknown",
-          managerId: b.managerId || b.manager?.id || "",
-          rawStartDate: b.startDate,
-          rawEndDate: b.endDate,
-          startDate: b.startDate
-            ? new Date(b.startDate).toLocaleDateString()
-            : "--",
-          students: b.enrolledCount || 0,
-        }));
+        const nowMs = Date.now();
+        const mappedBatches = data.map((b: any) => {
+          let status = b.status;
+          if (b.status === "UPCOMING" && b.startDate && new Date(b.startDate).getTime() <= nowMs) {
+            status = b.endDate && new Date(b.endDate).getTime() < nowMs ? "COMPLETED" : "ACTIVE";
+          } else if (b.status === "ACTIVE" && b.endDate && new Date(b.endDate).getTime() < nowMs) {
+            status = "COMPLETED";
+          }
+          return {
+            ...b,
+            status,
+            program: b.program?.title || "Unknown",
+            manager: b.manager?.name || "Unknown",
+            managerId: b.managerId || b.manager?.id || "",
+            rawStartDate: b.startDate,
+            rawEndDate: b.endDate,
+            startDate: b.startDate
+              ? new Date(b.startDate).toLocaleDateString()
+              : "--",
+            students: b.enrolledCount || 0,
+          };
+        });
         setBatches(mappedBatches);
       }
     } catch (e) {

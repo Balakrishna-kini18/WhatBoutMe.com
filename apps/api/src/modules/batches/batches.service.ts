@@ -65,6 +65,29 @@ export class BatchesService {
         where.status = { not: 'ARCHIVED' };
       }
 
+      // Auto-transition batches whose startDate has arrived to ACTIVE
+      // and batches whose endDate has passed to COMPLETED
+      const now = new Date();
+      await this.prisma.batch.updateMany({
+        where: {
+          status: BatchStatus.UPCOMING,
+          startDate: { lte: now },
+        },
+        data: {
+          status: BatchStatus.ACTIVE,
+        },
+      }).catch(() => {});
+
+      await this.prisma.batch.updateMany({
+        where: {
+          status: BatchStatus.ACTIVE,
+          endDate: { lt: now, not: null },
+        },
+        data: {
+          status: BatchStatus.COMPLETED,
+        },
+      }).catch(() => {});
+
       const batches = await this.prisma.batch.findMany({
         where,
         include: {
@@ -228,6 +251,21 @@ export class BatchesService {
       }
     }
 
+    // Determine initial status based on startDate / endDate if not explicitly provided
+    const nowMs = Date.now();
+    const startMs = new Date(data.startDate).getTime();
+    const endMs = data.endDate ? new Date(data.endDate).getTime() : null;
+    let initialStatus = data.status;
+    if (!initialStatus) {
+      if (endMs && endMs < nowMs) {
+        initialStatus = BatchStatus.COMPLETED;
+      } else if (startMs <= nowMs) {
+        initialStatus = BatchStatus.ACTIVE;
+      } else {
+        initialStatus = BatchStatus.UPCOMING;
+      }
+    }
+
     // 5. Execute creation inside transaction
     const created = await this.prisma.$transaction(async (tx) => {
       const batch = await tx.batch.create({
@@ -238,7 +276,7 @@ export class BatchesService {
           startDate: new Date(data.startDate),
           endDate: data.endDate ? new Date(data.endDate) : null,
           capacity: data.capacity,
-          status: data.status ?? BatchStatus.UPCOMING,
+          status: initialStatus,
         },
       });
 
@@ -346,6 +384,23 @@ export class BatchesService {
     if (data.endDate !== undefined)
       updateData.endDate = data.endDate ? new Date(data.endDate) : null;
     if (data.capacity !== undefined) updateData.capacity = data.capacity;
+    if (data.status !== undefined) {
+      updateData.status = data.status;
+    } else if (existing.status === BatchStatus.UPCOMING || existing.status === BatchStatus.ACTIVE) {
+      const nowMs = Date.now();
+      const startMs = updateData.startDate ? updateData.startDate.getTime() : existing.startDate.getTime();
+      const endMs = updateData.endDate !== undefined
+        ? (updateData.endDate ? updateData.endDate.getTime() : null)
+        : (existing.endDate ? existing.endDate.getTime() : null);
+
+      if (endMs && endMs < nowMs) {
+        updateData.status = BatchStatus.COMPLETED;
+      } else if (startMs <= nowMs) {
+        updateData.status = BatchStatus.ACTIVE;
+      } else {
+        updateData.status = BatchStatus.UPCOMING;
+      }
+    }
 
     const updated = await this.prisma.batch.update({
       where: { id },
@@ -717,6 +772,21 @@ export class BatchesService {
     const remainingCapacity = Math.max(0, capacity - enrolledCount);
     const isFull = enrolledCount >= capacity;
 
+    const nowMs = Date.now();
+    let computedStatus = batch.status;
+    if (batch.status === BatchStatus.UPCOMING && batch.startDate) {
+      if (new Date(batch.startDate).getTime() <= nowMs) {
+        computedStatus =
+          batch.endDate && new Date(batch.endDate).getTime() < nowMs
+            ? BatchStatus.COMPLETED
+            : BatchStatus.ACTIVE;
+      }
+    } else if (batch.status === BatchStatus.ACTIVE && batch.endDate) {
+      if (new Date(batch.endDate).getTime() < nowMs) {
+        computedStatus = BatchStatus.COMPLETED;
+      }
+    }
+
     return {
       id: batch.id,
       name: batch.name,
@@ -727,7 +797,7 @@ export class BatchesService {
       startDate: batch.startDate,
       endDate: batch.endDate,
       capacity,
-      status: batch.status,
+      status: computedStatus,
       enrolledCount,
       remainingCapacity,
       isFull,

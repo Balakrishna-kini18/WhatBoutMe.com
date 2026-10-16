@@ -285,7 +285,10 @@ export async function getPublicEvents(params?: {
     const url = `${API_BASE_URL}/events${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return [];
-    return await res.json();
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.items)) return data.items;
+    return [];
   } catch (error) {
     console.error("Error fetching public events:", error);
     return [];
@@ -348,7 +351,10 @@ export async function verifyEventPayment(payload: {
     res = await fetch(`${API_BASE_URL}/events/verify-payment`, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        simulation: payload.isSimulated ?? true,
+      }),
     });
   } catch {
     throw new Error("Could not reach the server. Please check your network connection.");

@@ -120,10 +120,11 @@ export default function EventsClient() {
           upcoming: timeFilter === "upcoming",
         });
         if (mounted) {
-          setEvents(data);
+          setEvents(Array.isArray(data) ? data : []);
         }
       } catch (err) {
         console.error("Failed to load events:", err);
+        if (mounted) setEvents([]);
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -143,11 +144,12 @@ export default function EventsClient() {
   }, [user, selectedEvent, attendeeName, attendeeEmail]);
 
   const filteredEvents = useMemo(() => {
-    return events.filter((ev) => {
+    const list = Array.isArray(events) ? events : [];
+    return list.filter((ev) => {
       const q = searchQuery.toLowerCase().trim();
       if (!q) return true;
-      const matchTitle = ev.title.toLowerCase().includes(q);
-      const matchDesc = ev.description.toLowerCase().includes(q);
+      const matchTitle = (ev.title || "").toLowerCase().includes(q);
+      const matchDesc = (ev.description || "").toLowerCase().includes(q);
       const matchLoc = ev.venueName
         ? ev.venueName.toLowerCase().includes(q)
         : ev.location

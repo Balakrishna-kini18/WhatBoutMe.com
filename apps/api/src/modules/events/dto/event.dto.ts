@@ -191,20 +191,20 @@ export class UpdateEventDto {
 }
 
 export class CheckoutEventDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(120)
-  attendeeName!: string;
+  attendeeName?: string;
 
+  @IsOptional()
   @IsEmail()
-  @IsNotEmpty()
   @MaxLength(200)
-  attendeeEmail!: string;
+  attendeeEmail?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(30)
-  attendeePhone!: string;
+  attendeePhone?: string;
 
   // Optional backwards compatibility aliases
   @IsOptional()
@@ -236,6 +236,10 @@ export class VerifyEventPaymentDto {
   @IsOptional()
   @IsBoolean()
   simulation?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSimulated?: boolean;
 }
 
 export class RejectEventRegistrationDto {

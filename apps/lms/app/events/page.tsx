@@ -6,20 +6,28 @@ import { API_URL } from "../lib/api";
 
 interface EventItem {
   id: string;
-  type: "EVENT" | "WEBINAR";
+  type?: "EVENT" | "WEBINAR";
   title: string;
   description: string;
-  status: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
+  status?: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
   startAt: string;
   endAt: string;
+  startDateTime?: string;
+  endDateTime?: string;
   location?: string | null;
   meetingLink?: string | null;
   coverImageUrl?: string | null;
+  bannerUrl?: string | null;
   maxRegistrations?: number | null;
+  seatLimit?: number | null;
   registrationOpensAt?: string | null;
   registrationClosesAt?: string | null;
   registrationCount: number;
+  seatsBooked?: number;
   registeredByMe: boolean;
+  isPublished?: boolean;
+  price?: number;
+  currency?: string;
   createdAt: string;
 }
 
@@ -230,6 +238,9 @@ export default function LmsEventsPage() {
           fullName: fullName.trim(),
           email: email.trim().toLowerCase(),
           phone: phone.trim(),
+          attendeeName: fullName.trim(),
+          attendeeEmail: email.trim().toLowerCase(),
+          attendeePhone: phone.trim(),
           category,
           categoryOther: category === "OTHER" ? categoryOther.trim() : undefined,
           organization: organization.trim() || undefined,
@@ -238,6 +249,26 @@ export default function LmsEventsPage() {
       });
 
       if (res.ok) {
+        const checkoutData = await res.json().catch(() => null);
+        // If event is paid and returned a pending registration, complete simulated payment verification
+        if (checkoutData?.orderId && checkoutData?.status === "PENDING") {
+          try {
+            await fetch(`${API_URL}/events/verify-payment`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                registrationId: checkoutData.registrationId,
+                gatewayOrderId: checkoutData.orderId,
+                gatewayPaymentId: `sim_pay_${Date.now()}`,
+                simulation: true,
+                isSimulated: true,
+              }),
+            });
+          } catch {
+            // Ignore payment verify errors in background
+          }
+        }
+
         setFeedback(`Registration confirmed for "${selectedEvent.title}"! A confirmation has been sent to your email.`);
         setSelectedEvent(null);
         loadData();
@@ -372,24 +403,29 @@ export default function LmsEventsPage() {
       ) : (
         <div className={styles.eventsGrid}>
           {displayedEvents.map((evt) => {
-            const startDate = new Date(evt.startAt);
+            const startIso = evt.startDateTime || evt.startAt;
+            const endIso = evt.endDateTime || evt.endAt || startIso;
+            const startDate = new Date(startIso);
             const monthStr = startDate.toLocaleDateString(undefined, { month: "short" });
             const dayStr = startDate.getDate();
-            const duration = getDuration(evt.startAt, evt.endAt);
+            const duration = getDuration(startIso, endIso);
             const isRegistered = evt.registeredByMe || registeredEventIds.has(evt.id);
-            const isPast = new Date(evt.endAt).getTime() < Date.now();
-            const isFull = evt.maxRegistrations && evt.registrationCount >= evt.maxRegistrations;
+            const isPast = endIso ? new Date(endIso).getTime() < Date.now() : false;
+            const maxCap = evt.seatLimit ?? evt.maxRegistrations;
+            const currentBooked = evt.seatsBooked ?? evt.registrationCount ?? 0;
+            const isFull = maxCap !== null && maxCap !== undefined && currentBooked >= maxCap;
             const canRegister =
-              evt.status === "REGISTRATION_OPEN" &&
+              (evt.status === "REGISTRATION_OPEN" || (!evt.status && evt.isPublished !== false)) &&
               !isRegistered &&
               !isPast &&
               !isFull;
+            const banner = evt.bannerUrl || evt.coverImageUrl;
 
             return (
               <div key={evt.id} className={styles.eventCard}>
                 <div className={styles.coverWrap}>
-                  {evt.coverImageUrl ? (
-                    <img src={evt.coverImageUrl} alt={evt.title} className={styles.coverImg} />
+                  {banner ? (
+                    <img src={banner} alt={evt.title} className={styles.coverImg} />
                   ) : (
                     <div className={styles.coverPlaceholder}>
                       <span>{evt.title}</span>
@@ -401,7 +437,7 @@ export default function LmsEventsPage() {
                     <span className={styles.dateDay}>{dayStr}</span>
                   </div>
 
-                  <span className={styles.typeBadge}>{evt.type}</span>
+                  <span className={styles.typeBadge}>{evt.type || "WORKSHOP"}</span>
                 </div>
 
                 <div className={styles.cardBody}>
@@ -412,7 +448,7 @@ export default function LmsEventsPage() {
                     <div className={styles.metaItem}>
                       <span className={styles.metaIcon}>🕒</span>
                       <span>
-                        {formatSchedule(evt.startAt, evt.endAt)} ({duration})
+                        {formatSchedule(startIso, endIso)} ({duration})
                       </span>
                     </div>
 
@@ -435,8 +471,8 @@ export default function LmsEventsPage() {
                     <div className={styles.metaItem}>
                       <span className={styles.metaIcon}>👥</span>
                       <span>
-                        {evt.registrationCount} attendee{evt.registrationCount === 1 ? "" : "s"}
-                        {evt.maxRegistrations ? ` · Limited to ${evt.maxRegistrations}` : " · Open registration"}
+                        {currentBooked} attendee{currentBooked === 1 ? "" : "s"}
+                        {maxCap ? ` · Limited to ${maxCap}` : " · Open registration"}
                       </span>
                     </div>
                   </div>
@@ -464,7 +500,9 @@ export default function LmsEventsPage() {
                       className={styles.registerBtn}
                       onClick={() => openRegisterModal(evt)}
                     >
-                      Register Now · Free Pass
+                      {evt.price && Number(evt.price) > 0
+                        ? `Book Seat · ${evt.currency || "USD"} ${evt.price}`
+                        : "Register Now · Free Pass"}
                     </button>
                   ) : (
                     <div className={styles.disabledBtn}>Registration Closed</div>
@@ -498,18 +536,20 @@ export default function LmsEventsPage() {
                 {/* Event Summary Strip */}
                 <div className={styles.eventSummaryStrip}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#10b981", textTransform: "uppercase" }}>
-                      Free Community Pass
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: selectedEvent.price && Number(selectedEvent.price) > 0 ? "#b45309" : "#10b981", textTransform: "uppercase" }}>
+                      {selectedEvent.price && Number(selectedEvent.price) > 0
+                        ? `Admission: ${selectedEvent.currency || "USD"} ${selectedEvent.price}`
+                        : "Free Community Pass"}
                     </span>
                     <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                      {selectedEvent.type}
+                      {selectedEvent.type || "WORKSHOP"}
                     </span>
                   </div>
                   <h3 style={{ fontFamily: "var(--font-playfair)", fontSize: "1.15rem", margin: 0, fontWeight: 700 }}>
                     {selectedEvent.title}
                   </h3>
                   <p style={{ fontSize: "0.825rem", color: "var(--text-secondary)", margin: 0 }}>
-                    {formatSchedule(selectedEvent.startAt, selectedEvent.endAt)}
+                    {formatSchedule(selectedEvent.startDateTime || selectedEvent.startAt, selectedEvent.endDateTime || selectedEvent.endAt)}
                   </p>
                 </div>
 
@@ -606,7 +646,11 @@ export default function LmsEventsPage() {
                   disabled={isSubmitting}
                   style={{ marginTop: "0.5rem" }}
                 >
-                  {isSubmitting ? "Confirming Registration..." : "Complete Free Registration"}
+                  {isSubmitting
+                    ? "Confirming Registration..."
+                    : selectedEvent.price && Number(selectedEvent.price) > 0
+                    ? `Confirm Booking (${selectedEvent.currency || "USD"} ${selectedEvent.price})`
+                    : "Complete Free Registration"}
                 </button>
               </div>
             </form>

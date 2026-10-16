@@ -24,6 +24,7 @@ export interface CustomSelectProps {
   className?: string;
   disabled?: boolean;
   id?: string;
+  menuMaxHeight?: string;
 }
 
 export function CustomSelect({
@@ -39,6 +40,7 @@ export function CustomSelect({
   className = "",
   disabled = false,
   id,
+  menuMaxHeight = "280px",
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -76,7 +78,8 @@ export function CustomSelect({
       if (!button) return;
       const rect = button.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      const estimatedHeight = Math.min(options.length * 36 + 12, 280);
+      const parsedMaxH = parseInt(menuMaxHeight, 10) || 280;
+      const estimatedHeight = Math.min(options.length * 36 + 12, parsedMaxH);
       const openUpwards =
         spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
 
@@ -212,6 +215,7 @@ export function CustomSelect({
               left: `${menuPos.left}px`,
               minWidth: `${Math.max(menuPos.width, 160)}px`,
               width: `${menuPos.width}px`,
+              maxHeight: menuMaxHeight,
             }}
             role="listbox"
             aria-label={ariaLabel || displayLabel}

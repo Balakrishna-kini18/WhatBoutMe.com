@@ -211,6 +211,87 @@ export default function LmsMain({ children }: { children: React.ReactNode }) {
     return <main className={styles.authMain}>{children}</main>;
   }
 
+  const isFocusedEnrollment =
+    pathname === "/agreement" ||
+    pathname.startsWith("/agreement") ||
+    pathname.startsWith("/agreements") ||
+    pathname === "/checkout" ||
+    pathname.startsWith("/checkout");
+
+  if (isFocusedEnrollment) {
+    return (
+      <main className={styles.focusedMain}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0.85rem 2rem",
+            minHeight: "64px",
+            background: "#FFFFFF",
+            borderBottom: "1px solid var(--border-light, #E7E0D6)",
+            boxShadow: "0 1px 3px 0 rgba(28, 25, 23, 0.02)",
+            position: "sticky",
+            top: 0,
+            zIndex: 30,
+          }}
+        >
+          <Link
+            href="/"
+            style={{ display: "inline-flex", alignItems: "center" }}
+            aria-label="WhatBoutMe Home"
+          >
+            <Image
+              src="/brand/logo-dark.png"
+              alt="WhatBoutMe"
+              width={140}
+              height={22}
+              priority
+              style={{ width: "auto", height: "1.3rem", objectFit: "contain" }}
+            />
+          </Link>
+
+          {/* Right Action: Clean SaaS Exit Pill */}
+          <Link
+            href="/courses"
+            style={{
+              fontSize: "0.84rem",
+              color: "#57534E",
+              textDecoration: "none",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              background: "#FFFFFF",
+              border: "1px solid var(--border-light, #E7E0D6)",
+              padding: "6px 14px",
+              borderRadius: "8px",
+              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.03)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+            <span>Exit to Courses</span>
+          </Link>
+        </header>
+        {children}
+      </main>
+    );
+  }
+
   return (
     <main className={styles.mainContent}>
       <header className={styles.topbar}>

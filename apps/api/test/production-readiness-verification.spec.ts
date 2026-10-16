@@ -117,7 +117,7 @@ describe('Real-World Production Readiness & Multi-Role Verification', () => {
           findFirst: vi.fn(),
         },
       };
-      service = new InvoicesService(prismaMock, {} as any);
+      service = new InvoicesService(prismaMock);
     });
 
     it('Scenario 2A: Strictly forbids Manager or Teacher from viewing financial invoices', async () => {

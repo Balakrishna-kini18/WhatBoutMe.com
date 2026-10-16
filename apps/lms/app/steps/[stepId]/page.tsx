@@ -429,13 +429,26 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       heading = "Program Agreement Required";
       message = "You must read and sign the Program Agreement before accessing any step content.";
       actionElement = (
-        <Link href="/agreement" className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}>
+        <Link
+          href={`/agreement?programId=${step.programId}${progression?.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
+          className={styles.submitBtn}
+          style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}
+        >
           Sign Agreement Now &rarr;
         </Link>
       );
     } else if (status === "PENDING_PAYMENT") {
       heading = "Payment Confirmation Pending";
       message = "Your course enrolment is pending payment confirmation. Access will unlock once payment clears.";
+      actionElement = (
+        <Link
+          href={`/checkout?programId=${step.programId}${progression?.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
+          className={styles.submitBtn}
+          style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}
+        >
+          Complete Payment &rarr;
+        </Link>
+      );
     } else if (status === "WAITLIST") {
       heading = "Waitlist Status";
       message = "You are currently on the waitlist for this cohort. You will receive an invitation once a seat opens.";

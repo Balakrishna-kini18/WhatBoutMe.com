@@ -36,6 +36,15 @@ export class UsersService {
                   trainers: true,
                 },
               },
+              signedAgreement: {
+                select: {
+                  id: true,
+                  status: true,
+                  templateVersion: true,
+                  signedAt: true,
+                  typedName: true,
+                },
+              },
             },
           },
         },
@@ -67,6 +76,7 @@ export class UsersService {
         throw new ForbiddenException('Access denied: Managers can only view learners enrolled in their assigned cohorts');
       }
     }
+
 
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);

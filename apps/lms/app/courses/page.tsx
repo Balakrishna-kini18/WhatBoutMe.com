@@ -222,7 +222,9 @@ function Courses() {
               const next = courses.find((c) => c.enrolmentId === course.enrolmentId)?.pending?.[0];
               const steps = `/programs/${course.programId}/steps`;
               const resume = course.status === "PENDING_AGREEMENT"
-                ? "/agreement"
+                ? `/agreement?programId=${course.programId}&enrolmentId=${course.enrolmentId}`
+                : course.status === "PENDING_PAYMENT"
+                ? `/checkout?programId=${course.programId}&enrolmentId=${course.enrolmentId}`
                 : next ? `/steps/${next.stepId}` : steps;
               const action = done ? "Review" : course.progress > 0 ? "Continue" : "Start";
               return (
@@ -244,7 +246,7 @@ function Courses() {
                         </span>
                       </Link>
                     ) : course.status === "PENDING_AGREEMENT" ? (
-                      <Link href="/agreement" className={styles.cover} aria-label={`Sign Agreement: ${course.programTitle}`}>
+                      <Link href={`/agreement?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={styles.cover} aria-label={`Sign Agreement: ${course.programTitle}`}>
                         <Image
                           src="/brand/session.png"
                           alt=""
@@ -256,6 +258,14 @@ function Courses() {
                         />
                         <span className={styles.play} aria-hidden="true">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                        </span>
+                      </Link>
+                    ) : course.status === "PENDING_PAYMENT" ? (
+                      <Link href={`/checkout?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={styles.cover} aria-label={`Complete Payment: ${course.programTitle}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/brand/session.png" alt="" />
+                        <span className={styles.play} aria-hidden="true" title="Complete Payment">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" /></svg>
                         </span>
                       </Link>
                     ) : (
@@ -324,9 +334,9 @@ function Courses() {
                       </p>
                       <div className={styles.actions}>
                         {course.status === "PENDING_AGREEMENT" ? (
-                          <Link href="/agreement" className={dash.darkBtn}>Sign Agreement</Link>
+                          <Link href={`/agreement?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={dash.darkBtn}>Sign Agreement</Link>
                         ) : course.status === "PENDING_PAYMENT" ? (
-                          <span className={`${dash.pill} ${dash.pillOff}`}>Payment Pending</span>
+                          <Link href={`/checkout?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={dash.darkBtn}>Complete Payment</Link>
                         ) : course.status === "WAITLIST" ? (
                           <span className={`${dash.pill} ${dash.pillOff}`}>On Waitlist</span>
                         ) : course.status === "REVOKED" ? (

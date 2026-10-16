@@ -1105,6 +1105,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 .primaryBtnSmall:hover {
@@ -1125,6 +1126,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 .secondaryBtnSmall:hover {

@@ -551,3 +551,231 @@
   border-color: #EF4444;
   background: rgba(239, 68, 68, 0.05);
 }
+
+/* ── Digital Signature Profile Section ────────────────────────────────── */
+
+.sigSection {
+  padding: 2rem 2.25rem;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-card);
+}
+
+.sigHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.sigTitleWrap {
+  flex: 1;
+  min-width: 250px;
+}
+
+.sigBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(184, 107, 17, 0.12);
+  color: #B86B11;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.4rem;
+}
+
+.sigBadgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #B86B11;
+}
+
+.sigSubtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  max-width: 680px;
+  line-height: 1.5;
+}
+
+.sigCard {
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  padding: 1.5rem;
+  background: var(--bg-canvas, #faf7f2);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sigPreviewRow {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.sigImgContainer {
+  background: #ffffff;
+  border: 1.5px solid var(--border-light);
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  min-height: 90px;
+  max-height: 120px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.sigImg {
+  max-width: 240px;
+  max-height: 80px;
+  object-fit: contain;
+}
+
+.sigMetaWrap {
+  flex: 1;
+  min-width: 200px;
+}
+
+.sigMetaTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sigMetaTag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef8f3;
+  color: #065f46;
+  border: 1px solid #ccebd9;
+  text-transform: uppercase;
+}
+
+.sigMetaDate {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.sigMetaNote {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: #78716a;
+  line-height: 1.45;
+}
+
+.sigBtnGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sigEditorBox {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+}
+
+.sigEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.sigEditorTitle {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sigEditorNotice {
+  font-size: 0.78rem;
+  color: #78716a;
+  margin-top: 0.75rem;
+  line-height: 1.4;
+}
+
+.sigEditorActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.sigEmptyWrap {
+  padding: 1.5rem;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1.5px dashed var(--border-light);
+  border-radius: 14px;
+}
+
+.sigEmptyIcon {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 0.75rem;
+  border-radius: 50%;
+  background: rgba(184, 107, 17, 0.1);
+  color: #B86B11;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sigEmptyTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem;
+}
+
+.sigEmptyDesc {
+  font-size: 0.825rem;
+  color: var(--text-secondary);
+  max-width: 440px;
+  margin: 0 auto 1rem;
+  line-height: 1.45;
+}
+
+.sigSuccessMsg {
+  padding: 0.6rem 0.85rem;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  color: #065f46;
+  font-size: 0.825rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sigErrorMsg {
+  padding: 0.6rem 0.85rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 0.825rem;
+  margin-bottom: 0.75rem;
+}

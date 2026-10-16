@@ -18,6 +18,18 @@ interface EnrolmentOption {
       title: string;
     };
   };
+  program?: {
+    id: string;
+    title: string;
+  };
+  signedAgreement?: {
+    id: string;
+    templateVersion?: string;
+    status: string;
+    signedAt: string;
+    signatureType?: string;
+    typedName?: string;
+  } | null;
 }
 
 interface UserDetail {
@@ -533,9 +545,53 @@ export default function UserDetailPage({
             />
           </div>
 
-          <div className={styles.enrollmentStatusWrap}>
-            <span className={styles.enrollmentStatusLabel}>Enrollment Status:</span>
-            <StatusBadge status={selectedEnrolment?.status || "ACTIVE"} />
+          <div className={styles.enrollmentStatusWrap} style={{ display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+              <span className={styles.enrollmentStatusLabel}>Enrollment Status:</span>
+              <StatusBadge status={selectedEnrolment?.status || "ACTIVE"} />
+            </div>
+
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+              <span className={styles.enrollmentStatusLabel}>Program Agreement:</span>
+              {selectedEnrolment?.signedAgreement && selectedEnrolment.signedAgreement.status === "SIGNED" ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <span
+                    style={{
+                      background: "#DCFCE7",
+                      color: "#15803D",
+                      padding: "3px 10px",
+                      borderRadius: "9999px",
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Signed {selectedEnrolment.signedAgreement.templateVersion || "v1.0"}
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    ({new Date(selectedEnrolment.signedAgreement.signedAt).toLocaleDateString()})
+                  </span>
+                </div>
+              ) : (
+                <span
+                  style={{
+                    background: "#FEF3C7",
+                    color: "#B45309",
+                    padding: "3px 10px",
+                    borderRadius: "9999px",
+                    fontSize: "0.78rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  Pending Signature
+                </span>
+              )}
+            </div>
           </div>
         </section>
       )}

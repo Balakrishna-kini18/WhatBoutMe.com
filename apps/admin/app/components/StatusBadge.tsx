@@ -24,12 +24,13 @@ export interface StatusBadgeProps {
 
 function resolveTone(rawStatus: string): StatusTone {
   const normalized = rawStatus.trim().toUpperCase().replace(/[\s-]+/g, "_");
-  if (normalized === "ACTIVE") return "active";
+  if (normalized === "ACTIVE" || normalized === "PUBLISHED") return "active";
   if (
     normalized === "COMPLETED" ||
     normalized === "PASSED" ||
     normalized === "PAID" ||
-    normalized === "CONVERTED"
+    normalized === "CONVERTED" ||
+    normalized === "SIGNED"
   ) {
     return "completed";
   }
@@ -38,12 +39,13 @@ function resolveTone(rawStatus: string): StatusTone {
     normalized === "PENDING_PAYMENT" ||
     normalized === "PENDING_AGREEMENT" ||
     normalized === "SCHEDULED" ||
-    normalized === "CONTACTED"
+    normalized === "CONTACTED" ||
+    normalized === "DRAFT"
   ) {
     return "pending";
   }
   if (normalized === "WAITLIST") return "info";
-  if (normalized === "INACTIVE") return "inactive";
+  if (normalized === "INACTIVE" || normalized === "ARCHIVED") return "inactive";
   if (
     normalized === "FAILED" ||
     normalized === "CANCELLED" ||
@@ -54,11 +56,7 @@ function resolveTone(rawStatus: string): StatusTone {
   ) {
     return "error";
   }
-  if (
-    normalized === "DRAFT" ||
-    normalized === "ARCHIVED" ||
-    normalized === "NEW"
-  ) {
+  if (normalized === "NEW") {
     return "neutral";
   }
   if (normalized === "SUPER_ADMIN") return "roleSuperAdmin";

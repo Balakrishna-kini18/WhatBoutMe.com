@@ -27,7 +27,13 @@ export async function parseApiError(
   res: Response,
   fallback: string = "Request failed"
 ): Promise<{ message: string; status: number; data?: any }> {
-  const data = await res.json().catch(() => null);
+  let data: any = null;
+  try {
+    const text = await res.text();
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
   const msg = data?.error?.message ?? data?.message ?? fallback;
   const message = Array.isArray(msg) ? msg.join(", ") : (typeof msg === "string" ? msg : fallback);
   return {
@@ -597,7 +603,11 @@ export interface SignAgreementPayload {
   versionId?: string;
   consentGiven: boolean;
   typedName: string;
-  drawnSignature: string;
+  drawnSignature?: string;
+  signatureImage?: string;
+  signatureType?: "DRAWN" | "UPLOADED";
+  consentVersion?: string;
+  consentTimestamp?: string;
 }
 
 export interface SignedAgreementResponse {
@@ -609,12 +619,19 @@ export interface SignedAgreementResponse {
   templateVersion: string;
   consentGiven: boolean;
   typedName: string;
-  drawnSignature: string;
+  drawnSignature?: string;
+  signatureImage?: string;
+  signatureType?: "DRAWN" | "UPLOADED" | string;
+  consentVersion?: string | null;
+  consentTimestamp?: string | null;
   signerIp: string;
   userAgent: string;
   status: string;
   signedAt: string;
   signedPdfUrl?: string | null;
+  enrolmentStatus?: string;
+  checkoutUrl?: string;
+  nextStep?: string;
 }
 
 export interface LessonProgressItem {

@@ -143,7 +143,7 @@ export async function getCourses(): Promise<Course[]> {
 }
 
 export const enrolUrl = (programId: string) =>
-  `${LMS_URL}/checkout?programId=${encodeURIComponent(programId)}`;
+  `${LMS_URL}/agreement?programId=${encodeURIComponent(programId)}`;
 
 export const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-US", {

@@ -91,19 +91,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       if (stepsRes.ok) {
         const stepsData: Step[] = await stepsRes.json();
         const sorted = [...stepsData].sort((a, b) => a.sequence - b.sequence);
-
-        // Fetch detailed lessons and quiz for each step in parallel
-        const detailedSteps = await Promise.all(
-          sorted.map(async (s) => {
-            try {
-              const detailRes = await cachedFetch(`${API_URL}/programs/steps/${s.id}`, { skipCache: true });
-              if (detailRes.ok) return await detailRes.json();
-            } catch (e) {}
-            return s;
-          })
-        );
-
-        setSteps(detailedSteps);
+        setSteps(sorted);
       }
     } catch (err) {
       console.error("Error loading curriculum wizard data:", err);

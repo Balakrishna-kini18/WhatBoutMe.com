@@ -7,6 +7,7 @@ import Link from "next/link";
 import styles from "../login/auth.module.css";
 import { SITE_URL } from "../lib/site";
 import { parseCourseInfo } from "../lib/courseInfo";
+import { API_URL } from "../lib/api";
 
 function CheckoutContent() {
   const router = useRouter();
@@ -27,7 +28,7 @@ function CheckoutContent() {
     }
 
     if (programId) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs`)
+      fetch(`${API_URL}/programs`)
         .then((res) => res.json())
         .then((data) => {
           const p = data.find((x: any) => x.id === programId);
@@ -54,7 +55,7 @@ function CheckoutContent() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/checkout/mock`, {
+      const res = await fetch(`${API_URL}/checkout/mock`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

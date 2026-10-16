@@ -188,14 +188,13 @@ export default function ChatPage() {
 
     (async () => {
       try {
-        const support = await fetch(`${API_URL}/messages/support`, { method: "POST", headers: authHeaders() });
-        const supportId = support.ok ? (await support.json()).id : "";
-
-        const [list, noticeRes, meRes] = await Promise.all([
+        const [support, list, noticeRes, meRes] = await Promise.all([
+          fetch(`${API_URL}/messages/support`, { method: "POST", headers: authHeaders() }),
           fetch(`${API_URL}/messages/conversations`, { headers: authHeaders() }),
           fetch(`${API_URL}/notifications/mine`, { headers: authHeaders() }),
           fetch(`${API_URL}/auth/me`, { headers: authHeaders() }),
         ]);
+        const supportId = support.ok ? (await support.json()).id : "";
         if (noticeRes.ok) setNotices(await noticeRes.json());
         if (meRes.ok) setSessions((await meRes.json()).upcomingSessions || []);
 

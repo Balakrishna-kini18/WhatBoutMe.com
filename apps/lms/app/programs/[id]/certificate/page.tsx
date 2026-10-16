@@ -3,8 +3,8 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import styles from "./certificate-view.module.css";
-import Certificate from "../../../certificates/Certificate";
 import {
   API_URL,
   getAuthHeaders,
@@ -12,6 +12,15 @@ import {
   parseApiError,
   type EnrolmentProgressionResponse,
 } from "../../../lib/api";
+
+const Certificate = dynamic(() => import("../../../certificates/Certificate"), {
+  ssr: false,
+  loading: () => (
+    <div style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>
+      Loading certificate...
+    </div>
+  ),
+});
 
 interface UncompletedActivity {
   id: string;

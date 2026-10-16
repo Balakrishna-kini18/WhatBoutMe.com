@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import styles from "../login/auth.module.css";
 import {
   API_URL,
@@ -11,7 +12,15 @@ import {
   ActiveAgreementResponse,
   SignedAgreementResponse,
 } from "../lib/api";
-import SignaturePad from "./SignaturePad";
+
+const SignaturePad = dynamic(() => import("./SignaturePad"), {
+  ssr: false,
+  loading: () => (
+    <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)" }}>
+      Loading signature pad...
+    </div>
+  ),
+});
 
 function AgreementSignContent() {
   const router = useRouter();
@@ -103,10 +112,11 @@ function AgreementSignContent() {
         // ignore
       }
 
-      // 2. Check if this enrolment already has a signed agreement
-      const signedRes = await fetch(`${API_URL}/agreements/enrolments/${target.id}`, {
-        headers: getAuthHeaders(),
-      });
+      // 2 & 3. Check existing signed agreement and fetch active template concurrently
+      const [signedRes, templateRes] = await Promise.all([
+        fetch(`${API_URL}/agreements/enrolments/${target.id}`, { headers: getAuthHeaders() }),
+        fetch(`${API_URL}/agreements/program/${target.programId}/active`, { headers: getAuthHeaders() }),
+      ]);
 
       if (signedRes.ok) {
         const existingSigned = await signedRes.json();
@@ -117,13 +127,10 @@ function AgreementSignContent() {
         }
       }
 
-      // 3. Fetch active agreement template for the program
-      const templateRes = await fetch(
-        `${API_URL}/agreements/program/${target.programId}/active`,
-        { headers: getAuthHeaders() }
-      );
-
-      if (!templateRes.ok) {
+      if (templateRes.ok) {
+        const tpl = await templateRes.json();
+        setActiveTemplate(tpl);
+      } else {
         // Fallback route check
         const fallbackRes = await fetch(
           `${API_URL}/agreements/templates/program/${target.programId}/active`,
@@ -135,9 +142,6 @@ function AgreementSignContent() {
         } else {
           throw new Error("No published agreement is currently required for this program.");
         }
-      } else {
-        const tpl = await templateRes.json();
-        setActiveTemplate(tpl);
       }
     } catch (err: any) {
       console.error("Agreement flow initialization error:", err);

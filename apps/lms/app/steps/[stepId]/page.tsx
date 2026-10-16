@@ -89,17 +89,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       const stepData = await stepRes.json();
       setStep(stepData);
 
-      // 2. Fetch authoritative progression for the step's program
+      // 2 & 4. Fetch authoritative progression and active quiz attempt concurrently
       let progData: EnrolmentProgressionResponse | null = null;
-      if (stepData.programId) {
-        const progRes = await fetch(`${API_URL}/progression/me/${stepData.programId}`, {
-          headers: getAuthHeaders(),
-        });
+      const progPromise = stepData.programId
+        ? fetch(`${API_URL}/progression/me/${stepData.programId}`, {
+            headers: getAuthHeaders(),
+          })
+        : Promise.resolve(null);
+
+      const quizPromise = stepData.quiz?.id
+        ? fetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
+            headers: getAuthHeaders(),
+          }).catch(() => null)
+        : Promise.resolve(null);
+
+      const [progRes, quizAttemptRes] = await Promise.all([progPromise, quizPromise]);
+
+      if (progRes) {
         if (progRes.ok) {
           progData = await progRes.json();
           setProgression(progData);
         } else if (progRes.status === 403 || progRes.status === 404) {
-          const err = await parseApiError(progRes);
           setProgression({
             enrolmentId: "",
             programId: stepData.programId,
@@ -150,28 +160,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         }
       }
 
-      // 4. If quiz exists on step, check active or previous attempt state
-      if (stepData.quiz?.id) {
+      // Handle quiz attempt response
+      if (quizAttemptRes && quizAttemptRes.ok) {
         try {
-          const quizAttemptRes = await fetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
-            headers: getAuthHeaders(),
-          });
-          if (quizAttemptRes.ok) {
-            const attemptText = await quizAttemptRes.text();
-            if (attemptText) {
-              const attemptData = JSON.parse(attemptText);
-              if (attemptData) {
-                if (attemptData.status === "IN_PROGRESS") {
-                  setActiveAttempt(attemptData);
-                  setQuestions(attemptData.questions || []);
-                } else {
-                  setLastResult(attemptData);
-                }
+          const attemptText = await quizAttemptRes.text();
+          if (attemptText) {
+            const attemptData = JSON.parse(attemptText);
+            if (attemptData) {
+              if (attemptData.status === "IN_PROGRESS") {
+                setActiveAttempt(attemptData);
+                setQuestions(attemptData.questions || []);
+              } else {
+                setLastResult(attemptData);
               }
             }
           }
         } catch (quizErr) {
-          console.warn("Failed to check active quiz attempt:", quizErr);
+          console.warn("Failed to parse active quiz attempt:", quizErr);
         }
       }
     } catch (err: any) {

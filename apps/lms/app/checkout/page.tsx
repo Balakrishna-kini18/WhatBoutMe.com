@@ -118,6 +118,8 @@ function CheckoutContent() {
         body: JSON.stringify({
           programId,
           enrolmentId: targetEnrolmentId,
+          bypass: true,
+          simulate: true,
         }),
       });
 

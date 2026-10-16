@@ -29,6 +29,13 @@ export class CacheControlInterceptor implements NestInterceptor {
           return;
         }
 
+        // Authenticated requests (Admin portal / Learner logged-in) must never be cached by shared CDN / edge
+        const hasAuth = Boolean(req?.headers?.['authorization']);
+        if (hasAuth) {
+          res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+          return;
+        }
+
         // Only attach if metadata exists and header not already set
         if (cacheControlHeader && !res.getHeader('Cache-Control')) {
           res.setHeader('Cache-Control', cacheControlHeader);

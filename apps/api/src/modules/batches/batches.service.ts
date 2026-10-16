@@ -534,7 +534,8 @@ export class BatchesService {
   async remove(id: string) {
     const batch = await this.prisma.batch.findUnique({ where: { id } });
     if (!batch) {
-      throw new NotFoundException('Batch not found');
+      await this.cacheHelper.invalidateNamespace('batches');
+      return { id, deleted: true };
     }
 
     // 1. Gather all sessions in this batch for Zoom cancel events & attendance cleanup

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import styles from "../curriculum.module.css";
-import { API_URL, cachedFetch } from "../../../lib/api";
+import { API_URL, cachedFetch, errorMessage } from "../../../lib/api";
 import { ConfirmDialog, useToast } from "../../../components";
 
 interface Option {
@@ -14,11 +14,14 @@ interface Option {
 
 interface Question {
   id: string;
+  type?: string;
   text: string;
   points?: number;
   explanation?: string | null;
   options: Option[];
 }
+
+export type QuestionKind = 'MULTIPLE_CHOICE' | 'MULTI_SELECT' | 'TRUE_FALSE' | 'CODE';
 
 interface Step7QuizBuilderProps {
   moduleId: string;
@@ -51,6 +54,10 @@ export default function Step7QuizBuilder({
   const [isDeletingQuestion, setIsDeletingQuestion] = useState(false);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
 
+  // Question Type selection
+  const [selectedKind, setSelectedKind] = useState<QuestionKind>('MULTIPLE_CHOICE');
+  const [codeSnippet, setCodeSnippet] = useState("");
+
   // New Question Form State
   const [newPrompt, setNewPrompt] = useState("");
   const [newPoints, setNewPoints] = useState(1);
@@ -64,43 +71,98 @@ export default function Step7QuizBuilder({
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
-  // Load existing questions
-  useEffect(() => {
-    if (!quizId) return;
+  const handleSelectKind = (kind: QuestionKind) => {
+    setSelectedKind(kind);
+    if (kind === 'TRUE_FALSE') {
+      setNewOptions([
+        { text: 'True', isCorrect: true },
+        { text: 'False', isCorrect: false },
+      ]);
+    } else if (kind === 'CODE') {
+      if (newOptions.length < 2) {
+        setNewOptions([
+          { text: '', isCorrect: true },
+          { text: '', isCorrect: false },
+        ]);
+      }
+    } else {
+      if (newOptions.length < 3) {
+        setNewOptions([
+          { text: '', isCorrect: true },
+          { text: '', isCorrect: false },
+          { text: '', isCorrect: false },
+        ]);
+      }
+    }
+  };
 
-    const fetchQuestions = async () => {
+  // Load existing questions or auto-discover quiz for this step
+  useEffect(() => {
+    if (existingQuiz?.id) {
+      setQuizId(existingQuiz.id);
+      if (existingQuiz.title) setQuizTitle(existingQuiz.title);
+      if (existingQuiz.passMark != null) setPassMark(existingQuiz.passMark);
+      if (existingQuiz.maxAttempts != null) setMaxAttempts(existingQuiz.maxAttempts);
+      if (existingQuiz.cooldownHours != null) setCooldownHours(existingQuiz.cooldownHours);
+      if (existingQuiz.questions && existingQuiz.questions.length > 0) {
+        setQuestions(existingQuiz.questions);
+        return;
+      }
+    }
+
+    const loadStepQuizOrQuestions = async () => {
       setIsLoadingQuestions(true);
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/quizzes/${quizId}/questions`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const qData = await res.json();
-          setQuestions(qData);
-        } else if (existingQuiz?.questions) {
-          setQuestions(existingQuiz.questions);
+        let targetQuizId = quizId || existingQuiz?.id;
+
+        // Auto-discover if step already has a quiz entity
+        if (!targetQuizId && moduleId) {
+          const stepRes = await cachedFetch(`${API_URL}/programs/steps/${moduleId}`);
+          if (stepRes.ok) {
+            const stepData = await stepRes.json();
+            if (stepData?.quiz?.id) {
+              targetQuizId = stepData.quiz.id;
+              setQuizId(stepData.quiz.id);
+              if (stepData.quiz.title) setQuizTitle(stepData.quiz.title);
+              if (stepData.quiz.passMark != null) setPassMark(stepData.quiz.passMark);
+              if (stepData.quiz.maxAttempts != null) setMaxAttempts(stepData.quiz.maxAttempts);
+              if (stepData.quiz.cooldownHours != null) setCooldownHours(stepData.quiz.cooldownHours);
+              if (stepData.quiz.questions && stepData.quiz.questions.length > 0) {
+                setQuestions(stepData.quiz.questions);
+                setIsLoadingQuestions(false);
+                return;
+              }
+            }
+          }
+        }
+
+        if (targetQuizId) {
+          const qRes = await cachedFetch(`${API_URL}/quizzes/${targetQuizId}/questions`);
+          if (qRes.ok) {
+            const qData = await qRes.json();
+            setQuestions(qData);
+          } else if (existingQuiz?.questions) {
+            setQuestions(existingQuiz.questions);
+          }
         }
       } catch (err) {
-        console.warn("Could not fetch quiz questions", err);
+        console.warn("Could not load quiz questions", err);
       } finally {
         setIsLoadingQuestions(false);
       }
     };
 
-    fetchQuestions();
-  }, [quizId, existingQuiz]);
+    loadStepQuizOrQuestions();
+  }, [quizId, existingQuiz, moduleId]);
 
   // Ensure quiz entity exists in backend
   const ensureQuizEntity = async (): Promise<string> => {
     if (quizId) return quizId;
 
-    const token = localStorage.getItem("token");
-    const res = await fetch(`${API_URL}/quizzes`, {
+    const res = await cachedFetch(`${API_URL}/quizzes`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
         stepId: moduleId,
@@ -111,7 +173,9 @@ export default function Step7QuizBuilder({
       }),
     });
 
-    if (!res.ok) throw new Error("Failed to initialize quiz in backend");
+    if (!res.ok) {
+      throw new Error(await errorMessage(res, "Failed to initialize quiz in backend"));
+    }
     const created = await res.json();
     setQuizId(created.id);
     return created.id;
@@ -128,7 +192,15 @@ export default function Step7QuizBuilder({
 
   const handleCreateQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPrompt.trim().length < 3) return;
+    if (newPrompt.trim().length < 3) {
+      toast.error("Please enter a question prompt (at least 3 characters).");
+      return;
+    }
+
+    if (selectedKind === 'CODE' && !codeSnippet.trim()) {
+      toast.error("Please enter a code snippet for the code question.");
+      return;
+    }
 
     const validOpts = newOptions.filter((o) => o.text.trim().length > 0);
     if (validOpts.length < 2) {
@@ -140,19 +212,33 @@ export default function Step7QuizBuilder({
       return;
     }
 
+    if (selectedKind !== 'MULTI_SELECT') {
+      const correctCount = validOpts.filter((o) => o.isCorrect).length;
+      if (correctCount > 1) {
+        toast.error("Single choice questions must have only one correct answer.");
+        return;
+      }
+    }
+
     setIsAddingQuestion(true);
     try {
       const activeQId = await ensureQuizEntity();
-      const token = localStorage.getItem("token");
 
-      const res = await fetch(`${API_URL}/quizzes/${activeQId}/questions`, {
+      let textToSend = newPrompt.trim();
+      if (selectedKind === 'CODE' && codeSnippet.trim()) {
+        textToSend = `${textToSend}\n\n\`\`\`javascript\n${codeSnippet.trim()}\n\`\`\``;
+      }
+
+      const qType = selectedKind === 'MULTI_SELECT' ? 'MULTI_SELECT' : 'MULTIPLE_CHOICE';
+
+      const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}/questions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          text: newPrompt.trim(),
+          text: textToSend,
+          type: qType,
           points: Number(newPoints) || 1,
           explanation: newExplanation.trim() || undefined,
           options: validOpts.map((o, idx) => ({
@@ -163,17 +249,27 @@ export default function Step7QuizBuilder({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to add question");
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to add question"));
+      }
 
       const createdQ = await res.json();
       setQuestions((prev) => [...prev, createdQ]);
       setNewPrompt("");
+      setCodeSnippet("");
       setNewExplanation("");
-      setNewOptions([
-        { text: "", isCorrect: true },
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
-      ]);
+      if (selectedKind === 'TRUE_FALSE') {
+        setNewOptions([
+          { text: "True", isCorrect: true },
+          { text: "False", isCorrect: false },
+        ]);
+      } else {
+        setNewOptions([
+          { text: "", isCorrect: true },
+          { text: "", isCorrect: false },
+          { text: "", isCorrect: false },
+        ]);
+      }
       setFeedbackMsg("Question added successfully");
       toast.success("Question added successfully.");
       setTimeout(() => setFeedbackMsg(null), 2500);
@@ -185,18 +281,19 @@ export default function Step7QuizBuilder({
   };
 
   const confirmDeleteQuestion = async () => {
-    if (!quizId || !questionToDelete) return;
+    if (!questionToDelete) return;
     setIsDeletingQuestion(true);
     try {
       const qId = questionToDelete.id;
       setQuestions((prev) => prev.filter((q) => q.id !== qId));
       setQuestionToDelete(null);
 
-      await cachedFetch(`${API_URL}/quizzes/${quizId}/questions/${qId}`, {
+      await cachedFetch(`${API_URL}/quizzes/questions/${qId}`, {
         method: "DELETE",
       });
-    } catch (err) {
-      console.error(err);
+      toast.success("Question removed.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete question");
     } finally {
       setIsDeletingQuestion(false);
     }
@@ -206,14 +303,12 @@ export default function Step7QuizBuilder({
     setIsSavingAll(true);
     try {
       const activeQId = await ensureQuizEntity();
-      const token = localStorage.getItem("token");
 
       // Update quiz parameters
-      await fetch(`${API_URL}/quizzes/${activeQId}`, {
+      const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           title: quizTitle.trim(),
@@ -222,6 +317,10 @@ export default function Step7QuizBuilder({
           cooldownHours: Number(cooldownHours),
         }),
       });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to update quiz settings"));
+      }
 
       toast.success("Quiz settings updated.");
       onQuizSaved();
@@ -299,10 +398,38 @@ export default function Step7QuizBuilder({
         </h3>
 
         <div className={styles.questionTypePillBar} style={{ margin: 0 }}>
-          <span className={styles.questionTypePill}>+ Multiple Choice</span>
-          <span className={styles.questionTypePill}>+ Multiple Select</span>
-          <span className={styles.questionTypePill}>+ True/False</span>
-          <span className={styles.questionTypePill}>+ Code Question</span>
+          <button
+            type="button"
+            onClick={() => handleSelectKind('MULTIPLE_CHOICE')}
+            className={`${styles.questionTypePill} ${selectedKind === 'MULTIPLE_CHOICE' ? styles.questionTypePillActive : ''}`}
+            aria-pressed={selectedKind === 'MULTIPLE_CHOICE'}
+          >
+            + Multiple Choice
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectKind('MULTI_SELECT')}
+            className={`${styles.questionTypePill} ${selectedKind === 'MULTI_SELECT' ? styles.questionTypePillActive : ''}`}
+            aria-pressed={selectedKind === 'MULTI_SELECT'}
+          >
+            + Multiple Select
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectKind('TRUE_FALSE')}
+            className={`${styles.questionTypePill} ${selectedKind === 'TRUE_FALSE' ? styles.questionTypePillActive : ''}`}
+            aria-pressed={selectedKind === 'TRUE_FALSE'}
+          >
+            + True/False
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSelectKind('CODE')}
+            className={`${styles.questionTypePill} ${selectedKind === 'CODE' ? styles.questionTypePillActive : ''}`}
+            aria-pressed={selectedKind === 'CODE'}
+          >
+            + Code Question
+          </button>
         </div>
       </div>
 
@@ -321,7 +448,7 @@ export default function Step7QuizBuilder({
             <div key={q.id} className={styles.questionCard}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
                 <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--accent-primary)", background: "var(--accent-highlight)", padding: "2px 8px", borderRadius: 4 }}>
-                  Question {idx + 1} &bull; {q.points || 1} Pt
+                  Question {idx + 1} &bull; {q.points || 1} Pt {q.type === 'MULTI_SELECT' ? '• Multi-Select' : ''}
                 </span>
                 <button
                   type="button"
@@ -332,13 +459,13 @@ export default function Step7QuizBuilder({
                 </button>
               </div>
 
-              <h4 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: 700 }}>{q.text}</h4>
+              <h4 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: 700, whiteSpace: "pre-wrap" }}>{q.text}</h4>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.75rem" }}>
                 {q.options?.map((opt, oIdx) => (
                   <div key={oIdx} className={styles.optionItemRow}>
                     <input
-                      type="radio"
+                      type={q.type === 'MULTI_SELECT' ? 'checkbox' : 'radio'}
                       checked={opt.isCorrect}
                       readOnly
                       className={styles.correctRadio}
@@ -370,9 +497,14 @@ export default function Step7QuizBuilder({
 
       {/* Add Question Subform */}
       <form onSubmit={handleCreateQuestion} style={{ border: "2px dashed var(--border-light)", padding: "1.75rem", borderRadius: 16, background: "#ffffff" }}>
-        <h4 style={{ margin: "0 0 1.25rem", fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
-          + Add New Question
-        </h4>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
+          <h4 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
+            + Add New {selectedKind === 'MULTIPLE_CHOICE' ? 'Multiple Choice Question' : selectedKind === 'MULTI_SELECT' ? 'Multiple Select Question' : selectedKind === 'TRUE_FALSE' ? 'True / False Question' : 'Code Question'}
+          </h4>
+          <span style={{ fontSize: "0.8rem", color: "var(--accent-primary)", background: "var(--accent-highlight)", padding: "2px 8px", borderRadius: 4, fontWeight: 700 }}>
+            {selectedKind === 'MULTIPLE_CHOICE' ? 'Single Answer' : selectedKind === 'MULTI_SELECT' ? 'Select All That Apply' : selectedKind === 'TRUE_FALSE' ? 'Binary Choice' : 'Code Snippet'}
+          </span>
+        </div>
 
         {feedbackMsg && (
           <div style={{ color: "#15803d", fontWeight: 700, fontSize: "0.85rem", marginBottom: "1rem" }}>
@@ -385,33 +517,82 @@ export default function Step7QuizBuilder({
           <textarea
             rows={2}
             required
-            placeholder="e.g. Which hook is optimal for memoizing complex computational values in React?"
+            placeholder={
+              selectedKind === 'MULTIPLE_CHOICE'
+                ? "e.g. Which hook is optimal for memoizing complex computational values in React?"
+                : selectedKind === 'MULTI_SELECT'
+                ? "e.g. Which of the following are valid React 19 hooks? (Select all that apply)"
+                : selectedKind === 'TRUE_FALSE'
+                ? "e.g. In JavaScript, primitive values like numbers and strings are immutable."
+                : "e.g. What will be the console output when this snippet is executed?"
+            }
             value={newPrompt}
             onChange={(e) => setNewPrompt(e.target.value)}
             className={styles.formTextarea}
           />
         </div>
 
+        {selectedKind === 'CODE' && (
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>
+              <span>Code Snippet</span>
+              <span className={styles.formLabelOptional}>Formatted monospaced block</span>
+            </label>
+            <textarea
+              rows={4}
+              required
+              placeholder={`function checkScope() {\n  var a = 10;\n  let b = 20;\n  console.log(a + b);\n}\ncheckScope();`}
+              value={codeSnippet}
+              onChange={(e) => setCodeSnippet(e.target.value)}
+              className={styles.codeSnippetInput}
+            />
+          </div>
+        )}
+
         <div className={styles.formGroup}>
-          <label className={styles.formLabel}>Answer Options (Select the correct radio choice)</label>
+          <label className={styles.formLabel}>
+            <span>
+              {selectedKind === 'MULTI_SELECT'
+                ? "Answer Options (Check ALL choices that are correct)"
+                : selectedKind === 'TRUE_FALSE'
+                ? "Answer Options (Designate whether True or False is the correct answer)"
+                : "Answer Options (Designate the single correct choice)"}
+            </span>
+          </label>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             {newOptions.map((opt, idx) => (
               <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <input
-                  type="radio"
-                  name="correct_choice_radio"
-                  checked={opt.isCorrect}
-                  onChange={() => {
-                    setNewOptions((prev) =>
-                      prev.map((o, i) => ({ ...o, isCorrect: i === idx }))
-                    );
-                  }}
-                  className={styles.correctRadio}
-                  title="Mark as correct answer"
-                />
+                {selectedKind === 'MULTI_SELECT' ? (
+                  <input
+                    type="checkbox"
+                    checked={opt.isCorrect}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setNewOptions((prev) =>
+                        prev.map((o, i) => (i === idx ? { ...o, isCorrect: checked } : o))
+                      );
+                    }}
+                    className={styles.correctRadio}
+                    title="Check if correct answer"
+                  />
+                ) : (
+                  <input
+                    type="radio"
+                    name="correct_choice_radio"
+                    checked={opt.isCorrect}
+                    onChange={() => {
+                      setNewOptions((prev) =>
+                        prev.map((o, i) => ({ ...o, isCorrect: i === idx }))
+                      );
+                    }}
+                    className={styles.correctRadio}
+                    title="Mark as correct answer"
+                  />
+                )}
                 <input
                   type="text"
                   required
+                  readOnly={selectedKind === 'TRUE_FALSE'}
                   placeholder={`Choice ${idx + 1}`}
                   value={opt.text}
                   onChange={(e) => {
@@ -421,9 +602,9 @@ export default function Step7QuizBuilder({
                     );
                   }}
                   className={styles.formInput}
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, ...(selectedKind === 'TRUE_FALSE' ? { background: '#f5f0e8', fontWeight: 600 } : {}) }}
                 />
-                {newOptions.length > 2 && (
+                {selectedKind !== 'TRUE_FALSE' && newOptions.length > 2 && (
                   <button
                     type="button"
                     onClick={() => handleRemoveChoice(idx)}
@@ -440,14 +621,16 @@ export default function Step7QuizBuilder({
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={handleAddChoice}
-            className={styles.secondaryActionBtn}
-            style={{ marginTop: "0.75rem", fontSize: "0.8rem" }}
-          >
-            + Add Another Option
-          </button>
+          {selectedKind !== 'TRUE_FALSE' && (
+            <button
+              type="button"
+              onClick={handleAddChoice}
+              className={styles.secondaryActionBtn}
+              style={{ marginTop: "0.75rem", fontSize: "0.8rem" }}
+            >
+              + Add Another Option
+            </button>
+          )}
         </div>
 
         <div className={styles.formGroup}>

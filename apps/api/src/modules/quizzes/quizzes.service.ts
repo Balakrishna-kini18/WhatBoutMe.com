@@ -100,7 +100,24 @@ export class QuizzesService {
   }
 
   async create(data: CreateQuizDto) {
-    const res = await this.prisma.quiz.create({ data });
+    // Idempotent upsert: if a quiz already exists for this stepId, update and return it
+    if (data.stepId) {
+      const existing = await this.prisma.quiz.findUnique({
+        where: { stepId: data.stepId },
+      });
+      if (existing) {
+        const { stepId, questions, ...updateFields } = data;
+        const res = await this.prisma.quiz.update({
+          where: { id: existing.id },
+          data: updateFields,
+        });
+        await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
+        return res;
+      }
+    }
+
+    const { questions, ...createFields } = data;
+    const res = await this.prisma.quiz.create({ data: createFields as any });
     await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }

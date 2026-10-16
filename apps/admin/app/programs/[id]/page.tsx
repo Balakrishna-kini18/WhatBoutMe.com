@@ -78,8 +78,8 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     try {
       // Kill Waterfall: Fetch program list and steps list simultaneously
       const [progRes, stepsRes] = await Promise.all([
-        fetch(`${API_URL}/programs`),
-        fetch(`${API_URL}/programs/${programId}/steps`),
+        cachedFetch(`${API_URL}/programs`, { skipCache: true }),
+        cachedFetch(`${API_URL}/programs/${programId}/steps`, { skipCache: true }),
       ]);
 
       if (progRes.ok) {
@@ -96,7 +96,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         const detailedSteps = await Promise.all(
           sorted.map(async (s) => {
             try {
-              const detailRes = await fetch(`${API_URL}/programs/steps/${s.id}`);
+              const detailRes = await cachedFetch(`${API_URL}/programs/steps/${s.id}`, { skipCache: true });
               if (detailRes.ok) return await detailRes.json();
             } catch (e) {}
             return s;

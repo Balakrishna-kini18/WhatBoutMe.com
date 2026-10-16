@@ -68,10 +68,11 @@ export class BatchesService {
       // Auto-transition batches whose startDate has arrived to ACTIVE
       // and batches whose endDate has passed to COMPLETED
       const now = new Date();
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
       await this.prisma.batch.updateMany({
         where: {
           status: BatchStatus.UPCOMING,
-          startDate: { lte: now },
+          startDate: { lte: endOfToday },
         },
         data: {
           status: BatchStatus.ACTIVE,
@@ -252,14 +253,18 @@ export class BatchesService {
     }
 
     // Determine initial status based on startDate / endDate if not explicitly provided
-    const nowMs = Date.now();
-    const startMs = new Date(data.startDate).getTime();
+    const now = new Date();
+    const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const batchStart = new Date(data.startDate);
+    const batchStartDayMs = new Date(batchStart.getFullYear(), batchStart.getMonth(), batchStart.getDate()).getTime();
+    const nowMs = now.getTime();
+    const startMs = batchStart.getTime();
     const endMs = data.endDate ? new Date(data.endDate).getTime() : null;
     let initialStatus = data.status;
     if (!initialStatus) {
       if (endMs && endMs < nowMs) {
         initialStatus = BatchStatus.COMPLETED;
-      } else if (startMs <= nowMs) {
+      } else if (startMs <= nowMs || batchStartDayMs <= todayStartMs) {
         initialStatus = BatchStatus.ACTIVE;
       } else {
         initialStatus = BatchStatus.UPCOMING;
@@ -386,16 +391,20 @@ export class BatchesService {
     if (data.capacity !== undefined) updateData.capacity = data.capacity;
     if (data.status !== undefined) {
       updateData.status = data.status;
-    } else if (existing.status === BatchStatus.UPCOMING || existing.status === BatchStatus.ACTIVE) {
-      const nowMs = Date.now();
-      const startMs = updateData.startDate ? updateData.startDate.getTime() : existing.startDate.getTime();
+    } else if (batch.status === BatchStatus.UPCOMING || batch.status === BatchStatus.ACTIVE) {
+      const now = new Date();
+      const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const effectiveStart = updateData.startDate ?? batch.startDate;
+      const effectiveStartDayMs = new Date(effectiveStart.getFullYear(), effectiveStart.getMonth(), effectiveStart.getDate()).getTime();
+      const nowMs = now.getTime();
+      const startMs = effectiveStart.getTime();
       const endMs = updateData.endDate !== undefined
         ? (updateData.endDate ? updateData.endDate.getTime() : null)
-        : (existing.endDate ? existing.endDate.getTime() : null);
+        : (batch.endDate ? batch.endDate.getTime() : null);
 
       if (endMs && endMs < nowMs) {
         updateData.status = BatchStatus.COMPLETED;
-      } else if (startMs <= nowMs) {
+      } else if (startMs <= nowMs || effectiveStartDayMs <= todayStartMs) {
         updateData.status = BatchStatus.ACTIVE;
       } else {
         updateData.status = BatchStatus.UPCOMING;
@@ -772,10 +781,14 @@ export class BatchesService {
     const remainingCapacity = Math.max(0, capacity - enrolledCount);
     const isFull = enrolledCount >= capacity;
 
-    const nowMs = Date.now();
+    const now = new Date();
+    const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const nowMs = now.getTime();
     let computedStatus = batch.status;
     if (batch.status === BatchStatus.UPCOMING && batch.startDate) {
-      if (new Date(batch.startDate).getTime() <= nowMs) {
+      const bStart = new Date(batch.startDate);
+      const bStartDayMs = new Date(bStart.getFullYear(), bStart.getMonth(), bStart.getDate()).getTime();
+      if (bStart.getTime() <= nowMs || bStartDayMs <= todayStartMs) {
         computedStatus =
           batch.endDate && new Date(batch.endDate).getTime() < nowMs
             ? BatchStatus.COMPLETED

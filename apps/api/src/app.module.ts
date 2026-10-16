@@ -29,6 +29,7 @@ import { ChatModule } from './modules/chat/chat.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 import { ResourcesModule } from './modules/resources/resources.module.js';
 import { CouponsModule } from './modules/coupons/coupons.module.js';
+import { EventsModule } from './modules/events/events.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { SentryModule } from '@sentry/nestjs/setup';
@@ -100,6 +101,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     AuditModule,
     ResourcesModule,
     CouponsModule,
+    EventsModule,
   ],
   controllers: [AppController],
   providers: [

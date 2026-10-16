@@ -297,6 +297,9 @@ model User {
   createdResourceItems         ResourceItem[]             @relation("CreatedResourceItems")
   couponRedemptions            CouponRedemption[]
   sentAnnouncements            BatchAnnouncement[]        @relation("SentAnnouncements")
+  createdEvents                Event[]                    @relation("CreatedEvents")
+  eventRegistrations           EventRegistration[]        @relation("UserEventRegistrations")
+  rejectedEventRegistrations   EventRegistration[]        @relation("RejectedEventRegistrations")
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -1574,4 +1577,98 @@ enum OutboxStatus {
   PROCESSING
   COMPLETED
   FAILED
+}
+
+// -----------------------------------------------------------------------------
+// EVENTS & WEBINARS
+// -----------------------------------------------------------------------------
+
+enum EventType {
+  EVENT
+  WEBINAR
+}
+
+enum EventStatus {
+  SCHEDULED
+  REGISTRATION_OPEN
+  ONGOING
+  ENDED
+  CANCELLED
+}
+
+enum ParticipantCategory {
+  STUDENT
+  ENTREPRENEUR
+  STARTUP_FOUNDER
+  ASPIRING_FOUNDER
+  PROFESSIONAL
+  RESEARCHER
+  ACADEMIC_FACULTY
+  INVESTOR
+  CONSULTANT
+  FREELANCER
+  JOB_SEEKER
+  CORPORATE_EMPLOYEE
+  NGO_WORKER
+  GOVERNMENT_OFFICIAL
+  HOMEMAKER
+  RETIRED
+  OTHER
+}
+
+enum EventRegistrationStatus {
+  CONFIRMED
+  REJECTED
+}
+
+model Event {
+  id                   String              @id @default(uuid())
+  type                 EventType           @default(EVENT)
+  title                String
+  description          String              @db.Text
+  status               EventStatus         @default(SCHEDULED)
+  startAt              DateTime
+  endAt                DateTime
+  location             String?
+  meetingLink          String?
+  coverImageUrl        String?
+  maxRegistrations     Int?
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+  createdById          String?
+  createdBy            User?               @relation("CreatedEvents", fields: [createdById], references: [id], onDelete: SetNull)
+  registrations        EventRegistration[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([type, status, startAt])
+  @@index([createdAt])
+}
+
+model EventRegistration {
+  id              String                  @id @default(uuid())
+  eventId         String
+  userId          String?
+  fullName        String
+  email           String
+  phone           String
+  category        ParticipantCategory
+  categoryOther   String?
+  organization    String?
+  city            String?
+  status          EventRegistrationStatus @default(CONFIRMED)
+  rejectedAt      DateTime?
+  rejectedById    String?
+  rejectionReason String?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  event           Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user            User?                   @relation("UserEventRegistrations", fields: [userId], references: [id], onDelete: SetNull)
+  rejectedBy      User?                   @relation("RejectedEventRegistrations", fields: [rejectedById], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, email])
+  @@index([eventId, createdAt])
+  @@index([eventId, status])
+  @@index([userId])
 }

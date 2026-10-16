@@ -93,6 +93,14 @@ const Icons = {
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   ),
+  Events: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
   WebsiteContent: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
@@ -295,6 +303,15 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     category: "Communication",
     iconName: "Announcements",
     keywords: ["zoom", "live", "webinars", "events", "calendar", "outlook", "schedule"],
+  },
+  {
+    id: "events",
+    title: "Events & Webinars",
+    description: "Manage workshops, community events, registrations, and attendees",
+    href: "/events",
+    category: "Communication",
+    iconName: "Events",
+    keywords: ["events", "webinars", "workshops", "registrations", "attendees", "community"],
   },
   {
     id: "website",
@@ -521,6 +538,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       items: [
         { label: "Messages", href: "/messages", icon: <Icons.Messages />, perm: "manage_operations" },
         { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
+        { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
         { label: "Announcements", href: "/meetings", icon: <Icons.Announcements />, perm: "manage_operations" },
       ],
     },

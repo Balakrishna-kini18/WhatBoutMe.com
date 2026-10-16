@@ -385,4 +385,41 @@ export async function registerForEvent(eventId: string, payload: RegisterEventPa
   return data;
 }
 
+// -----------------------------------------------------------------------------
+// PUBLIC GALLERY INTERFACES & HELPERS
+// -----------------------------------------------------------------------------
+
+export interface PublicGalleryItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl: string;
+  altText?: string | null;
+  category?: string | null;
+  displayOrder: number;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getPublicGallery(category?: string): Promise<{ items: PublicGalleryItem[]; total: number }> {
+  const query = new URLSearchParams();
+  if (category && category !== "ALL") query.set("category", category);
+  const qs = query.toString();
+  const endpoint = qs ? `${API_BASE_URL}/gallery?${qs}` : `${API_BASE_URL}/gallery`;
+
+  try {
+    const res = await fetch(endpoint, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) {
+      return { items: [], total: 0 };
+    }
+    return await res.json();
+  } catch (error) {
+    console.warn("Failed to fetch public gallery:", error);
+    return { items: [], total: 0 };
+  }
+}
+
 

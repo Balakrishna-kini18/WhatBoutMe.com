@@ -188,6 +188,13 @@ export function autoInvalidateOnMutation(url: string): void {
     return;
   }
 
+  const isGallery = /\/gallery/.test(url);
+  if (isGallery) {
+    invalidateCache("/gallery");
+    invalidateCache("/admin/gallery");
+    return;
+  }
+
   // Fallback: clear the entire cache to guarantee immediate UI updates
   clearApiCache();
 }
@@ -724,5 +731,101 @@ export interface EventRegistrationsResponse {
     revenueByCurrency: Record<string, number>;
   };
   registrations: EventRegistrationItem[];
+}
+
+// -----------------------------------------------------------------------------
+// GALLERY MANAGEMENT INTERFACES & HELPERS
+// -----------------------------------------------------------------------------
+
+export interface GalleryItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl: string;
+  altText?: string | null;
+  category?: string | null;
+  displayOrder: number;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateGalleryItemPayload {
+  title: string;
+  description?: string;
+  imageUrl: string;
+  altText?: string;
+  category?: string;
+  displayOrder?: number;
+  isPublished?: boolean;
+}
+
+export interface UpdateGalleryItemPayload {
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  altText?: string;
+  category?: string;
+  displayOrder?: number;
+  isPublished?: boolean;
+}
+
+export async function getAdminGallery(params?: {
+  category?: string;
+  isPublished?: boolean;
+}): Promise<{ items: GalleryItem[]; total: number }> {
+  const query = new URLSearchParams();
+  if (params?.category) query.set("category", params.category);
+  if (params?.isPublished !== undefined) query.set("isPublished", String(params.isPublished));
+  const queryString = query.toString();
+  const endpoint = queryString ? `/admin/gallery?${queryString}` : "/admin/gallery";
+  return apiGet<{ items: GalleryItem[]; total: number }>(endpoint);
+}
+
+export async function uploadGalleryImage(file: File): Promise<{ imageUrl: string }> {
+  const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/avif"];
+  if (!allowed.includes(file.type)) {
+    throw new Error("Invalid image format. Allowed formats: PNG, JPEG, WEBP, AVIF.");
+  }
+  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+  if (file.size > MAX_SIZE) {
+    throw new Error("Image file size exceeds the 5 MB limit.");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await cachedFetch(`${API_URL}/admin/gallery/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Could not upload gallery image"));
+  }
+
+  return res.json();
+}
+
+export async function createGalleryItem(payload: CreateGalleryItemPayload): Promise<GalleryItem> {
+  return apiPost<GalleryItem>("/admin/gallery", payload);
+}
+
+export async function updateGalleryItem(
+  id: string,
+  payload: UpdateGalleryItemPayload
+): Promise<GalleryItem> {
+  return apiPut<GalleryItem>(`/admin/gallery/${id}`, payload);
+}
+
+export async function deleteGalleryItem(id: string): Promise<{ success: boolean; id: string }> {
+  return apiDelete<{ success: boolean; id: string }>(`/admin/gallery/${id}`);
 }
 

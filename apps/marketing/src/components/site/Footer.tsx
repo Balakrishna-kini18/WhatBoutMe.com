@@ -7,6 +7,8 @@ import { getSiteContent } from "@/lib/siteContent";
 
 const LINKS = [
   { label: "Courses", href: "/courses" },
+  { label: "Events", href: "/events" },
+  { label: "Gallery", href: "/gallery" },
   { label: "About", href: "/about" },
   { label: "Certification", href: "/#certification" },
   { label: "FAQ", href: "/#faq" },

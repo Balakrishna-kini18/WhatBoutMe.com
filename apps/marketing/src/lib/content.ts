@@ -68,6 +68,7 @@ export const ENQUIRE_HREF = "/contact";
 export const NAV_LINKS = [
   { label: "Courses", href: "/courses" },
   { label: "Events", href: "/events" },
+  { label: "Gallery", href: "/gallery" },
   { label: "About", href: "/about" },
   { label: "Certification", href: "#certification" },
   { label: "FAQ", href: "#faq" },

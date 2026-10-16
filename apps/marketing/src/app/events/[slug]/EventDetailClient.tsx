@@ -18,6 +18,9 @@ import {
   ArrowLeft,
   Sparkles,
   ExternalLink,
+  Printer,
+  Copy,
+  ShieldCheck,
 } from "lucide-react";
 import {
   checkoutEvent,
@@ -94,6 +97,8 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
   const [modalFeedback, setModalFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [confirmedRegistration, setConfirmedRegistration] = useState<EventRegistrationItem | null>(null);
   const [unlockedMeetingLink, setUnlockedMeetingLink] = useState<string | null>(null);
+  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -101,6 +106,19 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
       setToastMessage((cur) => (cur === msg ? null : cur));
     }, 3500);
   };
+
+  useEffect(() => {
+    try {
+      const ids = new Set<string>();
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("wbm_reg_")) {
+          ids.add(key.replace("wbm_reg_", ""));
+        }
+      }
+      setRegisteredEventIds(ids);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -132,6 +150,38 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
     }
   };
 
+  const openRegistrationModal = () => {
+    let savedReg: EventRegistrationItem | null = null;
+    try {
+      const stored = localStorage.getItem(`wbm_reg_${event.id}`);
+      if (stored) savedReg = JSON.parse(stored);
+    } catch {}
+
+    if (event.registeredByMe || savedReg || registeredEventIds.has(event.id)) {
+      setConfirmedRegistration(
+        savedReg || {
+          id: `CONFIRMED-${event.id.slice(0, 8)}`,
+          eventId: event.id,
+          attendeeName: user?.name || "Registered Learner",
+          attendeeEmail: user?.email || attendeeEmail || "Verified Attendee",
+          attendeePhone: attendeePhone || "",
+          amount: event.price,
+          currency: event.currency,
+          paymentStatus: "PAID",
+          createdAt: new Date().toISOString(),
+        }
+      );
+      setUnlockedMeetingLink(savedReg?.meetingLink || event.meetingLink || null);
+      setIsModalOpen(true);
+      return;
+    }
+
+    setConfirmedRegistration(null);
+    setUnlockedMeetingLink(null);
+    setModalFeedback(null);
+    setIsModalOpen(true);
+  };
+
   const handlePayNowSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!attendeeName.trim() || !attendeeEmail.trim() || !attendeePhone.trim()) {
@@ -146,36 +196,96 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
     setModalFeedback(null);
 
     try {
-      // Step A: Initiate checkout (creates PENDING registration)
+      // Step A: Initiate checkout (creates PENDING registration or returns alreadyRegistered)
       const checkoutRes = await checkoutEvent(event.slug || event.id, {
         attendeeName: attendeeName.trim(),
         attendeeEmail: attendeeEmail.trim().toLowerCase(),
         attendeePhone: attendeePhone.trim(),
       });
 
-      // Step B: Payment Verification (Simulated mode for testing, ready for Razorpay/Stripe live webhook)
+      // If user is already registered for this event
+      if (checkoutRes.alreadyRegistered && checkoutRes.registration) {
+        setConfirmedRegistration(checkoutRes.registration);
+        const link = checkoutRes.meetingLink || checkoutRes.event?.meetingLink || event.meetingLink || null;
+        if (link) setUnlockedMeetingLink(link);
+
+        try {
+          localStorage.setItem(`wbm_reg_${event.id}`, JSON.stringify(checkoutRes.registration));
+        } catch {}
+        setRegisteredEventIds((prev) => new Set(prev).add(event.id));
+        setEvent((prev) => ({ ...prev, registeredByMe: true }));
+        showToast("You are already registered for this event! Here is your invoice & link.");
+        return;
+      }
+
+      // If free RSVP
+      if (checkoutRes.status === "PAID" && checkoutRes.registration) {
+        setConfirmedRegistration(checkoutRes.registration);
+        const link = checkoutRes.meetingLink || checkoutRes.event?.meetingLink || event.meetingLink || null;
+        if (link) setUnlockedMeetingLink(link);
+
+        try {
+          localStorage.setItem(`wbm_reg_${event.id}`, JSON.stringify(checkoutRes.registration));
+        } catch {}
+        setRegisteredEventIds((prev) => new Set(prev).add(event.id));
+        setEvent((prev) => ({
+          ...prev,
+          registeredByMe: true,
+          seatsBooked: prev.seatsBooked + 1,
+          seatsRemaining:
+            prev.seatLimit !== null && prev.seatLimit !== undefined
+              ? Math.max(0, prev.seatLimit - (prev.seatsBooked + 1))
+              : null,
+        }));
+        showToast("Free registration confirmed!");
+        return;
+      }
+
+      // Step B: Payment Verification (Simulated mode for testing, bypassing live gateway)
       const simulatedPaymentId = `sim_pay_${Date.now()}`;
       const verifyRes = await verifyEventPayment({
         registrationId: checkoutRes.registrationId,
-        gatewayOrderId: checkoutRes.orderId,
+        gatewayOrderId: checkoutRes.orderId || `sim_ord_${Date.now()}`,
         gatewayPaymentId: simulatedPaymentId,
         isSimulated: true,
       });
 
-      setConfirmedRegistration(verifyRes.registration);
-      if (verifyRes.event?.meetingLink) {
-        setUnlockedMeetingLink(verifyRes.event.meetingLink);
+      const confirmed: EventRegistrationItem = verifyRes.registration || {
+        id: checkoutRes.registrationId,
+        eventId: event.id,
+        attendeeName: attendeeName.trim(),
+        attendeeEmail: attendeeEmail.trim().toLowerCase(),
+        attendeePhone: attendeePhone.trim(),
+        amount: event.price,
+        currency: event.currency,
+        gatewayOrderId: checkoutRes.orderId,
+        gatewayPaymentId: simulatedPaymentId,
+        paymentStatus: "PAID",
+        createdAt: new Date().toISOString(),
+      };
+
+      setConfirmedRegistration(confirmed);
+      const meetingLink = verifyRes.meetingLink || verifyRes.event?.meetingLink || event.meetingLink || null;
+      if (meetingLink) {
+        setUnlockedMeetingLink(meetingLink);
       }
+
+      try {
+        localStorage.setItem(`wbm_reg_${event.id}`, JSON.stringify(confirmed));
+      } catch {}
+      setRegisteredEventIds((prev) => new Set(prev).add(event.id));
 
       // Update seat counts
       setEvent((prev) => ({
         ...prev,
+        registeredByMe: true,
         seatsBooked: prev.seatsBooked + 1,
         seatsRemaining:
           prev.seatLimit !== null && prev.seatLimit !== undefined
             ? Math.max(0, prev.seatLimit - (prev.seatsBooked + 1))
             : null,
       }));
+      showToast("Payment & Booking Confirmed!");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Payment checkout failed. Please try again.";
       setModalFeedback({ type: "error", message: msg });
@@ -335,15 +445,19 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
           </dl>
 
           <div className="mt-6 space-y-3">
-            {canRegister ? (
+            {event.registeredByMe || registeredEventIds.has(event.id) ? (
               <button
                 type="button"
-                onClick={() => {
-                  setConfirmedRegistration(null);
-                  setUnlockedMeetingLink(null);
-                  setModalFeedback(null);
-                  setIsModalOpen(true);
-                }}
+                onClick={openRegistrationModal}
+                className="group flex w-full items-center justify-center gap-2 rounded-full bg-emerald-700 py-3.5 text-sm font-semibold uppercase tracking-wider text-white shadow-sm transition hover:bg-emerald-800"
+              >
+                <CheckCircle2 className="h-4 w-4 text-emerald-200" />
+                <span>Ticket Confirmed (View Invoice)</span>
+              </button>
+            ) : canRegister ? (
+              <button
+                type="button"
+                onClick={openRegistrationModal}
                 className="group flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 text-sm font-semibold uppercase tracking-wider text-cream transition-colors duration-200 hover:bg-gold-deep hover:text-white"
               >
                 <span>
@@ -394,65 +508,150 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
             </button>
 
             {confirmedRegistration ? (
-              <div className="py-4 text-center">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                  <CheckCircle2 className="h-8 w-8" />
+              <div className="py-2 text-center">
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 shadow-sm">
+                  <CheckCircle2 className="h-7 w-7" />
                 </div>
-                <h3 className="text-2xl font-bold tracking-tight text-ink">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-800 border border-emerald-200 mb-2">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Confirmed &amp; Secured · Cannot Pay Twice</span>
+                </div>
+                <h3 className="text-xl font-bold tracking-tight text-ink md:text-2xl">
                   {event.price === 0 ? "Registration Confirmed!" : "Payment & Registration Confirmed!"}
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                  Thank you, <strong className="text-ink">{confirmedRegistration.attendeeName}</strong>! Your seat has
-                  been reserved. A confirmation email with calendar invite has been sent to{" "}
-                  <strong className="text-ink">{confirmedRegistration.attendeeEmail}</strong>.
+                <p className="mt-1 text-xs text-ink-soft">
+                  Attendee: <strong className="text-ink">{confirmedRegistration.attendeeName}</strong> ({confirmedRegistration.attendeeEmail})
                 </p>
 
-                <div className="mt-6 rounded-2xl border border-sand bg-white/80 p-5 text-left text-xs space-y-2 text-ink-soft">
-                  <div className="flex justify-between border-b border-sand/40 pb-2">
-                    <span className="font-semibold text-ink">Amount:</span>
-                    <span className="font-bold text-ink">
-                      {formatPrice(confirmedRegistration.amount, confirmedRegistration.currency)} (PAID)
-                    </span>
+                {/* Official Tax Invoice & Booking Summary Box */}
+                <div className="mt-5 overflow-hidden rounded-2xl border border-sand bg-white shadow-sm text-left text-xs">
+                  {/* Invoice Header */}
+                  <div className="border-b border-sand/60 bg-cream-deep/40 px-4 py-3 flex flex-wrap justify-between items-center gap-2">
+                    <div>
+                      <span className="font-bold text-ink block text-[13px]">Booking Receipt &amp; Invoice</span>
+                      <span className="text-[11px] text-ink-soft">
+                        Ref: <strong className="font-mono text-ink">#BK-{confirmedRegistration.id.slice(0, 8).toUpperCase()}</strong>
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                        STATUS: PAID
+                      </span>
+                      <span className="text-[10px] text-ink-soft block mt-0.5">
+                        Inv #{confirmedRegistration.gatewayOrderId || `INV-${confirmedRegistration.id.slice(0, 6).toUpperCase()}`}
+                      </span>
+                    </div>
                   </div>
 
-                  {isOnline ? (
-                    <div className="pt-1">
-                      <span className="font-semibold text-ink block mb-1">Virtual Meeting Room:</span>
-                      {unlockedMeetingLink ? (
-                        <a
-                          href={unlockedMeetingLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
-                        >
-                          <Video className="h-4 w-4" />
-                          <span>Join Online Session</span>
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      ) : (
-                        <p className="text-emerald-700 font-medium">
-                          Secure meeting link has been dispatched to {confirmedRegistration.attendeeEmail}.
+                  {/* Invoice Items Table */}
+                  <div className="p-4 space-y-2.5">
+                    <div className="flex justify-between items-start border-b border-sand/40 pb-2">
+                      <div>
+                        <p className="font-semibold text-ink text-[13px]">{event.title}</p>
+                        <p className="text-[11px] text-ink-soft mt-0.5">{schedule}</p>
+                      </div>
+                      <span className="font-bold text-ink text-sm">
+                        {formatPrice(confirmedRegistration.amount, confirmedRegistration.currency)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-ink-soft text-[11px]">
+                      <span>Platform &amp; Service Fee:</span>
+                      <span className="font-medium text-emerald-700">Free ($0.00)</span>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-1 border-t border-sand/40 text-sm">
+                      <span className="font-bold text-ink">Total Amount Paid:</span>
+                      <span className="font-extrabold text-ink text-base">
+                        {formatPrice(confirmedRegistration.amount, confirmedRegistration.currency)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Access / Meeting Room Link Banner */}
+                  <div className="border-t border-sand/60 bg-emerald-50/70 p-4">
+                    {isOnline ? (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                          <Video className="h-4 w-4 text-emerald-600" />
+                          <span>Live Virtual Session Access Link</span>
+                        </div>
+
+                        {unlockedMeetingLink ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={unlockedMeetingLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 transition"
+                              >
+                                <Video className="h-4 w-4" />
+                                <span>Join Online Session</span>
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (unlockedMeetingLink) {
+                                    navigator.clipboard.writeText(unlockedMeetingLink);
+                                    setCopiedLink(true);
+                                    setTimeout(() => setCopiedLink(false), 2500);
+                                  }
+                                }}
+                                className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-3 py-2.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition"
+                                title="Copy Meeting Link"
+                              >
+                                {copiedLink ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                                <span>{copiedLink ? "Copied" : "Copy Link"}</span>
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-emerald-800 break-all font-mono bg-white/70 p-2 rounded-lg border border-emerald-200/80">
+                              {unlockedMeetingLink}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-emerald-800">
+                            Your private session access link is reserved and sent to <strong>{confirmedRegistration.attendeeEmail}</strong>.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-ink">
+                        <span className="font-bold text-xs flex items-center gap-1.5 text-ink">
+                          <MapPin className="h-4 w-4 text-gold-deep" />
+                          <span>Venue Admission Pass</span>
+                        </span>
+                        <p className="font-semibold text-xs mt-1">
+                          {event.venueName ? `${event.venueName} — ` : ""}
+                          {event.venueAddress || event.location}
                         </p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="pt-1">
-                      <span className="font-semibold text-ink block mb-1">Physical Venue:</span>
-                      <p className="text-ink font-medium">
-                        {event.venueName ? `${event.venueName} — ` : ""}
-                        {event.venueAddress || event.location}
-                      </p>
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="mt-6 rounded-full bg-ink px-8 py-2.5 text-xs font-semibold uppercase tracking-wider text-cream transition hover:bg-gold-deep hover:text-white"
-                >
-                  Done
-                </button>
+                {/* Modal Footer Actions */}
+                <div className="mt-5 flex flex-wrap justify-center items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-5 py-2 text-xs font-semibold text-ink shadow-sm hover:bg-cream-deep transition"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    <span>Print Invoice</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="rounded-full bg-ink px-8 py-2 text-xs font-semibold uppercase tracking-wider text-cream transition hover:bg-gold-deep hover:text-white"
+                  >
+                    Done
+                  </button>
+                </div>
+                <p className="mt-3 text-[11px] text-ink-soft">
+                  🔒 You are officially registered. Further duplicate payments for this event are blocked.
+                </p>
               </div>
             ) : (
               <div>

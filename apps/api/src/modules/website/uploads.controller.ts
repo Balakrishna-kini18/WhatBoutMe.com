@@ -42,7 +42,28 @@ export class UploadsController {
     if (!extension) {
       throw new BadRequestException('Only JPG, PNG, WebP, GIF images, PDF, DOCX, TXT, MP4/MOV videos, and MP3 audios can be uploaded');
     }
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    let buffer: Buffer | null = null;
+    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      buffer = req.body;
+    } else if (req.body instanceof Uint8Array && req.body.length > 0) {
+      buffer = Buffer.from(req.body);
+    } else if (typeof req.body === 'string' && req.body.length > 0) {
+      buffer = Buffer.from(req.body, 'binary');
+    } else {
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        if (chunks.length > 0) {
+          buffer = Buffer.concat(chunks);
+        }
+      } catch {
+        // Stream already consumed
+      }
+    }
+
+    if (!buffer || buffer.length === 0) {
       throw new BadRequestException('The upload was empty');
     }
 
@@ -66,23 +87,26 @@ export class UploadsController {
           {
             resource_type: isVideoOrAudio ? 'video' : isPdfOrDoc ? 'raw' : 'auto',
             type: 'upload',
-            format: extension,
+            ...(isPdfOrDoc ? {} : { format: extension }),
           },
           (error, result) => {
             if (error || !result) {
               console.error('Cloudinary upload failure:', error);
               return reject(new BadRequestException(error?.message || 'Cloudinary upload failed'));
             }
+            const publicName = result.public_id.endsWith('.' + extension)
+              ? result.public_id
+              : `${result.public_id}.${extension}`;
             resolve({
               url: result.secure_url,
-              name: result.public_id + '.' + extension,
+              name: publicName,
               type,
-              size: req.body.length
+              size: buffer.length
             });
           }
         );
         const bufferStream = new PassThrough();
-        bufferStream.end(req.body);
+        bufferStream.end(buffer);
         bufferStream.pipe(uploadStream);
       }).catch(reject);
     });

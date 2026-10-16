@@ -331,11 +331,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           ? (publicId.startsWith("http") || publicId.startsWith("/") ? publicId : `upload:${publicId}`)
           : `upload:video-${Date.now()}`;
 
-        const res = await fetch(`${API_URL}/programs/steps/${taskInput.moduleId}/lessons`, {
+        const res = await cachedFetch(`${API_URL}/programs/steps/${taskInput.moduleId}/lessons`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
             title: taskInput.title.trim(),

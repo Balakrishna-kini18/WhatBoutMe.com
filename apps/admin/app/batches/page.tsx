@@ -75,6 +75,7 @@ function BatchesContent() {
   const [endDate, setEndDate] = useState("");
   const [capacity, setCapacity] = useState("");
   const [manager, setManager] = useState("");
+  const [batchStatus, setBatchStatus] = useState("");
   const [awardCertificate, setAwardCertificate] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -163,18 +164,37 @@ function BatchesContent() {
       const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
-        const mappedBatches = data.map((b: any) => ({
-          ...b,
-          program: b.program?.title || "Unknown",
-          manager: b.manager?.name || "Unknown",
-          managerId: b.managerId || b.manager?.id || "",
-          rawStartDate: b.startDate,
-          rawEndDate: b.endDate,
-          startDate: b.startDate
-            ? new Date(b.startDate).toLocaleDateString()
-            : "--",
-          students: b.enrolledCount || 0,
-        }));
+        const now = new Date();
+        const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const nowMs = now.getTime();
+        const mappedBatches = data.map((b: any) => {
+          let status = b.status;
+          if (b.startDate) {
+            const bDate = new Date(b.startDate);
+            const bDayMs = new Date(bDate.getFullYear(), bDate.getMonth(), bDate.getDate()).getTime();
+            const bEndDate = b.endDate ? new Date(b.endDate) : null;
+            if (bEndDate && bEndDate.getTime() < nowMs) {
+              status = "COMPLETED";
+            } else if (bDate.getTime() <= nowMs || bDayMs <= todayStartMs) {
+              if (b.status === "UPCOMING" || b.status === "ACTIVE") {
+                status = "ACTIVE";
+              }
+            }
+          }
+          return {
+            ...b,
+            status,
+            program: b.program?.title || "Unknown",
+            manager: b.manager?.name || "Unknown",
+            managerId: b.managerId || b.manager?.id || "",
+            rawStartDate: b.startDate,
+            rawEndDate: b.endDate,
+            startDate: b.startDate
+              ? new Date(b.startDate).toLocaleDateString()
+              : "--",
+            students: b.enrolledCount || 0,
+          };
+        });
         setBatches(mappedBatches);
       }
     } catch (e) {
@@ -191,6 +211,7 @@ function BatchesContent() {
     setEndDate("");
     setCapacity("");
     setManager("");
+    setBatchStatus("");
     setFormError("");
     if (searchParams.get("create") || searchParams.get("action")) {
       router.replace("/batches");
@@ -218,6 +239,7 @@ function BatchesContent() {
     }
     setCapacity(String(batch.capacity || "50"));
     setManager(batch.managerId || "");
+    setBatchStatus(batch.status || "");
     setAwardCertificate(true);
     setIsModalOpen(true);
   };
@@ -228,6 +250,7 @@ function BatchesContent() {
     setProgramId(programs[0]?.id || "");
     setStartDate("");
     setEndDate("");
+    setBatchStatus("");
     setCapacity("50");
     setManager("");
     setAwardCertificate(true);
@@ -338,6 +361,7 @@ function BatchesContent() {
       startDate: new Date(startDate).toISOString(),
       capacity: parseInt(capacity) || 50,
       managerId: manager || null,
+      ...(batchStatus ? { status: batchStatus } : {}),
     };
 
     if (endDate) {
@@ -994,6 +1018,26 @@ function BatchesContent() {
                           value: m.id,
                           label: m.name || m.email,
                         })),
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Batch Status</label>
+                    <CustomSelect
+                      value={batchStatus}
+                      onChange={setBatchStatus}
+                      fullWidth
+                      ariaLabel="Batch Status"
+                      placeholder="Auto (Based on Start & End Date)"
+                      options={[
+                        { value: "", label: "Auto (Active if started today or earlier)" },
+                        { value: "ACTIVE", label: "Active" },
+                        { value: "UPCOMING", label: "Upcoming" },
+                        { value: "COMPLETED", label: "Completed" },
+                        { value: "CANCELLED", label: "Cancelled" },
                       ]}
                     />
                   </div>

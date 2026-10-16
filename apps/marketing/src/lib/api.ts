@@ -245,26 +245,44 @@ export interface EventRegistrationItem {
   attendeePhone: string;
   amount: number;
   currency: CurrencyCode;
-  paymentGateway: string;
+  paymentGateway?: string;
   gatewayOrderId?: string | null;
   gatewayPaymentId?: string | null;
   paymentStatus: EventPaymentStatus;
-  emailSent: boolean;
-  registeredAt: string;
+  emailSent?: boolean;
+  registeredAt?: string;
+  createdAt?: string;
+  meetingLink?: string | null;
 }
 
 export interface CheckoutEventResponse {
   registrationId: string;
-  orderId: string;
-  amount: number;
-  currency: CurrencyCode;
-  keyId: string;
+  orderId?: string;
+  amount?: number;
+  currency?: CurrencyCode;
+  keyId?: string;
+  status?: string;
+  isFree?: boolean;
   isSimulated?: boolean;
+  simulation?: boolean;
+  alreadyRegistered?: boolean;
+  message?: string;
+  meetingLink?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  registration?: EventRegistrationItem;
+  event?: EventItem;
 }
 
 export interface VerifyEventPaymentResponse {
   success: boolean;
-  message: string;
+  message?: string;
+  alreadyConfirmed?: boolean;
+  registrationId?: string;
+  status?: string;
+  meetingLink?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
   registration: EventRegistrationItem;
   event: EventItem;
 }

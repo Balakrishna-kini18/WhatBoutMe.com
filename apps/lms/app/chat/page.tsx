@@ -125,6 +125,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
   const prevMsgCountRef = useRef(0);
 
   const inFlightRef = useRef(false);
@@ -282,15 +283,20 @@ export default function ChatPage() {
   const other = active?.participants.find((p) => p.id !== me) ?? active?.participants[0];
   const otherName = other?.name || "Programme Team";
 
-  // Typing heartbeat sender
+  // Typing heartbeat sender (throttled to at most once every 3.5s)
   const handleDraftChange = (text: string) => {
     setDraft(text);
     if (!activeId) return;
-    fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ typing: true }),
-    }).catch(() => {});
+
+    const now = Date.now();
+    if (now - lastTypingSentRef.current > 3500) {
+      lastTypingSentRef.current = now;
+      fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ typing: true }),
+      }).catch(() => {});
+    }
 
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
@@ -299,6 +305,7 @@ export default function ChatPage() {
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ typing: false }),
       }).catch(() => {});
+      lastTypingSentRef.current = 0;
     }, 3000);
   };
 
@@ -415,6 +422,15 @@ export default function ChatPage() {
         setPendingAttachment(null);
         setEmojiDrawerOpen(false);
         if (soundEnabled) playTone(800, 1200, 0.08);
+
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+        lastTypingSentRef.current = 0;
+        fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ typing: false }),
+        }).catch(() => {});
+
         await loadMessages(activeId);
       } else {
         setError("Your message could not be sent. Please try again.");

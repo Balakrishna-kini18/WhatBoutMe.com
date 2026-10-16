@@ -105,6 +105,7 @@ export default function MessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
   const prevMsgCountRef = useRef(0);
 
   const inFlightRef = useRef(false);
@@ -240,11 +241,17 @@ export default function MessagesPage() {
   const handleDraftChange = (text: string) => {
     setDraft(text);
     if (!activeId) return;
-    fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
-      method: "POST",
-      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ typing: true }),
-    }).catch(() => {});
+
+    const now = Date.now();
+    // Throttle typing notification so it does not fire on every single keystroke
+    if (now - lastTypingSentRef.current > 3500) {
+      lastTypingSentRef.current = now;
+      fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ typing: true }),
+      }).catch(() => {});
+    }
 
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
@@ -253,6 +260,7 @@ export default function MessagesPage() {
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ typing: false }),
       }).catch(() => {});
+      lastTypingSentRef.current = 0;
     }, 3000);
   };
 
@@ -304,6 +312,14 @@ export default function MessagesPage() {
     setPendingFile(null);
     setEmojiOpen(false);
     if (soundEnabled) playTone(800, 1200, 0.08);
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    lastTypingSentRef.current = 0;
+    fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ typing: false }),
+    }).catch(() => {});
 
     setSending(true);
     try {

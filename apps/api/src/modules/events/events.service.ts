@@ -222,20 +222,46 @@ export class EventsService {
 
     const priceNum = Number(event.price);
 
+    // 1. Prevent duplicate payments: check if user is already paid for this event
+    const existingPaid = await this.prisma.eventRegistration.findFirst({
+      where: {
+        eventId: event.id,
+        attendeeEmail: { equals: attendeeEmail, mode: 'insensitive' },
+        paymentStatus: EventPaymentStatus.PAID,
+      },
+      include: { event: true },
+    });
+
+    if (existingPaid) {
+      return {
+        success: true,
+        alreadyRegistered: true,
+        message: 'You have already registered and paid for this event. Duplicate booking is not allowed.',
+        registrationId: existingPaid.id,
+        status: EventPaymentStatus.PAID,
+        meetingLink: event.locationType === EventLocationType.ONLINE ? event.meetingLink : null,
+        venueName: event.venueName,
+        venueAddress: event.venueAddress,
+        registration: {
+          id: existingPaid.id,
+          eventId: existingPaid.eventId,
+          attendeeName: existingPaid.attendeeName,
+          attendeeEmail: existingPaid.attendeeEmail,
+          attendeePhone: existingPaid.attendeePhone,
+          amount: Number(existingPaid.amount),
+          currency: existingPaid.currency,
+          gatewayOrderId: existingPaid.gatewayOrderId,
+          gatewayPaymentId: existingPaid.gatewayPaymentId,
+          paymentStatus: existingPaid.paymentStatus,
+          createdAt: existingPaid.createdAt,
+        },
+        event: mapEvent(event, { isStaff: false }),
+      };
+    }
+
     // Free RSVP flow
     if (priceNum === 0) {
       const registration = await this.prisma.$transaction(async (tx) => {
-        const existing = await tx.eventRegistration.findFirst({
-          where: {
-            eventId: event.id,
-            attendeeEmail,
-            paymentStatus: EventPaymentStatus.PAID,
-          },
-        });
-        if (existing) {
-          return existing;
-        }
-
         const reg = await tx.eventRegistration.create({
           data: {
             eventId: event.id,
@@ -261,7 +287,9 @@ export class EventsService {
         return reg;
       });
 
-      await this.sendEventConfirmationEmail(event, registration);
+      this.sendEventConfirmationEmail(event, registration).catch((err) => {
+        this.logger.error(`Failed to send free RSVP email: ${err?.message}`);
+      });
 
       return {
         success: true,
@@ -271,6 +299,20 @@ export class EventsService {
         meetingLink: event.locationType === EventLocationType.ONLINE ? event.meetingLink : null,
         venueName: event.venueName,
         venueAddress: event.venueAddress,
+        registration: {
+          id: registration.id,
+          eventId: registration.eventId,
+          attendeeName: registration.attendeeName,
+          attendeeEmail: registration.attendeeEmail,
+          attendeePhone: registration.attendeePhone,
+          amount: 0,
+          currency: event.currency,
+          gatewayOrderId: registration.gatewayOrderId,
+          gatewayPaymentId: registration.gatewayPaymentId,
+          paymentStatus: registration.paymentStatus,
+          createdAt: registration.createdAt,
+        },
+        event: mapEvent(event, { isStaff: false }),
       };
     }
 
@@ -324,6 +366,20 @@ export class EventsService {
         meetingLink: reg.event.locationType === EventLocationType.ONLINE ? reg.event.meetingLink : null,
         venueName: reg.event.venueName,
         venueAddress: reg.event.venueAddress,
+        registration: {
+          id: reg.id,
+          eventId: reg.eventId,
+          attendeeName: reg.attendeeName,
+          attendeeEmail: reg.attendeeEmail,
+          attendeePhone: reg.attendeePhone,
+          amount: Number(reg.amount),
+          currency: reg.currency,
+          gatewayOrderId: reg.gatewayOrderId,
+          gatewayPaymentId: reg.gatewayPaymentId,
+          paymentStatus: reg.paymentStatus,
+          createdAt: reg.createdAt,
+        },
+        event: mapEvent(reg.event, { isStaff: false }),
       };
     }
 
@@ -351,7 +407,9 @@ export class EventsService {
     });
 
     if (updatedReg && !updatedReg.emailSent) {
-      await this.sendEventConfirmationEmail(updatedReg.event, updatedReg);
+      this.sendEventConfirmationEmail(updatedReg.event, updatedReg).catch((err) => {
+        this.logger.error(`Failed to send event confirmation email: ${err?.message}`);
+      });
     }
 
     return {
@@ -361,6 +419,22 @@ export class EventsService {
       meetingLink: reg.event.locationType === EventLocationType.ONLINE ? reg.event.meetingLink : null,
       venueName: reg.event.venueName,
       venueAddress: reg.event.venueAddress,
+      registration: updatedReg
+        ? {
+            id: updatedReg.id,
+            eventId: updatedReg.eventId,
+            attendeeName: updatedReg.attendeeName,
+            attendeeEmail: updatedReg.attendeeEmail,
+            attendeePhone: updatedReg.attendeePhone,
+            amount: Number(updatedReg.amount),
+            currency: updatedReg.currency,
+            gatewayOrderId: updatedReg.gatewayOrderId,
+            gatewayPaymentId: updatedReg.gatewayPaymentId,
+            paymentStatus: updatedReg.paymentStatus,
+            createdAt: updatedReg.createdAt,
+          }
+        : null,
+      event: mapEvent(reg.event, { isStaff: false }),
     };
   }
 

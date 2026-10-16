@@ -337,6 +337,17 @@
   overflow-x: hidden;
 }
 
+.focusedMain {
+  margin-left: 0;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--bg-main);
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .mainContent {
   margin-left: 280px;
   flex: 1;

@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./path.module.css";
+import EnrollmentStepper from "../../../components/EnrollmentStepper";
 import {
   API_URL,
   getAuthHeaders,
@@ -194,6 +195,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         </p>
       </header>
 
+      {/* Canonical journey position: the learner has reached Course Access. */}
+      {!loading && progression && <EnrollmentStepper currentStep={4} />}
+
       {/* ENROLMENT STATUS ALERT (When Inactive / Pending) */}
       {!loading && progression && !isEnrolmentActive && (
         <div
@@ -228,6 +232,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               <p className={styles.statusBannerText}>
                 Your enrolment is currently awaiting payment verification. Access to learning modules will unlock once payment has been confirmed.
               </p>
+              <div>
+                <Link
+                  href={`/checkout?programId=${id}${progression.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
+                  className={styles.agreementBtn}
+                >
+                  Complete Payment &amp; Unlock Step 1 &rarr;
+                </Link>
+              </div>
             </>
           )}
 

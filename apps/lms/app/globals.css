@@ -158,7 +158,9 @@ body.auth-page-active aside {
   display: none !important;
 }
 
-body.auth-page-active div[class*="mainContent"] {
+body.auth-page-active div[class*="mainContent"],
+body.auth-page-active main[class*="mainContent"],
+body.auth-page-active main {
   margin-left: 0 !important;
 }
 

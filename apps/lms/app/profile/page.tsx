@@ -4,9 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOutEverywhere as leavePortal } from "../lib/site";
+import SignaturePad, { SignatureMethod } from "../agreement/SignaturePad";
 import styles from "./profile.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+interface SavedSignatureState {
+  hasSavedSignature: boolean;
+  savedSignature: string | null;
+  savedSignatureType: "DRAWN" | "UPLOADED" | null;
+  savedSignatureUpdatedAt: string | null;
+}
 
 interface Profile {
   name: string | null;
@@ -40,6 +48,14 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  // Digital Signature state
+  const [savedSig, setSavedSig] = useState<SavedSignatureState | null>(null);
+  const [isEditingSig, setIsEditingSig] = useState(false);
+  const [newSigData, setNewSigData] = useState<string | null>(null);
+  const [newSigType, setNewSigType] = useState<SignatureMethod>("DRAWN");
+  const [sigBusy, setSigBusy] = useState(false);
+  const [sigMessage, setSigMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -60,6 +76,10 @@ export default function ProfilePage() {
       .then((res) => (res.ok ? res.json() : []))
       .then((list) => setSessions(Array.isArray(list) ? list : []))
       .catch(() => setSessions([]));
+    fetch(`${API_URL}/agreements/saved-signature`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setSavedSig)
+      .catch(() => setSavedSig(null));
   }, [router]);
 
   const signOut = () => {
@@ -91,6 +111,93 @@ export default function ProfilePage() {
         setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       }
     } catch (e) {}
+  };
+
+  const handleSaveNewSignature = async () => {
+    if (!newSigData || newSigData.length < 10) return;
+    setSigBusy(true);
+    setSigMessage(null);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/agreements/saved-signature`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          signatureData: newSigData,
+          signatureType: newSigType,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to update profile signature.");
+      }
+
+      setSavedSig({
+        hasSavedSignature: true,
+        savedSignature: data.savedSignature,
+        savedSignatureType: data.savedSignatureType,
+        savedSignatureUpdatedAt: data.savedSignatureUpdatedAt,
+      });
+      setIsEditingSig(false);
+      setNewSigData(null);
+      setSigMessage({
+        type: "success",
+        text: "Digital signature saved to your profile successfully. It will be available for review in future program agreements.",
+      });
+    } catch (err: any) {
+      setSigMessage({
+        type: "error",
+        text: err.message || "Failed to save digital signature.",
+      });
+    } finally {
+      setSigBusy(false);
+    }
+  };
+
+  const handleRemoveSignature = async () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to remove your saved digital signature? Previously signed agreements will remain permanent and unchanged."
+    );
+    if (!confirmed) return;
+
+    setSigBusy(true);
+    setSigMessage(null);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/agreements/saved-signature`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.message || "Failed to remove signature.");
+      }
+
+      setSavedSig({
+        hasSavedSignature: false,
+        savedSignature: null,
+        savedSignatureType: null,
+        savedSignatureUpdatedAt: null,
+      });
+      setIsEditingSig(false);
+      setNewSigData(null);
+      setSigMessage({
+        type: "success",
+        text: "Saved digital signature removed from profile. Historical signed agreements remain immutable.",
+      });
+    } catch (err: any) {
+      setSigMessage({
+        type: "error",
+        text: err.message || "Failed to remove signature.",
+      });
+    } finally {
+      setSigBusy(false);
+    }
   };
 
   if (loading) return <div className={styles.frame}><p className={styles.muted}>Loading your profile...</p></div>;
@@ -188,6 +295,144 @@ export default function ProfilePage() {
             )}
           </section>
         </div>
+
+        {/* Digital Signature Profile Management */}
+        <section className={styles.sigSection}>
+          <div className={styles.sigHeader}>
+            <div className={styles.sigTitleWrap}>
+              <div className={styles.sigBadge}>
+                <span className={styles.sigBadgeDot} />
+                Profile Digital Signature
+              </div>
+              <h2 className={styles.sectionTitle}>Digital Signature</h2>
+              <p className={styles.sigSubtitle}>
+                Manage your reusable digital signature for program agreements. Updating or removing this signature affects future agreements only; all historical signed records remain immutable and unchanged.
+              </p>
+            </div>
+            {!isEditingSig && savedSig?.hasSavedSignature && (
+              <div className={styles.sigBtnGroup}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingSig(true);
+                    setSigMessage(null);
+                  }}
+                  className={styles.lineBtn}
+                >
+                  Replace Signature
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRemoveSignature}
+                  disabled={sigBusy}
+                  className={styles.revokeBtn}
+                >
+                  {sigBusy ? "Removing..." : "Remove"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {sigMessage && (
+            <div className={sigMessage.type === "success" ? styles.sigSuccessMsg : styles.sigErrorMsg}>
+              {sigMessage.text}
+            </div>
+          )}
+
+          {isEditingSig ? (
+            <div className={styles.sigEditorBox}>
+              <div className={styles.sigEditorHeader}>
+                <span className={styles.sigEditorTitle}>
+                  {savedSig?.hasSavedSignature ? "Replace Digital Signature" : "Create Profile Signature"}
+                </span>
+                <span className={styles.sigMetaTag}>Future Agreements Only</span>
+              </div>
+              <SignaturePad
+                onSignatureChange={(data, method) => {
+                  setNewSigData(data);
+                  setNewSigType(method);
+                }}
+                height={160}
+              />
+              <p className={styles.sigEditorNotice}>
+                By saving, this signature will be stored securely against your learner account and offered for review in future program enrollments.
+              </p>
+              <div className={styles.sigEditorActions}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingSig(false);
+                    setNewSigData(null);
+                  }}
+                  disabled={sigBusy}
+                  className={styles.lineBtn}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveNewSignature}
+                  disabled={sigBusy || !newSigData}
+                  className={styles.darkBtn}
+                >
+                  {sigBusy ? "Saving..." : "Save to Profile"}
+                </button>
+              </div>
+            </div>
+          ) : savedSig?.hasSavedSignature ? (
+            <div className={styles.sigCard}>
+              <div className={styles.sigPreviewRow}>
+                <div className={styles.sigImgContainer}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={savedSig.savedSignature!}
+                    alt="Learner Saved Profile Signature"
+                    className={styles.sigImg}
+                  />
+                </div>
+                <div className={styles.sigMetaWrap}>
+                  <div className={styles.sigMetaTitle}>
+                    <span>Active Profile Signature</span>
+                    <span className={styles.sigMetaTag}>
+                      {savedSig.savedSignatureType === "UPLOADED" ? "Uploaded Image" : "Drawn Signature"}
+                    </span>
+                  </div>
+                  <p className={styles.sigMetaDate}>
+                    {savedSig.savedSignatureUpdatedAt
+                      ? `Last updated: ${new Date(savedSig.savedSignatureUpdatedAt).toLocaleString()}`
+                      : "Verified on authenticated profile"}
+                  </p>
+                  <p className={styles.sigMetaNote}>
+                    🔒 Secured in private storage. When you enroll in a new program, this signature will be displayed for your explicit review and confirmation.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className={styles.sigEmptyWrap}>
+              <div className={styles.sigEmptyIcon}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </div>
+              <h3 className={styles.sigEmptyTitle}>No Profile Signature Saved</h3>
+              <p className={styles.sigEmptyDesc}>
+                Your signature is automatically saved here when you sign your first program agreement, or you can create one in advance.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingSig(true);
+                  setSigMessage(null);
+                }}
+                className={styles.darkBtn}
+              >
+                Add Digital Signature
+              </button>
+            </div>
+          )}
+        </section>
 
         <section className={styles.deviceSection}>
           <div className={styles.deviceHeader}>

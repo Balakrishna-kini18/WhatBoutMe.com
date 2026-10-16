@@ -126,7 +126,14 @@ export default function LmsSidebar() {
     }
   };
 
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/sso") {
+  const isFocusedEnrollment =
+    pathname === "/agreement" ||
+    pathname.startsWith("/agreement") ||
+    pathname.startsWith("/agreements") ||
+    pathname === "/checkout" ||
+    pathname.startsWith("/checkout");
+
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/sso" || isFocusedEnrollment) {
     return null;
   }
 

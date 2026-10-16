@@ -250,19 +250,31 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       expect(cacheHelperMock.invalidateNamespace).toHaveBeenCalledWith('programs');
     });
 
-    it('hard deletes program when no batches or enrolments exist', async () => {
-      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-empty', title: 'Empty Track' });
-      prismaMock.batch.count.mockResolvedValue(0);
-      prismaMock.enrolment.count.mockResolvedValue(0);
-      prismaMock.lesson.findMany.mockResolvedValue([]);
-      prismaMock.resource.findMany.mockResolvedValue([]);
-      prismaMock.program.delete.mockResolvedValue({ id: 'prog-empty' });
+    it('permanently deletes program and all Cloudinary media (PDFs, videos, resources) and DB records when force=true', async () => {
+      prismaMock.program.findUnique.mockResolvedValue({
+        id: 'prog-full',
+        title: 'Full Track',
+        description: JSON.stringify({ image: 'https://res.cloudinary.com/ze1jhwgz/image/upload/v12345/cover.png' }),
+      });
+      prismaMock.batch.count.mockResolvedValue(1);
+      prismaMock.enrolment.count.mockResolvedValue(3);
+      prismaMock.lesson.findMany.mockResolvedValue([
+        { id: 'l1', mediaUrl: 'https://res.cloudinary.com/ze1jhwgz/video/upload/v12345/intro.mp4', type: 'VIDEO', content: null },
+        { id: 'l2', mediaUrl: 'https://res.cloudinary.com/ze1jhwgz/raw/upload/v12345/workbook.pdf', type: 'PDF', content: 'See https://res.cloudinary.com/ze1jhwgz/image/upload/v12345/diagram.png' },
+      ]);
+      prismaMock.resource.findMany.mockResolvedValue([
+        { id: 'r1', mediaUrl: 'https://res.cloudinary.com/ze1jhwgz/raw/upload/v12345/cheatsheet.pdf' },
+      ]);
+      prismaMock.question.findMany.mockResolvedValue([
+        { id: 'q1', text: 'What is this? https://res.cloudinary.com/ze1jhwgz/image/upload/v12345/brain.jpg', explanation: null, options: [] },
+      ]);
+      prismaMock.program.delete.mockResolvedValue({ id: 'prog-full' });
 
-      const result = await service.remove('prog-empty');
+      const result = await service.remove('prog-full', true);
 
       expect(result.deleted).toBe(true);
-      expect(result.archived).toBe(false);
-      expect(prismaMock.program.delete).toHaveBeenCalledWith({ where: { id: 'prog-empty' } });
+      expect(mediaProviderMock.deleteMedia).toHaveBeenCalled();
+      expect(prismaMock.program.delete).toHaveBeenCalledWith({ where: { id: 'prog-full' } });
     });
   });
 

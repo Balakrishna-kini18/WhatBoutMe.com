@@ -263,12 +263,21 @@ export async function cachedFetch(
   const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
   const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
 
+  // Auto-inject Authorization token from localStorage if in browser and not explicitly provided
+  const requestHeaders = new Headers(init?.headers);
+  if (typeof window !== "undefined" && !requestHeaders.has("Authorization")) {
+    const token = localStorage.getItem("token");
+    if (token) {
+      requestHeaders.set("Authorization", `Bearer ${token}`);
+    }
+  }
+
   // Auto-bust cache on mutations
   if (!isGet) {
     autoInvalidateOnMutation(url);
   }
 
-  const cacheKey = isGet ? getCacheKey(url, init?.headers) : null;
+  const cacheKey = isGet ? getCacheKey(url, requestHeaders) : null;
 
   // 1. SWR / In-Memory Cache Check for GET requests
   if (isGet && !skipCache && cacheKey) {
@@ -348,7 +357,7 @@ export async function cachedFetch(
           ? (window as any).__rawOriginalFetch
           : fetch;
 
-      const res = await rawFetch(url, { ...init, signal: abortController.signal });
+      const res = await rawFetch(url, { ...init, headers: requestHeaders, signal: abortController.signal });
       clearTimeout(timeoutTimer);
 
       const clone = res.clone();
@@ -503,9 +512,14 @@ export async function errorMessage(res: Response, fallback: string): Promise<str
 
 /** Uploads an image or PDF and returns its public address. */
 export async function uploadFile(file: File): Promise<string> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const headers: Record<string, string> = { "Content-Type": file.type };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   const res = await cachedFetch(`${API_URL}/uploads`, {
     method: "POST",
-    headers: { "Content-Type": file.type },
+    headers,
     body: file,
   });
   if (!res.ok) throw new Error(await errorMessage(res, "Could not upload the file"));

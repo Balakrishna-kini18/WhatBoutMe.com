@@ -34,7 +34,7 @@ const ALLOWED: Record<string, string> = {
  */
 @Controller('uploads')
 export class UploadsController {
-  @Roles(Role.USER)
+  @Roles(Role.USER, Role.ADMIN, Role.SUPER_ADMIN, Role.MANAGER)
   @Post()
   async upload(@Request() req: any) {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim();
@@ -69,7 +69,10 @@ export class UploadsController {
             format: extension,
           },
           (error, result) => {
-            if (error || !result) return reject(new BadRequestException('Cloudinary upload failed'));
+            if (error || !result) {
+              console.error('Cloudinary upload failure:', error);
+              return reject(new BadRequestException(error?.message || 'Cloudinary upload failed'));
+            }
             resolve({
               url: result.secure_url,
               name: result.public_id + '.' + extension,

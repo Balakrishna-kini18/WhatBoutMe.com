@@ -191,16 +191,14 @@ export default function ProgramsPage() {
     setIsDeletingProgram(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`${API_URL}/programs/${programToDelete.id}`, {
+      const res = await fetch(`${API_URL}/programs/${programToDelete.id}?force=true`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
       if (res.ok) {
         const result = await res.json().catch(() => null);
         toastSuccess(
-          result?.archived
-            ? `Program "${programToDelete.title}" archived. Historical records preserved.`
-            : `Program "${programToDelete.title}" removed successfully.`
+          result?.message || `Program "${programToDelete.title}" and all associated files removed permanently.`
         );
         setPrograms((prev) => prev.filter((p) => p.id !== programToDelete.id));
         setProgramToDelete(null);
@@ -1036,11 +1034,11 @@ export default function ProgramsPage() {
           if (!isDeletingProgram) setProgramToDelete(null);
         }}
         onConfirm={confirmDeleteProgram}
-        title="Remove Program Track?"
+        title="Delete Program Track & Clean Up Storage?"
         subtitle={programToDelete?.title}
-        description="Are you sure you want to remove this program? If active cohorts or enrolments exist, the program will be safely archived from the public catalog to preserve learner progress, certificates, and financial audit history. If no batches or enrolments exist, it will be permanently deleted along with associated media."
+        description="Are you sure you want to permanently delete this program track? All associated videos, PDF documents, learning modules, quizzes, questions, and records will be permanently deleted from both Cloudinary storage and the database to free up space. This action cannot be undone."
         tone="danger"
-        confirmText={isDeletingProgram ? "Removing..." : "Remove Program"}
+        confirmText={isDeletingProgram ? "Deleting..." : "Permanently Delete Track"}
         cancelText="Cancel"
         isLoading={isDeletingProgram}
         error={deleteError}

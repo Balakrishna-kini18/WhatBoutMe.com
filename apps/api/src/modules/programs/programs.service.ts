@@ -261,17 +261,420 @@ export class ProgramsService {
     return null;
   }
 
+  private extractCloudinaryUrlsFromText(text?: string | null): string[] {
+    if (!text || typeof text !== 'string') return [];
+    const matches = text.match(/https?:\/\/[^\s"'<>\)]*res\.cloudinary\.com[^\s"'<>\)]*/gi);
+    return matches ? Array.from(new Set(matches)) : [];
+  }
+
   private async safeDeleteCloudinaryMedia(urlOrId?: string | null, fallbackType: 'video' | 'image' | 'raw' = 'video') {
     const extracted = this.extractCloudinaryPublicId(urlOrId);
     if (!extracted) return;
     try {
-      await this.mediaProvider.deleteMedia(extracted.publicId, extracted.resourceType || fallbackType).catch((err) => {
-        this.logger.warn(`Could not delete Cloudinary asset ${extracted.publicId}: ${err.message}`);
+      const type = extracted.resourceType || fallbackType;
+      const success = await this.mediaProvider.deleteMedia(extracted.publicId, type).catch((err) => {
+        this.logger.warn(`Could not delete Cloudinary asset ${extracted.publicId} (${type}): ${err.message}`);
+        return false;
       });
+
+      // If delete was not confirmed, try fallback types (e.g. PDFs can be 'raw' or 'image' in Cloudinary)
+      if (!success) {
+        const altTypes: ('video' | 'image' | 'raw')[] = (['raw', 'image', 'video'] as const).filter((t) => t !== type);
+        for (const alt of altTypes) {
+          try {
+            await this.mediaProvider.deleteMedia(extracted.publicId, alt).catch(() => false);
+          } catch {}
+        }
+      }
     } catch {}
   }
 
-  async remove(id: string) {
+  private async cascadeDeleteProgramMediaAndData(program: {
+    id: string;
+    title: string;
+    description?: string | null;
+    certificateTemplate?: string | null;
+  }) {
+    const id = program.id;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. GATHER AND DELETE ALL CLOUDINARY MEDIA ASSETS (PDFs, Videos, Images)
+    // ─────────────────────────────────────────────────────────────────────────
+    try {
+      const mediaToDelete: { url: string; type: 'video' | 'raw' | 'image' }[] = [];
+
+      // 1a. Program cover image & certificate template
+      if (program.description) {
+        try {
+          const info = JSON.parse(program.description);
+          if (info.image) mediaToDelete.push({ url: info.image, type: 'image' });
+        } catch {}
+      }
+      if (program.certificateTemplate && program.certificateTemplate.includes('cloudinary.com')) {
+        mediaToDelete.push({ url: program.certificateTemplate, type: 'image' });
+      }
+
+      // 1b. Lessons: Video, PDF, Audio media + embedded URLs in lesson content
+      const lessons = typeof (this.prisma as any).lesson?.findMany === 'function'
+        ? await this.prisma.lesson.findMany({
+            where: { step: { programId: id } },
+            select: { id: true, mediaUrl: true, type: true, content: true },
+          })
+        : [];
+      for (const lesson of lessons) {
+        if (lesson.mediaUrl) {
+          const rType: 'video' | 'raw' | 'image' =
+            lesson.type === 'VIDEO' ? 'video' : lesson.type === 'AUDIO' ? 'video' : 'raw';
+          mediaToDelete.push({ url: lesson.mediaUrl, type: rType });
+        }
+        if (lesson.content) {
+          const embedded = this.extractCloudinaryUrlsFromText(lesson.content);
+          embedded.forEach((u) => mediaToDelete.push({ url: u, type: 'image' }));
+        }
+      }
+
+      // 1c. Resources
+      const resources = typeof (this.prisma as any).resource?.findMany === 'function'
+        ? await this.prisma.resource.findMany({
+            where: { programId: id },
+            select: { mediaUrl: true },
+          })
+        : [];
+      for (const res of resources) {
+        if (res.mediaUrl) {
+          mediaToDelete.push({ url: res.mediaUrl, type: 'raw' });
+        }
+      }
+
+      // 1d. ResourceItems
+      if (typeof (this.prisma as any).resourceItem?.findMany === 'function') {
+        const resourceItems = await (this.prisma as any).resourceItem.findMany({
+          where: { programId: id },
+          select: { storageKey: true, type: true },
+        });
+        for (const item of resourceItems) {
+          if (item.storageKey) {
+            const rType = item.type === 'GUIDED_AUDIO' ? 'video' : 'raw';
+            mediaToDelete.push({ url: item.storageKey, type: rType });
+          }
+        }
+      }
+
+      // 1e. Agreement templates & signed agreements
+      const agreements = typeof (this.prisma as any).agreementTemplate?.findMany === 'function'
+        ? await this.prisma.agreementTemplate.findMany({
+            where: { programId: id },
+            select: { documentUrl: true },
+          })
+        : [];
+      const signedAgreements = typeof (this.prisma as any).signedAgreement?.findMany === 'function'
+        ? await this.prisma.signedAgreement.findMany({
+            where: { programId: id },
+            select: { documentUrl: true, signedDocumentUrl: true },
+          })
+        : [];
+      for (const ag of agreements) {
+        if (ag.documentUrl) mediaToDelete.push({ url: ag.documentUrl, type: 'raw' });
+      }
+      for (const sa of signedAgreements) {
+        if (sa.documentUrl) mediaToDelete.push({ url: sa.documentUrl, type: 'raw' });
+        if (sa.signedDocumentUrl) mediaToDelete.push({ url: sa.signedDocumentUrl, type: 'raw' });
+      }
+
+      // 1f. Certificates
+      const certificates = typeof (this.prisma as any).certificate?.findMany === 'function'
+        ? await this.prisma.certificate.findMany({
+            where: { programId: id },
+            select: { certificateUrl: true, pdfUrl: true },
+          })
+        : [];
+      for (const cert of certificates) {
+        if (cert.certificateUrl) mediaToDelete.push({ url: cert.certificateUrl, type: 'raw' });
+        if (cert.pdfUrl) mediaToDelete.push({ url: cert.pdfUrl, type: 'raw' });
+      }
+
+      // 1g. Questions & options: scan text/explanation for any Cloudinary media
+      const questions = typeof (this.prisma as any).question?.findMany === 'function'
+        ? await this.prisma.question.findMany({
+            where: {
+              OR: [
+                { step: { programId: id } },
+                { quiz: { step: { programId: id } } },
+                { questionBank: { programId: id } },
+              ],
+            },
+            select: { text: true, explanation: true, options: { select: { text: true } } },
+          })
+        : [];
+      for (const q of questions) {
+        this.extractCloudinaryUrlsFromText(q.text).forEach((u) => mediaToDelete.push({ url: u, type: 'image' }));
+        this.extractCloudinaryUrlsFromText(q.explanation).forEach((u) => mediaToDelete.push({ url: u, type: 'image' }));
+        if (Array.isArray(q.options)) {
+          for (const opt of q.options) {
+            this.extractCloudinaryUrlsFromText(opt.text).forEach((u) => mediaToDelete.push({ url: u, type: 'image' }));
+          }
+        }
+      }
+
+      // Perform all Cloudinary deletions
+      for (const item of mediaToDelete) {
+        await this.safeDeleteCloudinaryMedia(item.url, item.type);
+      }
+
+      // 1h. Cancel Zoom meetings for any program batch sessions
+      const sessions = typeof this.prisma.session?.findMany === 'function'
+        ? await this.prisma.session.findMany({
+            where: { batch: { programId: id } },
+            select: { providerMeetingId: true },
+          })
+        : [];
+      const outboxPayloads = sessions
+        .filter((sess) => sess.providerMeetingId && this.prisma.outboxEvent)
+        .map((sess) => ({
+          type: 'sync-meeting',
+          action: 'CANCEL',
+          payload: { providerMeetingId: sess.providerMeetingId },
+        }));
+
+      if (outboxPayloads.length > 0 && typeof (this.prisma.outboxEvent as any)?.createMany === 'function') {
+        await (this.prisma.outboxEvent as any).createMany({ data: outboxPayloads }).catch(() => {});
+      }
+    } catch (mediaErr: any) {
+      this.logger.warn(`Media cleanup warning during program deletion: ${mediaErr.message}`);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2. CASCADE DELETE ALL DATABASE ENTITIES IN DEPENDENCY ORDER
+    // ─────────────────────────────────────────────────────────────────────────
+    await this.prisma.$transaction(async (tx) => {
+      // Collect IDs for related batches, enrolments, steps, questionBanks, exams
+      const [batches, enrolments, steps, questionBanks, exams] = await Promise.all([
+        typeof (tx as any).batch?.findMany === 'function'
+          ? (tx as any).batch.findMany({ where: { programId: id }, select: { id: true } })
+          : [],
+        typeof (tx as any).enrolment?.findMany === 'function'
+          ? (tx as any).enrolment.findMany({ where: { programId: id }, select: { id: true } })
+          : [],
+        typeof (tx as any).step?.findMany === 'function'
+          ? (tx as any).step.findMany({ where: { programId: id }, select: { id: true } })
+          : [],
+        typeof (tx as any).questionBank?.findMany === 'function'
+          ? (tx as any).questionBank.findMany({ where: { programId: id }, select: { id: true } })
+          : [],
+        typeof (tx as any).exam?.findMany === 'function'
+          ? (tx as any).exam.findMany({ where: { programId: id }, select: { id: true } })
+          : [],
+      ]);
+
+      const batchIds = Array.isArray(batches) ? batches.map((b: any) => b.id) : [];
+      const enrolmentIds = Array.isArray(enrolments) ? enrolments.map((e: any) => e.id) : [];
+      const stepIds = Array.isArray(steps) ? steps.map((s: any) => s.id) : [];
+      const qbIds = Array.isArray(questionBanks) ? questionBanks.map((qb: any) => qb.id) : [];
+      const examIds = Array.isArray(exams) ? exams.map((x: any) => x.id) : [];
+
+      const [sessions, lessons, quizzes] = await Promise.all([
+        batchIds.length > 0 && typeof (tx as any).session?.findMany === 'function'
+          ? (tx as any).session.findMany({ where: { batchId: { in: batchIds } }, select: { id: true } })
+          : [],
+        stepIds.length > 0 && typeof (tx as any).lesson?.findMany === 'function'
+          ? (tx as any).lesson.findMany({ where: { stepId: { in: stepIds } }, select: { id: true } })
+          : [],
+        stepIds.length > 0 && typeof (tx as any).quiz?.findMany === 'function'
+          ? (tx as any).quiz.findMany({ where: { stepId: { in: stepIds } }, select: { id: true } })
+          : [],
+      ]);
+
+      const sessionIds = Array.isArray(sessions) ? sessions.map((s: any) => s.id) : [];
+      const lessonIds = Array.isArray(lessons) ? lessons.map((l: any) => l.id) : [];
+      const quizIds = Array.isArray(quizzes) ? quizzes.map((q: any) => q.id) : [];
+
+      // A. Attendance & Session Bookings
+      if (sessionIds.length > 0 || enrolmentIds.length > 0) {
+        const sessOrEnrol = [];
+        if (sessionIds.length > 0) sessOrEnrol.push({ sessionId: { in: sessionIds } });
+        if (enrolmentIds.length > 0) sessOrEnrol.push({ enrolmentId: { in: enrolmentIds } });
+        if (sessOrEnrol.length > 0) {
+          if (typeof (tx as any).attendance?.deleteMany === 'function') {
+            await (tx as any).attendance.deleteMany({ where: { OR: sessOrEnrol } }).catch(() => {});
+          }
+          if (typeof (tx as any).unmatchedAttendance?.deleteMany === 'function') {
+            await (tx as any).unmatchedAttendance.deleteMany({ where: { OR: sessOrEnrol } }).catch(() => {});
+          }
+          if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+            await (tx as any).sessionBooking.deleteMany({ where: { OR: sessOrEnrol } }).catch(() => {});
+          }
+        }
+      }
+
+      // B. Sessions & Batch relations
+      if (sessionIds.length > 0 && typeof (tx as any).session?.deleteMany === 'function') {
+        await (tx as any).session.deleteMany({ where: { id: { in: sessionIds } } }).catch(() => {});
+      }
+      if (batchIds.length > 0) {
+        if (typeof (tx as any).batchTrainer?.deleteMany === 'function') {
+          await (tx as any).batchTrainer.deleteMany({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        }
+        if (typeof (tx as any).batchAnnouncement?.deleteMany === 'function') {
+          await (tx as any).batchAnnouncement.deleteMany({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        }
+        if (typeof (tx as any).conversation?.deleteMany === 'function') {
+          await (tx as any).conversation.deleteMany({ where: { batchId: { in: batchIds } } }).catch(() => {});
+        }
+      }
+      if (batchIds.length > 0 || stepIds.length > 0) {
+        const overridesOr = [];
+        if (batchIds.length > 0) overridesOr.push({ batchId: { in: batchIds } });
+        if (stepIds.length > 0) overridesOr.push({ stepId: { in: stepIds } });
+        if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
+          await (tx as any).batchStepOverride.deleteMany({ where: { OR: overridesOr } }).catch(() => {});
+        }
+      }
+
+      // C. Student attempts, quizzes, progress, oral assessments
+      const questions = typeof (tx as any).question?.findMany === 'function'
+        ? await (tx as any).question.findMany({
+            where: {
+              OR: [
+                ...(quizIds.length > 0 ? [{ quizId: { in: quizIds } }] : []),
+                ...(stepIds.length > 0 ? [{ stepId: { in: stepIds } }] : []),
+                ...(qbIds.length > 0 ? [{ questionBankId: { in: qbIds } }] : []),
+              ],
+            },
+            select: { id: true },
+          })
+        : [];
+      const questionIds = Array.isArray(questions) ? questions.map((q: any) => q.id) : [];
+
+      if (questionIds.length > 0 || enrolmentIds.length > 0) {
+        const answerOr = [];
+        if (questionIds.length > 0) answerOr.push({ questionId: { in: questionIds } });
+        if (enrolmentIds.length > 0) answerOr.push({ attempt: { enrolmentId: { in: enrolmentIds } } });
+        if (typeof (tx as any).quizAnswer?.deleteMany === 'function') {
+          await (tx as any).quizAnswer.deleteMany({ where: { OR: answerOr } }).catch(() => {});
+        }
+      }
+
+      if (quizIds.length > 0 || enrolmentIds.length > 0) {
+        const attemptOr = [];
+        if (quizIds.length > 0) attemptOr.push({ quizId: { in: quizIds } });
+        if (enrolmentIds.length > 0) attemptOr.push({ enrolmentId: { in: enrolmentIds } });
+        if (typeof (tx as any).attempt?.deleteMany === 'function') {
+          await (tx as any).attempt.deleteMany({ where: { OR: attemptOr } }).catch(() => {});
+        }
+      }
+
+      if (examIds.length > 0 || enrolmentIds.length > 0) {
+        const examAttemptOr = [];
+        if (examIds.length > 0) examAttemptOr.push({ examId: { in: examIds } });
+        if (enrolmentIds.length > 0) examAttemptOr.push({ enrolmentId: { in: enrolmentIds } });
+        if (typeof (tx as any).examAttempt?.deleteMany === 'function') {
+          await (tx as any).examAttempt.deleteMany({ where: { OR: examAttemptOr } }).catch(() => {});
+        }
+      }
+
+      if (typeof (tx as any).oralAssessment?.deleteMany === 'function') {
+        await (tx as any).oralAssessment.deleteMany({
+          where: {
+            OR: [{ programId: id }, ...(enrolmentIds.length > 0 ? [{ enrolmentId: { in: enrolmentIds } }] : [])],
+          },
+        }).catch(() => {});
+      }
+
+      if (lessonIds.length > 0 || enrolmentIds.length > 0) {
+        const lessonProgOr = [];
+        if (lessonIds.length > 0) lessonProgOr.push({ lessonId: { in: lessonIds } });
+        if (enrolmentIds.length > 0) lessonProgOr.push({ enrolmentId: { in: enrolmentIds } });
+        if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
+          await (tx as any).userLessonProgress.deleteMany({ where: { OR: lessonProgOr } }).catch(() => {});
+        }
+      }
+
+      if (stepIds.length > 0 || enrolmentIds.length > 0) {
+        const stepProgOr = [];
+        if (stepIds.length > 0) stepProgOr.push({ stepId: { in: stepIds } });
+        if (enrolmentIds.length > 0) stepProgOr.push({ enrolmentId: { in: enrolmentIds } });
+        if (typeof (tx as any).stepProgress?.deleteMany === 'function') {
+          await (tx as any).stepProgress.deleteMany({ where: { OR: stepProgOr } }).catch(() => {});
+        }
+      }
+
+      // D. Enrolment children: payments, redemptions, agreements, certificates
+      if (enrolmentIds.length > 0) {
+        if (typeof (tx as any).payment?.deleteMany === 'function') {
+          await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        }
+        if (typeof (tx as any).couponRedemption?.deleteMany === 'function') {
+          await (tx as any).couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        }
+      }
+
+      if (typeof (tx as any).certificate?.deleteMany === 'function') {
+        await (tx as any).certificate.deleteMany({
+          where: {
+            OR: [{ programId: id }, ...(enrolmentIds.length > 0 ? [{ enrolmentId: { in: enrolmentIds } }] : [])],
+          },
+        }).catch(() => {});
+      }
+
+      if (typeof (tx as any).signedAgreement?.deleteMany === 'function') {
+        await (tx as any).signedAgreement.deleteMany({
+          where: {
+            OR: [{ programId: id }, ...(enrolmentIds.length > 0 ? [{ enrolmentId: { in: enrolmentIds } }] : [])],
+          },
+        }).catch(() => {});
+      }
+
+      if (typeof (tx as any).agreementTemplate?.deleteMany === 'function') {
+        await (tx as any).agreementTemplate.deleteMany({ where: { programId: id } }).catch(() => {});
+      }
+
+      // E. Delete Enrolments and Batches
+      if (enrolmentIds.length > 0 && typeof (tx as any).enrolment?.deleteMany === 'function') {
+        await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } }).catch(() => {});
+      }
+      if (batchIds.length > 0 && typeof (tx as any).batch?.deleteMany === 'function') {
+        await (tx as any).batch.deleteMany({ where: { id: { in: batchIds } } }).catch(() => {});
+      }
+
+      // F. Delete Resources & ResourceItems
+      if (typeof (tx as any).resource?.deleteMany === 'function') {
+        await (tx as any).resource.deleteMany({ where: { programId: id } }).catch(() => {});
+      }
+      if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
+        await (tx as any).resourceItem.deleteMany({ where: { programId: id } }).catch(() => {});
+      }
+
+      // G. Delete Options, Questions, Quizzes, Lessons, Steps, QuestionBanks, Exams
+      if (questionIds.length > 0) {
+        if (typeof (tx as any).option?.deleteMany === 'function') {
+          await (tx as any).option.deleteMany({ where: { questionId: { in: questionIds } } }).catch(() => {});
+        }
+        if (typeof (tx as any).question?.deleteMany === 'function') {
+          await (tx as any).question.deleteMany({ where: { id: { in: questionIds } } }).catch(() => {});
+        }
+      }
+      if (quizIds.length > 0 && typeof (tx as any).quiz?.deleteMany === 'function') {
+        await (tx as any).quiz.deleteMany({ where: { id: { in: quizIds } } }).catch(() => {});
+      }
+      if (lessonIds.length > 0 && typeof (tx as any).lesson?.deleteMany === 'function') {
+        await (tx as any).lesson.deleteMany({ where: { id: { in: lessonIds } } }).catch(() => {});
+      }
+      if (stepIds.length > 0 && typeof (tx as any).step?.deleteMany === 'function') {
+        await (tx as any).step.deleteMany({ where: { id: { in: stepIds } } }).catch(() => {});
+      }
+      if (qbIds.length > 0 && typeof (tx as any).questionBank?.deleteMany === 'function') {
+        await (tx as any).questionBank.deleteMany({ where: { id: { in: qbIds } } }).catch(() => {});
+      }
+      if (examIds.length > 0 && typeof (tx as any).exam?.deleteMany === 'function') {
+        await (tx as any).exam.deleteMany({ where: { id: { in: examIds } } }).catch(() => {});
+      }
+
+      // H. Delete the Program itself
+      await tx.program.delete({ where: { id } });
+    });
+  }
+
+  async remove(id: string, force: boolean = false) {
     const program = await this.prisma.program.findUnique({ where: { id } });
     if (!program) {
       throw new NotFoundException(`Program not found`);
@@ -282,10 +685,8 @@ export class ProgramsService {
       this.prisma.enrolment.count({ where: { programId: id } }),
     ]);
 
-    if (batchCount > 0 || enrolmentCount > 0) {
-      // Dependent batches or student enrolments exist.
-      // Hard deletion is prohibited to preserve student history, accreditation, certificates, and invoices,
-      // and to respect database foreign-key constraints.
+    if (!force && (batchCount > 0 || enrolmentCount > 0)) {
+      // Non-forced removal: safe archive to preserve active historical records
       this.logger.log(
         `Archiving program ${id} to preserve ${batchCount} batches and ${enrolmentCount} enrolments.`,
       );
@@ -307,98 +708,15 @@ export class ProgramsService {
       };
     }
 
-    // Program has no batches or enrolments: safe to permanently hard-delete
-    try {
-      // 1a. Program cover image
-      if (program.description) {
-        try {
-          const info = JSON.parse(program.description);
-          if (info.image) {
-            await this.safeDeleteCloudinaryMedia(info.image, 'image');
-          }
-        } catch {}
-      }
+    // Full Permanent Delete: Clean Cloudinary storage & cascade delete DB records
+    await this.cascadeDeleteProgramMediaAndData(program);
 
-      // 1b. All lessons in all steps
-      const lessons = await this.prisma.lesson.findMany({
-        where: { step: { programId: id } },
-        select: { id: true, mediaUrl: true, type: true },
-      });
-      for (const lesson of lessons) {
-        if (lesson.mediaUrl) {
-          await this.safeDeleteCloudinaryMedia(
-            lesson.mediaUrl,
-            lesson.type === 'VIDEO' ? 'video' : 'raw',
-          );
-        }
-      }
-
-      // 1c. All resources
-      const resources = await this.prisma.resource.findMany({
-        where: { programId: id },
-        select: { mediaUrl: true },
-      });
-      for (const res of resources) {
-        if (res.mediaUrl) {
-          await this.safeDeleteCloudinaryMedia(res.mediaUrl, 'raw');
-        }
-      }
-
-      // 1d. All resource items
-      if (typeof (this.prisma as any).resourceItem?.findMany === 'function') {
-        const resourceItems = await (this.prisma as any).resourceItem.findMany({
-          where: { programId: id },
-          select: { storageKey: true, type: true },
-        });
-        for (const item of resourceItems) {
-          if (item.storageKey) {
-            const rType = item.type === 'GUIDED_AUDIO' ? 'video' : 'raw';
-            await this.safeDeleteCloudinaryMedia(item.storageKey, rType);
-          }
-        }
-      }
-
-      // 2. Cancel Zoom Meetings
-      const sessions = typeof this.prisma.session?.findMany === 'function'
-        ? await this.prisma.session.findMany({
-            where: { batch: { programId: id } },
-            select: { providerMeetingId: true },
-          })
-        : [];
-      const outboxPayloads = sessions
-        .filter((sess) => sess.providerMeetingId && this.prisma.outboxEvent)
-        .map((sess) => ({
-          type: 'sync-meeting',
-          action: 'CANCEL',
-          payload: { providerMeetingId: sess.providerMeetingId },
-        }));
-
-      if (outboxPayloads.length > 0) {
-        if (typeof (this.prisma.outboxEvent as any)?.createMany === 'function') {
-          await (this.prisma.outboxEvent as any).createMany({
-            data: outboxPayloads,
-          }).catch((e: any) => this.logger.error('Failed to create Zoom cancel outbox events', e));
-        } else {
-          await Promise.all(
-            outboxPayloads.map((data) =>
-              this.prisma.outboxEvent.create({ data }).catch((e) =>
-                this.logger.error('Failed to create Zoom cancel outbox event', e),
-              ),
-            ),
-          );
-        }
-      }
-    } catch (cleanupErr: any) {
-      this.logger.warn(`Media/session cleanup notice during program deletion: ${cleanupErr.message}`);
-    }
-
-    await this.prisma.program.delete({ where: { id } });
     await this.safeInvalidateTags(['programs', 'batches', `program:${id}`]);
     return {
       id,
       deleted: true,
       archived: false,
-      message: `Program "${program.title}" permanently deleted.`,
+      message: `Program "${program.title}" and all associated videos, PDFs, questions, and records permanently deleted.`,
     };
   }
 

@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   Request,
 } from '@nestjs/common';
 import { ProgramsService } from './programs.service.js';
@@ -209,7 +210,7 @@ export class ProgramsController {
 
   @RequirePermission(Permission.PROGRAMS_DELETE)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.programsService.remove(id);
+  remove(@Param('id') id: string, @Query('force') force?: string) {
+    return this.programsService.remove(id, force === 'true' || force === '1');
   }
 }

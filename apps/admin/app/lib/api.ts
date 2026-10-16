@@ -157,48 +157,39 @@ export function renewOnce(
  * Automatically purges cached GET responses when mutating endpoints are called.
  */
 export function autoInvalidateOnMutation(url: string): void {
-  const resources = [
-    "users",
-    "programs",
-    "batches",
-    "sessions",
-    "attendance",
-    "invoices",
-    "credit-notes",
-    "revenue",
-    "coupons",
-    "certificates",
-    "messages",
-    "leads",
-    "agreements",
-    "quizzes",
-    "questions",
-    "categories",
-    "resources",
-    "media",
-    "site-content",
-    "website",
-    "dashboard",
-  ];
-
-  for (const r of resources) {
-    if (url.includes(`/${r}`)) {
-      invalidateCache(`/${r}`);
-      // Invalidate related / dependent domains
-      if (r === "invoices" || r === "credit-notes") invalidateCache("/revenue");
-      if (r === "revenue") invalidateCache("/invoices");
-      if (r === "batches") invalidateCache("/sessions");
-      if (r === "programs") {
-        invalidateCache("/steps");
-        invalidateCache("/dashboard");
-      }
-      if (r === "site-content" || r === "website") {
-        invalidateCache("/site-content");
-        invalidateCache("/website");
-      }
-      break;
-    }
+  // Whenever any mutation occurs in the admin portal, purge the relevant cache domain immediately
+  const isCurriculum = /\/(programs|steps|lessons|quizzes|questions)/.test(url);
+  if (isCurriculum) {
+    invalidateCache("/programs");
+    invalidateCache("/steps");
+    invalidateCache("/lessons");
+    invalidateCache("/quizzes");
+    invalidateCache("/questions");
+    invalidateCache("/dashboard");
+    return;
   }
+
+  const isBatchOrSession = /\/(batches|sessions|attendance)/.test(url);
+  if (isBatchOrSession) {
+    invalidateCache("/batches");
+    invalidateCache("/sessions");
+    invalidateCache("/attendance");
+    invalidateCache("/dashboard");
+    return;
+  }
+
+  const isFinance = /\/(invoices|credit-notes|revenue|coupons)/.test(url);
+  if (isFinance) {
+    invalidateCache("/invoices");
+    invalidateCache("/credit-notes");
+    invalidateCache("/revenue");
+    invalidateCache("/coupons");
+    invalidateCache("/dashboard");
+    return;
+  }
+
+  // Fallback: clear the entire cache to guarantee immediate UI updates
+  clearApiCache();
 }
 
 /**

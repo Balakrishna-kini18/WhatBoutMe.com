@@ -308,12 +308,10 @@ function BatchesContent() {
     setIsDeletingBatch(true);
     setDeleteError(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/batches/${batchToDelete.id}`, {
+      const res = await cachedFetch(`${API_URL}/batches/${batchToDelete.id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.ok) {
+      if (res.ok || res.status === 404) {
         toastSuccess(`Cohort batch "${batchToDelete.name}" deleted successfully.`);
         setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);

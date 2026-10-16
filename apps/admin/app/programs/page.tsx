@@ -7,7 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
-import { uploadFile } from "../lib/api";
+import { uploadFile, cachedFetch } from "../lib/api";
 import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
 
 const API_URL =
@@ -134,7 +134,7 @@ export default function ProgramsPage() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await fetch(`${API_URL}/programs`);
+      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);

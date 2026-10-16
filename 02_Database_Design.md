@@ -498,6 +498,96 @@ model Lead {
   @@index([createdAt(sort: Desc)])
   @@index([email])
 }
+
+// -----------------------------------------------------------------------------
+// REQUIREMENT 10: DYNAMIC EVENTS MANAGEMENT & TICKETING
+// -----------------------------------------------------------------------------
+
+enum EventLocationType {
+  ONLINE
+  PHYSICAL
+}
+
+enum CurrencyCode {
+  USD
+  AED
+  INR
+}
+
+enum EventPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Event {
+  id              String              @id @default(uuid())
+  title           String
+  slug            String              @unique
+  description     String              @db.Text
+  bannerUrl       String?
+  startDateTime   DateTime
+  endDateTime     DateTime?
+  timezone        String              @default("UTC")
+  
+  // Online vs Physical Toggle
+  locationType    EventLocationType   @default(ONLINE)
+  meetingLink     String?             // Required if ONLINE (kept private until paid)
+  venueName       String?             // Required if PHYSICAL (e.g., Hall Name)
+  venueAddress    String?             // Required if PHYSICAL (Full address / Map link)
+  
+  // Dynamic Pricing & Multi-Currency
+  price           Decimal             @default(0.00) @db.Decimal(10, 2)
+  currency        CurrencyCode        @default(USD)
+  seatLimit       Int?                // Null = unlimited seats
+  seatsBooked     Int                 @default(0)
+  
+  isPublished     Boolean             @default(true)
+  createdById     String?
+  createdBy       User?               @relation("CreatedEvents", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  registrations   EventRegistration[]
+
+  @@index([locationType, isPublished])
+  @@index([startDateTime])
+  @@index([createdAt])
+}
+
+model EventRegistration {
+  id                String             @id @default(uuid())
+  eventId           String
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId            String?            // Optional if guest checkout is allowed, or linked to User
+  user              User?              @relation("UserEventRegistrations", fields: [userId], references: [id], onDelete: SetNull)
+  
+  attendeeName      String
+  attendeeEmail     String
+  attendeePhone     String
+  
+  amount            Decimal            @default(0.00) @db.Decimal(10, 2)
+  currency          CurrencyCode       @default(USD)
+  paymentGateway    String             @default("SIMULATION") // "RAZORPAY" | "STRIPE" | "SIMULATION" | "FREE"
+  gatewayOrderId    String?            @unique
+  gatewayPaymentId  String?
+  paymentStatus     EventPaymentStatus @default(PENDING)
+  
+  emailSent         Boolean            @default(false)
+  registeredAt      DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  rejectedById      String?
+  rejectedBy        User?              @relation("RejectedEventRegistrations", fields: [rejectedById], references: [id], onDelete: SetNull)
+  rejectionReason   String?
+
+  @@index([eventId, paymentStatus])
+  @@index([attendeeEmail])
+  @@index([userId])
+}
 ```
 
 ---
@@ -548,4 +638,6 @@ All columns involved in `WHERE`, `JOIN` (foreign keys), `ORDER BY`, and `GROUP B
 - **Certificate:** `[approvedById]`, `[createdAt DESC]`
 - **Step / Lesson:** `[programId, status]`, `[stepId, status]`
 - **DailyAttendance:** `[date]`
+- **Event:** `[locationType, isPublished]`, `[startDateTime]`, `[createdAt]`, `[slug (UNIQUE)]`
+- **EventRegistration:** `[eventId, paymentStatus]`, `[attendeeEmail]`, `[userId]`, `[gatewayOrderId (UNIQUE)]`
 

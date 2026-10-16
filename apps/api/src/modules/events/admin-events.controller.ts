@@ -19,7 +19,6 @@ import {
   CreateEventDto,
   RejectEventRegistrationDto,
   UpdateEventDto,
-  UpdateEventStatusDto,
 } from './dto/event.dto.js';
 import { EventsService } from './events.service.js';
 
@@ -52,16 +51,18 @@ export class AdminEventsController {
     @Body() dto: RejectEventRegistrationDto,
   ) {
     const adminId = req.user?.id || req.user?.userId || req.user?.sub || 'system';
-    return this.eventsService.rejectRegistrationForAdmin(
-      adminId,
-      id,
-      registrationId,
-      dto.reason,
-      {
-        ipAddress: req.ip,
-        userAgent: req.headers?.['user-agent'],
-      },
-    );
+    return this.eventsService.refundRegistrationForAdmin(adminId, id, registrationId, dto.reason);
+  }
+
+  @Post(':id/registrations/:registrationId/refund')
+  refundRegistration(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('registrationId') registrationId: string,
+    @Body() dto: RejectEventRegistrationDto,
+  ) {
+    const adminId = req.user?.id || req.user?.userId || req.user?.sub || 'system';
+    return this.eventsService.refundRegistrationForAdmin(adminId, id, registrationId, dto.reason);
   }
 
   @Get(':id')
@@ -94,22 +95,15 @@ export class AdminEventsController {
     });
   }
 
-  @Post(':id/status')
-  updateStatus(
+  @Delete(':id')
+  removeEvent(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() dto: UpdateEventStatusDto,
   ) {
     const adminId = req.user?.id || req.user?.userId || req.user?.sub || 'system';
-    return this.eventsService.updateStatusForAdmin(adminId, id, dto, {
+    return this.eventsService.removeForAdmin(adminId, id, {
       ipAddress: req.ip,
       userAgent: req.headers?.['user-agent'],
     });
-  }
-
-  @Delete(':id')
-  deleteEvent(@Req() req: any, @Param('id') id: string) {
-    const adminId = req.user?.id || req.user?.userId || req.user?.sub || 'system';
-    return this.eventsService.deleteForAdmin(adminId, id);
   }
 }

@@ -630,3 +630,99 @@ export async function uploadFile(file: File): Promise<string> {
   if (!res.ok) throw new Error(await errorMessage(res, "Could not upload the file"));
   return (await res.json()).url;
 }
+
+// -----------------------------------------------------------------------------
+// EVENT MANAGEMENT & TICKETING INTERFACES
+// -----------------------------------------------------------------------------
+
+export type EventLocationType = "ONLINE" | "PHYSICAL";
+export type CurrencyCode = "USD" | "AED" | "INR";
+export type EventPaymentStatus = "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+
+export interface EventItem {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  bannerUrl?: string | null;
+  startDateTime: string;
+  endDateTime?: string | null;
+  timezone: string;
+  locationType: EventLocationType;
+  meetingLink?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  price: number;
+  currency: CurrencyCode;
+  seatLimit?: number | null;
+  seatsBooked: number;
+  seatsRemaining?: number | null;
+  isSoldOut?: boolean;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+
+  // Backward compatibility aliases
+  startAt?: string;
+  endAt?: string;
+  location?: string | null;
+  coverImageUrl?: string | null;
+  maxRegistrations?: number | null;
+  registrationCount?: number;
+}
+
+export interface CreateEventPayload {
+  title: string;
+  description: string;
+  startDateTime: string;
+  endDateTime?: string;
+  timezone?: string;
+  locationType: EventLocationType;
+  meetingLink?: string;
+  venueName?: string;
+  venueAddress?: string;
+  price: number;
+  currency: CurrencyCode;
+  seatLimit?: number | null;
+  isPublished?: boolean;
+  bannerUrl?: string;
+}
+
+export interface EventRegistrationItem {
+  id: string;
+  eventId: string;
+  userId?: string | null;
+  attendeeName: string;
+  attendeeEmail: string;
+  attendeePhone: string;
+  amount: number;
+  currency: CurrencyCode;
+  paymentGateway: string;
+  gatewayOrderId?: string | null;
+  gatewayPaymentId?: string | null;
+  paymentStatus: EventPaymentStatus;
+  emailSent: boolean;
+  registeredAt: string;
+  createdAt: string;
+  updatedAt: string;
+
+  // Backward compatibility aliases
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  status?: string;
+}
+
+export interface EventRegistrationsResponse {
+  event: EventItem;
+  kpis: {
+    totalConfirmed: number;
+    totalRegistrations: number;
+    seatsRemaining: number | null;
+    seatLimit: number | null;
+    seatsBooked: number;
+    revenueByCurrency: Record<string, number>;
+  };
+  registrations: EventRegistrationItem[];
+}
+

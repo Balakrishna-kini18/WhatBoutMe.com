@@ -1,6 +1,6 @@
-import { EventStatus, EventType } from '@prisma/client';
+import { EventLocationType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListEventsQueryDto {
   @IsOptional()
@@ -17,12 +17,17 @@ export class ListEventsQueryDto {
   limit?: number = 20;
 
   @IsOptional()
-  @IsEnum(EventType)
-  type?: EventType;
+  @IsEnum(EventLocationType)
+  locationType?: EventLocationType;
 
   @IsOptional()
-  @IsEnum(EventStatus)
-  status?: EventStatus;
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  upcoming?: boolean;
 }
 
 export class AdminListEventsQueryDto extends ListEventsQueryDto {
@@ -31,5 +36,5 @@ export class AdminListEventsQueryDto extends ListEventsQueryDto {
   @IsInt()
   @Min(1)
   @Max(200)
-  override limit?: number = 50;
+  override limit?: number = 100;
 }

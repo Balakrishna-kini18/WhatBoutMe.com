@@ -186,41 +186,102 @@ export async function confirmPasswordResetUser(token: string, newPassword: strin
   );
 }
 
+export type CurrencyCode = "USD" | "AED" | "INR";
+export type EventLocationType = "ONLINE" | "PHYSICAL";
+export type EventPaymentStatus = "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+
 export interface EventItem {
   id: string;
-  type: "EVENT" | "WEBINAR";
   title: string;
+  slug: string;
   description: string;
-  status: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
-  startAt: string;
-  endAt: string;
-  location?: string | null;
+  bannerUrl?: string | null;
+  startDateTime: string;
+  endDateTime?: string | null;
+  timezone: string;
+  locationType: EventLocationType;
   meetingLink?: string | null;
+  venueName?: string | null;
+  venueAddress?: string | null;
+  price: number;
+  currency: CurrencyCode;
+  seatLimit?: number | null;
+  seatsBooked: number;
+  seatsRemaining?: number | null;
+  isSoldOut?: boolean;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt?: string;
+
+  // Backward compatibility aliases
+  type?: "EVENT" | "WEBINAR";
+  status?: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
+  startAt?: string;
+  endAt?: string;
+  location?: string | null;
   coverImageUrl?: string | null;
   maxRegistrations?: number | null;
-  registrationOpensAt?: string | null;
-  registrationClosesAt?: string | null;
-  registrationCount: number;
+  registrationCount?: number;
   registeredByMe?: boolean;
-  createdAt: string;
 }
 
 export interface RegisterEventPayload {
   fullName: string;
   email: string;
   phone: string;
-  category: string;
+  category?: string;
   categoryOther?: string;
   organization?: string;
   designation?: string;
   notes?: string;
 }
 
-export async function getPublicEvents(params?: { type?: string; upcoming?: boolean }): Promise<EventItem[]> {
+export interface EventRegistrationItem {
+  id: string;
+  eventId: string;
+  userId?: string | null;
+  attendeeName: string;
+  attendeeEmail: string;
+  attendeePhone: string;
+  amount: number;
+  currency: CurrencyCode;
+  paymentGateway: string;
+  gatewayOrderId?: string | null;
+  gatewayPaymentId?: string | null;
+  paymentStatus: EventPaymentStatus;
+  emailSent: boolean;
+  registeredAt: string;
+}
+
+export interface CheckoutEventResponse {
+  registrationId: string;
+  orderId: string;
+  amount: number;
+  currency: CurrencyCode;
+  keyId: string;
+  isSimulated?: boolean;
+}
+
+export interface VerifyEventPaymentResponse {
+  success: boolean;
+  message: string;
+  registration: EventRegistrationItem;
+  event: EventItem;
+}
+
+export async function getPublicEvents(params?: {
+  type?: string;
+  locationType?: string;
+  upcoming?: boolean;
+  search?: string;
+}): Promise<EventItem[]> {
   try {
     const searchParams = new URLSearchParams();
     if (params?.type && params.type !== "ALL") searchParams.set("type", params.type);
+    if (params?.locationType && params.locationType !== "ALL")
+      searchParams.set("locationType", params.locationType);
     if (params?.upcoming !== undefined) searchParams.set("upcoming", String(params.upcoming));
+    if (params?.search) searchParams.set("search", params.search);
     const url = `${API_BASE_URL}/events${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return [];
@@ -229,6 +290,76 @@ export async function getPublicEvents(params?: { type?: string; upcoming?: boole
     console.error("Error fetching public events:", error);
     return [];
   }
+}
+
+export async function getPublicEventBySlug(slug: string): Promise<EventItem | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/events/${encodeURIComponent(slug)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching event by slug:", error);
+    return null;
+  }
+}
+
+export async function checkoutEvent(
+  eventIdOrSlug: string,
+  payload: { attendeeName: string; attendeeEmail: string; attendeePhone: string }
+): Promise<CheckoutEventResponse> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("wbm_token") || undefined : undefined;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/events/${encodeURIComponent(eventIdOrSlug)}/checkout`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Could not reach the server. Please check your network connection.");
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = data?.error?.message ?? data?.message ?? "Checkout failed. Please try again.";
+    throw new Error(Array.isArray(msg) ? msg.join(", ") : msg);
+  }
+  return data;
+}
+
+export async function verifyEventPayment(payload: {
+  registrationId: string;
+  gatewayOrderId: string;
+  gatewayPaymentId?: string;
+  gatewaySignature?: string;
+  isSimulated?: boolean;
+}): Promise<VerifyEventPaymentResponse> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("wbm_token") || undefined : undefined;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/events/verify-payment`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Could not reach the server. Please check your network connection.");
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = data?.error?.message ?? data?.message ?? "Payment verification failed.";
+    throw new Error(Array.isArray(msg) ? msg.join(", ") : msg);
+  }
+  return data;
 }
 
 export async function registerForEvent(eventId: string, payload: RegisterEventPayload, token?: string) {
@@ -253,4 +384,5 @@ export async function registerForEvent(eventId: string, payload: RegisterEventPa
   }
   return data;
 }
+
 

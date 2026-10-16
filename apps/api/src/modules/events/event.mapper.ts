@@ -1,42 +1,70 @@
 import {
   Event,
   EventRegistration,
-  EventRegistrationStatus,
-  EventStatus,
-  EventType,
-  ParticipantCategory,
-  User,
+  EventLocationType,
+  CurrencyCode,
+  EventPaymentStatus,
 } from '@prisma/client';
 
-type EventWithCount = Event & {
+type EventWithRelations = Event & {
   _count?: { registrations: number };
   createdBy?: { id: string; name?: string | null; email?: string | null } | null;
 };
 
-type RegistrationWithUser = EventRegistration & {
+type RegistrationWithRelations = EventRegistration & {
   user?: { id: string; name?: string | null; email?: string | null } | null;
+  event?: Event | null;
 };
 
 export function mapEvent(
-  event: EventWithCount,
-  options?: { registeredByMe?: boolean },
+  event: EventWithRelations,
+  options?: { isStaff?: boolean; showSecretLink?: boolean; registeredByMe?: boolean },
 ) {
+  const isPrivileged = options?.isStaff === true || options?.showSecretLink === true;
+  const seatsRemaining =
+    event.seatLimit !== null && event.seatLimit !== undefined
+      ? Math.max(0, event.seatLimit - event.seatsBooked)
+      : null;
+  const isSoldOut = seatsRemaining !== null && seatsRemaining <= 0;
+
   return {
     id: event.id,
-    type: event.type,
     title: event.title,
+    slug: event.slug,
     description: event.description,
-    status: event.status,
-    startAt: event.startAt,
-    endAt: event.endAt,
-    location: event.location,
-    meetingLink: event.meetingLink,
-    coverImageUrl: event.coverImageUrl,
-    maxRegistrations: event.maxRegistrations,
-    registrationOpensAt: event.registrationOpensAt,
-    registrationClosesAt: event.registrationClosesAt,
-    registrationCount: event._count?.registrations ?? 0,
+    bannerUrl: event.bannerUrl,
+    startDateTime: event.startDateTime,
+    endDateTime: event.endDateTime,
+    timezone: event.timezone || 'UTC',
+
+    // Location Toggle
+    locationType: event.locationType,
+    // CRITICAL SECURITY RULE: meetingLink is strictly stripped for public endpoints
+    meetingLink: isPrivileged && event.locationType === EventLocationType.ONLINE ? event.meetingLink : null,
+    venueName: event.locationType === EventLocationType.PHYSICAL ? event.venueName : null,
+    venueAddress: event.locationType === EventLocationType.PHYSICAL ? event.venueAddress : null,
+
+    // Dynamic Pricing & Multi-Currency
+    price: Number(event.price),
+    currency: event.currency,
+    seatLimit: event.seatLimit,
+    seatsBooked: event.seatsBooked,
+    seatsRemaining,
+    isSoldOut,
+    isPublished: event.isPublished,
+
+    // Backward-compatibility aliases
+    startAt: event.startDateTime,
+    endAt: event.endDateTime ?? event.startDateTime,
+    location:
+      event.locationType === EventLocationType.ONLINE
+        ? 'Online Live Session'
+        : [event.venueName, event.venueAddress].filter(Boolean).join(', ') || 'In-Person Venue',
+    coverImageUrl: event.bannerUrl,
+    maxRegistrations: event.seatLimit,
+    registrationCount: event.seatsBooked,
     registeredByMe: options?.registeredByMe ?? false,
+
     createdById: event.createdById,
     createdBy: event.createdBy
       ? {
@@ -50,64 +78,47 @@ export function mapEvent(
   };
 }
 
-export function mapRegistration(registration: RegistrationWithUser) {
+export function mapRegistration(registration: RegistrationWithRelations) {
   return {
     id: registration.id,
     eventId: registration.eventId,
     userId: registration.userId,
-    fullName: registration.fullName,
-    email: registration.email,
-    phone: registration.phone,
-    category: registration.category,
-    categoryOther: registration.categoryOther,
-    organization: registration.organization,
-    city: registration.city,
-    status: registration.status ?? EventRegistrationStatus.CONFIRMED,
-    rejectedAt: registration.rejectedAt,
-    rejectionReason: registration.rejectionReason,
+    attendeeName: registration.attendeeName,
+    attendeeEmail: registration.attendeeEmail,
+    attendeePhone: registration.attendeePhone,
+    amount: Number(registration.amount),
+    currency: registration.currency,
+    paymentGateway: registration.paymentGateway,
+    gatewayOrderId: registration.gatewayOrderId,
+    gatewayPaymentId: registration.gatewayPaymentId,
+    paymentStatus: registration.paymentStatus,
+    emailSent: registration.emailSent,
+    registeredAt: registration.registeredAt,
     createdAt: registration.createdAt,
     updatedAt: registration.updatedAt,
+
+    // Backward-compatibility aliases for GSB table view
+    fullName: registration.attendeeName,
+    email: registration.attendeeEmail,
+    phone: registration.attendeePhone,
+    status: registration.paymentStatus === EventPaymentStatus.PAID ? 'CONFIRMED' : registration.paymentStatus,
+
     user: registration.user
       ? {
           id: registration.user.id,
-          name: registration.user.name ?? registration.fullName,
-          email: registration.user.email ?? registration.email,
+          name: registration.user.name ?? registration.attendeeName,
+          email: registration.user.email ?? registration.attendeeEmail,
         }
       : null,
+
+    event: registration.event
+      ? {
+          id: registration.event.id,
+          title: registration.event.title,
+          slug: registration.event.slug,
+          locationType: registration.event.locationType,
+          startDateTime: registration.event.startDateTime,
+        }
+      : undefined,
   };
-}
-
-export const PARTICIPANT_CATEGORY_LABELS: Record<ParticipantCategory, string> = {
-  STUDENT: 'Student',
-  ENTREPRENEUR: 'Entrepreneur',
-  STARTUP_FOUNDER: 'Startup Founder',
-  ASPIRING_FOUNDER: 'Aspiring Founder',
-  PROFESSIONAL: 'Working Professional',
-  RESEARCHER: 'Researcher',
-  ACADEMIC_FACULTY: 'Academic / Faculty',
-  INVESTOR: 'Investor',
-  CONSULTANT: 'Consultant',
-  FREELANCER: 'Freelancer',
-  JOB_SEEKER: 'Job Seeker',
-  CORPORATE_EMPLOYEE: 'Corporate Employee',
-  NGO_WORKER: 'NGO / Social Sector',
-  GOVERNMENT_OFFICIAL: 'Government Official',
-  HOMEMAKER: 'Homemaker',
-  RETIRED: 'Retired',
-  OTHER: 'Other',
-};
-
-export function eventTypeLabel(type: EventType) {
-  return type === EventType.EVENT ? 'Event' : 'Webinar';
-}
-
-export function eventStatusLabel(status: EventStatus) {
-  const labels: Record<EventStatus, string> = {
-    SCHEDULED: 'Scheduled',
-    REGISTRATION_OPEN: 'Registration Open',
-    ONGOING: 'Ongoing',
-    ENDED: 'Ended',
-    CANCELLED: 'Cancelled',
-  };
-  return labels[status] ?? status;
 }

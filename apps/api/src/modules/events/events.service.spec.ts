@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { EventRegistrationStatus, EventStatus, EventType, ParticipantCategory } from '@prisma/client';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { CurrencyCode, EventLocationType, EventPaymentStatus, Prisma } from '@prisma/client';
 import { EventsService } from './events.service.js';
 
-describe('EventsService - Community Events & Webinars Engine', () => {
+describe('EventsService - Target Architecture Verification', () => {
   let service: EventsService;
   let prismaMock: any;
   let auditMock: any;
@@ -22,15 +22,18 @@ describe('EventsService - Community Events & Webinars Engine', () => {
       },
       eventRegistration: {
         findMany: vi.fn(),
+        findUnique: vi.fn(),
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
         count: vi.fn(),
       },
-      notification: {
-        create: vi.fn().mockResolvedValue({ id: 'notif-1' }),
-      },
-      $transaction: vi.fn(),
+      $transaction: vi.fn(async (cb: any) => {
+        if (typeof cb === 'function') {
+          return cb(prismaMock);
+        }
+        return cb;
+      }),
     };
 
     auditMock = {
@@ -44,250 +47,194 @@ describe('EventsService - Community Events & Webinars Engine', () => {
     service = new EventsService(prismaMock as any, auditMock as any, emailMock as any);
   });
 
-  describe('createForAdmin', () => {
-    it('throws BadRequestException if endAt is before startAt', async () => {
+  describe('createForAdmin - Location & Pricing Rules', () => {
+    it('throws BadRequestException if ONLINE event lacks meetingLink', async () => {
       await expect(
         service.createForAdmin('admin-1', {
-          type: EventType.EVENT,
-          title: 'Neuroplasticity Workshop',
-          description: 'Interactive session',
-          startAt: '2026-11-20T10:00:00Z',
-          endAt: '2026-11-20T09:00:00Z',
+          title: 'Online Webinar',
+          description: 'Live zoom session',
+          startDateTime: '2026-11-20T10:00:00Z',
+          locationType: EventLocationType.ONLINE,
+          meetingLink: '',
         }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('creates an event and writes audit log', async () => {
-      const mockCreated = {
-        id: 'evt-1',
-        type: EventType.EVENT,
-        title: 'Neuroplasticity Workshop',
-        description: 'Interactive session',
-        status: EventStatus.REGISTRATION_OPEN,
-        startAt: new Date('2026-11-20T10:00:00Z'),
-        endAt: new Date('2026-11-20T12:00:00Z'),
-        location: 'Dubai Knowledge Park',
-        meetingLink: null,
-        coverImageUrl: null,
-        maxRegistrations: 50,
-        registrationOpensAt: null,
-        registrationClosesAt: null,
+    it('throws BadRequestException if PHYSICAL event lacks venueName or venueAddress', async () => {
+      await expect(
+        service.createForAdmin('admin-1', {
+          title: 'In-person Workshop',
+          description: 'Hall workshop',
+          startDateTime: '2026-11-20T10:00:00Z',
+          locationType: EventLocationType.PHYSICAL,
+          venueName: '',
+          venueAddress: 'Dubai',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('successfully creates an ONLINE event with slug and pricing', async () => {
+      const mockEvent = {
+        id: 'evt-101',
+        title: 'Clinical Hypnotherapy Workshop',
+        slug: 'clinical-hypnotherapy-workshop',
+        description: 'Deep dive into neuroplasticity',
+        bannerUrl: 'https://cdn.example.com/banner.png',
+        startDateTime: new Date('2026-11-20T10:00:00Z'),
+        endDateTime: new Date('2026-11-20T12:00:00Z'),
+        timezone: 'UTC',
+        locationType: EventLocationType.ONLINE,
+        meetingLink: 'https://zoom.us/j/123456789',
+        venueName: null,
+        venueAddress: null,
+        price: new Prisma.Decimal(25.0),
+        currency: CurrencyCode.USD,
+        seatLimit: 100,
+        seatsBooked: 0,
+        isPublished: true,
         createdById: 'admin-1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        _count: { registrations: 0 },
-        createdBy: { id: 'admin-1', name: 'Super Admin', email: 'admin@whatboutme.com' },
       };
 
-      prismaMock.event.create.mockResolvedValue(mockCreated);
+      prismaMock.event.findUnique.mockResolvedValue(null);
+      prismaMock.event.create.mockResolvedValue(mockEvent);
 
       const result = await service.createForAdmin('admin-1', {
-        type: EventType.EVENT,
-        title: 'Neuroplasticity Workshop',
-        description: 'Interactive session',
-        startAt: '2026-11-20T10:00:00Z',
-        endAt: '2026-11-20T12:00:00Z',
-        location: 'Dubai Knowledge Park',
-        maxRegistrations: 50,
+        title: 'Clinical Hypnotherapy Workshop',
+        description: 'Deep dive into neuroplasticity',
+        startDateTime: '2026-11-20T10:00:00Z',
+        endDateTime: '2026-11-20T12:00:00Z',
+        locationType: EventLocationType.ONLINE,
+        meetingLink: 'https://zoom.us/j/123456789',
+        price: 25.0,
+        currency: CurrencyCode.USD,
+        seatLimit: 100,
       });
 
-      expect(result.id).toBe('evt-1');
-      expect(result.title).toBe('Neuroplasticity Workshop');
-      expect(auditMock.log).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          action: 'EVENT_CREATED',
-          entityId: 'evt-1',
-        }),
-      );
+      expect(result.id).toBe('evt-101');
+      expect(result.slug).toBe('clinical-hypnotherapy-workshop');
+      expect(result.price).toBe(25);
+      expect(result.currency).toBe(CurrencyCode.USD);
+      expect(result.meetingLink).toBe('https://zoom.us/j/123456789');
     });
   });
 
-  describe('register', () => {
-    const futureStart = new Date(Date.now() + 86400000 * 5);
-    const futureEnd = new Date(Date.now() + 86400000 * 5 + 7200000);
-
-    it('throws NotFoundException when event does not exist', async () => {
-      prismaMock.event.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.register('evt-none', 'usr-1', {
-          fullName: 'Jane Doe',
-          email: 'jane@example.com',
-          phone: '+971501234567',
-          category: ParticipantCategory.PROFESSIONAL,
-        }),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('throws BadRequestException when registration is not open', async () => {
-      prismaMock.event.findUnique.mockResolvedValue({
-        id: 'evt-1',
-        status: EventStatus.SCHEDULED,
-        startAt: futureStart,
-        endAt: futureEnd,
-      });
-
-      await expect(
-        service.register('evt-1', 'usr-1', {
-          fullName: 'Jane Doe',
-          email: 'jane@example.com',
-          phone: '+971501234567',
-          category: ParticipantCategory.PROFESSIONAL,
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('throws BadRequestException when capacity is reached', async () => {
-      prismaMock.event.findUnique.mockResolvedValue({
-        id: 'evt-1',
-        status: EventStatus.REGISTRATION_OPEN,
-        startAt: futureStart,
-        endAt: futureEnd,
-        maxRegistrations: 10,
-        registrationClosesAt: null,
-      });
-      prismaMock.eventRegistration.count.mockResolvedValue(10);
-
-      await expect(
-        service.register('evt-1', 'usr-1', {
-          fullName: 'Jane Doe',
-          email: 'jane@example.com',
-          phone: '+971501234567',
-          category: ParticipantCategory.PROFESSIONAL,
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('throws ConflictException if already confirmed', async () => {
-      prismaMock.event.findUnique.mockResolvedValue({
-        id: 'evt-1',
-        status: EventStatus.REGISTRATION_OPEN,
-        startAt: futureStart,
-        endAt: futureEnd,
-        maxRegistrations: null,
-        registrationClosesAt: null,
-      });
-      prismaMock.eventRegistration.findFirst.mockResolvedValue({
-        id: 'reg-1',
-        status: EventRegistrationStatus.CONFIRMED,
-      });
-
-      await expect(
-        service.register('evt-1', 'usr-1', {
-          fullName: 'Jane Doe',
-          email: 'jane@example.com',
-          phone: '+971501234567',
-          category: ParticipantCategory.PROFESSIONAL,
-        }),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('creates registration, creates in-app notification, and sends email', async () => {
-      const event = {
-        id: 'evt-1',
-        type: EventType.EVENT,
-        title: 'Mindfulness & Resilience Summit',
-        status: EventStatus.REGISTRATION_OPEN,
-        startAt: futureStart,
-        endAt: futureEnd,
-        maxRegistrations: null,
-        registrationClosesAt: null,
-        location: 'Online',
-        meetingLink: 'https://zoom.us/j/123456',
-      };
-
-      prismaMock.event.findUnique.mockResolvedValue(event);
-      prismaMock.eventRegistration.findFirst.mockResolvedValue(null);
-
-      const mockReg = {
-        id: 'reg-new',
-        eventId: 'evt-1',
-        userId: 'usr-1',
-        fullName: 'Jane Doe',
-        email: 'jane@example.com',
-        phone: '+971501234567',
-        category: ParticipantCategory.STUDENT,
-        categoryOther: null,
-        organization: 'UAE University',
-        city: 'Abu Dhabi',
-        status: EventRegistrationStatus.CONFIRMED,
-        rejectedAt: null,
-        rejectionReason: null,
+  describe('Security Gate - meetingLink Stripping in Public Queries', () => {
+    it('strips meetingLink from public GET endpoint', async () => {
+      const mockEvent = {
+        id: 'evt-101',
+        title: 'Secret Meeting Session',
+        slug: 'secret-meeting-session',
+        description: 'Paid workshop',
+        bannerUrl: null,
+        startDateTime: new Date('2026-11-20T10:00:00Z'),
+        endDateTime: null,
+        timezone: 'UTC',
+        locationType: EventLocationType.ONLINE,
+        meetingLink: 'https://zoom.us/j/confidential-999',
+        venueName: null,
+        venueAddress: null,
+        price: new Prisma.Decimal(10.0),
+        currency: CurrencyCode.USD,
+        seatLimit: 50,
+        seatsBooked: 10,
+        isPublished: true,
+        createdById: 'admin-1',
         createdAt: new Date(),
         updatedAt: new Date(),
-        event,
-        user: { id: 'usr-1', name: 'Jane Doe', email: 'jane@example.com' },
+        _count: { registrations: 10 },
       };
 
-      prismaMock.eventRegistration.create.mockResolvedValue(mockReg);
+      prismaMock.event.findFirst.mockResolvedValue(mockEvent);
 
-      const result = await service.register('evt-1', 'usr-1', {
-        fullName: 'Jane Doe',
-        email: 'jane@example.com',
-        phone: '+971501234567',
-        category: ParticipantCategory.STUDENT,
-        organization: 'UAE University',
-        city: 'Abu Dhabi',
+      const result = await service.getForPublic('secret-meeting-session');
+
+      // CRITICAL SECURITY ASSERTION:
+      expect(result.meetingLink).toBeNull();
+      expect(result.seatsRemaining).toBe(40);
+      expect(result.isSoldOut).toBe(false);
+    });
+  });
+
+  describe('Checkout & Payment Verification State Machine', () => {
+    it('creates PENDING registration and order on checkout for paid events', async () => {
+      const mockEvent = {
+        id: 'evt-paid',
+        title: 'Paid Workshop',
+        slug: 'paid-workshop',
+        price: new Prisma.Decimal(50.0),
+        currency: CurrencyCode.AED,
+        seatLimit: 20,
+        seatsBooked: 5,
+        isPublished: true,
+        locationType: EventLocationType.ONLINE,
+        meetingLink: 'https://zoom.us/j/secret',
+      };
+
+      prismaMock.event.findFirst.mockResolvedValue(mockEvent);
+      prismaMock.eventRegistration.create.mockResolvedValue({
+        id: 'reg-pending-1',
+        eventId: 'evt-paid',
+        attendeeName: 'Alex Doe',
+        attendeeEmail: 'alex@example.com',
+        attendeePhone: '+97150111222',
+        amount: new Prisma.Decimal(50.0),
+        currency: CurrencyCode.AED,
+        gatewayOrderId: 'sim_ord_123',
+        paymentStatus: EventPaymentStatus.PENDING,
       });
 
-      expect(result.id).toBe('reg-new');
-      expect(result.status).toBe('CONFIRMED');
-      expect(prismaMock.notification.create).toHaveBeenCalled();
+      const checkoutRes = await service.checkout('paid-workshop', {
+        attendeeName: 'Alex Doe',
+        attendeeEmail: 'alex@example.com',
+        attendeePhone: '+97150111222',
+      });
+
+      expect(checkoutRes.status).toBe(EventPaymentStatus.PENDING);
+      expect(checkoutRes.amount).toBe(50);
+      expect(checkoutRes.currency).toBe(CurrencyCode.AED);
+      expect(checkoutRes.simulation).toBe(true);
+    });
+
+    it('flips status to PAID and unlocks meetingLink upon payment verification', async () => {
+      const mockReg = {
+        id: 'reg-pending-1',
+        eventId: 'evt-paid',
+        attendeeName: 'Alex Doe',
+        attendeeEmail: 'alex@example.com',
+        amount: new Prisma.Decimal(50.0),
+        currency: CurrencyCode.AED,
+        gatewayOrderId: 'sim_ord_123',
+        paymentStatus: EventPaymentStatus.PENDING,
+        emailSent: false,
+        event: {
+          id: 'evt-paid',
+          title: 'Paid Workshop',
+          locationType: EventLocationType.ONLINE,
+          meetingLink: 'https://zoom.us/j/secret-unlocked',
+          startDateTime: new Date('2026-11-20T10:00:00Z'),
+          timezone: 'UTC',
+          venueName: null,
+          venueAddress: null,
+        },
+      };
+
+      prismaMock.eventRegistration.findUnique
+        .mockResolvedValueOnce(mockReg)
+        .mockResolvedValueOnce({ ...mockReg, paymentStatus: EventPaymentStatus.PAID });
+
+      const verifyRes = await service.verifyPayment({
+        registrationId: 'reg-pending-1',
+        gatewayOrderId: 'sim_ord_123',
+        gatewayPaymentId: 'sim_pay_456',
+      });
+
+      expect(verifyRes.status).toBe(EventPaymentStatus.PAID);
+      expect(verifyRes.meetingLink).toBe('https://zoom.us/j/secret-unlocked');
       expect(emailMock.sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({
-          to: 'jane@example.com',
-          subject: expect.stringContaining('Registration Confirmed'),
-        }),
-      );
-    });
-  });
-
-  describe('rejectRegistrationForAdmin', () => {
-    it('sets status to REJECTED and logs audit with reason', async () => {
-      prismaMock.event.findUnique.mockResolvedValue({ id: 'evt-1', _count: { registrations: 1 } });
-      prismaMock.eventRegistration.findFirst.mockResolvedValue({
-        id: 'reg-1',
-        eventId: 'evt-1',
-        userId: 'usr-1',
-        status: EventRegistrationStatus.CONFIRMED,
-        event: { id: 'evt-1', title: 'Brain Health 101' },
-      });
-
-      prismaMock.eventRegistration.update.mockResolvedValue({
-        id: 'reg-1',
-        eventId: 'evt-1',
-        userId: 'usr-1',
-        fullName: 'John Smith',
-        email: 'john@example.com',
-        phone: '+971501112233',
-        category: ParticipantCategory.OTHER,
-        categoryOther: 'Speaker',
-        organization: 'Health Inc',
-        city: 'Dubai',
-        status: EventRegistrationStatus.REJECTED,
-        rejectedAt: new Date(),
-        rejectionReason: 'Capacity exceeded for this category',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        user: { id: 'usr-1', name: 'John Smith', email: 'john@example.com' },
-      });
-
-      const result = await service.rejectRegistrationForAdmin(
-        'admin-1',
-        'evt-1',
-        'reg-1',
-        'Capacity exceeded for this category',
-      );
-
-      expect(result.status).toBe('REJECTED');
-      expect(result.rejectionReason).toBe('Capacity exceeded for this category');
-      expect(auditMock.log).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          action: 'EVENT_REGISTRATION_REJECTED',
-          entityId: 'reg-1',
-          reason: 'Capacity exceeded for this category',
+          to: 'alex@example.com',
         }),
       );
     });

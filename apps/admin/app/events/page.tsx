@@ -3,29 +3,15 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import styles from "./events.module.css";
-import { API_URL } from "../lib/api";
+import {
+  API_URL,
+  type EventItem,
+  type EventLocationType,
+  type CurrencyCode,
+  type CreateEventPayload,
+} from "../lib/api";
 import { Modal, StatusBadge, ConfirmDialog, useToast } from "../components";
 import type { StatusTone } from "../components";
-
-export interface EventItem {
-  id: string;
-  type: "EVENT" | "WEBINAR";
-  title: string;
-  description: string;
-  status: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
-  startAt: string;
-  endAt: string;
-  location?: string | null;
-  meetingLink?: string | null;
-  coverImageUrl?: string | null;
-  maxRegistrations?: number | null;
-  registrationOpensAt?: string | null;
-  registrationClosesAt?: string | null;
-  registrationCount: number;
-  registeredByMe: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
 
 const Icons = {
   Plus: () => (
@@ -62,6 +48,15 @@ const Icons = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
+  Share: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  ),
   Edit: () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -82,10 +77,9 @@ const Icons = {
   ),
 };
 
-function formatSchedule(start: string, end: string) {
+function formatSchedule(start: string, end?: string | null) {
   try {
     const s = new Date(start);
-    const e = new Date(end);
     const dateStr = s.toLocaleDateString(undefined, {
       weekday: "short",
       month: "short",
@@ -93,10 +87,26 @@ function formatSchedule(start: string, end: string) {
       year: "numeric",
     });
     const startTime = s.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    if (!end) return `${dateStr} · ${startTime}`;
+    const e = new Date(end);
     const endTime = e.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     return `${dateStr} · ${startTime} - ${endTime}`;
   } catch {
-    return `${start} - ${end}`;
+    return `${start}${end ? ` - ${end}` : ""}`;
+  }
+}
+
+function formatPrice(price: number, currency: CurrencyCode) {
+  if (price === 0) return "Free RSVP";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: price % 1 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(price);
+  } catch {
+    return `${currency} ${price}`;
   }
 }
 
@@ -108,21 +118,13 @@ function toLocalDatetimeInput(iso?: string | null) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const statusToneMap: Record<string, StatusTone> = {
-  REGISTRATION_OPEN: "active",
-  SCHEDULED: "pending",
-  ONGOING: "info",
-  ENDED: "completed",
-  CANCELLED: "error",
-};
-
 export default function EventsAdminPage() {
   const { success: toastSuccess, error: toastError } = useToast();
   const [events, setEvents] = useState<EventItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"ALL" | "EVENT" | "WEBINAR">("ALL");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [locationTypeFilter, setLocationTypeFilter] = useState<"ALL" | EventLocationType>("ALL");
+  const [publishFilter, setPublishFilter] = useState<string>("ALL");
 
   // Modal & Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -131,20 +133,27 @@ export default function EventsAdminPage() {
   const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
 
   // Form Fields
-  const [type, setType] = useState<"EVENT" | "WEBINAR">("EVENT");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [startDatePart, setStartDatePart] = useState("");
   const [startTimePart, setStartTimePart] = useState("10:00");
   const [endDatePart, setEndDatePart] = useState("");
   const [endTimePart, setEndTimePart] = useState("12:00");
-  const [location, setLocation] = useState("");
+  const [timezone, setTimezone] = useState("UTC");
+
+  // Location Toggle & Fields
+  const [locationType, setLocationType] = useState<EventLocationType>("ONLINE");
   const [meetingLink, setMeetingLink] = useState("");
-  const [coverImageUrl, setCoverImageUrl] = useState("");
-  const [maxRegistrations, setMaxRegistrations] = useState("");
-  const [registrationMode, setRegistrationMode] = useState<"OPEN" | "SCHEDULED">("OPEN");
-  const [regOpensAt, setRegOpensAt] = useState("");
-  const [regClosesAt, setRegClosesAt] = useState("");
+  const [venueName, setVenueName] = useState("");
+  const [venueAddress, setVenueAddress] = useState("");
+
+  // Pricing & Capacity Fields
+  const [price, setPrice] = useState("0");
+  const [currency, setCurrency] = useState<CurrencyCode>("USD");
+  const [seatLimit, setSeatLimit] = useState("");
+  const [bannerUrl, setBannerUrl] = useState("");
+  const [isPublished, setIsPublished] = useState(true);
+
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -178,7 +187,6 @@ export default function EventsAdminPage() {
 
   const openCreateModal = () => {
     setEditingEvent(null);
-    setType("EVENT");
     setTitle("");
     setDescription("");
     const today = new Date().toISOString().split("T")[0] || "";
@@ -186,25 +194,32 @@ export default function EventsAdminPage() {
     setStartTimePart("10:00");
     setEndDatePart(today);
     setEndTimePart("12:00");
-    setLocation("");
+    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+
+    setLocationType("ONLINE");
     setMeetingLink("");
-    setCoverImageUrl("");
-    setMaxRegistrations("");
-    setRegistrationMode("OPEN");
-    setRegOpensAt("");
-    setRegClosesAt("");
+    setVenueName("");
+    setVenueAddress("");
+
+    setPrice("0");
+    setCurrency("USD");
+    setSeatLimit("");
+    setBannerUrl("");
+    setIsPublished(true);
+
     setFormError(null);
     setIsModalOpen(true);
   };
 
   const openEditModal = (evt: EventItem) => {
     setEditingEvent(evt);
-    setType(evt.type);
     setTitle(evt.title);
     setDescription(evt.description);
 
-    const sParts = toLocalDatetimeInput(evt.startAt).split("T");
-    const eParts = toLocalDatetimeInput(evt.endAt).split("T");
+    const startIso = evt.startDateTime || evt.startAt;
+    const endIso = evt.endDateTime || evt.endAt;
+    const sParts = toLocalDatetimeInput(startIso).split("T");
+    const eParts = toLocalDatetimeInput(endIso).split("T");
     const sDate = sParts[0] || "";
     const sTime = sParts[1] || "10:00";
     const eDate = eParts[0] || sDate;
@@ -213,14 +228,19 @@ export default function EventsAdminPage() {
     setStartTimePart(sTime);
     setEndDatePart(eDate);
     setEndTimePart(eTime);
+    setTimezone(evt.timezone || "UTC");
 
-    setLocation(evt.location || "");
+    setLocationType(evt.locationType || "ONLINE");
     setMeetingLink(evt.meetingLink || "");
-    setCoverImageUrl(evt.coverImageUrl || "");
-    setMaxRegistrations(evt.maxRegistrations ? String(evt.maxRegistrations) : "");
-    setRegistrationMode(evt.status === "SCHEDULED" || evt.registrationOpensAt ? "SCHEDULED" : "OPEN");
-    setRegOpensAt(toLocalDatetimeInput(evt.registrationOpensAt));
-    setRegClosesAt(toLocalDatetimeInput(evt.registrationClosesAt));
+    setVenueName(evt.venueName || "");
+    setVenueAddress(evt.venueAddress || evt.location || "");
+
+    setPrice(String(evt.price ?? 0));
+    setCurrency(evt.currency || "USD");
+    setSeatLimit(evt.seatLimit ? String(evt.seatLimit) : (evt.maxRegistrations ? String(evt.maxRegistrations) : ""));
+    setBannerUrl(evt.bannerUrl || evt.coverImageUrl || "");
+    setIsPublished(evt.isPublished ?? true);
+
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -244,8 +264,8 @@ export default function EventsAdminPage() {
 
       if (res.ok) {
         const data = await res.json();
-        setCoverImageUrl(data.coverImageUrl);
-        toastSuccess("Cover image uploaded");
+        setBannerUrl(data.coverImageUrl);
+        toastSuccess("Cover banner uploaded");
       } else {
         const err = await res.json().catch(() => null);
         setFormError(err?.message || "Image upload failed");
@@ -254,6 +274,36 @@ export default function EventsAdminPage() {
       setFormError("Network error while uploading image");
     } finally {
       setIsUploadingImage(false);
+    }
+  };
+
+  const handleCopyShareLink = async (evt: EventItem) => {
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin.includes("3002")
+          ? window.location.origin.replace("3002", "3000")
+          : window.location.origin
+        : "https://whatboutme.com";
+    const shareUrl = `${origin}/events/${evt.slug || evt.id}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: evt.title,
+          text: `Register for ${evt.title} on WhatBoutMe!`,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toastSuccess("Shareable event link copied to clipboard!");
+    } catch {
+      toastError("Could not copy link to clipboard");
     }
   };
 
@@ -274,42 +324,56 @@ export default function EventsAdminPage() {
       return;
     }
 
-    const startAt = new Date(`${startDatePart}T${startTimePart}:00`).toISOString();
-    const endAt = new Date(`${endDatePart}T${endTimePart}:00`).toISOString();
+    const startDateTime = new Date(`${startDatePart}T${startTimePart}:00`).toISOString();
+    const endDateTime = new Date(`${endDatePart}T${endTimePart}:00`).toISOString();
 
-    if (new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+    if (new Date(startDateTime).getTime() >= new Date(endDateTime).getTime()) {
       setFormError("End date & time must be strictly after start date & time");
       return;
     }
 
-    if (registrationMode === "SCHEDULED" && !regOpensAt) {
-      setFormError("Please select when registration opens");
+    // Strict location type validation
+    if (locationType === "ONLINE" && !meetingLink.trim()) {
+      setFormError("Online events require a Virtual Meeting Link (Zoom / Google Meet URL)");
+      return;
+    }
+
+    if (locationType === "PHYSICAL") {
+      if (!venueName.trim()) {
+        setFormError("Physical events require a Venue / Hall Name");
+        return;
+      }
+      if (!venueAddress.trim()) {
+        setFormError("Physical events require a Venue Address");
+        return;
+      }
+    }
+
+    const numPrice = Number(price);
+    if (isNaN(numPrice) || numPrice < 0) {
+      setFormError("Price must be a valid number >= 0");
       return;
     }
 
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem("token");
-      const payload: any = {
-        type,
+      const payload: CreateEventPayload = {
         title: title.trim(),
         description: description.trim(),
-        startAt,
-        endAt,
-        location: location.trim() || undefined,
-        meetingLink: meetingLink.trim() || undefined,
-        coverImageUrl: coverImageUrl.trim() || undefined,
-        maxRegistrations: maxRegistrations ? Number(maxRegistrations) : undefined,
-        registrationOpensAt:
-          registrationMode === "SCHEDULED" && regOpensAt
-            ? new Date(regOpensAt).toISOString()
-            : undefined,
-        registrationClosesAt: regClosesAt ? new Date(regClosesAt).toISOString() : undefined,
+        startDateTime,
+        endDateTime,
+        timezone,
+        locationType,
+        meetingLink: locationType === "ONLINE" ? meetingLink.trim() : undefined,
+        venueName: locationType === "PHYSICAL" ? venueName.trim() : undefined,
+        venueAddress: locationType === "PHYSICAL" ? venueAddress.trim() : undefined,
+        price: numPrice,
+        currency,
+        seatLimit: seatLimit.trim() ? Number(seatLimit) : null,
+        bannerUrl: bannerUrl.trim() || undefined,
+        isPublished,
       };
-
-      if (!editingEvent) {
-        payload.status = registrationMode === "OPEN" ? "REGISTRATION_OPEN" : "SCHEDULED";
-      }
 
       const url = editingEvent
         ? `${API_URL}/admin/events/${editingEvent.id}`
@@ -340,22 +404,23 @@ export default function EventsAdminPage() {
     }
   };
 
-  const handleStatusChange = async (eventId: string, newStatus: string) => {
+  const handleTogglePublish = async (evt: EventItem) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/admin/events/${eventId}/status`, {
-        method: "POST",
+      const newStatus = !evt.isPublished;
+      const res = await fetch(`${API_URL}/admin/events/${evt.id}`, {
+        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ isPublished: newStatus }),
       });
 
       if (res.ok) {
-        toastSuccess("Status updated");
+        toastSuccess(newStatus ? "Event published" : "Event unpublished");
         setEvents((prev) =>
-          prev.map((e) => (e.id === eventId ? { ...e, status: newStatus as any } : e)),
+          prev.map((e) => (e.id === evt.id ? { ...e, isPublished: newStatus } : e)),
         );
       } else {
         toastError("Failed to update status");
@@ -390,36 +455,35 @@ export default function EventsAdminPage() {
 
   // KPIs
   const totalEvents = events.length;
-  const activeRegs = events.filter((e) => e.status === "REGISTRATION_OPEN").length;
-  const totalAttendees = events.reduce((acc, e) => acc + (e.registrationCount || 0), 0);
-  const upcomingCount = events.filter(
-    (e) => new Date(e.endAt).getTime() >= Date.now() && e.status !== "CANCELLED",
-  ).length;
+  const publishedCount = events.filter((e) => e.isPublished).length;
+  const totalSeatsBooked = events.reduce((acc, e) => acc + (e.seatsBooked || e.registrationCount || 0), 0);
+  const onlineCount = events.filter((e) => e.locationType === "ONLINE").length;
 
   // Filtered List
   const filteredEvents = useMemo(() => {
     return events.filter((e) => {
-      if (typeFilter !== "ALL" && e.type !== typeFilter) return false;
-      if (statusFilter !== "ALL" && e.status !== statusFilter) return false;
+      if (locationTypeFilter !== "ALL" && e.locationType !== locationTypeFilter) return false;
+      if (publishFilter === "PUBLISHED" && !e.isPublished) return false;
+      if (publishFilter === "DRAFT" && e.isPublished) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         const matchTitle = e.title.toLowerCase().includes(q);
         const matchDesc = e.description?.toLowerCase().includes(q);
-        const matchLoc = e.location?.toLowerCase().includes(q);
-        if (!matchTitle && !matchDesc && !matchLoc) return false;
+        const matchVenue = e.venueName?.toLowerCase().includes(q) || e.venueAddress?.toLowerCase().includes(q);
+        if (!matchTitle && !matchDesc && !matchVenue) return false;
       }
       return true;
     });
-  }, [events, typeFilter, statusFilter, search]);
+  }, [events, locationTypeFilter, publishFilter, search]);
 
   return (
     <div className={styles.container}>
       {/* Header */}
       <div className={styles.header}>
         <div>
-          <h1 className={styles.headerTitle}>Events & Webinars</h1>
+          <h1 className={styles.headerTitle}>Events & Ticketing</h1>
           <p className={styles.headerSubtitle}>
-            Manage community workshops, masterclasses, and live webinars
+            Manage community workshops, masterclasses, and live webinars with dynamic multi-currency pricing
           </p>
         </div>
         <button type="button" className={styles.primaryBtn} onClick={openCreateModal}>
@@ -431,24 +495,24 @@ export default function EventsAdminPage() {
       {/* KPI Cards */}
       <div className={styles.kpiGrid}>
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Total Programs</span>
+          <span className={styles.kpiLabel}>Total Events</span>
           <span className={styles.kpiValue}>{totalEvents}</span>
-          <span className={styles.kpiSub}>Events & webinars created</span>
+          <span className={styles.kpiSub}>Workshops & sessions created</span>
         </div>
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Open For Registration</span>
-          <span className={styles.kpiValue}>{activeRegs}</span>
-          <span className={styles.kpiSub}>Accepting learner registrations</span>
+          <span className={styles.kpiLabel}>Published & Live</span>
+          <span className={styles.kpiValue}>{publishedCount}</span>
+          <span className={styles.kpiSub}>Accepting learner tickets</span>
         </div>
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Registered Attendees</span>
-          <span className={styles.kpiValue}>{totalAttendees}</span>
+          <span className={styles.kpiLabel}>Confirmed Bookings</span>
+          <span className={styles.kpiValue}>{totalSeatsBooked}</span>
           <span className={styles.kpiSub}>Total confirmed attendees</span>
         </div>
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Upcoming</span>
-          <span className={styles.kpiValue}>{upcomingCount}</span>
-          <span className={styles.kpiSub}>Future sessions scheduled</span>
+          <span className={styles.kpiLabel}>Online Sessions</span>
+          <span className={styles.kpiValue}>{onlineCount}</span>
+          <span className={styles.kpiSub}>Virtual meetings with gated link</span>
         </div>
       </div>
 
@@ -458,39 +522,36 @@ export default function EventsAdminPage() {
           <div className={styles.segmented}>
             <button
               type="button"
-              className={`${styles.segmentBtn} ${typeFilter === "ALL" ? styles.segmentBtnActive : ""}`}
-              onClick={() => setTypeFilter("ALL")}
+              className={`${styles.segmentBtn} ${locationTypeFilter === "ALL" ? styles.segmentBtnActive : ""}`}
+              onClick={() => setLocationTypeFilter("ALL")}
             >
-              All
+              All Formats
             </button>
             <button
               type="button"
-              className={`${styles.segmentBtn} ${typeFilter === "EVENT" ? styles.segmentBtnActive : ""}`}
-              onClick={() => setTypeFilter("EVENT")}
+              className={`${styles.segmentBtn} ${locationTypeFilter === "ONLINE" ? styles.segmentBtnActive : ""}`}
+              onClick={() => setLocationTypeFilter("ONLINE")}
             >
-              Events
+              Online
             </button>
             <button
               type="button"
-              className={`${styles.segmentBtn} ${typeFilter === "WEBINAR" ? styles.segmentBtnActive : ""}`}
-              onClick={() => setTypeFilter("WEBINAR")}
+              className={`${styles.segmentBtn} ${locationTypeFilter === "PHYSICAL" ? styles.segmentBtnActive : ""}`}
+              onClick={() => setLocationTypeFilter("PHYSICAL")}
             >
-              Webinars
+              Physical / In-Person
             </button>
           </div>
 
           <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            value={publishFilter}
+            onChange={(e) => setPublishFilter(e.target.value)}
             className={styles.select}
             style={{ width: "auto" }}
           >
-            <option value="ALL">All Statuses</option>
-            <option value="REGISTRATION_OPEN">Registration Open</option>
-            <option value="SCHEDULED">Scheduled</option>
-            <option value="ONGOING">Ongoing</option>
-            <option value="ENDED">Ended</option>
-            <option value="CANCELLED">Cancelled</option>
+            <option value="ALL">All Visibility</option>
+            <option value="PUBLISHED">Published Only</option>
+            <option value="DRAFT">Drafts / Unpublished</option>
           </select>
         </div>
 
@@ -500,7 +561,7 @@ export default function EventsAdminPage() {
           </span>
           <input
             type="search"
-            placeholder="Search by title, location..."
+            placeholder="Search by title, venue..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className={styles.searchInput}
@@ -517,7 +578,7 @@ export default function EventsAdminPage() {
         <div className={styles.emptyState}>
           <span className={styles.emptyTitle}>No events found</span>
           <p className={styles.emptySub}>
-            {search || typeFilter !== "ALL" || statusFilter !== "ALL"
+            {search || locationTypeFilter !== "ALL" || publishFilter !== "ALL"
               ? "Try adjusting your filters or search terms."
               : "Get started by creating your first community event or webinar."}
           </p>
@@ -529,15 +590,22 @@ export default function EventsAdminPage() {
       ) : (
         <div className={styles.eventsGrid}>
           {filteredEvents.map((evt) => {
-            const capacityRatio = evt.maxRegistrations
-              ? Math.min(100, Math.round((evt.registrationCount / evt.maxRegistrations) * 100))
-              : 0;
+            const startIso = evt.startDateTime || evt.startAt || "";
+            const endIso = evt.endDateTime || evt.endAt || "";
+            const booked = evt.seatsBooked ?? evt.registrationCount ?? 0;
+            const limit = evt.seatLimit ?? evt.maxRegistrations;
+            const capacityRatio = limit ? Math.min(100, Math.round((booked / limit) * 100)) : 0;
+            const isOnline = evt.locationType === "ONLINE";
 
             return (
               <div key={evt.id} className={styles.eventCard}>
                 <div className={styles.coverWrap}>
-                  {evt.coverImageUrl ? (
-                    <img src={evt.coverImageUrl} alt={evt.title} className={styles.coverImg} />
+                  {evt.bannerUrl || evt.coverImageUrl ? (
+                    <img
+                      src={evt.bannerUrl || evt.coverImageUrl || ""}
+                      alt={evt.title}
+                      className={styles.coverImg}
+                    />
                   ) : (
                     <div className={styles.coverPlaceholder}>
                       <span>{evt.title}</span>
@@ -545,57 +613,59 @@ export default function EventsAdminPage() {
                   )}
 
                   <div className={styles.cardHeaderOverlay}>
-                    <span className={styles.typeBadge}>{evt.type}</span>
+                    {isOnline ? (
+                      <span className={styles.badgeOnline}>🟢 Online</span>
+                    ) : (
+                      <span className={styles.badgePhysical}>📍 In-Person</span>
+                    )}
+
                     <StatusBadge
-                      status={evt.status.replace(/_/g, " ")}
-                      tone={statusToneMap[evt.status] || "neutral"}
+                      status={evt.isPublished ? "PUBLISHED" : "DRAFT"}
+                      tone={evt.isPublished ? "active" : "neutral"}
                     />
                   </div>
                 </div>
 
                 <div className={styles.cardBody}>
-                  <h3 className={styles.cardTitle}>{evt.title}</h3>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                    <h3 className={styles.cardTitle}>{evt.title}</h3>
+                    <span className={styles.priceBadge}>{formatPrice(evt.price, evt.currency)}</span>
+                  </div>
+
                   {evt.description && <p className={styles.cardDesc}>{evt.description}</p>}
 
                   <div className={styles.metaList}>
                     <div className={styles.metaItem}>
                       <Icons.Calendar />
-                      <span>{formatSchedule(evt.startAt, evt.endAt)}</span>
+                      <span>{formatSchedule(startIso, endIso)}</span>
                     </div>
 
-                    {evt.location && (
+                    {isOnline ? (
+                      <div className={styles.metaItem}>
+                        <Icons.Video />
+                        <span style={{ color: "#2563eb", fontWeight: 600 }}>
+                          Meeting link private (emailed after payment)
+                        </span>
+                      </div>
+                    ) : (
                       <div className={styles.metaItem}>
                         <Icons.Pin />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {evt.location}
+                          {evt.venueName ? `${evt.venueName} · ` : ""}
+                          {evt.venueAddress || evt.location || "Physical Hall"}
                         </span>
-                      </div>
-                    )}
-
-                    {evt.meetingLink && (
-                      <div className={styles.metaItem}>
-                        <Icons.Video />
-                        <a
-                          href={evt.meetingLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: "#3b82f6", textDecoration: "none" }}
-                        >
-                          Virtual Meeting Room
-                        </a>
                       </div>
                     )}
 
                     <div className={styles.metaItem} style={{ marginTop: "0.25rem" }}>
                       <Icons.Users />
                       <span style={{ fontWeight: 600 }}>
-                        {evt.registrationCount} attendee{evt.registrationCount === 1 ? "" : "s"}
-                        {evt.maxRegistrations ? ` / ${evt.maxRegistrations} max` : " (no limit)"}
+                        {booked} booked {limit ? `/ ${limit} seats` : "(unlimited)"}
                       </span>
                     </div>
                   </div>
 
-                  {evt.maxRegistrations ? (
+                  {limit ? (
                     <div className={styles.capacityBarWrap}>
                       <div
                         className={styles.capacityBarFill}
@@ -613,23 +683,19 @@ export default function EventsAdminPage() {
                     href={`/events/${evt.id}/registrations`}
                     className={styles.viewRegsBtn}
                   >
-                    <span>Registrations ({evt.registrationCount})</span>
+                    <span>Registrations ({booked})</span>
                   </Link>
 
                   <div className={styles.cardActions}>
-                    <select
-                      value={evt.status}
-                      onChange={(e) => handleStatusChange(evt.id, e.target.value)}
-                      className={styles.select}
-                      style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem", width: "auto" }}
-                      aria-label="Change status"
+                    <button
+                      type="button"
+                      className={styles.shareBtn}
+                      onClick={() => handleCopyShareLink(evt)}
+                      title="Copy Share Link to Clipboard"
                     >
-                      <option value="REGISTRATION_OPEN">Registration Open</option>
-                      <option value="SCHEDULED">Scheduled</option>
-                      <option value="ONGOING">Ongoing</option>
-                      <option value="ENDED">Ended</option>
-                      <option value="CANCELLED">Cancelled</option>
-                    </select>
+                      <Icons.Share />
+                      <span>Share</span>
+                    </button>
 
                     <button
                       type="button"
@@ -663,38 +729,13 @@ export default function EventsAdminPage() {
         <Modal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          title={editingEvent ? "Edit Event / Webinar" : "Create Event / Webinar"}
-          maxWidth="700px"
+          title={editingEvent ? "Edit Event / Workshop" : "Create Event / Workshop"}
+          maxWidth="720px"
         >
           <form onSubmit={handleSubmit} className={styles.formGrid}>
             {formError && <div className={styles.errorBanner}>{formError}</div>}
 
-            <div className={styles.formRow}>
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Program Type *</label>
-                <select
-                  value={type}
-                  onChange={(e) => setType(e.target.value as "EVENT" | "WEBINAR")}
-                  className={styles.select}
-                >
-                  <option value="EVENT">Community Event (In-Person or Hybrid)</option>
-                  <option value="WEBINAR">Live Webinar (Virtual)</option>
-                </select>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Max Registrations Capacity</label>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Leave empty for unlimited"
-                  value={maxRegistrations}
-                  onChange={(e) => setMaxRegistrations(e.target.value)}
-                  className={styles.input}
-                />
-              </div>
-            </div>
-
+            {/* Event Name */}
             <div className={styles.formGroup}>
               <label className={styles.label}>Event Title *</label>
               <input
@@ -707,6 +748,7 @@ export default function EventsAdminPage() {
               />
             </div>
 
+            {/* Description */}
             <div className={styles.formGroup}>
               <label className={styles.label}>Description *</label>
               <textarea
@@ -717,6 +759,70 @@ export default function EventsAdminPage() {
                 required
               />
             </div>
+
+            {/* Format Toggle (Online vs Physical) */}
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Session Format *</label>
+              <div className={styles.segmented} style={{ width: "fit-content" }}>
+                <button
+                  type="button"
+                  className={`${styles.segmentBtn} ${locationType === "ONLINE" ? styles.segmentBtnActive : ""}`}
+                  onClick={() => setLocationType("ONLINE")}
+                >
+                  🟢 Online Session (Zoom / Meet)
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.segmentBtn} ${locationType === "PHYSICAL" ? styles.segmentBtnActive : ""}`}
+                  onClick={() => setLocationType("PHYSICAL")}
+                >
+                  📍 In-Person Physical Venue
+                </button>
+              </div>
+            </div>
+
+            {/* Conditional Location Inputs */}
+            {locationType === "ONLINE" ? (
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Virtual Meeting Link (Zoom / Google Meet URL) *</label>
+                <input
+                  type="url"
+                  placeholder="https://zoom.us/j/1234567890"
+                  value={meetingLink}
+                  onChange={(e) => setMeetingLink(e.target.value)}
+                  className={styles.input}
+                  required={locationType === "ONLINE"}
+                />
+                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                  🔒 Kept secure and private from public APIs. Automatically sent via email upon verified payment.
+                </span>
+              </div>
+            ) : (
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Venue / Hall Name *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Grand Ballroom, Taj West End"
+                    value={venueName}
+                    onChange={(e) => setVenueName(e.target.value)}
+                    className={styles.input}
+                    required={locationType === "PHYSICAL"}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Physical Address / Map Location *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Race Course Rd, High Grounds, Bengaluru"
+                    value={venueAddress}
+                    onChange={(e) => setVenueAddress(e.target.value)}
+                    className={styles.input}
+                    required={locationType === "PHYSICAL"}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Schedule Section */}
             <div className={styles.formRow}>
@@ -765,83 +871,79 @@ export default function EventsAdminPage() {
               </div>
             </div>
 
-            {/* Location & Meeting Link */}
+            {/* Dynamic Pricing & Multi-Currency Selector */}
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
-                <label className={styles.label}>Physical Location (Venue)</label>
+                <label className={styles.label}>Ticket Price *</label>
                 <input
-                  type="text"
-                  placeholder="e.g. Dubai Knowledge Park, Building 2, Auditorium"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00 for free RSVP"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
                   className={styles.input}
+                  required
                 />
+                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                  Set to 0 for a free registration session.
+                </span>
               </div>
+
               <div className={styles.formGroup}>
-                <label className={styles.label}>Virtual Meeting Link (Zoom / Meet)</label>
-                <input
-                  type="url"
-                  placeholder="https://zoom.us/j/..."
-                  value={meetingLink}
-                  onChange={(e) => setMeetingLink(e.target.value)}
-                  className={styles.input}
-                />
+                <label className={styles.label}>Currency Selector *</label>
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                  className={styles.select}
+                  required
+                >
+                  <option value="USD">USD — US Dollar ($)</option>
+                  <option value="AED">AED — UAE Dirham (AED)</option>
+                  <option value="INR">INR — Indian Rupee (₹)</option>
+                </select>
+                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                  Currency passed to payment order and revenue reporting.
+                </span>
               </div>
             </div>
 
-            {/* Registration Settings */}
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Registration Mode</label>
-              <div className={styles.segmented} style={{ width: "fit-content" }}>
-                <button
-                  type="button"
-                  className={`${styles.segmentBtn} ${registrationMode === "OPEN" ? styles.segmentBtnActive : ""}`}
-                  onClick={() => setRegistrationMode("OPEN")}
-                >
-                  Open Immediately
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.segmentBtn} ${registrationMode === "SCHEDULED" ? styles.segmentBtnActive : ""}`}
-                  onClick={() => setRegistrationMode("SCHEDULED")}
-                >
-                  Schedule Opening Date
-                </button>
-              </div>
-            </div>
-
-            {registrationMode === "SCHEDULED" && (
+            {/* Capacity & Publication */}
+            <div className={styles.formRow}>
               <div className={styles.formGroup}>
-                <label className={styles.label}>Registration Opens At *</label>
+                <label className={styles.label}>Seat Capacity Limit</label>
                 <input
-                  type="datetime-local"
-                  value={regOpensAt}
-                  onChange={(e) => setRegOpensAt(e.target.value)}
+                  type="number"
+                  min="1"
+                  placeholder="Leave empty for unlimited"
+                  value={seatLimit}
+                  onChange={(e) => setSeatLimit(e.target.value)}
                   className={styles.input}
-                  required={registrationMode === "SCHEDULED"}
                 />
               </div>
-            )}
 
-            <div className={styles.formGroup}>
-              <label className={styles.label}>Registration Closes At (Optional Cutoff)</label>
-              <input
-                type="datetime-local"
-                value={regClosesAt}
-                onChange={(e) => setRegClosesAt(e.target.value)}
-                className={styles.input}
-              />
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Publication Status</label>
+                <select
+                  value={isPublished ? "PUBLISHED" : "DRAFT"}
+                  onChange={(e) => setIsPublished(e.target.value === "PUBLISHED")}
+                  className={styles.select}
+                >
+                  <option value="PUBLISHED">Published (Visible to Learners)</option>
+                  <option value="DRAFT">Draft (Hidden from Public)</option>
+                </select>
+              </div>
             </div>
 
-            {/* Cover Image Upload */}
+            {/* Banner Upload */}
             <div className={styles.formGroup}>
-              <label className={styles.label}>Cover Image</label>
-              {coverImageUrl ? (
+              <label className={styles.label}>Event Cover Banner</label>
+              {bannerUrl ? (
                 <div className={styles.previewWrap}>
-                  <img src={coverImageUrl} alt="Preview" className={styles.previewImg} />
+                  <img src={bannerUrl} alt="Preview" className={styles.previewImg} />
                   <button
                     type="button"
-                    onClick={() => setCoverImageUrl("")}
+                    onClick={() => setBannerUrl("")}
                     className={styles.removeImgBtn}
                   >
                     Remove
@@ -854,7 +956,7 @@ export default function EventsAdminPage() {
                 >
                   <Icons.Plus />
                   <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    {isUploadingImage ? "Uploading to Cloudinary..." : "Click to upload cover banner"}
+                    {isUploadingImage ? "Uploading to Cloudinary..." : "Click to upload banner image"}
                   </span>
                   <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
                     PNG, JPG, WEBP up to 10MB

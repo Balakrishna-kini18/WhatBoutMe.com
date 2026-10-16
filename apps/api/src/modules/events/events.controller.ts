@@ -6,31 +6,18 @@ import {
   Post,
   Query,
   Req,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { ListEventsQueryDto } from './dto/list-events-query.dto.js';
-import { RegisterEventDto } from './dto/event.dto.js';
+import {
+  CheckoutEventDto,
+  VerifyEventPaymentDto,
+} from './dto/event.dto.js';
 import { EventsService } from './events.service.js';
 
 @Controller('events')
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
-
-  @Public()
-  @Get('categories')
-  listCategories() {
-    return this.eventsService.listCategories();
-  }
-
-  @Get('my/registrations')
-  listMyRegistrations(@Req() req: any) {
-    const userId = req.user?.id || req.user?.userId || req.user?.sub;
-    if (!userId) {
-      throw new UnauthorizedException('Authentication required');
-    }
-    return this.eventsService.listMyRegistrations(userId);
-  }
 
   @Public()
   @Get()
@@ -40,20 +27,51 @@ export class EventsController {
   }
 
   @Public()
-  @Get(':id')
-  getEvent(@Param('id') id: string, @Req() req: any) {
+  @Get(':idOrSlug')
+  getEvent(@Param('idOrSlug') idOrSlug: string, @Req() req: any) {
     const userId = req.user?.id || req.user?.userId || req.user?.sub;
-    return this.eventsService.getForPublic(id, userId);
+    return this.eventsService.getForPublic(idOrSlug, userId);
   }
 
   @Public()
-  @Post(':id/register')
-  register(
-    @Param('id') id: string,
+  @Post(':idOrSlug/checkout')
+  checkout(
+    @Param('idOrSlug') idOrSlug: string,
     @Req() req: any,
-    @Body() dto: RegisterEventDto,
+    @Body() dto: CheckoutEventDto,
   ) {
     const userId = req.user?.id || req.user?.userId || req.user?.sub || null;
-    return this.eventsService.register(id, userId, dto);
+    return this.eventsService.checkout(idOrSlug, dto, userId);
+  }
+
+  // Alias for legacy register buttons
+  @Public()
+  @Post(':idOrSlug/register')
+  register(
+    @Param('idOrSlug') idOrSlug: string,
+    @Req() req: any,
+    @Body() dto: CheckoutEventDto,
+  ) {
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || null;
+    return this.eventsService.checkout(idOrSlug, dto, userId);
+  }
+
+  @Public()
+  @Post('verify-payment')
+  verifyPayment(@Body() dto: VerifyEventPaymentDto) {
+    return this.eventsService.verifyPayment(dto);
+  }
+
+  // Route alias allowing POST /events/:id/verify-payment
+  @Public()
+  @Post(':id/verify-payment')
+  verifyPaymentForEvent(
+    @Param('id') id: string,
+    @Body() dto: VerifyEventPaymentDto,
+  ) {
+    return this.eventsService.verifyPayment({
+      ...dto,
+      registrationId: dto.registrationId || id,
+    });
   }
 }

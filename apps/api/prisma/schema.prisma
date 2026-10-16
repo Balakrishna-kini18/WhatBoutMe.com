@@ -266,6 +266,11 @@ model User {
   twoFactorEnabled     Boolean   @default(false)
   twoFactorBackupCodes String[]  @default([])
 
+  // Reusable Digital Signature (Requirement: Reusable Digital Signature in Learner Profile)
+  savedSignature          String?
+  savedSignatureType      String?   // "DRAWN" or "UPLOADED"
+  savedSignatureUpdatedAt DateTime?
+
   // Relations
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
@@ -1385,15 +1390,18 @@ model SignedAgreement {
   versionId String
   version   AgreementTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
 
-  templateVersion String // Immutable snapshot of version string at signing (e.g. "v1.0")
-  consentGiven    Boolean         @default(false) // Explicit read & consent tick
-  typedName       String? // Typed full name signature
-  drawnSignature  String? // Drawn signature data URL or storage pointer
-  signerIp        String? // Signer IP address
-  userAgent       String? // Signer User-Agent
-  signedPdfUrl    String? // Provider-neutral storage reference/URL to generated signed PDF
-  status          AgreementStatus @default(PENDING)
-  signedAt        DateTime?
+  templateVersion  String // Immutable snapshot of version string at signing (e.g. "v1.0")
+  consentVersion   String? // Version of consent statement accepted
+  consentGiven     Boolean         @default(false) // Explicit read & consent tick
+  consentTimestamp DateTime? // Timestamp when explicit consent was recorded
+  typedName        String? // Typed full name signature
+  drawnSignature   String? // Drawn signature data URL or uploaded signature data/storage pointer
+  signatureType    String?         @default("DRAWN") // "DRAWN" or "UPLOADED"
+  signerIp         String? // Signer IP address
+  userAgent        String? // Signer User-Agent
+  signedPdfUrl     String? // Provider-neutral storage reference/URL to generated signed PDF
+  status           AgreementStatus @default(PENDING)
+  signedAt         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

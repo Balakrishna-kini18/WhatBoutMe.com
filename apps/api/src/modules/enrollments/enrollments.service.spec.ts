@@ -294,6 +294,24 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('allows transition PENDING_PAYMENT -> ACTIVE in agreement-first flow when signedAgreement is SIGNED', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        status: EnrolmentStatus.PENDING_PAYMENT,
+        signedAgreement: { status: 'SIGNED' },
+      });
+      prismaMock.enrolment.update.mockResolvedValue({
+        id: 'enrol-1',
+        status: EnrolmentStatus.ACTIVE,
+      });
+
+      const res: any = await service.transitionStatus('enrol-1', {
+        targetStatus: EnrolmentStatus.ACTIVE,
+      });
+
+      expect(res.status).toBe(EnrolmentStatus.ACTIVE);
+    });
+
     it('rejects transition PENDING_AGREEMENT -> ACTIVE when signedAgreement is null', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
         id: 'enrol-1',

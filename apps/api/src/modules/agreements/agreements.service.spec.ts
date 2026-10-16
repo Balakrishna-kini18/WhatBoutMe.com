@@ -97,6 +97,10 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       auditLog: {
         create: vi.fn(),
       },
+      user: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+      },
 
       $transaction: vi.fn().mockImplementation(async (callback) => {
         if (typeof callback === 'function') {
@@ -167,6 +171,97 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
           title: 'Agreement',
         }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1B. UPDATE AGREEMENT TEMPLATE & SCOPE IMMUTABILITY
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('1B. Update Agreement Template & Scope Immutability', () => {
+    it('allows updating title and description when signatures exist', async () => {
+      prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
+      prismaMock.signedAgreement.count.mockResolvedValue(5);
+      prismaMock.agreementTemplate.update.mockResolvedValue({
+        ...mockTemplate,
+        title: 'Updated Title',
+        description: 'Updated Description',
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-upd-1' });
+
+      const result = await service.updateTemplate(
+        mockTemplate.id,
+        { title: 'Updated Title', description: 'Updated Description' },
+        'admin-user-uuid',
+        '127.0.0.1',
+      );
+
+      expect(result.title).toBe('Updated Title');
+      expect(prismaMock.agreementTemplate.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockTemplate.id },
+          data: expect.objectContaining({
+            title: 'Updated Title',
+            description: 'Updated Description',
+          }),
+        }),
+      );
+    });
+
+    it('rejects attempt to change programId when signatures exist with 409 Conflict', async () => {
+      prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
+      prismaMock.signedAgreement.count.mockResolvedValue(3);
+
+      await expect(
+        service.updateTemplate(
+          mockTemplate.id,
+          { programId: 'new-program-uuid' },
+          'admin-user-uuid',
+          '127.0.0.1',
+        ),
+      ).rejects.toThrow(
+        new ConflictException(
+          'Cannot reassign program scope for a template with existing signed learner records',
+        ),
+      );
+    });
+
+    it('rejects attempt to toggle shared-default scope when signatures exist with 409 Conflict', async () => {
+      prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
+      prismaMock.signedAgreement.count.mockResolvedValue(2);
+
+      await expect(
+        service.updateTemplate(
+          mockTemplate.id,
+          { title: 'Standard Platform Shared Agreement' },
+          'admin-user-uuid',
+          '127.0.0.1',
+        ),
+      ).rejects.toThrow(
+        new ConflictException(
+          'Cannot reassign program scope for a template with existing signed learner records',
+        ),
+      );
+    });
+
+    it('allows changing programId when no signatures exist', async () => {
+      const newProgram = { id: 'prog-2-uuid', title: 'Course 2', slug: 'course-2' };
+      prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
+      prismaMock.signedAgreement.count.mockResolvedValue(0);
+      prismaMock.program.findUnique.mockResolvedValue(newProgram);
+      prismaMock.agreementTemplate.update.mockResolvedValue({
+        ...mockTemplate,
+        programId: newProgram.id,
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-upd-2' });
+
+      const result = await service.updateTemplate(
+        mockTemplate.id,
+        { programId: newProgram.id },
+        'admin-user-uuid',
+        '127.0.0.1',
+      );
+
+      expect(result.programId).toBe(newProgram.id);
     });
   });
 
@@ -671,19 +766,39 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       ).rejects.toThrow(/not authorized/i);
     });
 
-    it('rejects signing when enrolment status is PENDING_PAYMENT with BadRequestException', async () => {
+    it('allows signing when enrolment status is PENDING_PAYMENT in Agreement-First flow, keeping enrolment PENDING_PAYMENT', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
         ...mockEnrolment,
         status: EnrolmentStatus.PENDING_PAYMENT,
       });
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+      prismaMock.signedAgreement.create.mockResolvedValue({
+        id: 'signed-prepay-uuid',
+        enrolmentId: mockEnrolment.id,
+        userId: learnerUser.id,
+        programId: mockProgram.id,
+        templateId: mockTemplate.id,
+        versionId: mockVersion2.id,
+        templateVersion: mockVersion2.version,
+        consentGiven: true,
+        typedName: validSignDto.typedName,
+        drawnSignature: validSignDto.drawnSignature,
+        status: AgreementStatus.SIGNED,
+        signedAt: new Date(),
+        version: mockVersion2,
+        template: mockTemplate,
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-prepay' });
 
-      await expect(
-        service.signAgreement(validSignDto, learnerUser),
-      ).rejects.toThrow(BadRequestException);
+      const res = await service.signAgreement(validSignDto, learnerUser);
 
-      await expect(
-        service.signAgreement(validSignDto, learnerUser),
-      ).rejects.toThrow(/payment must be completed first/i);
+      expect(res.status).toBe(AgreementStatus.SIGNED);
+      expect(res.enrolmentStatus).toBe(EnrolmentStatus.PENDING_PAYMENT);
+      expect(res.nextStep).toBe('CHECKOUT');
+      expect(res.checkoutUrl).toContain(mockEnrolment.id);
     });
 
     it('rejects signing when enrolment status is REVOKED with BadRequestException', async () => {
@@ -1009,6 +1124,309 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
 
       const res = await service.getSignedAgreementForEnrolment('enrol-1', learnerUser);
       expect(res).toBeNull();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 12. REQUIREMENT 2: DIGITAL CONSENT, SIGNATURE UPLOAD & MANAGER SCOPE
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('12. Requirement 2: Digital Consent, Signature Image Upload & Scope Isolation', () => {
+    const learnerUser = { id: 'user-learner-uuid', role: Role.USER };
+    const foreignUser = { id: 'user-foreign-uuid', role: Role.USER };
+    const managerUser = { id: 'mgr-user-uuid', role: Role.MANAGER };
+    const adminUser = { id: 'admin-user-uuid', role: Role.ADMIN };
+
+    const mockEnrolment = {
+      id: 'enrol-req2-uuid',
+      userId: learnerUser.id,
+      programId: mockProgram.id,
+      batchId: 'batch-101',
+      status: EnrolmentStatus.PENDING_AGREEMENT,
+      program: mockProgram,
+      signedAgreement: null,
+    };
+
+    const validDrawnDto = {
+      enrolmentId: mockEnrolment.id,
+      consentGiven: true,
+      typedName: 'Jane Margaret Doe',
+      drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      signatureType: 'DRAWN' as const,
+      consentVersion: 'v2.0',
+      consentTimestamp: new Date('2026-10-15T12:00:00.000Z').toISOString(),
+    };
+
+    const validUploadedDto = {
+      enrolmentId: mockEnrolment.id,
+      consentGiven: true,
+      typedName: 'Jane Margaret Doe',
+      signatureImage: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
+      signatureType: 'UPLOADED' as const,
+      consentVersion: 'v2.0',
+      consentTimestamp: new Date('2026-10-15T12:00:00.000Z').toISOString(),
+    };
+
+    beforeEach(() => {
+      prismaMock.enrolment.findUnique.mockResolvedValue(mockEnrolment);
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+      prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-log-uuid' });
+      prismaMock.enrolment.update.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.ACTIVE,
+      });
+    });
+
+    it('rejects signing if consentGiven is false', async () => {
+      await expect(
+        service.signAgreement(
+          { ...validDrawnDto, consentGiven: false },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validDrawnDto, consentGiven: false },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/Explicit consent acknowledgement is required/i);
+    });
+
+    it('rejects signing if typedName is missing or less than 2 characters', async () => {
+      await expect(
+        service.signAgreement(
+          { ...validDrawnDto, typedName: ' ' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          { ...validDrawnDto, typedName: 'J' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/Typed full name is required and must be at least 2 characters/i);
+    });
+
+    it('rejects signing if neither drawn signature nor uploaded image is provided', async () => {
+      await expect(
+        service.signAgreement(
+          {
+            enrolmentId: mockEnrolment.id,
+            consentGiven: true,
+            typedName: 'Jane Doe',
+            drawnSignature: undefined,
+            signatureImage: undefined,
+          } as any,
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects uploaded signature with invalid MIME type (e.g. PDF or non-image)', async () => {
+      const invalidPdfSignature = 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXr...';
+      await expect(
+        service.signAgreement(
+          {
+            ...validUploadedDto,
+            signatureImage: invalidPdfSignature,
+          },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          {
+            ...validUploadedDto,
+            signatureImage: invalidPdfSignature,
+          },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/Only PNG, JPEG, and WebP images are permitted/i);
+    });
+
+    it('rejects uploaded signature image exceeding the 2MB size limit', async () => {
+      // 2MB is ~2.8M base64 chars. Create a mock base64 data URL > 2MB
+      const oversizedBase64 = 'A'.repeat(2.8 * 1024 * 1024);
+      const oversizedPayload = `data:image/png;base64,${oversizedBase64}`;
+
+      await expect(
+        service.signAgreement(
+          {
+            ...validUploadedDto,
+            signatureImage: oversizedPayload,
+          },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.signAgreement(
+          {
+            ...validUploadedDto,
+            signatureImage: oversizedPayload,
+          },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/exceeds the 2MB size limit/i);
+    });
+
+    it('successfully persists drawn signature with consentVersion, consentTimestamp, and signatureType', async () => {
+      prismaMock.signedAgreement.create.mockResolvedValue({
+        id: 'signed-drawn-1',
+        enrolmentId: mockEnrolment.id,
+        userId: learnerUser.id,
+        programId: mockProgram.id,
+        templateId: mockTemplate.id,
+        versionId: mockVersion2.id,
+        templateVersion: 'v2.0',
+        consentVersion: 'v2.0',
+        consentGiven: true,
+        consentTimestamp: new Date('2026-10-15T12:00:00.000Z'),
+        typedName: 'Jane Margaret Doe',
+        drawnSignature: validDrawnDto.drawnSignature,
+        signatureType: 'DRAWN',
+        signerIp: '192.168.1.100',
+        userAgent: 'Mozilla/5.0 Chrome',
+        status: AgreementStatus.SIGNED,
+        signedAt: new Date(),
+      });
+
+      const res = await service.signAgreement(
+        validDrawnDto,
+        learnerUser,
+        '192.168.1.100',
+        'Mozilla/5.0 Chrome',
+      );
+
+      expect(res.status).toBe(AgreementStatus.SIGNED);
+      expect(res.consentVersion).toBe('v2.0');
+      expect(res.signatureType).toBe('DRAWN');
+      expect(prismaMock.signedAgreement.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            consentVersion: 'v2.0',
+            signatureType: 'DRAWN',
+            drawnSignature: validDrawnDto.drawnSignature,
+            typedName: 'Jane Margaret Doe',
+          }),
+        }),
+      );
+      expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'AGREEMENT_SIGNED',
+            meta: expect.objectContaining({
+              consentVersion: 'v2.0',
+              signatureType: 'DRAWN',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('successfully persists uploaded signature image with signatureType: UPLOADED', async () => {
+      prismaMock.signedAgreement.create.mockResolvedValue({
+        id: 'signed-upload-1',
+        enrolmentId: mockEnrolment.id,
+        userId: learnerUser.id,
+        programId: mockProgram.id,
+        templateId: mockTemplate.id,
+        versionId: mockVersion2.id,
+        templateVersion: 'v2.0',
+        consentVersion: 'v2.0',
+        consentGiven: true,
+        consentTimestamp: new Date('2026-10-15T12:00:00.000Z'),
+        typedName: 'Jane Margaret Doe',
+        drawnSignature: validUploadedDto.signatureImage,
+        signatureType: 'UPLOADED',
+        signerIp: '192.168.1.100',
+        userAgent: 'Mozilla/5.0 Chrome',
+        status: AgreementStatus.SIGNED,
+        signedAt: new Date(),
+      });
+
+      const res = await service.signAgreement(
+        validUploadedDto,
+        learnerUser,
+        '192.168.1.100',
+        'Mozilla/5.0 Chrome',
+      );
+
+      expect(res.status).toBe(AgreementStatus.SIGNED);
+      expect(res.signatureType).toBe('UPLOADED');
+      expect(res.consentVersion).toBe('v2.0');
+      expect(prismaMock.signedAgreement.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            signatureType: 'UPLOADED',
+            drawnSignature: validUploadedDto.signatureImage,
+          }),
+        }),
+      );
+    });
+
+    it('enforces learner ownership: rejects user attempting to sign another learner enrolment', async () => {
+      await expect(
+        service.signAgreement(
+          validDrawnDto,
+          foreignUser,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.signAgreement(
+          validDrawnDto,
+          foreignUser,
+        ),
+      ).rejects.toThrow(/not authorized to sign the agreement for this enrolment/i);
+    });
+
+    it('scopes getSignedAgreementsForTemplate to manager assigned batches when caller is a MANAGER', async () => {
+      prismaMock.signedAgreement.findMany.mockResolvedValue([
+        {
+          id: 'signed-mgr-batch-1',
+          templateId: mockTemplate.id,
+          enrolment: { batchId: 'batch-assigned-to-mgr', batch: { name: 'Batch Oct 2026' } },
+        },
+      ]);
+
+      const res = await service.getSignedAgreementsForTemplate(mockTemplate.id, managerUser);
+      expect(prismaMock.signedAgreement.findMany).toHaveBeenCalledWith({
+        where: {
+          templateId: mockTemplate.id,
+          enrolment: {
+            batch: {
+              managerId: managerUser.id,
+            },
+          },
+        },
+        include: expect.any(Object),
+        orderBy: { signedAt: 'desc' },
+      });
+      expect(res).toHaveLength(1);
+    });
+
+    it('allows ADMIN to view all signed agreements across all batches without scoping', async () => {
+      prismaMock.signedAgreement.findMany.mockResolvedValue([
+        { id: 'signed-1', templateId: mockTemplate.id },
+        { id: 'signed-2', templateId: mockTemplate.id },
+      ]);
+
+      const res = await service.getSignedAgreementsForTemplate(mockTemplate.id, adminUser);
+      expect(prismaMock.signedAgreement.findMany).toHaveBeenCalledWith({
+        where: {
+          templateId: mockTemplate.id,
+        },
+        include: expect.any(Object),
+        orderBy: { signedAt: 'desc' },
+      });
+      expect(res).toHaveLength(2);
     });
   });
 });

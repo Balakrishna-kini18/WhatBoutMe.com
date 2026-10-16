@@ -3,7 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import page from "../page.module.css";
 import styles from "./messages.module.css";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, errorMessage, cachedFetch } from "../lib/api";
+import { ConfirmDialog, useToast } from "../components";
 
 type Participant = { id: string; name: string; role: string };
 type Conversation = {
@@ -97,6 +98,9 @@ export default function MessagesPage() {
   const [pendingFile, setPendingFile] = useState<{ url: string; name: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const toast = useToast();
+  const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -323,16 +327,23 @@ export default function MessagesPage() {
     }
   };
 
-  const handleDeleteMessage = async (msgId: string) => {
-    if (!confirm("Are you sure you want to unsend this message?")) return;
+  const confirmDeleteMessage = async () => {
+    if (!messageToDelete || !activeId) return;
+    const msgId = messageToDelete.id;
+    setIsDeletingMessage(true);
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    toast.success("Message unsent.");
+    setMessageToDelete(null);
+
     try {
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
-      await fetch(`${API_URL}/messages/conversations/${activeId}/messages/${msgId}`, {
+      await cachedFetch(`${API_URL}/messages/conversations/${activeId}/messages/${msgId}`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
     } catch {
       if (activeId) loadMessages(activeId);
+    } finally {
+      setIsDeletingMessage(false);
     }
   };
 
@@ -452,7 +463,7 @@ export default function MessagesPage() {
                                   type="button"
                                   className={styles.actionBtn}
                                   title="Delete message"
-                                  onClick={() => handleDeleteMessage(m.id)}
+                                  onClick={() => setMessageToDelete(m)}
                                 >
                                   🗑️
                                 </button>
@@ -629,6 +640,30 @@ export default function MessagesPage() {
           <img src={lightboxUrl} alt="Photo" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+
+      {/* In-website branded ConfirmDialog */}
+      <ConfirmDialog
+        isOpen={Boolean(messageToDelete)}
+        onClose={() => {
+          if (!isDeletingMessage) setMessageToDelete(null);
+        }}
+        onConfirm={confirmDeleteMessage}
+        title="Unsend Message"
+        description={
+          <>
+            Are you sure you want to unsend this message? It will be removed for all participants.
+            {messageToDelete?.content && (
+              <div style={{ marginTop: "8px", padding: "10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.85rem" }}>
+                &ldquo;{messageToDelete.content}&rdquo;
+              </div>
+            )}
+          </>
+        }
+        tone="danger"
+        confirmText={isDeletingMessage ? "Unsending..." : "Unsend"}
+        cancelText="Cancel"
+        isLoading={isDeletingMessage}
+      />
     </div>
   );
 }

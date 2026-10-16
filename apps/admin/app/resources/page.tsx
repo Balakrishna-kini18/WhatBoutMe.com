@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import styles from "../page.module.css";
 import resStyles from "./resources.module.css";
-import { API_URL } from "../lib/api";
-import { Modal, CustomSelect, StatusBadge, ActionMenu } from "../components";
+import { API_URL, cachedFetch } from "../lib/api";
+import { Modal, CustomSelect, StatusBadge, ActionMenu, InputDialog, useToast } from "../components";
 
 interface ResourceCategory {
   id: string;
@@ -102,6 +102,10 @@ export default function ResourcesPage() {
   const [batches, setBatches] = useState<{ id: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { success: toastSuccess, error: toastError } = useToast();
+  const [resourceToDelete, setResourceToDelete] = useState<ResourceItem | null>(null);
+  const [isDeletingResource, setIsDeletingResource] = useState(false);
+  const [deleteResourceError, setDeleteResourceError] = useState<string | null>(null);
 
   // Tab & Filter States
   const [activeCategorySlug, setActiveCategorySlug] = useState<string>("all");
@@ -351,18 +355,17 @@ export default function ResourcesPage() {
     }
   };
 
-  const handleDeleteResource = async (resource: ResourceItem) => {
-    if (!confirm(`Are you sure you want to delete "${resource.title}"? This cannot be undone.`)) {
+  const confirmDeleteResource = async (reason: string) => {
+    if (!resourceToDelete) return;
+    if (!reason.trim()) {
+      setDeleteResourceError("A reason is required to delete a resource for audit compliance.");
       return;
     }
-    const reason = prompt("Please provide a reason for deleting this resource (Audit Log):");
-    if (!reason?.trim()) {
-      alert("A reason is required to delete a resource for audit compliance.");
-      return;
-    }
+    setIsDeletingResource(true);
+    setDeleteResourceError(null);
 
     try {
-      const res = await fetch(`${API_URL}/admin/resources/${resource.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/resources/${resourceToDelete.id}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -374,9 +377,16 @@ export default function ResourcesPage() {
         const err = await res.json().catch(() => null);
         throw new Error(err?.message || "Failed to delete resource");
       }
-      await loadData();
+      const targetId = resourceToDelete.id;
+      setResources((prev) => prev.filter((r) => r.id !== targetId));
+      toastSuccess("Resource deleted successfully.");
+      setResourceToDelete(null);
     } catch (err: any) {
-      alert(err.message || "Failed to delete resource");
+      const msg = err.message || "Failed to delete resource";
+      setDeleteResourceError(msg);
+      toastError(msg);
+    } finally {
+      setIsDeletingResource(false);
     }
   };
 
@@ -723,7 +733,10 @@ export default function ResourcesPage() {
                             {
                               label: "Delete Resource",
                               danger: true,
-                              onClick: () => handleDeleteResource(item),
+                              onClick: () => {
+                                setDeleteResourceError(null);
+                                setResourceToDelete(item);
+                              },
                             },
                           ]}
                         />
@@ -1100,6 +1113,33 @@ export default function ResourcesPage() {
           </div>
         </Modal>
       )}
+
+      {/* In-website branded InputDialog for Resource Deletion with Audit Log */}
+      <InputDialog
+        isOpen={Boolean(resourceToDelete)}
+        onClose={() => {
+          if (!isDeletingResource) {
+            setResourceToDelete(null);
+            setDeleteResourceError(null);
+          }
+        }}
+        onSubmit={confirmDeleteResource}
+        title="Delete Resource Document"
+        subtitle={resourceToDelete?.title}
+        description={
+          <>
+            Are you sure you want to permanently delete <strong>{resourceToDelete?.title}</strong>? A reason is required for compliance audit logging.
+          </>
+        }
+        label="Reason for Deletion (Audit Log)"
+        placeholder="e.g. Outdated syllabus content, replaced by v2..."
+        required={true}
+        confirmText={isDeletingResource ? "Deleting..." : "Delete Resource"}
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={isDeletingResource}
+        error={deleteResourceError}
+      />
     </div>
   );
 }

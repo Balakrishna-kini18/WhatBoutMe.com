@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../lib/api";
-import { ActionMenu, StatusBadge } from "../components";
+import { API_URL, cachedFetch, errorMessage } from "../lib/api";
+import { ActionMenu, StatusBadge, ConfirmDialog, useToast } from "../components";
 
 interface QuizListItem {
   id: string;
@@ -19,22 +19,31 @@ interface QuizListItem {
 }
 
 export default function QuizzesPage() {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [quizzes, setQuizzes] = useState<QuizListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  // In-website branded popup state (replaces browser window.confirm)
+  const [quizToDelete, setQuizToDelete] = useState<QuizListItem | null>(null);
+  const [isDeletingQuiz, setIsDeletingQuiz] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Instant search query
+  const [searchQuery, setSearchQuery] = useState("");
+
   useEffect(() => {
     fetchQuizzes();
   }, []);
 
-  const fetchQuizzes = async () => {
+  const fetchQuizzes = async (skipCache = false) => {
     setIsLoading(true);
     setActionError(null);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/quizzes`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const res = await cachedFetch(`${API_URL}/quizzes`, {
+        skipCache,
+        ttlMs: 30_000,
       });
       if (!res.ok) {
         throw new Error(await errorMessage(res, "Failed to load quizzes"));
@@ -48,27 +57,42 @@ export default function QuizzesPage() {
     }
   };
 
-  const handleDeleteQuiz = async (quizId: string, stepTitle: string) => {
-    if (!window.confirm(`Are you sure you want to delete the quiz for "${stepTitle}"?`)) {
-      return;
-    }
-    setActionError(null);
-    setActionSuccess(null);
+  const confirmDeleteQuiz = async () => {
+    if (!quizToDelete) return;
+    setIsDeletingQuiz(true);
+    setDeleteError(null);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/quizzes/${quizId}`, {
+      const res = await cachedFetch(`${API_URL}/quizzes/${quizToDelete.id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) {
         throw new Error(await errorMessage(res, "Failed to delete quiz"));
       }
+
+      // Optimistic update: instantly remove quiz from local UI list
+      const deletedId = quizToDelete.id;
+      setQuizzes((prev) => prev.filter((q) => q.id !== deletedId));
+      toastSuccess("Quiz deleted successfully.");
       setActionSuccess("Quiz deleted successfully.");
-      await fetchQuizzes();
+      setQuizToDelete(null);
     } catch (e: any) {
-      setActionError(e.message);
+      const msg = e.message || "Failed to delete quiz";
+      setDeleteError(msg);
+      toastError(msg);
+    } finally {
+      setIsDeletingQuiz(false);
     }
   };
+
+  const filteredQuizzes = useMemo(() => {
+    if (!searchQuery.trim()) return quizzes;
+    const q = searchQuery.toLowerCase();
+    return quizzes.filter(
+      (quiz) =>
+        quiz.step.toLowerCase().includes(q) ||
+        quiz.passMark.toLowerCase().includes(q)
+    );
+  }, [quizzes, searchQuery]);
 
   return (
     <div className={styles.dashboard}>
@@ -138,8 +162,34 @@ export default function QuizzesPage() {
       )}
 
       <section className={styles.tableSection}>
-        <div className={styles.sectionHeader}>
+        <div className={styles.sectionHeader} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
           <h2>Step Assessments & Question Pools</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flex: "1", maxWidth: "380px", justifyContent: "flex-end" }}>
+            <div style={{ position: "relative", width: "100%" }}>
+              <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", display: "flex", pointerEvents: "none" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </span>
+              <input
+                type="text"
+                placeholder="Search by step title..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "7px 12px 7px 32px",
+                  border: "1px solid var(--border-light)",
+                  borderRadius: "6px",
+                  fontSize: "0.85rem",
+                  background: "#ffffff",
+                  color: "var(--text-primary)",
+                  outline: "none",
+                }}
+              />
+            </div>
+          </div>
         </div>
 
         <div className={styles.tableWrapper}>
@@ -162,14 +212,16 @@ export default function QuizzesPage() {
                     Loading quizzes from database...
                   </td>
                 </tr>
-              ) : quizzes.length === 0 ? (
+              ) : filteredQuizzes.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                    No quizzes found. Click <strong>Create Quiz</strong> to add a step assessment.
+                    {searchQuery
+                      ? `No quizzes matching "${searchQuery}".`
+                      : "No quizzes found. Click Create Quiz to add a step assessment."}
                   </td>
                 </tr>
               ) : (
-                quizzes.map((quiz) => (
+                filteredQuizzes.map((quiz) => (
                   <tr key={quiz.id}>
                     <td>
                       <span className={styles.cellUserName}>{quiz.step}</span>
@@ -210,7 +262,10 @@ export default function QuizzesPage() {
                             label: "Delete Quiz",
                             danger: true,
                             dividerAbove: true,
-                            onClick: () => handleDeleteQuiz(quiz.id, quiz.step),
+                            onClick: () => {
+                              setDeleteError(null);
+                              setQuizToDelete(quiz);
+                            },
                             icon: (
                               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <polyline points="3 6 5 6 21 6" />
@@ -230,6 +285,48 @@ export default function QuizzesPage() {
           </table>
         </div>
       </section>
+
+      {/* In-website branded ConfirmDialog for Quiz Deletion */}
+      <ConfirmDialog
+        isOpen={Boolean(quizToDelete)}
+        onClose={() => {
+          if (!isDeletingQuiz) {
+            setQuizToDelete(null);
+            setDeleteError(null);
+          }
+        }}
+        onConfirm={confirmDeleteQuiz}
+        title="Delete Knowledge-Check Quiz"
+        subtitle={quizToDelete?.step}
+        description={
+          <>
+            Are you sure you want to delete the quiz for <strong>{quizToDelete?.step}</strong>? This will permanently remove all attached questions, answer options, and learner attempts from this step.
+          </>
+        }
+        tone="danger"
+        confirmText={isDeletingQuiz ? "Deleting..." : "Delete Quiz"}
+        cancelText="Cancel"
+        isLoading={isDeletingQuiz}
+        error={deleteError}
+        itemDetails={
+          quizToDelete
+            ? [
+                { label: "Linked Step", value: quizToDelete.step },
+                {
+                  label: "Questions Pool",
+                  value: `${quizToDelete.questions} question${quizToDelete.questions !== 1 ? "s" : ""}${quizToDelete.questionCount ? ` (Pool: ${quizToDelete.questionCount})` : ""}`,
+                },
+                { label: "Pass Mark", value: quizToDelete.passMark },
+                { label: "Max Retries", value: `${quizToDelete.maxAttempts ?? 3} attempts` },
+                { label: "Cooldown", value: `${quizToDelete.cooldownHours ?? 24} hours` },
+              ]
+            : []
+        }
+        callout={{
+          tone: "warning",
+          text: "Learners will bypass this quiz when completing this curriculum step.",
+        }}
+      />
     </div>
   );
 }

@@ -361,35 +361,38 @@ export class ProgramsService {
       }
 
       // 1e. Agreement templates & signed agreements
-      const agreements = typeof (this.prisma as any).agreementTemplate?.findMany === 'function'
-        ? await this.prisma.agreementTemplate.findMany({
-            where: { programId: id },
-            select: { documentUrl: true },
+      const templateVersions = typeof (this.prisma as any).agreementTemplateVersion?.findMany === 'function'
+        ? await (this.prisma as any).agreementTemplateVersion.findMany({
+            where: { template: { programId: id } },
+            select: { content: true },
           })
         : [];
       const signedAgreements = typeof (this.prisma as any).signedAgreement?.findMany === 'function'
-        ? await this.prisma.signedAgreement.findMany({
+        ? await (this.prisma as any).signedAgreement.findMany({
             where: { programId: id },
-            select: { documentUrl: true, signedDocumentUrl: true },
+            select: { signedPdfUrl: true, drawnSignature: true },
           })
         : [];
-      for (const ag of agreements) {
-        if (ag.documentUrl) mediaToDelete.push({ url: ag.documentUrl, type: 'raw' });
+      for (const ver of templateVersions) {
+        if (ver.content) {
+          this.extractCloudinaryUrlsFromText(ver.content).forEach((u) => mediaToDelete.push({ url: u, type: 'raw' }));
+        }
       }
       for (const sa of signedAgreements) {
-        if (sa.documentUrl) mediaToDelete.push({ url: sa.documentUrl, type: 'raw' });
-        if (sa.signedDocumentUrl) mediaToDelete.push({ url: sa.signedDocumentUrl, type: 'raw' });
+        if (sa.signedPdfUrl) mediaToDelete.push({ url: sa.signedPdfUrl, type: 'raw' });
+        if (sa.drawnSignature && sa.drawnSignature.includes('cloudinary.com')) {
+          mediaToDelete.push({ url: sa.drawnSignature, type: 'image' });
+        }
       }
 
       // 1f. Certificates
       const certificates = typeof (this.prisma as any).certificate?.findMany === 'function'
-        ? await this.prisma.certificate.findMany({
+        ? await (this.prisma as any).certificate.findMany({
             where: { programId: id },
-            select: { certificateUrl: true, pdfUrl: true },
+            select: { pdfUrl: true },
           })
         : [];
       for (const cert of certificates) {
-        if (cert.certificateUrl) mediaToDelete.push({ url: cert.certificateUrl, type: 'raw' });
         if (cert.pdfUrl) mediaToDelete.push({ url: cert.pdfUrl, type: 'raw' });
       }
 

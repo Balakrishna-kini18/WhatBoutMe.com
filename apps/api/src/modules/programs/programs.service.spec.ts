@@ -9,6 +9,7 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
   let service: ProgramsService;
   let prismaMock: any;
   let cacheHelperMock: any;
+  let mediaProviderMock: any;
 
   beforeEach(() => {
     prismaMock = {
@@ -58,6 +59,26 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
         create: vi.fn(),
         delete: vi.fn(),
       },
+      resourceItem: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      question: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      agreementTemplate: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      signedAgreement: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      certificate: {
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
       userLessonProgress: {
         upsert: vi.fn().mockResolvedValue({}),
       },
@@ -92,11 +113,11 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       }),
     };
 
-    const mediaProviderMock = {
+    mediaProviderMock = {
       uploadVideo: vi.fn(),
       uploadAudio: vi.fn(),
       uploadDocument: vi.fn(),
-      deleteMedia: vi.fn(),
+      deleteMedia: vi.fn().mockResolvedValue(true),
     };
 
     service = new ProgramsService(

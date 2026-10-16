@@ -96,7 +96,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         const detailedSteps = await Promise.all(
           sorted.map(async (s) => {
             try {
-              const detailRes = await fetch(`${API_URL}/programs/steps/${s.id}`);
+              const detailRes = await cachedFetch(`${API_URL}/programs/steps/${s.id}`);
               if (detailRes.ok) return await detailRes.json();
             } catch (e) {}
             return s;

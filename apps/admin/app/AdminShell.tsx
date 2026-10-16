@@ -328,6 +328,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout: authLogout } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -341,6 +342,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   // Set up sidebar preference, theme, and keyboard shortcuts once on mount
   useEffect(() => {
+    setMounted(true);
     const savedCollapsed = localStorage.getItem("admin_sidebar_collapsed");
     if (savedCollapsed !== null) {
       setIsCollapsed(savedCollapsed === "true");
@@ -439,7 +441,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     return <>{children}</>;
   }
 
-  const userName = user?.name || "Administrator";
+  const userName = mounted && user?.name ? user.name : "Administrator";
   const formatRole = (role?: string) => {
     if (!role) return "Admin";
     switch (role) {
@@ -455,12 +457,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         return role.charAt(0) + role.slice(1).toLowerCase();
     }
   };
-  const userRole = formatRole(user?.role);
-  const userEmail = user?.email || "admin@whatboutme.com";
+  const userRole = mounted && user?.role ? formatRole(user.role) : "Admin";
+  const userEmail = mounted && user?.email ? user.email : "admin@whatboutme.com";
 
-  const isManager = user?.role === "MANAGER" || user?.role === "TEACHER";
+  const isManager = mounted && (user?.role === "MANAGER" || user?.role === "TEACHER");
 
   const hasPermission = (perm: string) => {
+    if (!mounted) return true;
     if (!user) return false;
     if (user.role === "SUPER_ADMIN") return true;
 
@@ -713,13 +716,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 aria-expanded={userDropdownOpen}
                 aria-haspopup="true"
                 aria-label={`User menu for ${userName}`}
+                suppressHydrationWarning
               >
                 <div className={styles.avatar} aria-hidden="true">
                   <Icons.User />
                 </div>
                 <div className={styles.userInfo}>
-                  <span className={styles.userName}>{userName}</span>
-                  <span className={styles.userRole}>{userRole}</span>
+                  <span className={styles.userName} suppressHydrationWarning>{userName}</span>
+                  <span className={styles.userRole} suppressHydrationWarning>{userRole}</span>
                 </div>
                 <span className={styles.userChevron}><Icons.ChevronDown /></span>
               </button>
@@ -728,9 +732,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               {userDropdownOpen && (
                 <div className={styles.userDropdown} role="menu">
                   <div className={styles.dropdownHeader}>
-                    <p className={styles.dropdownName}>{userName}</p>
-                    <p className={styles.dropdownEmail}>{userEmail}</p>
-                    <span className={styles.dropdownRoleBadge}>{userRole}</span>
+                    <p className={styles.dropdownName} suppressHydrationWarning>{userName}</p>
+                    <p className={styles.dropdownEmail} suppressHydrationWarning>{userEmail}</p>
+                    <span className={styles.dropdownRoleBadge} suppressHydrationWarning>{userRole}</span>
                   </div>
                   <div className={styles.dropdownDivider} />
                   <button

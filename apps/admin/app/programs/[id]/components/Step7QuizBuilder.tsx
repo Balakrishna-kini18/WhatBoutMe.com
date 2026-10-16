@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import styles from "../curriculum.module.css";
-import { API_URL, cachedFetch } from "../../../lib/api";
+import { API_URL, cachedFetch, errorMessage } from "../../../lib/api";
 import { ConfirmDialog, useToast } from "../../../components";
 
 interface Option {
@@ -64,43 +64,73 @@ export default function Step7QuizBuilder({
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
-  // Load existing questions
+  // Load existing questions or auto-discover quiz for this step
   useEffect(() => {
-    if (!quizId) return;
+    if (existingQuiz?.id) {
+      setQuizId(existingQuiz.id);
+      if (existingQuiz.title) setQuizTitle(existingQuiz.title);
+      if (existingQuiz.passMark != null) setPassMark(existingQuiz.passMark);
+      if (existingQuiz.maxAttempts != null) setMaxAttempts(existingQuiz.maxAttempts);
+      if (existingQuiz.cooldownHours != null) setCooldownHours(existingQuiz.cooldownHours);
+      if (existingQuiz.questions && existingQuiz.questions.length > 0) {
+        setQuestions(existingQuiz.questions);
+        return;
+      }
+    }
 
-    const fetchQuestions = async () => {
+    const loadStepQuizOrQuestions = async () => {
       setIsLoadingQuestions(true);
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/quizzes/${quizId}/questions`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const qData = await res.json();
-          setQuestions(qData);
-        } else if (existingQuiz?.questions) {
-          setQuestions(existingQuiz.questions);
+        let targetQuizId = quizId || existingQuiz?.id;
+
+        // Auto-discover if step already has a quiz entity
+        if (!targetQuizId && moduleId) {
+          const stepRes = await cachedFetch(`${API_URL}/programs/steps/${moduleId}`);
+          if (stepRes.ok) {
+            const stepData = await stepRes.json();
+            if (stepData?.quiz?.id) {
+              targetQuizId = stepData.quiz.id;
+              setQuizId(stepData.quiz.id);
+              if (stepData.quiz.title) setQuizTitle(stepData.quiz.title);
+              if (stepData.quiz.passMark != null) setPassMark(stepData.quiz.passMark);
+              if (stepData.quiz.maxAttempts != null) setMaxAttempts(stepData.quiz.maxAttempts);
+              if (stepData.quiz.cooldownHours != null) setCooldownHours(stepData.quiz.cooldownHours);
+              if (stepData.quiz.questions && stepData.quiz.questions.length > 0) {
+                setQuestions(stepData.quiz.questions);
+                setIsLoadingQuestions(false);
+                return;
+              }
+            }
+          }
+        }
+
+        if (targetQuizId) {
+          const qRes = await cachedFetch(`${API_URL}/quizzes/${targetQuizId}/questions`);
+          if (qRes.ok) {
+            const qData = await qRes.json();
+            setQuestions(qData);
+          } else if (existingQuiz?.questions) {
+            setQuestions(existingQuiz.questions);
+          }
         }
       } catch (err) {
-        console.warn("Could not fetch quiz questions", err);
+        console.warn("Could not load quiz questions", err);
       } finally {
         setIsLoadingQuestions(false);
       }
     };
 
-    fetchQuestions();
-  }, [quizId, existingQuiz]);
+    loadStepQuizOrQuestions();
+  }, [quizId, existingQuiz, moduleId]);
 
   // Ensure quiz entity exists in backend
   const ensureQuizEntity = async (): Promise<string> => {
     if (quizId) return quizId;
 
-    const token = localStorage.getItem("token");
-    const res = await fetch(`${API_URL}/quizzes`, {
+    const res = await cachedFetch(`${API_URL}/quizzes`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
         stepId: moduleId,
@@ -111,7 +141,9 @@ export default function Step7QuizBuilder({
       }),
     });
 
-    if (!res.ok) throw new Error("Failed to initialize quiz in backend");
+    if (!res.ok) {
+      throw new Error(await errorMessage(res, "Failed to initialize quiz in backend"));
+    }
     const created = await res.json();
     setQuizId(created.id);
     return created.id;
@@ -143,13 +175,11 @@ export default function Step7QuizBuilder({
     setIsAddingQuestion(true);
     try {
       const activeQId = await ensureQuizEntity();
-      const token = localStorage.getItem("token");
 
-      const res = await fetch(`${API_URL}/quizzes/${activeQId}/questions`, {
+      const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}/questions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           text: newPrompt.trim(),
@@ -163,7 +193,9 @@ export default function Step7QuizBuilder({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to add question");
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to add question"));
+      }
 
       const createdQ = await res.json();
       setQuestions((prev) => [...prev, createdQ]);
@@ -206,14 +238,12 @@ export default function Step7QuizBuilder({
     setIsSavingAll(true);
     try {
       const activeQId = await ensureQuizEntity();
-      const token = localStorage.getItem("token");
 
       // Update quiz parameters
-      await fetch(`${API_URL}/quizzes/${activeQId}`, {
+      const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           title: quizTitle.trim(),
@@ -222,6 +252,10 @@ export default function Step7QuizBuilder({
           cooldownHours: Number(cooldownHours),
         }),
       });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to update quiz settings"));
+      }
 
       toast.success("Quiz settings updated.");
       onQuizSaved();

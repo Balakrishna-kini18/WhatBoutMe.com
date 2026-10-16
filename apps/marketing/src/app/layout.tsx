@@ -10,23 +10,23 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "11 Steps to You — the whatboutme brain health course",
+  title: "Brain Health Coaching for Mental Wellness — whatboutme",
   description:
-    "11 Steps to You is a CPD accredited brain health course of twelve live online classes with Roweena Britto, Brain Health Coach licensed in the UAE and India. 25 CPD hours, in person or online.",
+    "I lived it, so I coach it! Brain Health Coaching with Roweena Britto: the 11 Steps to U Program (25 CPD Hours, UK), Resilience Speaker sessions and the Vision Board Kit.",
   keywords: [
     "brain health",
     "resilience speaker",
-    "11 Steps to You",
-    "CPD accredited programme",
+    "11 Steps to U Program",
+    "CPD hours",
     "vision board workshop",
     "Roweena Britto",
     "whatboutme",
   ],
   authors: [{ name: "Roweena Britto" }],
   openGraph: {
-    title: "11 Steps to You — the whatboutme brain health course",
+    title: "Brain Health Coaching for Mental Wellness — whatboutme",
     description:
-      "For the people who hold everyone else together and rarely stop to ask the one question in our name.",
+      "The moment I fell in love with my condition and my BRAIN, I chased it to become its best version; only to realize, it changed everything for the BETTER!",
     siteName: "whatboutme",
     type: "website",
   },

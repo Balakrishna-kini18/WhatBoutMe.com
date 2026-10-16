@@ -7,9 +7,9 @@ import { CONTACT } from "@/lib/content";
 import { getSiteContent } from "@/lib/siteContent";
 
 export const metadata: Metadata = {
-  title: "Contact — whatboutme",
+  title: "Let's Talk — whatboutme",
   description:
-    "Start with a conversation. Tell us about the room, and we will tell you honestly which format it needs.",
+    "Contact Us. Thank you for investing your time on BRAIN HEALTH.",
 };
 
 export default async function ContactPage() {
@@ -25,11 +25,10 @@ export default async function ContactPage() {
         <div className="relative mx-auto grid max-w-[1240px] gap-12 px-5 pb-20 pt-20 sm:pt-32 md:px-10 md:pb-28 md:pt-40 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
           <div>
             <h1 className="text-balance text-[1.75rem] font-bold sm:text-4xl leading-[1.08] tracking-tight md:text-5xl">
-              Start With a Conversation
+              Contact Us
             </h1>
             <p className="mt-5 max-w-md leading-relaxed text-ink-soft md:text-lg">
-              Tell us about the room, and we will tell you honestly which of
-              the formats it needs.
+              Thank you for investing your time on BRAIN HEALTH.
             </p>
 
             <dl className="mt-10 space-y-5">

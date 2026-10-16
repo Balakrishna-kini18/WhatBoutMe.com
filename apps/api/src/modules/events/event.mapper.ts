@@ -53,6 +53,18 @@ export function mapEvent(
     isSoldOut,
     isPublished: event.isPublished,
 
+    // Status & Type computation for LMS portal & public clients
+    type: event.locationType === EventLocationType.ONLINE ? ('WEBINAR' as const) : ('EVENT' as const),
+    status: !event.isPublished
+      ? ('SCHEDULED' as const)
+      : new Date(event.endDateTime ?? event.startDateTime).getTime() < Date.now()
+      ? ('ENDED' as const)
+      : new Date(event.startDateTime).getTime() <= Date.now()
+      ? ('ONGOING' as const)
+      : isSoldOut
+      ? ('ENDED' as const)
+      : ('REGISTRATION_OPEN' as const),
+
     // Backward-compatibility aliases
     startAt: event.startDateTime,
     endAt: event.endDateTime ?? event.startDateTime,

@@ -1681,3 +1681,23 @@ model EventRegistration {
   @@index([attendeeEmail])
   @@index([userId])
 }
+
+// -----------------------------------------------------------------------------
+// PHOTO GALLERY (COURSES & CONFERENCES SHOWCASE)
+// -----------------------------------------------------------------------------
+
+model GalleryItem {
+  id           String   @id @default(cuid())
+  title        String   @db.VarChar(160) // e.g., "Attended Research Course at US"
+  description  String?  @db.Text         // Context about the course/conference photo
+  imageUrl     String                    // Uploaded image URL (WebP/AVIF/JPEG/PNG)
+  altText      String?  @db.VarChar(200) // Accessibility fallback (defaults to title)
+  category     String?  @db.VarChar(60)  // Optional tag: "Course", "Conference", "Workshop"
+  displayOrder Int      @default(0)      // Controls sort order on the user website
+  isPublished  Boolean  @default(true)   // Allows Admin to hide/show without deleting
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isPublished, displayOrder, createdAt(sort: Desc)])
+}
+

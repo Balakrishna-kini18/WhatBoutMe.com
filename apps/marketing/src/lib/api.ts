@@ -285,7 +285,10 @@ export async function getPublicEvents(params?: {
     const url = `${API_BASE_URL}/events${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) return [];
-    return await res.json();
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.items)) return data.items;
+    return [];
   } catch (error) {
     console.error("Error fetching public events:", error);
     return [];
@@ -348,7 +351,10 @@ export async function verifyEventPayment(payload: {
     res = await fetch(`${API_BASE_URL}/events/verify-payment`, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        simulation: payload.isSimulated ?? true,
+      }),
     });
   } catch {
     throw new Error("Could not reach the server. Please check your network connection.");
@@ -383,6 +389,43 @@ export async function registerForEvent(eventId: string, payload: RegisterEventPa
     throw new Error(Array.isArray(msg) ? msg.join(", ") : msg);
   }
   return data;
+}
+
+// -----------------------------------------------------------------------------
+// PUBLIC GALLERY INTERFACES & HELPERS
+// -----------------------------------------------------------------------------
+
+export interface PublicGalleryItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl: string;
+  altText?: string | null;
+  category?: string | null;
+  displayOrder: number;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getPublicGallery(category?: string): Promise<{ items: PublicGalleryItem[]; total: number }> {
+  const query = new URLSearchParams();
+  if (category && category !== "ALL") query.set("category", category);
+  const qs = query.toString();
+  const endpoint = qs ? `${API_BASE_URL}/gallery?${qs}` : `${API_BASE_URL}/gallery`;
+
+  try {
+    const res = await fetch(endpoint, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) {
+      return { items: [], total: 0 };
+    }
+    return await res.json();
+  } catch (error) {
+    console.warn("Failed to fetch public gallery:", error);
+    return { items: [], total: 0 };
+  }
 }
 
 

@@ -179,9 +179,6 @@ export default async function CoursePage({ params }: Props) {
                 See the 11 Steps
               </Link>
             )}
-            <p className="mt-5 text-xs leading-relaxed text-ink-soft">
-              Travel and accommodation costs excluded for in-person engagements.
-            </p>
           </aside>
         </div>
 

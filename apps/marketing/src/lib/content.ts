@@ -1,4 +1,4 @@
-/** All site copy, taken from the "Brain Matters" brochure. */
+/** All site copy, taken from whatboutme.com. */
 
 export const CONTACT = {
   website: "www.whatboutme.com",
@@ -6,7 +6,6 @@ export const CONTACT = {
   email: "share@whatboutme.com",
   phones: [
     { number: "+971 56 546 4014", place: "Dubai", href: "tel:+971565464014" },
-    { number: "+91 81475 96511", place: "India", href: "tel:+918147596511" },
   ],
   social: "@whatboutme11",
 };
@@ -15,7 +14,7 @@ export const CONTACT = {
 export const LIVED_IT = {
   quote:
     "The moment I fell in love with my condition and my BRAIN, I chased it to become its best version; only to realize, it changed everything for the BETTER!",
-  heading: "I Have Been Where You Are",
+  heading: "I have been where you are!",
   questions:
     "Where is my life going with all the trauma, anxiety, depression, and confusion battling in my brain? I often wondered if there was any anxiety and depression support available for someone like me. Will I see better days? Why go through this pain? When will I be free of my addictions and live with purpose? Who can help me navigate this mental health journey?",
   answer:
@@ -61,14 +60,14 @@ export const BADGES = [
   { file: "cert-1.png", alt: "Certificate" },
 ];
 
-
 /** Enquiry buttons open the contact form, which saves to the admin CRM. */
 export const ENQUIRE_HREF = "/contact";
 
 export const NAV_LINKS = [
   { label: "Courses", href: "/courses" },
   { label: "Events", href: "/events" },
-  { label: "About", href: "/about" },
+  { label: "Gallery", href: "/gallery" },
+  { label: "About Me", href: "/about" },
   { label: "Certification", href: "#certification" },
   { label: "FAQ", href: "#faq" },
 ];
@@ -80,8 +79,7 @@ type CourseExtras = {
   links?: { label: string; href: string }[];
 };
 
-// Text and images come from whatboutme.com; the corporate workshop keeps the
-// brochure wording and a stock photo because the site has no page for it.
+// Text and images come from whatboutme.com, one entry per program page.
 export const COURSES: ({
   slug: string;
   title: string;
@@ -97,23 +95,16 @@ export const COURSES: ({
 } & CourseExtras)[] = [
   {
     slug: "11-steps-to-you",
-    title: "11 Steps to You Programme",
+    title: "11 Steps to U Program",
     duration: "12 classes",
-    meta: "25 CPD hours (UK) · Live online",
+    meta: "25 CPD Hours (UK)",
     image: "/site/steps-2026.png",
-    alt: "Sample certificate of achievement for the 11 Steps to You Program",
+    alt: "Sample certificate of achievement for the 11 Steps to U Program",
     flagship: true,
-    body: "Get certified for working on yourself and earn 25 CPD hours (UK). You will leave this program feeling liberated from your old thoughts, with a rewired brain for action, embracing the self you are meant to be.",
+    body: "Get Certified for working on yourself and earn 25 CPD Hours (UK). You will leave this program feeling liberated from your old thoughts, with a rewired brain for action, embracing the self you are meant to be.",
     inPerson: "",
-    online: "12 live classes · 2 hours each · Saturdays, 11am India / 9:30am UAE · Starts 26 September 2026",
-    points: [
-      "The TRUTH about yourself",
-      "Your BASELINE: where you are in life right now",
-      "DAILY LIFE: the activities, values and triggers that govern your decisions",
-      "An intro to the BRAIN and its possibilities of rewiring itself",
-      "An exam with an 80% pass mark",
-      "Your personal development growth plan",
-    ],
+    online: "",
+    points: [],
     sections: [
       {
         title: "The Approach",
@@ -121,361 +112,237 @@ export const COURSES: ({
       },
       {
         title: "Why whatboutme?",
-        text: "I too was once caught in a web of family, career, medications, and mental disorders, living a narrative that wasn't truly mine. Through years of personal growth tools, resilience, and recovery, I now embrace a medication-free life, living my dream that is uniquely my own. I have lived this journey, and now I coach others in their own paths. You can change your life with the carefully curated resources, brain health education, and self-awareness coaching provided.",
+        text: "I too was once caught in a web of family, career, medications, and mental disorders, living a narrative that wasn't truly mine. Through years of personal growth tools, resilience, and recovery, I now embrace a medication-free life, living my dream that is uniquely my own. I have lived this journey, and now I coach others in their own paths. YOU CAN CHANGE YOUR LIFE with the carefully curated resources, brain health education, and self-awareness coaching provided.",
       },
       {
         title: "The Outcome",
-        text: "Upon achieving 80% passing marks on the exam and submitting your personal development growth plan, you will be awarded a Certification of Completion and 25 hours of Continuing Professional Development (CPD), marking the start of the life you have always dreamed of.",
+        text: "You will leave this program feeling liberated from your old thoughts, with a rewired brain for action, embracing the self you are meant to be. This journey will also enhance your brain health education, equipping you with essential personal growth tools and self-awareness coaching to guide your transformation life. Upon achieving 80% passing marks on the exam and submitting your personal development growth plan, you will be awarded a CERTIFICATION OF COMPLETION, 25 HOURS OF CONTINUING PROFESSIONAL DEVELOPMENT (CPD) marking the start of the life you have always dreamed of.",
+      },
+      {
+        title: "Program Details",
+        text: "Starts 26th September 2026 on Saturdays · 11am INDIA : 9:30am UAE · 2 hours per class · 12 classes",
       },
     ],
     gallery: [
-      { src: "/site/steps-agenda.png", alt: "11 Steps to U Program agenda: Truth, Baseline, Daily Life, Brain Health, Renewed You" },
+      { src: "/site/steps-agenda.png", alt: "11 Steps to U Program agenda" },
       { src: "/site/steps-flyer.png", alt: "11 Steps to YOU Program flyer" },
       { src: "/site/steps-banner.png", alt: "11 Steps to U Program" },
     ],
+    links: [{ label: "Register to Learn More", href: "https://forms.gle/3uRSzfUoFuSjuL8w8" }],
   },
   {
     slug: "resilience-speaker",
-    title: "Resilience Speaker + Activity",
-    duration: "2 hrs / 1 hr",
-    meta: "Conferences · Offsites · Campuses",
+    title: "Resilience Speaker",
+    duration: "Corporate Sessions",
+    meta: "Speaker Assignments on Brain Health",
     image: "/site/home-hero.png",
     alt: "Roweena Britto beside the words Let's Talk Brain Health",
     flagship: false,
-    body: "Why only the top 1%? Everyone deserves a brain that performs. Building focused, resilient and high-performing teams, because the brains of your people are your biggest asset.",
-    inPerson: "2 hours · Speaker 60 min · Activity 30 min · Q&A 15–30 min",
-    online: "1 hour · Speaker assignment, delivered live",
-    points: [
-      "A personal resilience story",
-      "Brain intro, in simple language",
-      "Brain train vs brain drain",
-      "Brain health vs mental health",
-      "Building real confidence",
-      "Thoughts leading to behaviours",
-    ],
+    body: "Why only TOP 1%? Everyone deserves a BRAIN that performs! Building Focused, Resilient & High-Performing Teams because the BRAINS of your people is your biggest assets.",
+    inPerson: "",
+    online: "",
+    points: [],
     sections: [
       {
         title: "Corporate Sessions",
-        text: "In today's fast-paced corporate environment, constant pressure, multitasking, and digital overload silently drain cognitive energy. Brain health is no longer optional; it's essential for productivity, clarity, emotional intelligence, and sustainable performance.",
+        text: "Why only TOP 1%? Everyone deserves a BRAIN that performs! Building Focused, Resilient & High-Performing Teams because the BRAINS of your people is your biggest assets. We spend the biggest part of our day in our workplace, this is where we thrive, excel, struggle and burn out. Having the right tools and knowledge about our brains will increase the speed of success and minimize failures.",
       },
       {
         title: "For Everyone",
-        text: "Brain health isn't just for executives or athletes; it's vital for parents, students, professionals, caregivers, creatives, and anyone navigating modern life. Our workshops are designed to help everyday people understand their brain, manage stress, and regulate emotions, without jargon, pressure, or perfection.",
+        text: "Brain health isn't just for executives or athletes; it's vital for parents, students, professionals, caregivers, creatives, and anyone navigating modern life. Our workshops are designed to help everyday people understand their brain, manage stress, and regulate emotions, providing anxiety and depression support without jargon, pressure, or perfection.",
       },
       {
-        title: "I Lived It, So I Coach It",
-        text: "Prevention better than burnout? A simple talk, with an intention to help understand and not fix. An understanding to promote growth and not judge. From one human to the other, from one experience of failure to resilience.",
+        title: "I Lived It, So I Coach It.",
+        text: "Prevention better than Burnout? A simple talk, with an intention to help understand and NOT FIX. An understanding to promote growth and NOT JUDGE. From one human to the other, from one experience of failure to resilience.",
       },
     ],
     gallery: [
-      { src: "/site/speaker-flyer.png", alt: "Let Us Talk Brain Health: corporate wellness talks, workshops and team building with Roweena Britto" },
+      { src: "/site/speaker-flyer.png", alt: "Corporate wellness talks on brain health by Roweena Britto" },
     ],
+    links: [{ label: "Book Now", href: "mailto:share@whatboutme.com?subject=Corporate%20Session" }],
   },
   {
     slug: "vision-board-workshop",
-    title: "Vision Board Workshop",
-    duration: "2–3 hrs / 1 hr",
-    meta: "Up to 20 pax · Kit provided",
+    title: "Vision Board",
+    duration: "Kit & Workshop",
+    meta: "Neuroscience & lived experience",
     image: "/site/vision-5.jpg",
     alt: "The whatboutme Vision Board Kit laid out on a table",
     flagship: false,
-    body: "Thought. Note. Design. Action. Behaviour. Vision board workshops help your brain to remain focused and actively hunt for ways to achieve your goals.",
-    inPerson: "2–3 hours · Up to 20 pax · Kit provided · Activity space required",
-    online: "1 hour · Kits purchased in advance by client",
-    points: [
-      "Why the brain treats a seen goal differently from a stated one",
-      "Goals framed so they survive contact with an ordinary week",
-      "Everything needed to build a board that leaves the room with them",
-      "Optional quarterly or monthly check-ins, at additional cost",
-    ],
+    body: "Vision Board Kit developed with neuroscience and lived experience. THOUGHT. NOTE. DESIGN. ACTION. BEHAVIOUR.",
+    inPerson: "",
+    online: "",
+    points: [],
     sections: [
       {
-        title: "My Approach",
-        text: "Let's make it simple! When your brain doesn't know where it needs to go, confusion creeps in, leading to overthinking, a lack of worth, and definitely boredom. This is where group training and personal sessions come into play, enhancing your brain health and promoting mental wellness. Whether you are a group, a corporate or just a community that wants to grow, let's build our dreams through a clear vision.",
+        title: "Vision Board Kits",
+        text: "I have designed the Vision Board Kit through neuroscience, frameworks & lived experience. All you need is your dreams, goals, and the will to make a difference in your life through mental wellness! Buy the Vision Board Kit and visualize your success and enhance your brain health!",
       },
       {
-        title: "The Vision Board Kit",
-        text: "I have designed the Vision Board Kit through neuroscience, frameworks and lived experience. All you need is your dreams, goals, and the will to make a difference in your life through mental wellness. Buy the kit to visualize your success and enhance your brain health.",
+        title: "Vision Board Workshop",
+        text: "Let's make it simple! THOUGHT. NOTE. DESIGN. ACTION. BEHAVIOUR. When your brain doesn't know where it needs to go, confusion creeps in, leading to overthinking, a lack of worth, and definitely boredom! This is where group training and personal sessions come into play, enhancing your brain health and promoting mental wellness. Vision board workshops help your brain to remain focused and actively hunt for ways to achieve your goals. Whether you are group / corporate or just a community that wants to grow - Let's build our dreams through a clear vision.",
       },
     ],
     gallery: [
-      { src: "/site/vision-1.jpg", alt: "Inside the Vision Board Kit: picture sheets, stickers and a thank-you card" },
+      { src: "/site/vision-1.jpg", alt: "Vision Board Kit contents" },
       { src: "/site/vision-2.jpg", alt: "Vision Board Kit contents" },
       { src: "/site/vision-3.jpg", alt: "Vision Board Kit contents" },
       { src: "/site/vision-4.jpg", alt: "Vision Board Kit contents" },
     ],
-    links: [{ label: "Buy the Kit on Amazon.in", href: "https://www.amazon.in/dp/B0HKNDHVL3" }],
-  },
-  {
-    slug: "corporate-workshop",
-    title: "One-Day Corporate Workshop",
-    duration: "1 day",
-    meta: "Certificate of participation",
-    image: "https://images.unsplash.com/photo-1568992688065-536aad8a12f6?auto=format&fit=crop&w=1200&q=75",
-    alt: "A team sitting around a table in a workshop",
-    flagship: false,
-    body: "A condensed day for organisations that need the shift without the full programme commitment.",
-    inPerson: "1 day · Certificate of participation",
-    online: "1 day · Certificate of participation",
-    points: [
-      "A certificate of participation is issued",
-      "No exams or CPD hours attached",
+    links: [
+      { label: "India - Click for Amazon.in", href: "https://www.amazon.in/dp/B0HKNDHVL3" },
+      { label: "Dubai - Click for IQ Fulfillment", href: "https://buy.stripe.com/aFa9AS0t1cnF7xfddk8ww0q" },
+      {
+        label: "Send Me an Email",
+        href: "mailto:share@whatboutme.com?subject=VB%20Workshop%20-%20Corporate%2FGroups&body=Hello%2C%0A%0AI%20am%20interested%20in%20the%20Vision%20Board%20Workshop",
+      },
     ],
   },
 ];
 
 export const COURSE_FACTS = [
-  { label: "Duration", value: "12 classes · 2 hours each" },
-  { label: "Delivery", value: "In person or online" },
-  { label: "Structure", value: "11 modules, each closing with a short quiz" },
-  { label: "Assessment", value: "Final exam and a closing 1:1 with Roweena" },
-  { label: "Certificate", value: "CPD accredited · 25 CPD hours" },
+  "25 CPD hours (UK)",
+  "Twelve live online classes",
+  "Starts 26 September 2026",
 ];
 
 export const FAQS = [
   {
-    q: "How long is the course?",
-    a: "Twelve live online classes of two hours each, on Saturdays at 11am India / 9:30am UAE. The next programme starts on 26 September 2026.",
+    q: "How long is the 11 Steps to U Program?",
+    a: "12 classes, 2 hours per class, on Saturdays at 11am INDIA : 9:30am UAE. It starts 26th September 2026.",
   },
   {
     q: "How do I earn the certificate?",
-    a: "Each of the 11 modules closes with a short quiz. Pass the final exam with 80%, submit your personal development growth plan and have a closing 1:1 call with Roweena. You are then awarded a certificate of completion and 25 CPD hours.",
+    a: "Upon achieving 80% passing marks on the exam and submitting your personal development growth plan, you will be awarded a CERTIFICATION OF COMPLETION, 25 HOURS OF CONTINUING PROFESSIONAL DEVELOPMENT (CPD).",
   },
   {
-    q: "Who is the course for?",
-    a: "Individuals, teams, leaders and students: anyone who keeps everyone else standing.",
+    q: "Who is brain health for?",
+    a: "Brain health isn't just for executives or athletes; it's vital for parents, students, professionals, caregivers, creatives, and anyone navigating modern life.",
   },
   {
-    q: "Is there a shorter option?",
-    a: "Yes. The one-day Corporate Workshop issues a certificate of participation, with no exams or CPD hours attached.",
+    q: "Where can I buy the Vision Board Kit?",
+    a: "India on Amazon.in, and Dubai through IQ Fulfillment.",
   },
-];
-
-// PLACEHOLDERS: the brochure has no testimonials. Replace every entry with a
-// real quote, name and role before the site goes live.
-export const TESTIMONIALS = [
-  {
-    quote: "Participant quote goes here. Two or three sentences about what changed for them after the programme.",
-    name: "Participant name",
-    role: "Role, organisation",
-  },
-  {
-    quote: "Participant quote goes here. Two or three sentences about what changed for them after the session.",
-    name: "Participant name",
-    role: "Role, organisation",
-  },
-  {
-    quote: "Participant quote goes here. Two or three sentences about what changed for their team after the workshop.",
-    name: "Participant name",
-    role: "Role, organisation",
-  },
-];
-
-export const FOUR_IDEAS = [
-  "Brain health vs mental health",
-  "Brain train vs brain drain",
-  "Thoughts leading to behaviours",
-  "Building real confidence",
 ];
 
 export const OFFERINGS = [
   {
-    duration: "2 hrs / 1 hr",
-    title: "Resilience Speaker + Activity",
-    body: "A lived resilience story, the brain explained simply, and an activity that lands it in the room.",
-    audience: "Conferences · Offsites · Campuses",
-    href: "#speaker",
-    flagship: false,
+    tag: "CPD Accredited · Flagship",
+    title: "11 Steps to You",
+    headline: "Twelve weeks to rebuild how you treat your own head.",
+    body: "The full curriculum. Twelve live classes, weekly practice, neuroscience made usable, an exam and an internationally recognized CPD credential.",
+    detail: "12 classes · 25 CPD hours · Certificate",
+    href: "/courses/11-steps-to-you",
   },
   {
-    duration: "12 classes",
-    title: "11 Steps to You Programme",
-    body: "The flagship. Eleven steps through truth, acceptance and neuroscience, certified with 25 CPD hours.",
-    audience: "Individuals · Teams · Leaders",
-    href: "#curriculum",
-    flagship: true,
+    tag: "Speaking",
+    title: "Resilience Keynote",
+    headline: "An honest, unflinching hour on burnout, resilience and the brain.",
+    body: "Roweena Britto speaks to organisations about what high pressure actually does to the nervous system, drawing on eighteen corporate years and her own recovery.",
+    detail: "60–90 min · In person or online · Keynote + Q&A",
+    href: "/courses/resilience-speaker",
   },
   {
-    duration: "2–3 hrs / 1 hr",
-    title: "Vision Board Workshop",
-    body: "Goal setting with the neuroscience switched on, plus a kit that leaves the room with them.",
-    audience: "Up to 20 pax · Kit provided",
-    href: "#vision-board",
-    flagship: false,
+    tag: "Workshop",
+    title: "Vision Board",
+    headline: "Turn abstract intentions into physical, daily direction.",
+    body: "A structured, hands-on session using the whatboutme Vision Board Kit. Participants leave with a finished board and the neuroscience of why it works.",
+    detail: "Half day · Materials provided · Up to 20 pax",
+    href: "/courses/vision-board-workshop",
   },
 ];
 
 export const STATS = [
-  { value: "25", label: "CPD hours" },
-  { value: "18", label: "Yrs corporate" },
-  { value: "02", label: "Countries licensed" },
-  { value: "11", label: "Steps, one you" },
+  { value: "25", label: "CPD Hours (UK)" },
+  { value: "12", label: "Classes" },
+  { value: "02", label: "Hours per class" },
+  { value: "11", label: "Steps to U" },
 ];
 
 export const STEP_LABELS: Record<number, string> = {
   1: "Truth",
-  3: "Acceptance",
-  5: "Neuroscience",
-  7: "Confidence",
-  11: "Purpose",
+  3: "Baseline",
+  5: "Daily Life",
+  7: "Brain Health",
+  11: "Renewed You",
 };
 
 export const PROGRAMME_FACTS = [
-  { label: "Format", value: "12 classes", body: "2 hours each, live online on Saturdays" },
-  { label: "Starts", value: "26 Sep 2026", body: "11am India · 9:30am UAE" },
-  { label: "Accreditation", value: "25 CPD hours", body: "CPD accredited certification (UK)" },
+  { label: "Format", value: "12 classes", body: "2 hours per class, on Saturdays" },
+  { label: "Starts", value: "26 Sep 2026", body: "11am INDIA : 9:30am UAE" },
+  { label: "Accreditation", value: "25 CPD Hours", body: "Certification of Completion (UK)" },
 ];
 
 export const LEAVE_WITH = [
-  {
-    title: "A certificate that means something",
-    body: "CPD accredited, earned through the work rather than attendance.",
-  },
-  {
-    title: "Language for your own brain",
-    body: "Words for what is happening to you, usable long after the last class.",
-  },
-  {
-    title: "A closing 1:1 with Roweena",
-    body: "The last step is a conversation rather than a form, held before certification.",
-  },
+  "A personal development growth plan you built yourself",
+  "A rewired understanding of your own triggers and values",
+  "Tools for emotional regulation you can use on a difficult day",
+  "25 CPD hours (UK) and a certificate you worked for",
 ];
 
 export const GROUND_COVERED = [
-  "Your own truth, named without editing it for anyone else in the room",
-  "Acceptance as a working skill, not a slogan",
-  "The brain, in language you can repeat to a colleague afterwards",
-  "Brain train vs brain drain, applied to your actual week",
-  "Thoughts leading to behaviours, catching the chain before it runs",
-  "Confidence built on evidence instead of performance",
-  "Purpose, arrived at rather than announced",
+  "The TRUTH about who you actually are right now",
+  "Your BASELINE: honest accounting of where energy goes",
+  "DAILY LIFE: habits, boundaries and the people around you",
+  "The BRAIN: neuroplasticity, burnout and rewiring in practice",
+];
+
+export const HOW_EXAM_WORKS = [
+  "11 module quizzes to check understanding as you go",
+  "A final exam covering the full curriculum",
+  "80% passing mark required for the CPD credential",
+  "One retake included; guidance provided if you fall short",
 ];
 
 export const CERTIFICATION = [
-  "11 modules, each closing with a short quiz",
-  "A final exam with an 80% pass mark",
-  "Modules unlock in sequence, with no skipping ahead",
-  "Attendance across all twelve classes is tracked",
-  "Your personal development growth plan, and a closing 1:1 call with Roweena",
-  "Certificate of completion with 25 CPD hours",
+  "12 classes, 2 hours per class, on Saturdays",
+  "Achieve 80% passing marks on the exam",
+  "Submit your personal development growth plan",
+  "Be awarded a CERTIFICATION OF COMPLETION",
+  "Earn 25 HOURS OF CONTINUING PROFESSIONAL DEVELOPMENT (CPD)",
+  "Mark the start of the life you have always dreamed of",
 ];
 
 export const AUDIENCES = [
-  { title: "Individuals", body: "Anyone who keeps everyone else standing" },
-  { title: "Teams", body: "Departments carrying sustained pressure" },
-  { title: "Leaders", body: "Decision-makers running on empty" },
-  { title: "Campuses", body: "Students meeting pressure for the first time" },
+  {
+    title: "Corporate Leaders",
+    body: "Who carry teams, hit numbers, and have forgotten what their own baseline feels like.",
+  },
+  {
+    title: "Caregivers & Parents",
+    body: "Holding the emotional weight of a household while quietly running on empty.",
+  },
+  {
+    title: "High Performers",
+    body: "Who want the science of why their brain stalls under stress and what to do about it.",
+  },
+  {
+    title: "Anyone at a Crossroad",
+    body: "Recovering from burnout, illness or a major shift, ready to rebuild intentionally.",
+  },
 ];
-
-export const SPEAKER = {
-  intro:
-    "A personal resilience story told without gloss, the brain explained in language nobody has to pretend to follow, and an activity that turns a listening room into a participating one.",
-  inPerson: {
-    label: "In person · 2 hours",
-    rows: [
-      { name: "Speaker assignment", value: "60 min" },
-      { name: "Activity", value: "30 min" },
-      { name: "Q&A", value: "15–30 min" },
-    ],
-  },
-  online: {
-    label: "Online · 1 hour",
-    body: [
-      "The speaker assignment, delivered live to a distributed audience. Same story, same brain science, built for a screen and a chat window rather than a stage.",
-      "Runs comfortably for large internal audiences across time zones.",
-    ],
-  },
-  walkThrough: [
-    "A personal resilience story",
-    "Brain intro, in simple language",
-    "Brain train vs brain drain",
-    "Brain health vs mental health",
-    "Building real confidence",
-    "Thoughts leading to behaviours",
-  ],
-  fits: [
-    {
-      title: "Conferences & summits",
-      body: "An opening that resets how the rest of the day talks about pressure.",
-    },
-    {
-      title: "Corporate wellness days",
-      body: "Substance instead of a fruit basket and a poster campaign.",
-    },
-    {
-      title: "Colleges & campuses",
-      body: "Vocabulary for pressure, before it becomes a pattern.",
-    },
-  ],
-};
-
-export const VISION_BOARD = {
-  intro:
-    "Most vision boards are decoration. This one is built the other way round. The neuroscience of why goals stick comes first, and the board is what the brain does with it afterwards.",
-  inPerson: {
-    label: "In person · 2–3 hours",
-    rows: [
-      { name: "Process & framework", value: "30 min" },
-      { name: "Activity", value: "90 min" },
-      { name: "Group size", value: "Up to 20 pax" },
-    ],
-    note: "Vision Board Kit provided. Requires floor or table space for the activity.",
-  },
-  online: {
-    label: "Online · 1 hour",
-    body: [
-      "The full process and framework delivered live, with participants building their boards at home alongside the session.",
-      "Vision Board Kits to be purchased in advance by the client so every participant starts with the same materials.",
-    ],
-  },
-  pillars: [
-    {
-      title: "Neuroscience unlocked",
-      body: "Why the brain treats a seen goal differently from a stated one.",
-    },
-    {
-      title: "Goal setting",
-      body: "Goals framed so they survive contact with an ordinary week.",
-    },
-    {
-      title: "The kit",
-      body: "Everything needed to build a board that leaves the room with them.",
-    },
-  ],
-  checkIns: {
-    title: "Quarterly or monthly check-ins",
-    body: "A board does its work over months, not hours. Optional scheduled check-ins keep the goals live and the momentum honest. Available at additional cost for groups and individuals.",
-  },
-};
 
 export const GLANCE = [
   {
-    offering: "Resilience Speaker + Activity",
-    inPerson: "2 hours",
-    inPersonNote: "Speaker 60 min · Activity 30 min · Q&A 15–30 min",
-    online: "1 hour",
-    onlineNote: "Speaker assignment, delivered live",
+    offering: "Resilience Speaker",
+    inPerson: "Corporate Sessions",
+    inPersonNote: "Speaker Assignments on Brain Health",
+    online: "Corporate Sessions",
+    onlineNote: "Speaker Assignments on Brain Health",
   },
   {
-    offering: "11 Steps to You Programme",
+    offering: "11 Steps to U Program",
     inPerson: "12 classes · 2 hrs each",
-    inPersonNote: "Certified · 25 CPD hours",
+    inPersonNote: "Certified · 25 CPD Hours",
     online: "12 classes · 2 hrs each",
-    onlineNote: "Certified · 25 CPD hours",
+    onlineNote: "Certified · 25 CPD Hours",
   },
   {
-    offering: "Vision Board Workshop",
-    inPerson: "2–3 hours",
-    inPersonNote: "Up to 20 pax · Kit provided · Activity space required",
-    online: "1 hour",
-    onlineNote: "Kits purchased in advance by client",
-  },
-  {
-    offering: "Corporate Workshop",
-    inPerson: "1 day",
-    inPersonNote: "Certificate of participation",
-    online: "1 day",
-    onlineNote: "Certificate of participation",
+    offering: "Vision Board",
+    inPerson: "Kit & Workshop",
+    inPersonNote: "Neuroscience & lived experience",
+    online: "Kit & Workshop",
+    onlineNote: "Neuroscience & lived experience",
   },
 ];
 
@@ -548,3 +415,4 @@ export const STAGES = [
   { name: "AccessAbilities Expo", file: "accessabilities-expo" },
   { name: "Forbes Healthcare Leaders Summit", file: "forbes-healthcare-leaders" },
 ];
+

@@ -5,9 +5,9 @@ import Reveal from "./Reveal";
 import { isLocalImage } from "@/lib/siteContent";
 
 const FACTS = [
-  { value: "18", label: "Yrs corporate" },
-  { value: "02", label: "Countries licensed" },
-  { value: "25", label: "CPD hours" },
+  { value: "25", label: "CPD Hours" },
+  { value: "12", label: "Classes" },
+  { value: "11", label: "Steps to U" },
 ];
 
 /** Short facilitator intro for the landing page; the full story lives on /about. */
@@ -20,9 +20,9 @@ export default function AboutTeaser({ image }: { image: string }) {
             Roweena Britto
           </h2>
           <p className="mt-5 max-w-xl leading-relaxed text-cream/70 md:text-lg">
-            Brain Health Coach, licensed in the UAE and India, after eighteen
-            years in the corporate world running projects for multinationals
-            like PepsiCo and DHL.
+            I have been where you are! Through my struggles with bipolar
+            management, I found the path to becoming a Brain Health Coach,
+            guiding others towards healing and fulfillment.
           </p>
 
           <dl className="mt-8 flex max-w-md divide-x divide-cream/15">
@@ -45,7 +45,7 @@ export default function AboutTeaser({ image }: { image: string }) {
             href="/about"
             className="group mt-9 inline-flex items-center gap-2 rounded-full bg-gold px-6 py-3.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-cream"
           >
-            About Roweena
+            About Me
             <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
           </Link>
         </div>

@@ -1,4 +1,12 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+} from 'class-validator';
 
 export class SignAgreementDto {
   @IsUUID()
@@ -9,17 +17,51 @@ export class SignAgreementDto {
   @IsUUID()
   versionId?: string;
 
+  @IsOptional()
   @IsBoolean()
-  @IsNotEmpty()
-  consentGiven!: boolean;
+  consentGiven?: boolean;
 
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(2)
-  typedName!: string;
+  @IsOptional()
+  @IsBoolean()
+  consentAccepted?: boolean;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MinLength(5)
-  drawnSignature!: string;
+  typedName?: string;
+
+  @IsOptional()
+  @IsString()
+  signerName?: string;
+
+  @IsOptional()
+  @IsString()
+  drawnSignature?: string;
+
+  @IsOptional()
+  @IsString()
+  signatureImage?: string;
+
+  @IsOptional()
+  @IsString()
+  signatureData?: string;
+
+  @IsOptional()
+  @IsIn(['DRAWN', 'UPLOADED'])
+  signatureType?: 'DRAWN' | 'UPLOADED';
+
+  @IsOptional()
+  @IsString()
+  consentVersion?: string;
+
+  @IsOptional()
+  @IsString()
+  consentTimestamp?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  useSavedSignature?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  updateProfileSignature?: boolean;
 }

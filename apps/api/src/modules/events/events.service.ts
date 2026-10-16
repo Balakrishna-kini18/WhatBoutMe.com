@@ -1,14 +1,15 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
-  EventRegistrationStatus,
-  EventStatus,
-  EventType,
-  ParticipantCategory,
+  CurrencyCode,
+  Event,
+  EventLocationType,
+  EventPaymentStatus,
+  EventRegistration,
   Prisma,
 } from '@prisma/client';
 import { v2 as cloudinary } from 'cloudinary';
@@ -20,46 +21,32 @@ import {
   ListEventsQueryDto,
 } from './dto/list-events-query.dto.js';
 import {
+  CheckoutEventDto,
   CreateEventDto,
-  RegisterEventDto,
   UpdateEventDto,
-  UpdateEventStatusDto,
+  VerifyEventPaymentDto,
 } from './dto/event.dto.js';
-import {
-  eventTypeLabel,
-  mapEvent,
-  mapRegistration,
-  PARTICIPANT_CATEGORY_LABELS,
-} from './event.mapper.js';
+import { mapEvent, mapRegistration } from './event.mapper.js';
 
 type RequestMeta = {
   ipAddress?: string;
   userAgent?: string;
 };
 
-const confirmedRegistrationWhere = {
-  status: EventRegistrationStatus.CONFIRMED,
-};
-
-const eventInclude = {
-  _count: {
-    select: {
-      registrations: {
-        where: confirmedRegistrationWhere,
-      },
-    },
-  },
-  createdBy: {
-    select: {
-      id: true,
-      name: true,
-      email: true,
-    },
-  },
-};
+function generateSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
 
 @Injectable()
 export class EventsService {
+  private readonly logger = new Logger(EventsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditLogService,
@@ -77,7 +64,7 @@ export class EventsService {
       throw new BadRequestException('Image file is required');
     }
 
-    return new Promise<{ coverImageUrl: string; publicId: string }>((resolve, reject) => {
+    return new Promise<{ coverImageUrl: string; bannerUrl: string; publicId: string }>((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           folder: 'whatboutme_events',
@@ -89,6 +76,7 @@ export class EventsService {
           }
           resolve({
             coverImageUrl: result.secure_url,
+            bannerUrl: result.secure_url,
             publicId: result.public_id,
           });
         },
@@ -97,554 +85,687 @@ export class EventsService {
     });
   }
 
-  listForPublic(query: ListEventsQueryDto, userId?: string) {
-    return this.listEvents(query, {
-      excludeStatuses: [EventStatus.CANCELLED],
-      userId,
-    });
-  }
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PUBLIC QUERIES & REGISTRATIONS
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  async getForPublic(eventId: string, userId?: string) {
-    const event = await this.prisma.event.findFirst({
-      where: {
-        id: eventId,
-        status: { not: EventStatus.CANCELLED },
-      },
-      include: eventInclude,
-    });
-
-    if (!event) {
-      throw new NotFoundException('Event not found');
-    }
-
-    let registeredByMe = false;
-    if (userId) {
-      const registered = await this.prisma.eventRegistration.findFirst({
-        where: {
-          eventId,
-          userId,
-          status: EventRegistrationStatus.CONFIRMED,
-        },
-        select: { id: true },
-      });
-      registeredByMe = Boolean(registered);
-    }
-
-    return mapEvent(event, { registeredByMe });
-  }
-
-  async register(eventId: string, userId: string | null, dto: RegisterEventDto) {
-    const event = await this.prisma.event.findUnique({
-      where: { id: eventId },
-    });
-
-    if (!event) {
-      throw new NotFoundException('Event not found');
-    }
-
-    if (event.status !== EventStatus.REGISTRATION_OPEN) {
-      throw new BadRequestException('Registration is not currently open for this event');
-    }
-
-    this.assertRegistrationCloses(event);
-
-    if (dto.category === ParticipantCategory.OTHER && !dto.categoryOther?.trim()) {
-      throw new BadRequestException('Please specify your category when selecting Other');
-    }
-
-    if (event.maxRegistrations) {
-      const count = await this.prisma.eventRegistration.count({
-        where: { eventId, ...confirmedRegistrationWhere },
-      });
-      if (count >= event.maxRegistrations) {
-        throw new BadRequestException('Registration capacity has been reached for this event');
-      }
-    }
-
-    const email = dto.email.trim().toLowerCase();
-    const registrationData = {
-      fullName: dto.fullName.trim(),
-      email,
-      phone: dto.phone.trim(),
-      category: dto.category,
-      categoryOther:
-        dto.category === ParticipantCategory.OTHER ? dto.categoryOther?.trim() : null,
-      organization: dto.organization?.trim() || null,
-      city: dto.city?.trim() || null,
+  async listForPublic(query: ListEventsQueryDto, userId?: string) {
+    const where: Prisma.EventWhereInput = {
+      isPublished: true,
+      ...(query.locationType ? { locationType: query.locationType } : {}),
+      ...(query.upcoming
+        ? { startDateTime: { gte: new Date() } }
+        : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { title: { contains: query.search, mode: 'insensitive' } },
+              { description: { contains: query.search, mode: 'insensitive' } },
+              { venueName: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
 
-    // Check by (eventId, email) or (eventId, userId)
-    const existing = await this.prisma.eventRegistration.findFirst({
-      where: {
-        eventId,
-        OR: [
-          { email },
-          ...(userId ? [{ userId }] : []),
-        ],
-      },
-    });
+    const take = query.limit || 20;
+    const skip = ((query.page || 1) - 1) * take;
 
-    if (existing?.status === EventRegistrationStatus.CONFIRMED) {
-      throw new ConflictException('You are already registered for this event');
-    }
-
-    const registration = existing
-      ? await this.prisma.eventRegistration.update({
-          where: { id: existing.id },
-          data: {
-            ...registrationData,
-            userId: userId || existing.userId,
-            status: EventRegistrationStatus.CONFIRMED,
-            rejectedAt: null,
-            rejectedById: null,
-            rejectionReason: null,
-          },
-          include: { event: true },
-        })
-      : await this.prisma.eventRegistration.create({
-          data: {
-            eventId,
-            userId,
-            status: EventRegistrationStatus.CONFIRMED,
-            ...registrationData,
-          },
-          include: { event: true },
-        });
-
-    if (userId) {
-      await this.prisma.notification
-        .create({
-          data: {
-            userId,
-            type: 'EVENT_REGISTRATION_CONFIRMED',
-            template: `Your registration for "${event.title}" is confirmed.`,
-          },
-        })
-        .catch(() => {});
-    }
-
-    await this.sendRegistrationEmail(registration.event, registration);
-
-    return mapRegistration(registration);
-  }
-
-  async listMyRegistrations(userId: string) {
-    const items = await this.prisma.eventRegistration.findMany({
-      where: {
-        userId,
-        event: { status: { not: EventStatus.CANCELLED } },
-      },
-      include: {
-        event: { include: eventInclude },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return items.map((item) => ({
-      ...mapRegistration(item),
-      event: mapEvent(item.event, { registeredByMe: true }),
-    }));
-  }
-
-  listCategories() {
-    return Object.entries(PARTICIPANT_CATEGORY_LABELS).map(([value, label]) => ({
-      value,
-      label,
-    }));
-  }
-
-  // ---------------------------------------------------------------------------
-  // Admin Methods
-  // ---------------------------------------------------------------------------
-
-  listForAdmin(query: AdminListEventsQueryDto) {
-    return this.listEvents(query, {
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async getForAdmin(eventId: string) {
-    const event = await this.findEventOrThrow(eventId);
-    return mapEvent(event);
-  }
-
-  async createForAdmin(adminId: string, dto: CreateEventDto, meta?: RequestMeta) {
-    this.assertValidSchedule(dto.startAt, dto.endAt);
-
-    const now = new Date();
-    let status = dto.status;
-    if (!status) {
-      if (dto.registrationOpensAt && new Date(dto.registrationOpensAt) > now) {
-        status = EventStatus.SCHEDULED;
-      } else {
-        status = EventStatus.REGISTRATION_OPEN;
-      }
-    }
-
-    const event = await this.prisma.event.create({
-      data: {
-        type: dto.type,
-        title: dto.title.trim(),
-        description: dto.description.trim(),
-        status,
-        startAt: new Date(dto.startAt),
-        endAt: new Date(dto.endAt),
-        location: dto.location?.trim() || null,
-        meetingLink: dto.meetingLink?.trim() || null,
-        coverImageUrl: dto.coverImageUrl?.trim() || null,
-        maxRegistrations: dto.maxRegistrations ?? null,
-        registrationOpensAt: dto.registrationOpensAt
-          ? new Date(dto.registrationOpensAt)
-          : null,
-        registrationClosesAt: dto.registrationClosesAt
-          ? new Date(dto.registrationClosesAt)
-          : null,
-        createdById: adminId,
-      },
-      include: eventInclude,
-    });
-
-    await this.auditService.log(this.prisma, {
-      actorId: adminId,
-      action: 'EVENT_CREATED',
-      entityType: 'Event',
-      entityId: event.id,
-      metadata: { type: event.type, title: event.title, status: event.status },
-    });
-
-    return mapEvent(event);
-  }
-
-  async updateForAdmin(adminId: string, eventId: string, dto: UpdateEventDto, meta?: RequestMeta) {
-    const existing = await this.findEventOrThrow(eventId);
-
-    if (dto.startAt || dto.endAt) {
-      this.assertValidSchedule(
-        dto.startAt ?? existing.startAt.toISOString(),
-        dto.endAt ?? existing.endAt.toISOString(),
-      );
-    }
-
-    const event = await this.prisma.event.update({
-      where: { id: eventId },
-      data: {
-        ...(dto.type !== undefined ? { type: dto.type } : {}),
-        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-        ...(dto.description !== undefined ? { description: dto.description.trim() } : {}),
-        ...(dto.startAt !== undefined ? { startAt: new Date(dto.startAt) } : {}),
-        ...(dto.endAt !== undefined ? { endAt: new Date(dto.endAt) } : {}),
-        ...(dto.location !== undefined ? { location: dto.location.trim() || null } : {}),
-        ...(dto.meetingLink !== undefined ? { meetingLink: dto.meetingLink.trim() || null } : {}),
-        ...(dto.coverImageUrl !== undefined ? { coverImageUrl: dto.coverImageUrl.trim() || null } : {}),
-        ...(dto.maxRegistrations !== undefined ? { maxRegistrations: dto.maxRegistrations } : {}),
-        ...(dto.registrationOpensAt !== undefined
-          ? {
-              registrationOpensAt: dto.registrationOpensAt
-                ? new Date(dto.registrationOpensAt)
-                : null,
-            }
-          : {}),
-        ...(dto.registrationClosesAt !== undefined
-          ? {
-              registrationClosesAt: dto.registrationClosesAt
-                ? new Date(dto.registrationClosesAt)
-                : null,
-            }
-          : {}),
-      },
-      include: eventInclude,
-    });
-
-    await this.auditService.log(this.prisma, {
-      actorId: adminId,
-      action: 'EVENT_UPDATED',
-      entityType: 'Event',
-      entityId: eventId,
-      metadata: { title: event.title, type: event.type },
-    });
-
-    return mapEvent(event);
-  }
-
-  async updateStatusForAdmin(
-    adminId: string,
-    eventId: string,
-    dto: UpdateEventStatusDto,
-    meta?: RequestMeta,
-  ) {
-    const existing = await this.findEventOrThrow(eventId);
-    const now = new Date();
-
-    const statusData: {
-      status: EventStatus;
-      registrationOpensAt?: Date;
-    } = { status: dto.status };
-
-    if (dto.status === EventStatus.REGISTRATION_OPEN) {
-      if (!existing.registrationOpensAt || existing.registrationOpensAt > now) {
-        statusData.registrationOpensAt = now;
-      }
-    }
-
-    const event = await this.prisma.event.update({
-      where: { id: eventId },
-      data: statusData,
-      include: eventInclude,
-    });
-
-    await this.auditService.log(this.prisma, {
-      actorId: adminId,
-      action: 'EVENT_STATUS_UPDATED',
-      entityType: 'Event',
-      entityId: eventId,
-      metadata: { oldStatus: existing.status, newStatus: event.status },
-    });
-
-    return mapEvent(event);
-  }
-
-  async deleteForAdmin(adminId: string, eventId: string) {
-    await this.findEventOrThrow(eventId);
-
-    await this.prisma.event.delete({
-      where: { id: eventId },
-    });
-
-    await this.auditService.log(this.prisma, {
-      actorId: adminId,
-      action: 'EVENT_DELETED',
-      entityType: 'Event',
-      entityId: eventId,
-    });
-
-    return { success: true, message: 'Event deleted successfully' };
-  }
-
-  async listRegistrationsForAdmin(eventId: string) {
-    await this.findEventOrThrow(eventId);
-
-    const registrations = await this.prisma.eventRegistration.findMany({
-      where: { eventId },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return registrations.map(mapRegistration);
-  }
-
-  async rejectRegistrationForAdmin(
-    adminId: string,
-    eventId: string,
-    registrationId: string,
-    reason?: string,
-    meta?: RequestMeta,
-  ) {
-    await this.findEventOrThrow(eventId);
-
-    const registration = await this.prisma.eventRegistration.findFirst({
-      where: { id: registrationId, eventId },
-      include: { event: true },
-    });
-
-    if (!registration) {
-      throw new NotFoundException('Registration not found');
-    }
-
-    if (registration.status === EventRegistrationStatus.REJECTED) {
-      return mapRegistration(registration);
-    }
-
-    const updated = await this.prisma.eventRegistration.update({
-      where: { id: registrationId },
-      data: {
-        status: EventRegistrationStatus.REJECTED,
-        rejectedAt: new Date(),
-        rejectedById: adminId,
-        rejectionReason: reason?.trim() || null,
-      },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    if (registration.userId) {
-      await this.prisma.notification
-        .create({
-          data: {
-            userId: registration.userId,
-            type: 'EVENT_REGISTRATION_REJECTED',
-            template: `Your registration for "${registration.event.title}" was declined. ${reason ? `Reason: ${reason}` : ''}`,
-          },
-        })
-        .catch(() => {});
-    }
-
-    await this.auditService.log(this.prisma, {
-      actorId: adminId,
-      action: 'EVENT_REGISTRATION_REJECTED',
-      entityType: 'EventRegistration',
-      entityId: registrationId,
-      reason,
-      metadata: { eventId, email: updated.email },
-    });
-
-    return mapRegistration(updated);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helper Private Methods
-  // ---------------------------------------------------------------------------
-
-  private async listEvents(
-    query: ListEventsQueryDto,
-    options?: {
-      excludeStatuses?: EventStatus[];
-      userId?: string;
-      orderBy?: Prisma.EventOrderByWithRelationInput;
-    },
-  ) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-    const skip = (page - 1) * limit;
-
-    const where = {
-      ...(query.type ? { type: query.type } : {}),
-      ...(query.status
-        ? { status: query.status }
-        : options?.excludeStatuses
-          ? { status: { notIn: options.excludeStatuses } }
-          : {}),
-    };
-
-    const [total, events] = await this.prisma.$transaction([
-      this.prisma.event.count({ where }),
+    const [events, total] = await Promise.all([
       this.prisma.event.findMany({
         where,
-        include: eventInclude,
-        orderBy: options?.orderBy ?? { startAt: 'desc' },
+        orderBy: { startDateTime: 'asc' },
         skip,
-        take: limit,
+        take,
+        include: {
+          _count: {
+            select: {
+              registrations: { where: { paymentStatus: EventPaymentStatus.PAID } },
+            },
+          },
+        },
       }),
+      this.prisma.event.count({ where }),
     ]);
 
-    let registeredIds = new Set<string>();
-    if (options?.userId && events.length > 0) {
-      const registrations = await this.prisma.eventRegistration.findMany({
-        where: {
-          userId: options.userId,
-          eventId: { in: events.map((e) => e.id) },
-          status: EventRegistrationStatus.CONFIRMED,
-        },
+    // Check user registrations if logged in
+    let myRegisteredEventIds = new Set<string>();
+    if (userId) {
+      const myRegs = await this.prisma.eventRegistration.findMany({
+        where: { userId, paymentStatus: EventPaymentStatus.PAID },
         select: { eventId: true },
       });
-      registeredIds = new Set(registrations.map((r) => r.eventId));
+      myRegisteredEventIds = new Set(myRegs.map((r) => r.eventId));
     }
 
     return {
-      items: events.map((event) =>
-        mapEvent(event, { registeredByMe: registeredIds.has(event.id) }),
+      items: events.map((evt) =>
+        mapEvent(evt, {
+          isStaff: false,
+          registeredByMe: myRegisteredEventIds.has(evt.id),
+        }),
       ),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      total,
+      page: query.page || 1,
+      limit: take,
+      totalPages: Math.ceil(total / take) || 1,
     };
   }
 
-  private async findEventOrThrow(eventId: string) {
+  async getForPublic(idOrSlug: string, userId?: string) {
+    const event = await this.prisma.event.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+        isPublished: true,
+      },
+      include: {
+        _count: {
+          select: {
+            registrations: { where: { paymentStatus: EventPaymentStatus.PAID } },
+          },
+        },
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Event not found or not published');
+    }
+
+    let registeredByMe = false;
+    let showSecretLink = false;
+
+    if (userId) {
+      const reg = await this.prisma.eventRegistration.findFirst({
+        where: {
+          eventId: event.id,
+          userId,
+          paymentStatus: EventPaymentStatus.PAID,
+        },
+      });
+      if (reg) {
+        registeredByMe = true;
+        showSecretLink = true;
+      }
+    }
+
+    return mapEvent(event, { isStaff: false, registeredByMe, showSecretLink });
+  }
+
+  async checkout(idOrSlug: string, dto: CheckoutEventDto, userId?: string) {
+    const event = await this.prisma.event.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+        isPublished: true,
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Event not found or registration is currently closed');
+    }
+
+    if (event.seatLimit !== null && event.seatsBooked >= event.seatLimit) {
+      throw new BadRequestException('Sorry, this event is completely sold out');
+    }
+
+    const attendeeName = (dto.attendeeName || dto.fullName || '').trim();
+    const attendeeEmail = (dto.attendeeEmail || dto.email || '').trim().toLowerCase();
+    const attendeePhone = (dto.attendeePhone || dto.phone || '').trim();
+
+    if (!attendeeName) {
+      throw new BadRequestException('Attendee name is required');
+    }
+    if (!attendeeEmail) {
+      throw new BadRequestException('Attendee email is required');
+    }
+    if (!attendeePhone) {
+      throw new BadRequestException('Attendee phone is required');
+    }
+
+    const priceNum = Number(event.price);
+
+    // Free RSVP flow
+    if (priceNum === 0) {
+      const registration = await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.eventRegistration.findFirst({
+          where: {
+            eventId: event.id,
+            attendeeEmail,
+            paymentStatus: EventPaymentStatus.PAID,
+          },
+        });
+        if (existing) {
+          return existing;
+        }
+
+        const reg = await tx.eventRegistration.create({
+          data: {
+            eventId: event.id,
+            userId: userId || null,
+            attendeeName,
+            attendeeEmail,
+            attendeePhone,
+            amount: new Prisma.Decimal(0),
+            currency: event.currency,
+            paymentGateway: 'FREE',
+            gatewayOrderId: `free_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
+            gatewayPaymentId: `free_pay_${Date.now()}`,
+            paymentStatus: EventPaymentStatus.PAID,
+            emailSent: false,
+          },
+        });
+
+        await tx.event.update({
+          where: { id: event.id },
+          data: { seatsBooked: { increment: 1 } },
+        });
+
+        return reg;
+      });
+
+      await this.sendEventConfirmationEmail(event, registration);
+
+      return {
+        success: true,
+        registrationId: registration.id,
+        status: EventPaymentStatus.PAID,
+        isFree: true,
+        meetingLink: event.locationType === EventLocationType.ONLINE ? event.meetingLink : null,
+        venueName: event.venueName,
+        venueAddress: event.venueAddress,
+      };
+    }
+
+    // Paid Event flow: create PENDING registration
+    const orderId = `sim_ord_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const registration = await this.prisma.eventRegistration.create({
+      data: {
+        eventId: event.id,
+        userId: userId || null,
+        attendeeName,
+        attendeeEmail,
+        attendeePhone,
+        amount: event.price,
+        currency: event.currency,
+        paymentGateway: 'SIMULATION',
+        gatewayOrderId: orderId,
+        paymentStatus: EventPaymentStatus.PENDING,
+        emailSent: false,
+      },
+    });
+
+    return {
+      success: true,
+      registrationId: registration.id,
+      orderId,
+      amount: priceNum,
+      currency: event.currency,
+      status: EventPaymentStatus.PENDING,
+      simulation: true,
+      event: mapEvent(event, { isStaff: false }),
+    };
+  }
+
+  async verifyPayment(dto: VerifyEventPaymentDto) {
+    const reg = await this.prisma.eventRegistration.findUnique({
+      where: { id: dto.registrationId },
+      include: { event: true },
+    });
+
+    if (!reg) {
+      throw new NotFoundException('Registration record not found');
+    }
+
+    if (reg.paymentStatus === EventPaymentStatus.PAID) {
+      return {
+        success: true,
+        alreadyConfirmed: true,
+        registrationId: reg.id,
+        status: EventPaymentStatus.PAID,
+        meetingLink: reg.event.locationType === EventLocationType.ONLINE ? reg.event.meetingLink : null,
+        venueName: reg.event.venueName,
+        venueAddress: reg.event.venueAddress,
+      };
+    }
+
+    const paymentId = dto.gatewayPaymentId || `sim_pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.eventRegistration.update({
+        where: { id: reg.id },
+        data: {
+          paymentStatus: EventPaymentStatus.PAID,
+          gatewayPaymentId: paymentId,
+          gatewayOrderId: dto.gatewayOrderId || reg.gatewayOrderId,
+        },
+      });
+
+      await tx.event.update({
+        where: { id: reg.eventId },
+        data: { seatsBooked: { increment: 1 } },
+      });
+    });
+
+    const updatedReg = await this.prisma.eventRegistration.findUnique({
+      where: { id: reg.id },
+      include: { event: true },
+    });
+
+    if (updatedReg && !updatedReg.emailSent) {
+      await this.sendEventConfirmationEmail(updatedReg.event, updatedReg);
+    }
+
+    return {
+      success: true,
+      registrationId: reg.id,
+      status: EventPaymentStatus.PAID,
+      meetingLink: reg.event.locationType === EventLocationType.ONLINE ? reg.event.meetingLink : null,
+      venueName: reg.event.venueName,
+      venueAddress: reg.event.venueAddress,
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ADMIN QUERIES & MUTATIONS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async listForAdmin(query: AdminListEventsQueryDto) {
+    const where: Prisma.EventWhereInput = {
+      ...(query.locationType ? { locationType: query.locationType } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { title: { contains: query.search, mode: 'insensitive' } },
+              { description: { contains: query.search, mode: 'insensitive' } },
+              { venueName: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const take = query.limit || 100;
+    const skip = ((query.page || 1) - 1) * take;
+
+    const [events, total] = await Promise.all([
+      this.prisma.event.findMany({
+        where,
+        orderBy: { startDateTime: 'desc' },
+        skip,
+        take,
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+          _count: {
+            select: {
+              registrations: { where: { paymentStatus: EventPaymentStatus.PAID } },
+            },
+          },
+        },
+      }),
+      this.prisma.event.count({ where }),
+    ]);
+
+    return {
+      items: events.map((evt) => mapEvent(evt, { isStaff: true })),
+      total,
+      page: query.page || 1,
+      limit: take,
+    };
+  }
+
+  async getForAdmin(id: string) {
     const event = await this.prisma.event.findUnique({
-      where: { id: eventId },
-      include: eventInclude,
+      where: { id },
+      include: {
+        createdBy: { select: { id: true, name: true, email: true } },
+        _count: {
+          select: {
+            registrations: { where: { paymentStatus: EventPaymentStatus.PAID } },
+          },
+        },
+      },
     });
 
     if (!event) {
       throw new NotFoundException('Event not found');
     }
 
-    return event;
+    return mapEvent(event, { isStaff: true });
   }
 
-  private assertValidSchedule(startAt: string, endAt: string) {
-    const start = new Date(startAt);
-    const end = new Date(endAt);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      throw new BadRequestException('Invalid schedule dates');
+  async createForAdmin(adminId: string, dto: CreateEventDto, meta?: RequestMeta) {
+    const locationType = dto.locationType || EventLocationType.ONLINE;
+
+    // Strict validation of Online vs Physical
+    if (locationType === EventLocationType.ONLINE) {
+      if (!dto.meetingLink || !dto.meetingLink.trim()) {
+        throw new BadRequestException('Online events require a valid Meeting Link (Zoom, Google Meet, etc.)');
+      }
+    } else if (locationType === EventLocationType.PHYSICAL) {
+      if (!dto.venueName?.trim() || !dto.venueAddress?.trim()) {
+        throw new BadRequestException('Physical in-person events require Venue / Hall Name and Full Physical Address');
+      }
     }
-    if (end <= start) {
-      throw new BadRequestException('End time must be after start time');
+
+    const startDateTime = new Date(dto.startDateTime || dto.startAt!);
+    if (isNaN(startDateTime.getTime())) {
+      throw new BadRequestException('Invalid start date and time');
     }
+
+    let endDateTime: Date | null = null;
+    if (dto.endDateTime || dto.endAt) {
+      endDateTime = new Date(dto.endDateTime || dto.endAt!);
+      if (isNaN(endDateTime.getTime())) {
+        throw new BadRequestException('Invalid end date and time');
+      }
+      if (endDateTime < startDateTime) {
+        throw new BadRequestException('End date and time cannot be before start date and time');
+      }
+    }
+
+    let slug = generateSlug(dto.title);
+    if (!slug) slug = 'event-' + Date.now();
+    const existingSlug = await this.prisma.event.findUnique({ where: { slug } });
+    if (existingSlug) {
+      slug = `${slug}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    const price = new Prisma.Decimal(Math.max(0, Number(dto.price || 0)));
+    const currency = dto.currency || CurrencyCode.USD;
+    const seatLimit =
+      dto.seatLimit !== undefined
+        ? dto.seatLimit
+        : dto.maxRegistrations !== undefined
+        ? dto.maxRegistrations
+        : null;
+
+    const event = await this.prisma.event.create({
+      data: {
+        title: dto.title.trim(),
+        slug,
+        description: dto.description.trim(),
+        bannerUrl: dto.bannerUrl || dto.coverImageUrl || null,
+        startDateTime,
+        endDateTime,
+        timezone: dto.timezone || 'UTC',
+        locationType,
+        meetingLink: locationType === EventLocationType.ONLINE ? dto.meetingLink?.trim() || null : null,
+        venueName: locationType === EventLocationType.PHYSICAL ? dto.venueName?.trim() || null : null,
+        venueAddress: locationType === EventLocationType.PHYSICAL ? dto.venueAddress?.trim() || null : null,
+        price,
+        currency,
+        seatLimit,
+        isPublished: dto.isPublished !== undefined ? dto.isPublished : true,
+        createdById: adminId !== 'system' ? adminId : null,
+      },
+    });
+
+    await this.auditService.log(this.prisma, {
+      actorId: adminId,
+      action: 'EVENT_CREATE',
+      entityType: 'Event',
+      entityId: event.id,
+      metadata: { title: event.title, slug: event.slug, locationType, price: Number(price), currency, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent },
+    }).catch(() => {});
+
+    return mapEvent(event, { isStaff: true });
   }
 
-  private assertRegistrationCloses(event: {
-    registrationClosesAt: Date | null;
-    endAt: Date;
-  }) {
-    const now = new Date();
-    if (event.registrationClosesAt && now > event.registrationClosesAt) {
-      throw new BadRequestException('Registration has closed for this event');
+  async updateForAdmin(adminId: string, id: string, dto: UpdateEventDto, meta?: RequestMeta) {
+    const existing = await this.prisma.event.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Event not found');
     }
-    if (now > event.endAt) {
-      throw new BadRequestException('This event has already concluded');
+
+    const locationType = dto.locationType || existing.locationType;
+
+    if (locationType === EventLocationType.ONLINE) {
+      const meetingLink = dto.meetingLink !== undefined ? dto.meetingLink : existing.meetingLink;
+      if (!meetingLink || !meetingLink.trim()) {
+        throw new BadRequestException('Online events require a valid Meeting Link (Zoom, Google Meet, etc.)');
+      }
+    } else if (locationType === EventLocationType.PHYSICAL) {
+      const venueName = dto.venueName !== undefined ? dto.venueName : existing.venueName;
+      const venueAddress = dto.venueAddress !== undefined ? dto.venueAddress : existing.venueAddress;
+      if (!venueName?.trim() || !venueAddress?.trim()) {
+        throw new BadRequestException('Physical in-person events require Venue / Hall Name and Full Physical Address');
+      }
     }
+
+    let startDateTime = existing.startDateTime;
+    if (dto.startDateTime || dto.startAt) {
+      startDateTime = new Date(dto.startDateTime || dto.startAt!);
+      if (isNaN(startDateTime.getTime())) {
+        throw new BadRequestException('Invalid start date and time');
+      }
+    }
+
+    let endDateTime = existing.endDateTime;
+    if (dto.endDateTime !== undefined || dto.endAt !== undefined) {
+      const rawEnd = dto.endDateTime || dto.endAt;
+      endDateTime = rawEnd ? new Date(rawEnd) : null;
+      if (endDateTime && (isNaN(endDateTime.getTime()) || endDateTime < startDateTime)) {
+        throw new BadRequestException('End date and time must be valid and after start date and time');
+      }
+    }
+
+    const seatLimit =
+      dto.seatLimit !== undefined
+        ? dto.seatLimit
+        : dto.maxRegistrations !== undefined
+        ? dto.maxRegistrations
+        : existing.seatLimit;
+
+    const event = await this.prisma.event.update({
+      where: { id },
+      data: {
+        title: dto.title !== undefined ? dto.title.trim() : undefined,
+        description: dto.description !== undefined ? dto.description.trim() : undefined,
+        bannerUrl: dto.bannerUrl !== undefined ? dto.bannerUrl : dto.coverImageUrl !== undefined ? dto.coverImageUrl : undefined,
+        startDateTime,
+        endDateTime,
+        timezone: dto.timezone !== undefined ? dto.timezone : undefined,
+        locationType,
+        meetingLink:
+          locationType === EventLocationType.ONLINE
+            ? dto.meetingLink !== undefined ? dto.meetingLink?.trim() || null : existing.meetingLink
+            : null,
+        venueName:
+          locationType === EventLocationType.PHYSICAL
+            ? dto.venueName !== undefined ? dto.venueName?.trim() || null : existing.venueName
+            : null,
+        venueAddress:
+          locationType === EventLocationType.PHYSICAL
+            ? dto.venueAddress !== undefined ? dto.venueAddress?.trim() || null : existing.venueAddress
+            : null,
+        price: dto.price !== undefined ? new Prisma.Decimal(Math.max(0, Number(dto.price))) : undefined,
+        currency: dto.currency || undefined,
+        seatLimit,
+        isPublished: dto.isPublished !== undefined ? dto.isPublished : undefined,
+      },
+    });
+
+    await this.auditService.log(this.prisma, {
+      actorId: adminId,
+      action: 'EVENT_UPDATE',
+      entityType: 'Event',
+      entityId: event.id,
+      metadata: { title: event.title, locationType, price: Number(event.price), currency: event.currency, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent },
+    }).catch(() => {});
+
+    return mapEvent(event, { isStaff: true });
   }
 
-  private async sendRegistrationEmail(
-    event: {
-      type: EventType;
-      title: string;
-      startAt: Date;
-      endAt: Date;
-      location: string | null;
-      meetingLink: string | null;
-    },
-    registration: {
-      fullName: string;
-      email: string;
-      category: ParticipantCategory;
-      categoryOther: string | null;
-    },
-  ) {
-    const typeLabel = eventTypeLabel(event.type);
-    const categoryLabel =
-      registration.category === ParticipantCategory.OTHER
-        ? registration.categoryOther ?? 'Other'
-        : PARTICIPANT_CATEGORY_LABELS[registration.category];
+  async removeForAdmin(adminId: string, id: string, meta?: RequestMeta) {
+    const existing = await this.prisma.event.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Event not found');
+    }
 
-    const schedule = `${event.startAt.toLocaleString()} – ${event.endAt.toLocaleString()}`;
-    const locationLine = event.location
-      ? `Location: ${event.location}`
-      : event.meetingLink
-        ? `Join link: ${event.meetingLink}`
-        : '';
+    await this.prisma.event.delete({ where: { id } });
 
-    const text = [
-      `Hi ${registration.fullName},`,
-      '',
-      `Your registration for the WhatBoutMe ${typeLabel.toLowerCase()} "${event.title}" is confirmed.`,
-      '',
-      `Schedule: ${schedule}`,
-      locationLine,
-      `Category: ${categoryLabel}`,
-      '',
-      'We look forward to seeing you there.',
-      '',
-      '— WhatBoutMe Team',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    await this.auditService.log(this.prisma, {
+      actorId: adminId,
+      action: 'EVENT_DELETE',
+      entityType: 'Event',
+      entityId: id,
+      metadata: { title: existing.title, ipAddress: meta?.ipAddress, userAgent: meta?.userAgent },
+    }).catch(() => {});
 
-    try {
-      await this.emailService.sendEmail({
-        to: registration.email,
-        subject: `Registration Confirmed: ${event.title}`,
-        text,
+    return { success: true, id };
+  }
+
+  async listRegistrationsForAdmin(eventId: string) {
+    const event = await this.prisma.event.findUnique({
+      where: { id: eventId },
+      include: {
+        registrations: {
+          orderBy: { registeredAt: 'desc' },
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const confirmed = event.registrations.filter((r) => r.paymentStatus === EventPaymentStatus.PAID);
+    const seatsRemaining =
+      event.seatLimit !== null && event.seatLimit !== undefined
+        ? Math.max(0, event.seatLimit - event.seatsBooked)
+        : null;
+
+    const revenueByCurrency: Record<string, number> = {
+      USD: 0,
+      AED: 0,
+      INR: 0,
+    };
+
+    for (const r of confirmed) {
+      const cur = r.currency || CurrencyCode.USD;
+      revenueByCurrency[cur] = (revenueByCurrency[cur] || 0) + Number(r.amount);
+    }
+
+    return {
+      event: mapEvent(event, { isStaff: true }),
+      kpis: {
+        totalConfirmed: confirmed.length,
+        totalRegistrations: event.registrations.length,
+        seatsRemaining,
+        seatLimit: event.seatLimit,
+        seatsBooked: event.seatsBooked,
+        revenueByCurrency,
+      },
+      registrations: event.registrations.map((r) => mapRegistration(r)),
+    };
+  }
+
+  async refundRegistrationForAdmin(adminId: string, eventId: string, registrationId: string, reason?: string) {
+    const reg = await this.prisma.eventRegistration.findFirst({
+      where: { id: registrationId, eventId },
+    });
+
+    if (!reg) {
+      throw new NotFoundException('Registration not found');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.eventRegistration.update({
+        where: { id: registrationId },
+        data: {
+          paymentStatus: EventPaymentStatus.REFUNDED,
+          rejectionReason: reason || 'Refunded by administrator',
+          rejectedById: adminId !== 'system' ? adminId : null,
+          rejectedAt: new Date(),
+        },
       });
-    } catch {
-      // Email failure should not block registration
+
+      if (reg.paymentStatus === EventPaymentStatus.PAID) {
+        await tx.event.update({
+          where: { id: eventId },
+          data: { seatsBooked: { decrement: 1 } },
+        });
+      }
+    });
+
+    return { success: true, registrationId, status: EventPaymentStatus.REFUNDED };
+  }
+
+  private async sendEventConfirmationEmail(event: Event, reg: EventRegistration) {
+    try {
+      const isOnline = event.locationType === EventLocationType.ONLINE;
+      const dateFormatted = new Date(event.startDateTime).toLocaleString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: event.timezone || 'UTC',
+      });
+
+      const locationHtml = isOnline
+        ? `
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <h3 style="color: #166534; margin: 0 0 8px; font-size: 16px;">🟢 Live Online Session Access</h3>
+            <p style="margin: 0 0 12px; color: #1e293b; font-size: 14px;">Your private access link to join the session:</p>
+            <a href="${event.meetingLink}" style="display: inline-block; background: #0f172a; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px;">
+              Join Meeting &rarr;
+            </a>
+            <p style="margin: 10px 0 0; font-size: 12px; color: #64748b;">Link: <a href="${event.meetingLink}" style="color: #2563eb;">${event.meetingLink}</a></p>
+          </div>
+        `
+        : `
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <h3 style="color: #0f172a; margin: 0 0 8px; font-size: 16px;">📍 In-Person Venue Information</h3>
+            <p style="margin: 0 0 4px; font-weight: bold; color: #1e293b; font-size: 15px;">${event.venueName}</p>
+            <p style="margin: 0; color: #475569; font-size: 14px;">${event.venueAddress}</p>
+          </div>
+        `;
+
+      const html = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b;">
+          <h2 style="color: #0f172a; margin-top: 0;">Registration Confirmed: ${event.title}</h2>
+          <p>Dear ${reg.attendeeName},</p>
+          <p>Thank you for registering! Your booking for <strong>${event.title}</strong> has been successfully confirmed.</p>
+          
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;">
+            <tr>
+              <td style="padding: 8px 0; color: #64748b;">Date & Time:</td>
+              <td style="padding: 8px 0; font-weight: bold;">${dateFormatted} (${event.timezone || 'UTC'})</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #64748b;">Amount Paid:</td>
+              <td style="padding: 8px 0; font-weight: bold;">${Number(reg.amount) > 0 ? `${reg.currency} ${Number(reg.amount)}` : 'Free RSVP'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #64748b;">Booking Reference:</td>
+              <td style="padding: 8px 0; font-family: monospace;">${reg.id}</td>
+            </tr>
+          </table>
+
+          ${locationHtml}
+
+          <p style="color: #64748b; font-size: 13px; margin-top: 30px;">
+            If you have any questions, reply directly to this email or contact support at WhatBoutMe.com.
+          </p>
+        </div>
+      `;
+
+      await this.emailService.sendEmail({
+        to: reg.attendeeEmail,
+        subject: `Confirmed: ${event.title}`,
+        html,
+        text: `Your registration for ${event.title} is confirmed. Date: ${dateFormatted}. Details: ${isOnline ? event.meetingLink : event.venueName}`,
+      });
+
+      await this.prisma.eventRegistration.update({
+        where: { id: reg.id },
+        data: { emailSent: true },
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to dispatch event confirmation email to ${reg.attendeeEmail}: ${err.message}`);
     }
   }
 }

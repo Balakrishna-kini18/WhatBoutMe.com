@@ -492,3 +492,63 @@
   color: #64748b;
   max-width: 400px;
 }
+
+.badgeOnline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.725rem;
+  font-weight: 700;
+}
+
+.badgePhysical {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.725rem;
+  font-weight: 700;
+}
+
+.priceBadge {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.shareBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  padding: 0.4rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shareBtn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+

@@ -1,89 +1,127 @@
-import { EventStatus, EventType, ParticipantCategory } from '@prisma/client';
+import { CurrencyCode, EventLocationType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
   Max,
   MaxLength,
   Min,
-  ValidateIf,
 } from 'class-validator';
 
 export class CreateEventDto {
-  @IsEnum(EventType)
-  type!: EventType;
-
   @IsString()
   @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(250)
   title!: string;
 
   @IsString()
   @IsNotEmpty()
-  @MaxLength(10000)
+  @MaxLength(20000)
   description!: string;
 
   @IsDateString()
-  startAt!: string;
+  startDateTime!: string;
 
+  @IsOptional()
   @IsDateString()
-  endAt!: string;
+  endDateTime?: string;
+
+  // Backwards compatibility alias for startDateTime
+  @IsOptional()
+  @IsDateString()
+  startAt?: string;
+
+  // Backwards compatibility alias for endDateTime
+  @IsOptional()
+  @IsDateString()
+  endAt?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  location?: string;
+  @MaxLength(80)
+  timezone?: string;
+
+  @IsEnum(EventLocationType)
+  locationType!: EventLocationType;
 
   @IsOptional()
   @IsUrl()
   meetingLink?: string;
 
   @IsOptional()
-  @IsUrl()
-  coverImageUrl?: string;
+  @IsString()
+  @MaxLength(300)
+  venueName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  venueAddress?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100000)
+  @Max(1000000)
+  seatLimit?: number;
+
+  // Backwards compatibility alias for seatLimit
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   maxRegistrations?: number;
 
   @IsOptional()
-  @IsEnum(EventStatus)
-  status?: EventStatus;
+  @IsBoolean()
+  isPublished?: boolean;
 
   @IsOptional()
-  @IsDateString()
-  registrationOpensAt?: string;
+  @IsString()
+  bannerUrl?: string;
 
+  // Backwards compatibility alias for bannerUrl
   @IsOptional()
-  @IsDateString()
-  registrationClosesAt?: string;
+  @IsString()
+  coverImageUrl?: string;
 }
 
 export class UpdateEventDto {
   @IsOptional()
-  @IsEnum(EventType)
-  type?: EventType;
-
-  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
+  @MaxLength(250)
   title?: string;
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(10000)
+  @MaxLength(20000)
   description?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDateTime?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDateTime?: string;
 
   @IsOptional()
   @IsDateString()
@@ -95,36 +133,109 @@ export class UpdateEventDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  location?: string;
+  @MaxLength(80)
+  timezone?: string;
+
+  @IsOptional()
+  @IsEnum(EventLocationType)
+  locationType?: EventLocationType;
 
   @IsOptional()
   @IsUrl()
   meetingLink?: string;
 
   @IsOptional()
-  @IsUrl()
-  coverImageUrl?: string;
+  @IsString()
+  @MaxLength(300)
+  venueName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  venueAddress?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100000)
+  @Max(1000000)
+  seatLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   maxRegistrations?: number;
 
   @IsOptional()
-  @IsDateString()
-  registrationOpensAt?: string;
+  @IsBoolean()
+  isPublished?: boolean;
 
   @IsOptional()
-  @IsDateString()
-  registrationClosesAt?: string;
+  @IsString()
+  bannerUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  coverImageUrl?: string;
 }
 
-export class UpdateEventStatusDto {
-  @IsEnum(EventStatus)
-  status!: EventStatus;
+export class CheckoutEventDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  attendeeName!: string;
+
+  @IsEmail()
+  @IsNotEmpty()
+  @MaxLength(200)
+  attendeeEmail!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(30)
+  attendeePhone!: string;
+
+  // Optional backwards compatibility aliases
+  @IsOptional()
+  @IsString()
+  fullName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class VerifyEventPaymentDto {
+  @IsString()
+  @IsNotEmpty()
+  registrationId!: string;
+
+  @IsOptional()
+  @IsString()
+  gatewayOrderId?: string;
+
+  @IsOptional()
+  @IsString()
+  gatewayPaymentId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  simulation?: boolean;
 }
 
 export class RejectEventRegistrationDto {
@@ -132,40 +243,4 @@ export class RejectEventRegistrationDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
-}
-
-export class RegisterEventDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(120)
-  fullName!: string;
-
-  @IsEmail()
-  @IsNotEmpty()
-  @MaxLength(200)
-  email!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(30)
-  phone!: string;
-
-  @IsEnum(ParticipantCategory)
-  category!: ParticipantCategory;
-
-  @ValidateIf((dto: RegisterEventDto) => dto.category === ParticipantCategory.OTHER)
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
-  categoryOther?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  organization?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  city?: string;
 }

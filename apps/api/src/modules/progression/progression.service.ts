@@ -949,19 +949,20 @@ export class ProgressionService {
         };
       }
 
-      // Check step completion criteria
-      const allLessonsCompleted =
-        step.lessons.length === 0 ||
-        step.lessons.every((l) => viewedLessonIds.has(l.id));
+      // Check step completion criteria based on actual evidence
+      const hasLessons = step.lessons.length > 0;
+      const allLessonsCompleted = hasLessons
+        ? step.lessons.every((l) => viewedLessonIds.has(l.id))
+        : true;
+      const quizCompleted = step.quiz
+        ? passedQuizIds.has(step.quiz.id)
+        : true;
 
-      const quizCompleted = !step.quiz || passedQuizIds.has(step.quiz.id);
-
-      const isStepCompleted =
-        (stepProgress?.isCompleted ?? false) ||
-        (allLessonsCompleted && quizCompleted);
+      // A step is only completed when it has content and all requirements are genuinely fulfilled
+      const isStepCompleted = (hasLessons || Boolean(step.quiz)) && allLessonsCompleted && quizCompleted;
 
       const completedAt = isStepCompleted
-        ? stepProgress?.completedAt ?? (allLessonsCompleted && quizCompleted ? now : null)
+        ? stepProgress?.completedAt ?? now
         : null;
 
       // Calculate scheduled unlock date using UTC-safe timestamp math
@@ -1056,10 +1057,10 @@ export class ProgressionService {
           unlockedAt: isUnlocked
             ? unlockedAt ?? now
             : (overrideState === StepOverrideState.MANUAL_LOCKED ? null : stepProgress?.unlockedAt ?? null),
-          isCompleted: isStepCompleted || (stepProgress?.isCompleted ?? false),
+          isCompleted: isStepCompleted,
           completedAt: isStepCompleted
             ? completedAt ?? now
-            : stepProgress?.completedAt ?? null,
+            : null,
         });
       }
 

@@ -746,6 +746,22 @@ export class ProgramsService {
             programId,
             ...(isStaff ? {} : { status: ContentStatus.PUBLISHED }),
           },
+          include: {
+            lessons: {
+              where: isStaff ? undefined : { status: ContentStatus.PUBLISHED },
+              orderBy: { order: 'asc' },
+            },
+            resources: {
+              where: isStaff ? undefined : { status: ContentStatus.PUBLISHED },
+            },
+            quiz: {
+              include: {
+                questions: {
+                  include: { options: true },
+                },
+              },
+            },
+          },
           orderBy: { sequence: 'asc' },
         }),
       ]);
@@ -759,7 +775,7 @@ export class ProgramsService {
       }
 
       return steps;
-    }, 1800, ['programs', 'steps', `program:${programId}`]);
+    }, 60, ['programs', 'steps', `program:${programId}`]);
   }
 
   async getStep(stepId: string, role?: string) {

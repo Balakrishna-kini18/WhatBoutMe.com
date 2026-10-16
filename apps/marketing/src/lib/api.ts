@@ -185,3 +185,72 @@ export async function confirmPasswordResetUser(token: string, newPassword: strin
     "Could not reset password.",
   );
 }
+
+export interface EventItem {
+  id: string;
+  type: "EVENT" | "WEBINAR";
+  title: string;
+  description: string;
+  status: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
+  startAt: string;
+  endAt: string;
+  location?: string | null;
+  meetingLink?: string | null;
+  coverImageUrl?: string | null;
+  maxRegistrations?: number | null;
+  registrationOpensAt?: string | null;
+  registrationClosesAt?: string | null;
+  registrationCount: number;
+  registeredByMe?: boolean;
+  createdAt: string;
+}
+
+export interface RegisterEventPayload {
+  fullName: string;
+  email: string;
+  phone: string;
+  category: string;
+  categoryOther?: string;
+  organization?: string;
+  designation?: string;
+  notes?: string;
+}
+
+export async function getPublicEvents(params?: { type?: string; upcoming?: boolean }): Promise<EventItem[]> {
+  try {
+    const searchParams = new URLSearchParams();
+    if (params?.type && params.type !== "ALL") searchParams.set("type", params.type);
+    if (params?.upcoming !== undefined) searchParams.set("upcoming", String(params.upcoming));
+    const url = `${API_BASE_URL}/events${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (error) {
+    console.error("Error fetching public events:", error);
+    return [];
+  }
+}
+
+export async function registerForEvent(eventId: string, payload: RegisterEventPayload, token?: string) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/events/${eventId}/register`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Could not reach the server. Please check your network connection.");
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = data?.error?.message ?? data?.message ?? "Registration failed. Please try again.";
+    throw new Error(Array.isArray(msg) ? msg.join(", ") : msg);
+  }
+  return data;
+}
+

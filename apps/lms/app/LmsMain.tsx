@@ -160,6 +160,7 @@ function ProfileMenu() {
           {name && <p style={{ margin: 0, padding: "8px 12px 10px", fontWeight: 700, borderBottom: "1px solid var(--border-light)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</p>}
           <Link href="/profile" style={item} onClick={() => setOpen(false)}>My Profile</Link>
           <Link href="/live" style={item} onClick={() => setOpen(false)}>Live Sessions</Link>
+          <Link href="/events" style={item} onClick={() => setOpen(false)}>Events & Webinars</Link>
           <Link href="/chat" style={item} onClick={() => setOpen(false)}>Messages</Link>
           <Link href="/attendance" style={item} onClick={() => setOpen(false)}>Attendance</Link>
           <Link href="/certificates" style={item} onClick={() => setOpen(false)}>Certificates</Link>

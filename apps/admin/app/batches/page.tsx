@@ -3,7 +3,7 @@
 import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, errorMessage, cachedFetch } from "../lib/api";
 import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast } from "../components";
 
 interface Batch {
@@ -148,10 +148,7 @@ function BatchesContent() {
 
   const fetchPrograms = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/programs`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -163,10 +160,7 @@ function BatchesContent() {
 
   const fetchBatches = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/batches`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
         const mappedBatches = data.map((b: any) => ({

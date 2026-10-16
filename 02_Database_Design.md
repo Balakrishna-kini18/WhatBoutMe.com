@@ -640,4 +640,27 @@ All columns involved in `WHERE`, `JOIN` (foreign keys), `ORDER BY`, and `GROUP B
 - **DailyAttendance:** `[date]`
 - **Event:** `[locationType, isPublished]`, `[startDateTime]`, `[createdAt]`, `[slug (UNIQUE)]`
 - **EventRegistration:** `[eventId, paymentStatus]`, `[attendeeEmail]`, `[userId]`, `[gatewayOrderId (UNIQUE)]`
+- **GalleryItem:** `[isPublished, displayOrder, createdAt DESC]`
+
+---
+
+## 4. Photo Gallery (Requirement 9)
+
+```prisma
+model GalleryItem {
+  id           String   @id @default(cuid())
+  title        String   @db.VarChar(160) // e.g., "Attended Research Course at US"
+  description  String?  @db.Text         // Context about the course/conference photo
+  imageUrl     String                    // Uploaded image URL (WebP/AVIF/JPEG/PNG)
+  altText      String?  @db.VarChar(200) // Accessibility fallback (defaults to title)
+  category     String?  @db.VarChar(60)  // Optional tag: "Course", "Conference", "Workshop"
+  displayOrder Int      @default(0)      // Controls sort order on the user website
+  isPublished  Boolean  @default(true)   // Allows Admin to hide/show without deleting
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isPublished, displayOrder, createdAt(sort: Desc)])
+}
+```
+
 

@@ -17,7 +17,7 @@ export default function EnrolLink({
   return (
     <a
       href={enrolUrl(programId)}
-      onClick={openPortal(`/checkout?programId=${encodeURIComponent(programId)}`, {
+      onClick={openPortal(`/agreement?programId=${encodeURIComponent(programId)}`, {
         requirePurchase: false,
       })}
       className={className}

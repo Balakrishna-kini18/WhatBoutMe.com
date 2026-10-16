@@ -31,7 +31,6 @@ const BROCHURE_CATEGORY: Record<string, string> = {
   "11-steps-to-you": "Certification",
   "resilience-speaker": "Speaking",
   "vision-board-workshop": "Workshop",
-  "corporate-workshop": "Corporate",
 };
 
 // brochure course a program corresponds to, by words in its slug or title
@@ -39,7 +38,6 @@ const KEYWORDS: [string[], string][] = [
   [["11", "step"], "11-steps-to-you"],
   [["speaker"], "resilience-speaker"],
   [["vision"], "vision-board-workshop"],
-  [["corporate"], "corporate-workshop"],
 ];
 
 function brochureFor(program: Program): Brochure | undefined {

@@ -9,7 +9,7 @@ const LINKS = [
   { label: "Courses", href: "/courses" },
   { label: "Events", href: "/events" },
   { label: "Gallery", href: "/gallery" },
-  { label: "About", href: "/about" },
+  { label: "About Me", href: "/about" },
   { label: "Certification", href: "/#certification" },
   { label: "FAQ", href: "/#faq" },
   { label: "API Endpoints", href: "/api/backend", external: true },
@@ -27,18 +27,17 @@ export default async function Footer() {
       <section id="contact" className="px-5 sm:px-4 md:px-8">
         <div className="mx-auto max-w-[1240px] rounded-[2rem] bg-ink px-6 py-14 text-center text-cream md:py-20">
           <h2 className="text-[1.75rem] font-bold sm:text-4xl leading-[1.08] tracking-tight md:text-5xl">
-            Brain Matters.{" "}
-            <span className="whitespace-nowrap text-gold">So Do You.</span>
+            Let&apos;s Talk{" "}
+            <span className="whitespace-nowrap text-gold">Brain Health.</span>
           </h2>
           <p className="mx-auto mt-5 max-w-lg leading-relaxed text-cream/70 md:text-lg">
-            Start with a conversation. Tell us about the room, and we will tell
-            you honestly which of the three formats it needs.
+            Thank you for investing your time on BRAIN HEALTH.
           </p>
           <a
             href={ENQUIRE_HREF}
             className="group mt-8 inline-flex items-center gap-2 rounded-full bg-gold px-7 py-3.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-cream"
           >
-            Start a Conversation
+            Let&apos;s Talk
             <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
           </a>
         </div>
@@ -50,7 +49,7 @@ export default async function Footer() {
           <div>
             <Logo className="h-5 max-sm:mx-auto sm:h-6" />
             <p className="mt-3 text-sm text-ink-soft">
-              Brain health · Resilience · Purpose
+              Brain Health Coaching for Mental Wellness
             </p>
           </div>
 
@@ -95,7 +94,7 @@ export default async function Footer() {
         </div>
 
         <div className="flex flex-col gap-3 border-t border-line py-5 text-sm text-ink-soft max-sm:items-center sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-6">
-          <span>Licensed in the UAE &amp; India</span>
+          <span>Copyright © 2026 www.whatboutme.com - All Rights Reserved.</span>
           <ul className="flex flex-wrap gap-x-6 gap-y-2 max-sm:justify-center">
             {SOCIALS.map((s) => (
               <li key={s.label}>

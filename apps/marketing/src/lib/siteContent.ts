@@ -25,11 +25,11 @@ export type SiteContent = {
 
 const DEFAULTS: SiteContent = {
   hero: {
-    eyebrow: "Brain health · Resilience · Purpose",
-    title: "Brain Matters.",
-    highlight: "So Do You.",
+    eyebrow: "Brain Health Coaching for Mental Wellness",
+    title: "I lived it,",
+    highlight: "so I coach it!",
     subtitle:
-      "For the people who hold everyone else together and rarely stop to ask the one question in our name.",
+      "The moment I fell in love with my condition and my BRAIN, I chased it to become its best version; only to realize, it changed everything for the BETTER!",
     image: "/brand/roweena.png",
   },
   about: { image: "/brand/roweena.png" },

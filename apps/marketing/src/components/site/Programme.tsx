@@ -22,7 +22,7 @@ function StepsTrack() {
     <div className="w-full">
       {/* 11 steps in one continuous view, 100% width, NO slide */}
       <ol
-        aria-label="Eleven steps, from Truth through Acceptance, Neuroscience and Confidence to Purpose"
+        aria-label="Eleven steps, from Truth through Baseline, Daily Life and Brain Health to a Renewed You"
         className="relative flex w-full items-center justify-between pb-3 md:pb-9"
       >
         <span
@@ -107,11 +107,11 @@ function Curriculum() {
             {/* Content: Centered on mobile, left-aligned on desktop */}
             <div className="md:py-16 md:pl-4 md:pr-14">
               <h2 className="mx-auto max-w-2xl text-balance text-2xl font-bold leading-[1.1] tracking-tight sm:text-3xl md:mx-0 md:text-5xl">
-                11 Steps to You
+                11 Steps to U Program
               </h2>
 
               <p className="mx-auto mt-4 max-w-xl text-balance leading-relaxed text-ink-soft sm:text-base md:mx-0 md:text-lg">
-                Get certified for working on yourself and earn 25 CPD hours
+                Get Certified for working on yourself and earn 25 CPD Hours
                 (UK). You will leave this program feeling liberated from your
                 old thoughts, with a rewired brain for action, embracing the
                 self you are meant to be.
@@ -251,10 +251,11 @@ function Certification() {
           intro={
             <>
               <strong className="font-semibold text-ink">
-                Why the exam matters.
+                The outcome.
               </strong>{" "}
-              The certificate is not for attending. It is for doing the work on
-              yourself, which is exactly why people keep it.
+              Upon achieving 80% passing marks on the exam and submitting your
+              personal development growth plan, you will be awarded a
+              CERTIFICATION OF COMPLETION.
             </>
           }
         />

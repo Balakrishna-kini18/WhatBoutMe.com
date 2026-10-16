@@ -9,13 +9,15 @@ import {
   Request,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { BatchStatus, EnrolmentStatus } from '@prisma/client';
+import { AgreementStatus, BatchStatus, ContentStatus, EnrolmentStatus } from '@prisma/client';
 import { EnrollmentsService } from './enrollments.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { CouponsService } from '../coupons/coupons.service.js';
 import {
@@ -134,171 +136,172 @@ export class LearnerEnrolmentsController {
 // 4. MOCK CHECKOUT CONTROLLER
 // ─────────────────────────────────────────────────────────────────────────────
 
-@Controller('checkout')
+@Controller(['checkout', 'enrolments/checkout', 'enrollments/checkout'])
 export class CheckoutController {
   constructor(
     private readonly enrollmentsService: EnrollmentsService,
     private readonly prisma: PrismaService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly couponsService?: CouponsService,
+    @Optional() private readonly cacheHelper?: CacheHelperService,
   ) {}
 
-  @Post('mock')
+  @Post(['mock', 'confirm'])
   async mockCheckout(@Body() body: any, @Request() req: any) {
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MOCK_CHECKOUT !== 'true') {
+      throw new ForbiddenException(
+        'Mock checkout is disabled in production. Payments must be processed through the verified payment provider.',
+      );
+    }
+
     const userId = req.user?.sub ?? req.user?.id;
-    const { programId } = body;
-    if (!userId || !programId) {
-      throw new BadRequestException('Missing user or programId');
+    const { programId, enrolmentId } = body;
+    if (!userId) {
+      throw new BadRequestException('Authentication required');
     }
-    
-    // 0. Idempotency Check: if user is already enrolled in this program, activate and return immediately
-    const existing = await this.prisma.enrolment.findFirst({
-      where: { userId, programId },
-      include: {
-        program: { select: { id: true, title: true, slug: true } },
-        batch: { select: { id: true, name: true, startDate: true } },
-      },
-    });
-
-    if (existing) {
-      if (existing.status !== EnrolmentStatus.ACTIVE) {
-        await this.prisma.enrolment.update({
-          where: { id: existing.id },
-          data: { status: EnrolmentStatus.ACTIVE },
-        });
-      }
-      return { success: true, enrollment: existing };
+    if (!programId && !enrolmentId) {
+      throw new BadRequestException('Missing user, programId, or enrolmentId');
     }
 
-    // Find active batch for the program
-    let batch = await this.prisma.batch.findFirst({
-      where: { 
-        programId, 
-        status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] }
-      },
-      orderBy: { startDate: 'asc' }
-    });
-    
-    if (!batch) {
-      const program = await this.prisma.program.findUnique({ where: { id: programId } });
-      if (!program) {
-        throw new NotFoundException('Program not found');
+    // 1. Find existing enrolment by enrolmentId or (userId, programId)
+    let existing: any = null;
+    if (enrolmentId) {
+      existing = await this.prisma.enrolment.findUnique({
+        where: { id: enrolmentId },
+        include: {
+          program: { select: { id: true, title: true, slug: true, price: true } },
+          batch: { select: { id: true, name: true, startDate: true } },
+        },
+      });
+      if (existing && existing.userId !== userId) {
+        throw new ForbiddenException('You are not authorized to complete checkout for this enrolment');
       }
+    }
 
-      // Auto-create a batch so the user can enroll
-      batch = await this.prisma.batch.create({
-        data: {
-          name: `${program.title} - Cohort 1`,
-          programId: programId,
-          startDate: new Date(),
-          capacity: 9999,
-          status: BatchStatus.ACTIVE
-        }
+    if (!existing && programId) {
+      existing = await this.prisma.enrolment.findFirst({
+        where: { userId, programId },
+        include: {
+          program: { select: { id: true, title: true, slug: true, price: true } },
+          batch: { select: { id: true, name: true, startDate: true } },
+        },
       });
     }
 
+    const targetProgramId = existing?.programId || programId;
+
+    // 2. Strict Agreement Pre-Payment Gate
+    if (!existing) {
+      throw new BadRequestException({
+        error: 'AGREEMENT_REQUIRED',
+        message: 'Program agreement must be signed before payment confirmation',
+        agreementUrl: `/agreement?programId=${targetProgramId}`,
+      });
+    }
+
+    if (existing.status === EnrolmentStatus.REVOKED) {
+      throw new BadRequestException('Cannot complete checkout for a revoked enrolment.');
+    }
+
+    const signed = await this.prisma.signedAgreement.findUnique({
+      where: { enrolmentId: existing.id },
+    });
+
+    if (!signed || signed.status !== AgreementStatus.SIGNED) {
+      throw new BadRequestException({
+        error: 'AGREEMENT_REQUIRED',
+        message: 'Program agreement must be signed before payment confirmation',
+        agreementUrl: `/agreement?programId=${existing.programId}&enrolmentId=${existing.id}`,
+      });
+    }
+
+    // 3. Process payment & transition to ACTIVE
     // Check if coupon was provided
     let couponValidation: any = null;
     if (body.couponCode && this.couponsService) {
       couponValidation = await this.couponsService.validateCoupon({
         code: body.couponCode,
-        programId,
+        programId: targetProgramId,
         currency: body.currency || 'USD',
         userId,
         paymentPlanType: body.paymentPlanType || 'FULL',
       });
     }
 
-    let activeEnrollment: any;
-    try {
-      const enrollment = await this.enrollmentsService.create({
-        userId,
-        programId,
-        batchId: batch.id,
-        paymentMode: PaymentMode.STRIPE,
-        overrideCapacity: true
-      } as any);
+    const targetStatus = couponValidation?.isFree
+      ? EnrolmentStatus.PENDING_AGREEMENT
+      : EnrolmentStatus.ACTIVE;
 
-      // If 100% discount, keep in PENDING_AGREEMENT so agreement must be signed before unlocking Step 1
-      const targetStatus = couponValidation?.isFree
-        ? EnrolmentStatus.PENDING_AGREEMENT
-        : EnrolmentStatus.ACTIVE;
+    const updatedEnrolment = await this.prisma.enrolment.update({
+      where: { id: existing.id },
+      data: { status: targetStatus },
+      include: {
+        program: { select: { id: true, title: true, slug: true, price: true } },
+        batch: { select: { id: true, name: true, startDate: true } },
+      },
+    });
+    existing.status = targetStatus;
+    const finalEnrolment = updatedEnrolment || existing;
 
-      activeEnrollment = await this.prisma.enrolment.update({
-        where: { id: enrollment.id },
-        data: { status: targetStatus },
-        include: {
-          program: { select: { id: true, title: true, slug: true } },
-          batch: { select: { id: true, name: true, startDate: true } },
+    // Record mock payment and invoice if not already recorded
+    const existingPayment = await this.prisma.payment.findFirst({
+      where: { enrolmentId: existing.id, status: 'succeeded' },
+    });
+
+    if (!existingPayment) {
+      const paymentAmount = couponValidation ? couponValidation.finalAmount : (existing.program?.price || 0);
+      const currency = couponValidation?.currency || 'USD';
+
+      const payment = await this.prisma.payment.create({
+        data: {
+          enrolmentId: existing.id,
+          stripeSessionId: `pay_${Date.now()}_${existing.id.slice(0, 8)}`,
+          amount: paymentAmount,
+          currency,
+          status: 'succeeded',
+          couponId: couponValidation?.couponId,
+          couponCode: couponValidation?.code,
+          discountAmount: couponValidation?.discountAmount,
         },
       });
 
-      // If coupon used or payment recorded, create Payment and Invoice records
-      if (couponValidation) {
-        const payment = await this.prisma.payment.create({
-          data: {
-            enrolmentId: activeEnrollment.id,
-            stripeSessionId: `pay_${Date.now()}_${activeEnrollment.id.slice(0, 8)}`,
-            amount: couponValidation.finalAmount,
-            currency: couponValidation.currency || 'USD',
-            status: 'succeeded',
+      await this.prisma.invoice.create({
+        data: {
+          paymentId: payment.id,
+          invoiceNumber: `INV-${Date.now()}-${existing.id.slice(0, 4)}`,
+          amount: paymentAmount,
+          currency,
+          status: 'PAID',
+          couponCode: couponValidation?.code,
+          discountAmount: couponValidation?.discountAmount,
+        },
+      });
+
+      if (this.couponsService && couponValidation?.couponId) {
+        await this.prisma.$transaction(async (tx) => {
+          await this.couponsService!.redeemCouponAtomic(tx, {
             couponId: couponValidation.couponId,
-            couponCode: couponValidation.code,
-            discountAmount: couponValidation.discountAmount,
-          },
-        });
-
-        await this.prisma.invoice.create({
-          data: {
+            userId,
+            enrolmentId: existing.id,
             paymentId: payment.id,
-            invoiceNumber: `INV-${Date.now()}-${activeEnrollment.id.slice(0, 4)}`,
-            amount: couponValidation.finalAmount,
-            currency: couponValidation.currency || 'USD',
-            status: 'PAID',
-            couponCode: couponValidation.code,
+            orderAmount: couponValidation.originalAmount,
             discountAmount: couponValidation.discountAmount,
-          },
+            finalAmount: couponValidation.finalAmount,
+            currency: couponValidation.currency,
+          });
         });
-
-        if (this.couponsService && couponValidation.couponId) {
-          await this.prisma.$transaction(async (tx) => {
-            await this.couponsService!.redeemCouponAtomic(tx, {
-              couponId: couponValidation.couponId,
-              userId,
-              enrolmentId: activeEnrollment.id,
-              paymentId: payment.id,
-              orderAmount: couponValidation.originalAmount,
-              discountAmount: couponValidation.discountAmount,
-              finalAmount: couponValidation.finalAmount,
-              currency: couponValidation.currency,
-            });
-          });
-        }
-      }
-    } catch (err: any) {
-      // In case of duplicate or concurrent submission, retrieve existing
-      const existingAfterErr = await this.prisma.enrolment.findFirst({
-        where: { userId, programId },
-        include: {
-          program: { select: { id: true, title: true, slug: true } },
-          batch: { select: { id: true, name: true, startDate: true } },
-        },
-      });
-      if (existingAfterErr) {
-        activeEnrollment = existingAfterErr;
-        if (existingAfterErr.status !== EnrolmentStatus.ACTIVE) {
-          await this.prisma.enrolment.update({
-            where: { id: existingAfterErr.id },
-            data: { status: EnrolmentStatus.ACTIVE },
-          });
-        }
-      } else {
-        throw err;
       }
     }
 
+    if (this.cacheHelper) {
+      await this.cacheHelper.invalidateNamespace(`enrolment_progression:${existing.id}`).catch(() => {});
+      await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+    }
+
+    // Send confirmation emails
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    const program = await this.prisma.program.findUnique({ where: { id: programId } });
+    const program = existing.program || (await this.prisma.program.findUnique({ where: { id: targetProgramId } }));
+    const batch = existing.batch;
 
     if (this.emailService && user && program) {
       const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
@@ -320,22 +323,28 @@ export class CheckoutController {
         .catch((e: any) => console.warn('[CheckoutController] Payment email error:', e?.message));
 
       // 2. Enrolment Confirmed Email
-      this.emailService
-        .sendTemplateEmail({
-          to: user.email,
-          subject: `Enrollment Confirmed: ${program.title}`,
-          template: 'EnrolmentConfirmedEmail',
-          props: {
-            firstName,
-            programName: program.title,
-            batchName: batch.name,
-            startDate: batch.startDate ? new Date(batch.startDate).toLocaleDateString() : 'Immediate',
-            dashboardUrl: `${lmsUrl}/dashboard`,
-          },
-        })
-        .catch((e: any) => console.warn('[CheckoutController] Enrolment email error:', e?.message));
+      if (batch) {
+        this.emailService
+          .sendTemplateEmail({
+            to: user.email,
+            subject: `Enrollment Confirmed: ${program.title}`,
+            template: 'EnrolmentConfirmedEmail',
+            props: {
+              firstName,
+              programName: program.title,
+              batchName: batch.name,
+              startDate: batch.startDate ? new Date(batch.startDate).toLocaleDateString() : 'Immediate',
+              dashboardUrl: `${lmsUrl}/dashboard`,
+            },
+          })
+          .catch((e: any) => console.warn('[CheckoutController] Enrolment email error:', e?.message));
+      }
     }
 
-    return activeEnrollment;
+    return {
+      success: true,
+      enrollment: finalEnrolment,
+      status: finalEnrolment?.status || targetStatus,
+    };
   }
 }

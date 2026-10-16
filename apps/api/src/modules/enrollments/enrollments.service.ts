@@ -252,17 +252,24 @@ export class EnrollmentsService {
       switch (current) {
         case EnrolmentStatus.PENDING_PAYMENT:
           if (target === EnrolmentStatus.PENDING_AGREEMENT) {
-            // Valid: payment completed/verified
+            // Valid: legacy flow where payment completed before agreement
+            break;
+          }
+          if (target === EnrolmentStatus.ACTIVE) {
+            // Agreement-First flow: payment completed after agreement signed
+            if (
+              !enrolment.signedAgreement ||
+              enrolment.signedAgreement.status !== 'SIGNED'
+            ) {
+              throw new BadRequestException(
+                'Cannot transition directly from PENDING_PAYMENT to ACTIVE: program agreement must be signed first',
+              );
+            }
             break;
           }
           if (target === EnrolmentStatus.REVOKED) {
             // Valid: cancelled/abandoned
             break;
-          }
-          if (target === EnrolmentStatus.ACTIVE) {
-            throw new BadRequestException(
-              'Cannot transition directly from PENDING_PAYMENT to ACTIVE: agreement must be signed first',
-            );
           }
           throw new BadRequestException(
             `Invalid enrolment status transition from ${current} to ${target}`,

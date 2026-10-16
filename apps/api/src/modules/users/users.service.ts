@@ -50,6 +50,15 @@ export class UsersService {
                 program: true,
               },
             },
+            signedAgreement: {
+              select: {
+                id: true,
+                status: true,
+                templateVersion: true,
+                signedAt: true,
+                typedName: true,
+              },
+            },
           },
         },
       },

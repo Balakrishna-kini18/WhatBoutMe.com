@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dash from "../page.module.css";
@@ -123,8 +124,16 @@ export default function CertificatesPage() {
                   const status = isReady ? "Issued" : cert ? "Awaiting approval" : done ? "Ready to request" : "In progress";
                   return (
                     <li key={course.programId} className={dash.course}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/brand/session.png" alt="" className={dash.thumb} />
+                      <Image
+                        src="/brand/session.png"
+                        alt=""
+                        width={104}
+                        height={72}
+                        quality={80}
+                        loading="lazy"
+                        sizes="104px"
+                        className={dash.thumb}
+                      />
                       <div className={dash.rowMain}>
                         <p className={dash.rowTitle}>
                           {course.programTitle} <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>

@@ -1,8 +1,10 @@
 "use client";
 
 import styles from "./page.module.css";
+import Image from "next/image";
 import Link from "next/link";
 import { SITE_URL } from "./lib/site";
+import { API_URL } from "./lib/api";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -68,10 +70,9 @@ export default function LearnerDashboard() {
       return;
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
     const authHeaders = { Authorization: `Bearer ${token}` };
 
-    fetch(`${apiUrl}/auth/me`, {
+    fetch(`${API_URL}/auth/me`, {
       headers: authHeaders,
     })
       .then((res) => {
@@ -89,42 +90,32 @@ export default function LearnerDashboard() {
       .then(async (profile: UserProfile) => {
         setUser(profile);
         
-        // Fetch compliance for each enrolled program
+        // Fetch compliance, attendance summary, and certificates concurrently
+        const enrolled = profile.enrolledPrograms || [];
+        const compliancePromises = enrolled.map((ep) =>
+          fetch(`${API_URL}/attendance/compliance/${ep.enrolmentId}`, { headers: authHeaders })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+        );
+        const attendancePromise = fetch(`${API_URL}/me/attendance`, { headers: authHeaders })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        const certificatesPromise = fetch(`${API_URL}/certificates/mine`, { headers: authHeaders })
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []);
+
+        const [complianceResults, attData, certs] = await Promise.all([
+          Promise.all(compliancePromises),
+          attendancePromise,
+          certificatesPromise,
+        ]);
+
         const compMap: Record<string, any> = {};
-        for (const ep of profile.enrolledPrograms) {
-          try {
-            const cres = await fetch(`${apiUrl}/attendance/compliance/${ep.enrolmentId}`, {
-              headers: authHeaders,
-            });
-            if (cres.ok) {
-              compMap[ep.enrolmentId] = await cres.json();
-            }
-          } catch (e) {
-            console.error(e);
-          }
-        }
-        setComplianceMap(compMap);
-
-        // Fetch /me/attendance for session tracking & certification eligibility progress
-        try {
-          const attRes = await fetch(`${apiUrl}/me/attendance`, {
-            headers: authHeaders,
-          });
-          if (attRes.ok) {
-            const attData = await attRes.json();
-            setAttendanceSummary(attData);
-          }
-        } catch (e) {
-          console.error("Failed to load /me/attendance", e);
-        }
-
-        // Also fetch their certificates
-        return fetch(`${apiUrl}/certificates/mine`, {
-          headers: authHeaders,
+        enrolled.forEach((ep, idx) => {
+          if (complianceResults[idx]) compMap[ep.enrolmentId] = complianceResults[idx];
         });
-      })
-      .then(res => res && res.ok ? res.json() : [])
-      .then(certs => {
+        setComplianceMap(compMap);
+        if (attData) setAttendanceSummary(attData);
         setCertificates(certs || []);
         setLoading(false);
       })
@@ -134,7 +125,7 @@ export default function LearnerDashboard() {
   const requestCertificate = async (enrolmentId: string) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/certificates/request/${enrolmentId}`, {
+      const res = await fetch(`${API_URL}/certificates/request/${enrolmentId}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -300,8 +291,16 @@ export default function LearnerDashboard() {
               <ul className={styles.list}>
                 {user.enrolledPrograms.map((prog) => (
                   <li key={prog.programId} className={styles.course}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/brand/session.png" alt="" className={styles.thumb} />
+                    <Image
+                      src="/brand/session.png"
+                      alt=""
+                      width={104}
+                      height={72}
+                      quality={80}
+                      loading="lazy"
+                      sizes="104px"
+                      className={styles.thumb}
+                    />
                     <div className={styles.rowMain}>
                       <p className={styles.rowTitle}>{prog.programTitle}</p>
                       <p className={styles.muted} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

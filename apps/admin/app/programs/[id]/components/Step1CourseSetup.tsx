@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Image from "next/image";
 import styles from "../curriculum.module.css";
 import { uploadFile } from "../../../lib/api";
 import { CustomSelect } from "../../../components";
@@ -318,10 +319,14 @@ export default function Step1CourseSetup({
               <label className={styles.coverUploadBox}>
                 {thumbnailUrl ? (
                   <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <Image
                       src={thumbnailUrl}
                       alt="Course Cover Preview"
+                      width={320}
+                      height={180}
+                      quality={80}
+                      loading="lazy"
+                      unoptimized={!thumbnailUrl.startsWith("/")}
                       className={styles.coverPreviewImg}
                       onError={() => setThumbnailUrl("")}
                     />
@@ -382,10 +387,14 @@ export default function Step1CourseSetup({
               <div className={styles.mockCourseCard}>
                 <div className={styles.mockCoverWrap}>
                   {thumbnailUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <Image
                       src={thumbnailUrl}
                       alt="Catalog preview"
+                      width={280}
+                      height={150}
+                      quality={80}
+                      loading="lazy"
+                      unoptimized={!thumbnailUrl.startsWith("/")}
                       className={styles.mockCoverImg}
                     />
                   ) : (

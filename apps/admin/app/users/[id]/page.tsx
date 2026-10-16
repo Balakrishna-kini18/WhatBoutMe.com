@@ -185,51 +185,48 @@ export default function UserDetailPage({
     }));
   };
 
-  // Load user profile & enrolments & attendance history
+  // Load user profile & enrolments & attendance history in parallel
   useEffect(() => {
-    async function loadUser() {
+    const controller = new AbortController();
+
+    async function loadData() {
       setLoading(true);
+      setLoadingAttendance(true);
       setActionError(null);
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
       try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/users/${userId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) {
-          throw new Error(await errorMessage(res, "Failed to load learner details"));
+        const [userRes, attendanceRes] = await Promise.all([
+          fetch(`${API_URL}/users/${userId}`, { headers, signal: controller.signal }),
+          fetch(`${API_URL}/attendance/user/${userId}`, { headers, signal: controller.signal }),
+        ]);
+
+        if (!userRes.ok) {
+          throw new Error(await errorMessage(userRes, "Failed to load learner details"));
         }
-        const data = await res.json();
-        setUser(data);
-        if (data.enrolments && data.enrolments.length > 0) {
-          setSelectedEnrolmentId(data.enrolments[0].id);
+        const userData = await userRes.json();
+        setUser(userData);
+        if (userData.enrolments && userData.enrolments.length > 0) {
+          setSelectedEnrolmentId(userData.enrolments[0].id);
+        }
+
+        if (attendanceRes.ok) {
+          const attendanceData = await attendanceRes.json();
+          setAttendanceHistory(attendanceData);
         }
       } catch (err: any) {
-        setActionError(err.message);
+        if (err.name !== "AbortError") {
+          setActionError(err.message);
+        }
       } finally {
         setLoading(false);
-      }
-    }
-
-    async function loadAttendanceHistory() {
-      setLoadingAttendance(true);
-      try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(`${API_URL}/attendance/user/${userId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setAttendanceHistory(data);
-        }
-      } catch (e) {
-        console.error("Failed to load attendance history", e);
-      } finally {
         setLoadingAttendance(false);
       }
     }
 
-    loadUser();
-    loadAttendanceHistory();
+    loadData();
+    return () => controller.abort();
   }, [userId]);
 
   // Load progression when selected enrolment changes
@@ -238,35 +235,37 @@ export default function UserDetailPage({
       setProgression(null);
       return;
     }
-    fetchProgression(selectedEnrolmentId);
+    const controller = new AbortController();
+    fetchProgression(selectedEnrolmentId, controller.signal);
+    return () => controller.abort();
   }, [selectedEnrolmentId]);
 
-  async function fetchProgression(enrolmentId: string) {
+  async function fetchProgression(enrolmentId: string, signal?: AbortSignal) {
     setLoadingProgression(true);
     setCompliance(null);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/progression/enrolments/${enrolmentId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to fetch enrolment progression"));
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+      // Kill waterfall: fetch progression & attendance compliance concurrently in a single window
+      const [progRes, compRes] = await Promise.all([
+        fetch(`${API_URL}/progression/enrolments/${enrolmentId}`, { headers, signal }),
+        fetch(`${API_URL}/attendance/compliance/${enrolmentId}`, { headers, signal }).catch(() => null),
+      ]);
+
+      if (!progRes.ok) {
+        throw new Error(await errorMessage(progRes, "Failed to fetch enrolment progression"));
       }
-      const data = await res.json();
+      const data = await progRes.json();
       setProgression(data);
 
-      try {
-        const cres = await fetch(`${API_URL}/attendance/compliance/${enrolmentId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (cres.ok) {
-          setCompliance(await cres.json());
-        }
-      } catch (ce) {
-        console.error("Failed to fetch compliance", ce);
+      if (compRes && compRes.ok) {
+        setCompliance(await compRes.json());
       }
     } catch (err: any) {
-      setActionError(err.message);
+      if (err.name !== "AbortError") {
+        setActionError(err.message);
+      }
     } finally {
       setLoadingProgression(false);
     }

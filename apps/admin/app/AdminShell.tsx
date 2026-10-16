@@ -5,14 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-
-interface UserData {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  permissions?: string[];
-}
+import { useAuth, type UserData } from "./AuthProvider";
 
 // Crisp, uniform 1.75px stroke icons matching the WhatBoutMe brand identity
 const Icons = {
@@ -98,6 +91,14 @@ const Icons = {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  ),
+  Events: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
   WebsiteContent: () => (
@@ -304,6 +305,15 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     keywords: ["zoom", "live", "webinars", "events", "calendar", "outlook", "schedule"],
   },
   {
+    id: "events",
+    title: "Events & Webinars",
+    description: "Manage workshops, community events, registrations, and attendees",
+    href: "/events",
+    category: "Communication",
+    iconName: "Events",
+    keywords: ["events", "webinars", "workshops", "registrations", "attendees", "community"],
+  },
+  {
     id: "website",
     title: "Website Content Management",
     description: "Hero banners, FAQs, testimonials, and promo announcements",
@@ -317,7 +327,8 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<UserData | null>(null);
+  const { user, logout: authLogout } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -329,25 +340,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load user session and sidebar preference
+  // Set up sidebar preference, theme, and keyboard shortcuts once on mount
   useEffect(() => {
-    if (pathname === "/login") return;
-
-    const token = localStorage.getItem("token");
-    const storedUser = localStorage.getItem("user");
-
-    if (!token || !storedUser) {
-      router.push("/login");
-      return;
-    }
-
-    try {
-      setUser(JSON.parse(storedUser));
-    } catch {
-      localStorage.removeItem("user");
-      router.push("/login");
-    }
-
+    setMounted(true);
     const savedCollapsed = localStorage.getItem("admin_sidebar_collapsed");
     if (savedCollapsed !== null) {
       setIsCollapsed(savedCollapsed === "true");
@@ -366,7 +361,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         setSearchShortcut("⌘K");
       }
     }
-  }, [pathname, router]);
+  }, []);
 
   // Keyboard shortcut for command palette (Ctrl+K / Cmd+K) and Escape handler
   useEffect(() => {
@@ -433,14 +428,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     try {
       setIsLoggingOut(true);
       setLogoutError(null);
-      localStorage.removeItem("token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("user");
-      setUser(null);
       setShowSignOutConfirm(false);
-      setIsLoggingOut(false);
       setUserDropdownOpen(false);
-      router.push("/login");
+      await authLogout();
     } catch (err) {
       setIsLoggingOut(false);
       setLogoutError(err instanceof Error ? err.message : "Failed to sign out. Please try again.");
@@ -451,7 +441,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     return <>{children}</>;
   }
 
-  const userName = user?.name || "Administrator";
+  const userName = mounted && user?.name ? user.name : "Administrator";
   const formatRole = (role?: string) => {
     if (!role) return "Admin";
     switch (role) {
@@ -467,12 +457,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         return role.charAt(0) + role.slice(1).toLowerCase();
     }
   };
-  const userRole = formatRole(user?.role);
-  const userEmail = user?.email || "admin@whatboutme.com";
+  const userRole = mounted && user?.role ? formatRole(user.role) : "Admin";
+  const userEmail = mounted && user?.email ? user.email : "admin@whatboutme.com";
 
-  const isManager = user?.role === "MANAGER" || user?.role === "TEACHER";
+  const isManager = mounted && (user?.role === "MANAGER" || user?.role === "TEACHER");
 
   const hasPermission = (perm: string) => {
+    if (!mounted) return true;
     if (!user) return false;
     if (user.role === "SUPER_ADMIN") return true;
 
@@ -550,6 +541,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       items: [
         { label: "Messages", href: "/messages", icon: <Icons.Messages />, perm: "manage_operations" },
         { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
+        { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
         { label: "Announcements", href: "/meetings", icon: <Icons.Announcements />, perm: "manage_operations" },
       ],
     },
@@ -724,13 +716,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 aria-expanded={userDropdownOpen}
                 aria-haspopup="true"
                 aria-label={`User menu for ${userName}`}
+                suppressHydrationWarning
               >
                 <div className={styles.avatar} aria-hidden="true">
                   <Icons.User />
                 </div>
                 <div className={styles.userInfo}>
-                  <span className={styles.userName}>{userName}</span>
-                  <span className={styles.userRole}>{userRole}</span>
+                  <span className={styles.userName} suppressHydrationWarning>{userName}</span>
+                  <span className={styles.userRole} suppressHydrationWarning>{userRole}</span>
                 </div>
                 <span className={styles.userChevron}><Icons.ChevronDown /></span>
               </button>
@@ -739,9 +732,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               {userDropdownOpen && (
                 <div className={styles.userDropdown} role="menu">
                   <div className={styles.dropdownHeader}>
-                    <p className={styles.dropdownName}>{userName}</p>
-                    <p className={styles.dropdownEmail}>{userEmail}</p>
-                    <span className={styles.dropdownRoleBadge}>{userRole}</span>
+                    <p className={styles.dropdownName} suppressHydrationWarning>{userName}</p>
+                    <p className={styles.dropdownEmail} suppressHydrationWarning>{userEmail}</p>
+                    <span className={styles.dropdownRoleBadge} suppressHydrationWarning>{userRole}</span>
                   </div>
                   <div className={styles.dropdownDivider} />
                   <button

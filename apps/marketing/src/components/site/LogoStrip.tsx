@@ -16,6 +16,9 @@ function Row({ hidden = false }: { hidden?: boolean }) {
             alt={hidden ? "" : b.name}
             width={200}
             height={80}
+            quality={80}
+            loading="lazy"
+            sizes="(max-width: 640px) 96px, 160px"
             className="max-h-full w-auto max-w-full object-contain"
           />
         </li>

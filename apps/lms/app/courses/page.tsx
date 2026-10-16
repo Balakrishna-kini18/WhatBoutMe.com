@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import dash from "../page.module.css";
@@ -68,29 +69,37 @@ function Courses() {
       router.push("/login");
       return;
     }
-    fetch(`${API_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error();
-        return res.json();
-      })
-      .then((profile) => setCourses(profile.enrolledPrograms || []))
-      .catch(() =>
-        setError(
-          "We could not load your courses. Please try again in a moment.",
-        ),
-      )
-      .finally(() => setLoading(false));
+    const headers = { Authorization: `Bearer ${token}` };
+    const authPromise = fetch(`${API_URL}/auth/me`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
 
-    const extra = (path: string) =>
-      fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } }).then((res) => (res.ok ? res.json() : null));
-    extra("/attendance/mine")
-      .then((data) => setDaysPresent(Array.isArray(data?.days) ? data.days.length : 0))
-      .catch(() => setDaysPresent(0));
-    extra("/certificates/mine")
-      .then((data) => setCertificates(Array.isArray(data) ? data.filter((c: { status?: string }) => c.status === "APPROVED").length : 0))
-      .catch(() => setCertificates(0));
+    const attPromise = fetch(`${API_URL}/attendance/mine`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+
+    const certPromise = fetch(`${API_URL}/certificates/mine`, { headers })
+      .then((res) => (res.ok ? res.json() : []))
+      .catch(() => []);
+
+    Promise.all([authPromise, attPromise, certPromise])
+      .then(([profile, attData, certData]) => {
+        if (profile) {
+          setCourses(profile.enrolledPrograms || []);
+        } else {
+          setError("We could not load your courses. Please try again in a moment.");
+        }
+        setDaysPresent(Array.isArray(attData?.days) ? attData.days.length : 0);
+        setCertificates(
+          Array.isArray(certData)
+            ? certData.filter((c: { status?: string }) => c.status === "APPROVED" || c.status === "ISSUED").length
+            : 0
+        );
+      })
+      .catch(() => {
+        setError("We could not load your courses. Please try again in a moment.");
+      })
+      .finally(() => setLoading(false));
   }, [router]);
 
   const hit = (...text: string[]) => text.some((t) => t.toLowerCase().includes(query));
@@ -223,16 +232,30 @@ function Courses() {
                   <div className={styles.blockHead}>
                     {isActive ? (
                       <Link href={resume} className={styles.cover} aria-label={`${action}: ${course.programTitle}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <Image
+                          src="/brand/session.png"
+                          alt=""
+                          width={220}
+                          height={124}
+                          quality={80}
+                          loading="lazy"
+                          sizes="220px"
+                        />
                         <span className={styles.play} aria-hidden="true">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                         </span>
                       </Link>
                     ) : course.status === "PENDING_AGREEMENT" ? (
                       <Link href={`/agreement?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={styles.cover} aria-label={`Sign Agreement: ${course.programTitle}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <Image
+                          src="/brand/session.png"
+                          alt=""
+                          width={220}
+                          height={124}
+                          quality={80}
+                          loading="lazy"
+                          sizes="220px"
+                        />
                         <span className={styles.play} aria-hidden="true">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
                         </span>
@@ -247,8 +270,15 @@ function Courses() {
                       </Link>
                     ) : (
                       <div className={styles.cover} style={{ cursor: "not-allowed", opacity: 0.7 }} aria-label={`Gated: ${course.programTitle}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <Image
+                          src="/brand/session.png"
+                          alt=""
+                          width={220}
+                          height={124}
+                          quality={80}
+                          loading="lazy"
+                          sizes="220px"
+                        />
                       </div>
                     )}
                     <div className={dash.rowMain}>

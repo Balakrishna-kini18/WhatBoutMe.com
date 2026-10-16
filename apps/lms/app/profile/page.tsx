@@ -63,23 +63,33 @@ export default function ProfilePage() {
       return;
     }
     const headers = { Authorization: `Bearer ${token}` };
-    fetch(`${API_URL}/auth/me`, { headers })
+    const mePromise = fetch(`${API_URL}/auth/me`, { headers })
       .then((res) => (res.ok ? res.json() : null))
-      .then(setProfile)
-      .catch(() => setProfile(null))
+      .catch(() => null);
+
+    const certPromise = fetch(`${API_URL}/certificates/mine`, { headers })
+      .then((res) => (res.ok ? res.json() : []))
+      .catch(() => []);
+
+    const sessionPromise = fetch(`${API_URL}/auth/sessions`, { headers })
+      .then((res) => (res.ok ? res.json() : []))
+      .catch(() => []);
+
+    const sigPromise = fetch(`${API_URL}/agreements/saved-signature`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+
+    Promise.all([mePromise, certPromise, sessionPromise, sigPromise])
+      .then(([meData, certData, sessionData, sigData]) => {
+        setProfile(meData);
+        setCertificates(Array.isArray(certData) ? certData.length : 0);
+        setSessions(Array.isArray(sessionData) ? sessionData : []);
+        setSavedSig(sigData);
+      })
+      .catch(() => {
+        setProfile(null);
+      })
       .finally(() => setLoading(false));
-    fetch(`${API_URL}/certificates/mine`, { headers })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((list) => setCertificates(Array.isArray(list) ? list.length : 0))
-      .catch(() => setCertificates(0));
-    fetch(`${API_URL}/auth/sessions`, { headers })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((list) => setSessions(Array.isArray(list) ? list : []))
-      .catch(() => setSessions([]));
-    fetch(`${API_URL}/agreements/saved-signature`, { headers })
-      .then((res) => (res.ok ? res.json() : null))
-      .then(setSavedSig)
-      .catch(() => setSavedSig(null));
   }, [router]);
 
   const signOut = () => {

@@ -6,10 +6,12 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   Request,
 } from '@nestjs/common';
 import { ProgramsService } from './programs.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { PublicCache } from '../../common/decorators/cache-control.decorator.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
 import {
@@ -35,6 +37,7 @@ export class ProgramsController {
   // ─────────────────────────────────────────────────────────────────────────────
 
   @Public()
+  @PublicCache(60, 300)
   @Get()
   findAll(@Request() req: any) {
     return this.programsService.findAll(req?.user?.role);
@@ -95,6 +98,7 @@ export class ProgramsController {
     return this.programsService.removeStep(stepId);
   }
 
+  @PublicCache(60, 300)
   @Get('steps/:stepId/lessons')
   getLessons(@Param('stepId') stepId: string, @Request() req: any) {
     return this.programsService.getLessons(stepId, req?.user?.role);
@@ -118,6 +122,7 @@ export class ProgramsController {
     return this.programsService.reorderLessons(stepId, dto);
   }
 
+  @PublicCache(60, 300)
   @Get('steps/:stepId')
   getStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.programsService.getStep(stepId, req?.user?.role);
@@ -163,6 +168,7 @@ export class ProgramsController {
   // ─────────────────────────────────────────────────────────────────────────────
 
   @Public()
+  @PublicCache(60, 300)
   @Get(':id/steps')
   getSteps(@Param('id') id: string, @Request() req: any) {
     return this.programsService.getSteps(id, req?.user?.role);
@@ -190,6 +196,7 @@ export class ProgramsController {
   }
 
   @Public()
+  @PublicCache(60, 300)
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
     return this.programsService.findOne(id, req?.user?.role, req?.user?.sub || req?.user?.id);
@@ -203,7 +210,7 @@ export class ProgramsController {
 
   @RequirePermission(Permission.PROGRAMS_DELETE)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.programsService.remove(id);
+  remove(@Param('id') id: string, @Query('force') force?: string) {
+    return this.programsService.remove(id, force === 'true' || force === '1');
   }
 }

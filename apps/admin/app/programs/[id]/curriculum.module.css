@@ -1526,18 +1526,48 @@
 .questionTypePill {
   background: #ffffff;
   border: 1px solid var(--border-light, #ece4d7);
-  padding: 0.4rem 0.85rem;
+  padding: 0.45rem 1rem;
   border-radius: 9999px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-secondary, #4a443d);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  font-family: inherit;
 }
 
 .questionTypePill:hover {
   border-color: var(--accent-primary, #c97a1e);
   color: var(--accent-primary, #c97a1e);
+  background: #fffbf5;
+}
+
+.questionTypePillActive {
+  background: var(--accent-primary, #c97a1e) !important;
+  border-color: var(--accent-primary, #c97a1e) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(201, 122, 30, 0.28);
+}
+
+.codeSnippetInput {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  background: #1e1e1e;
+  color: #f8fafc;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.codeSnippetInput:focus {
+  outline: none;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.2);
 }
 
 .questionCard {

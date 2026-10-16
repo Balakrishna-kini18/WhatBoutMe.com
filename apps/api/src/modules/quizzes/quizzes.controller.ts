@@ -142,5 +142,13 @@ export class QuizzesController {
   deleteQuestion(@Param('questionId') questionId: string) {
     return this.quizzesService.deleteQuestion(questionId);
   }
+
+  @RequirePermission(Permission.QUIZZES_DELETE)
+  @Delete(':quizId/questions/:questionId')
+  deleteQuizQuestion(
+    @Param('questionId') questionId: string,
+  ) {
+    return this.quizzesService.deleteQuestion(questionId);
+  }
 }
 

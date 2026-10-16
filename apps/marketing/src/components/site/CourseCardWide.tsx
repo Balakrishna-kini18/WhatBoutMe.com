@@ -17,6 +17,8 @@ export default function CourseCardWide({ course }: { course: Course }) {
             src={course.image}
             alt={course.alt || course.title || "Course"}
             fill
+            quality={80}
+            loading="lazy"
             unoptimized={!isOptimisable(course.image)}
             sizes="(max-width: 640px) 100vw, 280px"
             className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"

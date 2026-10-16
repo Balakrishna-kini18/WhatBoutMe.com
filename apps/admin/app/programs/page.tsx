@@ -3,10 +3,11 @@
 import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
 import pstyles from "./programs.module.css";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
-import { uploadFile } from "../lib/api";
+import { uploadFile, cachedFetch } from "../lib/api";
 import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
 
 const API_URL =
@@ -133,7 +134,7 @@ export default function ProgramsPage() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await fetch(`${API_URL}/programs`);
+      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -190,16 +191,14 @@ export default function ProgramsPage() {
     setIsDeletingProgram(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`${API_URL}/programs/${programToDelete.id}`, {
+      const res = await fetch(`${API_URL}/programs/${programToDelete.id}?force=true`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
       if (res.ok) {
         const result = await res.json().catch(() => null);
         toastSuccess(
-          result?.archived
-            ? `Program "${programToDelete.title}" archived. Historical records preserved.`
-            : `Program "${programToDelete.title}" removed successfully.`
+          result?.message || `Program "${programToDelete.title}" and all associated files removed permanently.`
         );
         setPrograms((prev) => prev.filter((p) => p.id !== programToDelete.id));
         setProgramToDelete(null);
@@ -520,10 +519,15 @@ export default function ProgramsPage() {
                 {/* Visual Banner Header */}
                 <div className={pstyles.cardMediaHeader}>
                   {info.image && !failedImages[prog.id] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <Image
                       src={getCourseImageUrl(info.image)}
                       alt={prog.title}
+                      width={400}
+                      height={200}
+                      quality={80}
+                      loading="lazy"
+                      sizes="(max-width: 768px) 100vw, 360px"
+                      unoptimized={!getCourseImageUrl(info.image).startsWith("/")}
                       className={pstyles.cardMediaImage}
                       onError={() =>
                         setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
@@ -687,10 +691,14 @@ export default function ProgramsPage() {
                           }}
                         >
                           {hasValidImage ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <Image
                               src={imageUrl}
                               alt={prog.title}
+                              width={36}
+                              height={36}
+                              quality={80}
+                              loading="lazy"
+                              unoptimized={!imageUrl.startsWith("/")}
                               style={{ width: "100%", height: "100%", objectFit: "cover" }}
                               onError={() =>
                                 setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
@@ -947,9 +955,14 @@ export default function ProgramsPage() {
                         border: "1px solid var(--border-light)",
                       }}
                     >
-                      <img
+                      <Image
                         src={getCourseImageUrl(image)}
                         alt="Preview"
+                        width={48}
+                        height={36}
+                        quality={80}
+                        loading="lazy"
+                        unoptimized={!getCourseImageUrl(image).startsWith("/")}
                         style={{ width: "48px", height: "36px", objectFit: "cover", borderRadius: "4px" }}
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -1021,11 +1034,11 @@ export default function ProgramsPage() {
           if (!isDeletingProgram) setProgramToDelete(null);
         }}
         onConfirm={confirmDeleteProgram}
-        title="Remove Program Track?"
+        title="Delete Program Track & Clean Up Storage?"
         subtitle={programToDelete?.title}
-        description="Are you sure you want to remove this program? If active cohorts or enrolments exist, the program will be safely archived from the public catalog to preserve learner progress, certificates, and financial audit history. If no batches or enrolments exist, it will be permanently deleted along with associated media."
+        description="Are you sure you want to permanently delete this program track? All associated videos, PDF documents, learning modules, quizzes, questions, and records will be permanently deleted from both Cloudinary storage and the database to free up space. This action cannot be undone."
         tone="danger"
-        confirmText={isDeletingProgram ? "Removing..." : "Remove Program"}
+        confirmText={isDeletingProgram ? "Deleting..." : "Permanently Delete Track"}
         cancelText="Cancel"
         isLoading={isDeletingProgram}
         error={deleteError}

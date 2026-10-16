@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import styles from "./coupons.module.css";
-import { API_URL } from "../lib/api";
-import { Modal, CustomSelect, StatusBadge, ActionMenu } from "../components";
+import { API_URL, cachedFetch, errorMessage } from "../lib/api";
+import { Modal, CustomSelect, StatusBadge, ActionMenu, ConfirmDialog } from "../components";
 import type { StatusTone } from "../components";
 
 interface Coupon {
@@ -99,6 +99,9 @@ export default function CouponsPage() {
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [couponToDelete, setCouponToDelete] = useState<Coupon | null>(null);
+  const [isDeletingCoupon, setIsDeletingCoupon] = useState(false);
+  const [deleteCouponError, setDeleteCouponError] = useState<string | null>(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -133,8 +136,9 @@ export default function CouponsPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
-    loadPrograms();
+    const controller = new AbortController();
+    loadAll(controller.signal);
+    return () => controller.abort();
   }, []);
 
   const showToast = (msg: string) => {
@@ -142,13 +146,15 @@ export default function CouponsPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const loadData = async () => {
+  const loadAll = async (signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
-      const [kpisRes, couponsRes] = await Promise.all([
-        fetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include" }),
-        fetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include" }),
+      // Kill Waterfall: Load KPIs, Coupons, and Programs concurrently in a single window
+      const [kpisRes, couponsRes, programsRes] = await Promise.all([
+        fetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include", signal }),
+        fetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include", signal }),
+        fetch(`${API_URL}/programs`, { credentials: "include", signal }).catch(() => null),
       ]);
 
       if (kpisRes.ok) {
@@ -163,25 +169,22 @@ export default function CouponsPage() {
         const errJson = await couponsRes.json().catch(() => null);
         setError(errJson?.message || `Failed to load coupons (${couponsRes.status})`);
       }
+
+      if (programsRes && programsRes.ok) {
+        const data = await programsRes.json();
+        const list = Array.isArray(data) ? data : data?.items || [];
+        setPrograms(list.map((p: any) => ({ id: p.id, title: p.title })));
+      }
     } catch (err: any) {
-      setError(err?.message || "Error loading coupon data. Please check connection.");
+      if (err?.name !== "AbortError") {
+        setError(err?.message || "Error loading coupon data. Please check connection.");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadPrograms = async () => {
-    try {
-      const res = await fetch(`${API_URL}/programs`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data?.items || [];
-        setPrograms(list.map((p: any) => ({ id: p.id, title: p.title })));
-      }
-    } catch {
-      // Non-blocking fallback
-    }
-  };
+  const loadData = () => loadAll();
 
   const handleCopy = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -304,47 +307,70 @@ export default function CouponsPage() {
   };
 
   const handleToggleActive = async (coupon: Coupon) => {
+    const nextActive = !coupon.isActive;
+    const previousCoupons = coupons;
+
+    // Optimistic UI update: immediately toggle status in local state
+    setCoupons((prev) =>
+      prev.map((c) => (c.id === coupon.id ? { ...c, isActive: nextActive } : c))
+    );
+    showToast(`Coupon ${coupon.code} ${nextActive ? "activated" : "deactivated"}`);
+
     try {
       const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ isActive: !coupon.isActive }),
+        body: JSON.stringify({ isActive: nextActive }),
       });
 
-      if (res.ok) {
-        showToast(`Coupon ${coupon.code} ${coupon.isActive ? "deactivated" : "activated"}`);
-        loadData();
+      if (!res.ok) {
+        // Rollback on server error
+        setCoupons(previousCoupons);
+        showToast("Failed to update status");
       }
     } catch {
+      setCoupons(previousCoupons);
       showToast("Failed to update status");
     }
   };
 
-  const handleDelete = async (coupon: Coupon) => {
+  const confirmDeleteCoupon = async () => {
+    if (!couponToDelete) return;
+    const coupon = couponToDelete;
     const isDeactivation = (coupon.currentUses || 0) > 0 || (coupon._count?.redemptions || 0) > 0;
-    const confirmPrompt = isDeactivation
-      ? `Coupon "${coupon.code}" has historical redemptions. Deactivating it will prevent new redemptions while preserving past invoice integrity. Proceed?`
-      : `Are you sure you want to delete coupon "${coupon.code}"?`;
+    setIsDeletingCoupon(true);
+    setDeleteCouponError(null);
 
-    if (!window.confirm(confirmPrompt)) return;
+    const previousCoupons = coupons;
+
+    // Optimistic UI update: immediately deactivate or remove from local array
+    if (isDeactivation) {
+      setCoupons((prev) =>
+        prev.map((c) => (c.id === coupon.id ? { ...c, isActive: false } : c))
+      );
+    } else {
+      setCoupons((prev) => prev.filter((c) => c.id !== coupon.id));
+    }
+    showToast(`Coupon "${coupon.code}" ${isDeactivation ? "deactivated" : "removed"}`);
+    setCouponToDelete(null);
 
     try {
-      const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "DELETE",
         credentials: "include",
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        showToast(data.message || "Coupon processed successfully");
-        loadData();
-      } else {
+      if (!res.ok) {
+        setCoupons(previousCoupons);
         const errJson = await res.json().catch(() => null);
-        alert(errJson?.message || "Failed to delete coupon");
+        showToast(errJson?.message || "Failed to delete coupon");
       }
     } catch {
-      alert("Failed to delete coupon");
+      setCoupons(previousCoupons);
+      showToast("Failed to delete coupon");
+    } finally {
+      setIsDeletingCoupon(false);
     }
   };
 
@@ -669,7 +695,10 @@ export default function CouponsPage() {
                             {
                               label: (coupon.currentUses || 0) > 0 ? "Archive Coupon" : "Delete Coupon",
                               danger: true,
-                              onClick: () => handleDelete(coupon),
+                              onClick: () => {
+                                setDeleteCouponError(null);
+                                setCouponToDelete(coupon);
+                              },
                             },
                           ]}
                         />
@@ -963,6 +992,61 @@ export default function CouponsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* In-website branded ConfirmDialog for Coupon Deletion / Archival */}
+      <ConfirmDialog
+        isOpen={Boolean(couponToDelete)}
+        onClose={() => {
+          if (!isDeletingCoupon) {
+            setCouponToDelete(null);
+            setDeleteCouponError(null);
+          }
+        }}
+        onConfirm={confirmDeleteCoupon}
+        title={
+          couponToDelete && ((couponToDelete.currentUses || 0) > 0 || (couponToDelete._count?.redemptions || 0) > 0)
+            ? "Deactivate Coupon & Preserve Invoices"
+            : "Delete Coupon Code"
+        }
+        subtitle={couponToDelete ? `Code: ${couponToDelete.code}` : undefined}
+        description={
+          couponToDelete && ((couponToDelete.currentUses || 0) > 0 || (couponToDelete._count?.redemptions || 0) > 0) ? (
+            <>
+              Coupon <strong>{couponToDelete.code}</strong> has historical student redemptions. Deactivating it will prevent new redemptions while preserving past invoice and accounting integrity.
+            </>
+          ) : (
+            <>
+              Are you sure you want to permanently delete coupon <strong>{couponToDelete?.code}</strong>? This action cannot be undone.
+            </>
+          )
+        }
+        tone="danger"
+        confirmText={
+          isDeletingCoupon
+            ? "Processing..."
+            : couponToDelete && ((couponToDelete.currentUses || 0) > 0 || (couponToDelete._count?.redemptions || 0) > 0)
+            ? "Deactivate Coupon"
+            : "Delete Coupon"
+        }
+        cancelText="Cancel"
+        isLoading={isDeletingCoupon}
+        error={deleteCouponError}
+        itemDetails={
+          couponToDelete
+            ? [
+                { label: "Code", value: couponToDelete.code },
+                {
+                  label: "Discount",
+                  value:
+                    couponToDelete.discountType === "PERCENTAGE"
+                      ? `${couponToDelete.discountValue}% OFF`
+                      : `${couponToDelete.currency} ${couponToDelete.discountValue} OFF`,
+                },
+                { label: "Times Used", value: `${couponToDelete.currentUses || 0} times` },
+              ]
+            : []
+        }
+      />
     </div>
   );
 }

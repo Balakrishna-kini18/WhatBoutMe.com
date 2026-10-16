@@ -65,6 +65,30 @@ export class BatchesService {
         where.status = { not: 'ARCHIVED' };
       }
 
+      // Auto-transition batches whose startDate has arrived to ACTIVE
+      // and batches whose endDate has passed to COMPLETED
+      const now = new Date();
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      await this.prisma.batch.updateMany({
+        where: {
+          status: BatchStatus.UPCOMING,
+          startDate: { lte: endOfToday },
+        },
+        data: {
+          status: BatchStatus.ACTIVE,
+        },
+      }).catch(() => {});
+
+      await this.prisma.batch.updateMany({
+        where: {
+          status: BatchStatus.ACTIVE,
+          endDate: { lt: now, not: null },
+        },
+        data: {
+          status: BatchStatus.COMPLETED,
+        },
+      }).catch(() => {});
+
       const batches = await this.prisma.batch.findMany({
         where,
         include: {
@@ -164,40 +188,47 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async create(data: CreateBatchDto) {
-    // 1. Validate Program exists
-    const program = await this.prisma.program.findUnique({
-      where: { id: data.programId },
-    });
+    // 1-4. Parallelize independent validation queries concurrently in a single round-trip
+    const [program, existing, manager, trainers] = await Promise.all([
+      this.prisma.program.findUnique({
+        where: { id: data.programId },
+      }),
+      typeof this.prisma.batch?.findFirst === 'function'
+        ? this.prisma.batch.findFirst({
+            where: {
+              programId: data.programId,
+              name: { equals: data.name.trim(), mode: 'insensitive' },
+              status: { not: BatchStatus.ARCHIVED },
+            },
+          })
+        : Promise.resolve(null),
+      data.managerId
+        ? this.prisma.user.findUnique({
+            where: { id: data.managerId },
+          })
+        : Promise.resolve(null),
+      data.trainerIds && data.trainerIds.length > 0
+        ? this.prisma.user.findMany({
+            where: { id: { in: data.trainerIds } },
+          })
+        : Promise.resolve([]),
+    ]);
+
     if (!program) {
       throw new NotFoundException('Program not found');
     }
 
-    // 2. Validate uniqueness of batch name within program
-    if (typeof this.prisma.batch?.findFirst === 'function') {
-      const existing = await this.prisma.batch.findFirst({
-        where: {
-          programId: data.programId,
-          name: { equals: data.name.trim(), mode: 'insensitive' },
-          status: { not: BatchStatus.ARCHIVED },
-        },
-      });
-      if (existing) {
-        throw new ConflictException(
-          `A batch named "${data.name.trim()}" already exists in the selected program`,
-        );
-      }
+    if (existing) {
+      throw new ConflictException(
+        `A batch named "${data.name.trim()}" already exists in the selected program`,
+      );
     }
 
-    // 3. Validate Capacity
     if (data.capacity < 1) {
       throw new BadRequestException('Capacity must be at least 1');
     }
 
-    // 3. Validate Manager if specified
     if (data.managerId) {
-      const manager = await this.prisma.user.findUnique({
-        where: { id: data.managerId },
-      });
       if (!manager) {
         throw new NotFoundException('Manager user not found');
       }
@@ -208,11 +239,7 @@ export class BatchesService {
       }
     }
 
-    // 4. Validate initial trainers if specified
     if (data.trainerIds && data.trainerIds.length > 0) {
-      const trainers = await this.prisma.user.findMany({
-        where: { id: { in: data.trainerIds } },
-      });
       if (trainers.length !== data.trainerIds.length) {
         throw new NotFoundException('One or more specified trainers not found');
       }
@@ -222,6 +249,25 @@ export class BatchesService {
             `User ${t.name} cannot be assigned as trainer because they have USER role`,
           );
         }
+      }
+    }
+
+    // Determine initial status based on startDate / endDate if not explicitly provided
+    const now = new Date();
+    const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const batchStart = new Date(data.startDate);
+    const batchStartDayMs = new Date(batchStart.getFullYear(), batchStart.getMonth(), batchStart.getDate()).getTime();
+    const nowMs = now.getTime();
+    const startMs = batchStart.getTime();
+    const endMs = data.endDate ? new Date(data.endDate).getTime() : null;
+    let initialStatus = data.status;
+    if (!initialStatus) {
+      if (endMs && endMs < nowMs) {
+        initialStatus = BatchStatus.COMPLETED;
+      } else if (startMs <= nowMs || batchStartDayMs <= todayStartMs) {
+        initialStatus = BatchStatus.ACTIVE;
+      } else {
+        initialStatus = BatchStatus.UPCOMING;
       }
     }
 
@@ -235,18 +281,29 @@ export class BatchesService {
           startDate: new Date(data.startDate),
           endDate: data.endDate ? new Date(data.endDate) : null,
           capacity: data.capacity,
-          status: data.status ?? BatchStatus.UPCOMING,
+          status: initialStatus,
         },
       });
 
       if (data.trainerIds && data.trainerIds.length > 0) {
-        for (const trainerId of data.trainerIds) {
-          await tx.batchTrainer.create({
-            data: {
+        if (typeof (tx as any).batchTrainer?.createMany === 'function') {
+          await (tx as any).batchTrainer.createMany({
+            data: data.trainerIds.map((trainerId) => ({
               batchId: batch.id,
               trainerId,
-            },
+            })),
           });
+        } else {
+          await Promise.all(
+            data.trainerIds.map((trainerId) =>
+              tx.batchTrainer.create({
+                data: {
+                  batchId: batch.id,
+                  trainerId,
+                },
+              }),
+            ),
+          );
         }
       }
 
@@ -332,6 +389,27 @@ export class BatchesService {
     if (data.endDate !== undefined)
       updateData.endDate = data.endDate ? new Date(data.endDate) : null;
     if (data.capacity !== undefined) updateData.capacity = data.capacity;
+    if (data.status !== undefined) {
+      updateData.status = data.status;
+    } else if (batch.status === BatchStatus.UPCOMING || batch.status === BatchStatus.ACTIVE) {
+      const now = new Date();
+      const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const effectiveStart = updateData.startDate ?? batch.startDate;
+      const effectiveStartDayMs = new Date(effectiveStart.getFullYear(), effectiveStart.getMonth(), effectiveStart.getDate()).getTime();
+      const nowMs = now.getTime();
+      const startMs = effectiveStart.getTime();
+      const endMs = updateData.endDate !== undefined
+        ? (updateData.endDate ? updateData.endDate.getTime() : null)
+        : (batch.endDate ? batch.endDate.getTime() : null);
+
+      if (endMs && endMs < nowMs) {
+        updateData.status = BatchStatus.COMPLETED;
+      } else if (startMs <= nowMs || effectiveStartDayMs <= todayStartMs) {
+        updateData.status = BatchStatus.ACTIVE;
+      } else {
+        updateData.status = BatchStatus.UPCOMING;
+      }
+    }
 
     const updated = await this.prisma.batch.update({
       where: { id },
@@ -520,7 +598,8 @@ export class BatchesService {
   async remove(id: string) {
     const batch = await this.prisma.batch.findUnique({ where: { id } });
     if (!batch) {
-      throw new NotFoundException('Batch not found');
+      await this.cacheHelper.invalidateNamespace('batches');
+      return { id, deleted: true };
     }
 
     // 1. Gather all sessions in this batch for Zoom cancel events & attendance cleanup
@@ -530,90 +609,144 @@ export class BatchesService {
     });
     const sessionIds = sessions.map((s) => s.id);
 
-    // 2. Execute full relational cleanup inside transaction
-    await this.prisma.$transaction(async (tx) => {
-      if (sessionIds.length > 0) {
-        // Attendance records & audit logs
-        const attendances = await tx.attendance.findMany({
-          where: { sessionId: { in: sessionIds } },
-          select: { id: true },
-        });
-        const attendanceIds = attendances.map((a) => a.id);
+    // 2. Execute full relational cleanup inside transaction with extended timeout
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (sessionIds.length > 0) {
+          // Attendance records
+          if (typeof (tx as any).attendance?.deleteMany === 'function') {
+            await (tx as any).attendance.deleteMany({
+              where: { sessionId: { in: sessionIds } },
+            });
+          }
 
-        if (attendanceIds.length > 0) {
-          await (tx as any).attendanceAuditLog?.deleteMany?.({
-            where: { attendanceId: { in: attendanceIds } },
-          }).catch(() => {});
-          await (tx as any).attendanceEventLog?.deleteMany?.({
-            where: { attendanceId: { in: attendanceIds } },
-          }).catch(() => {});
-          await tx.attendance.deleteMany({
-            where: { id: { in: attendanceIds } },
-          });
+          // Unmatched attendances
+          if (typeof (tx as any).unmatchedAttendance?.deleteMany === 'function') {
+            await (tx as any).unmatchedAttendance.deleteMany({
+              where: { sessionId: { in: sessionIds } },
+            });
+          }
+
+          // Session bookings
+          if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+            await (tx as any).sessionBooking.deleteMany({
+              where: { sessionId: { in: sessionIds } },
+            });
+          }
+
+          // Sessions
+          if (typeof (tx as any).session?.deleteMany === 'function') {
+            await (tx as any).session.deleteMany({
+              where: { id: { in: sessionIds } },
+            });
+          }
         }
 
-        // Unmatched attendances
-        await tx.unmatchedAttendance.deleteMany({
-          where: { sessionId: { in: sessionIds } },
-        }).catch(() => {});
+        // 3. Clean up enrolments and all nested progress/attempts
+        const enrolments =
+          typeof (tx as any).enrolment?.findMany === 'function'
+            ? await (tx as any).enrolment.findMany({
+                where: { batchId: id },
+                select: { id: true },
+              })
+            : [];
+        const enrolmentIds = enrolments.map((e: any) => e.id);
 
-        // Session bookings
-        await tx.sessionBooking.deleteMany({
-          where: { sessionId: { in: sessionIds } },
-        });
+        if (enrolmentIds.length > 0) {
+          if (typeof (tx as any).attendance?.deleteMany === 'function') {
+            await (tx as any).attendance.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).unmatchedAttendance?.deleteMany === 'function') {
+            await (tx as any).unmatchedAttendance.deleteMany({ where: { linkedEnrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+            await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).attempt?.deleteMany === 'function') {
+            await (tx as any).attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).examAttempt?.deleteMany === 'function') {
+            await (tx as any).examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).oralAssessment?.deleteMany === 'function') {
+            await (tx as any).oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
+            await (tx as any).userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).stepProgress?.deleteMany === 'function') {
+            await (tx as any).stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).signedAgreement?.deleteMany === 'function') {
+            await (tx as any).signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).certificate?.deleteMany === 'function') {
+            await (tx as any).certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).couponRedemption?.deleteMany === 'function') {
+            await (tx as any).couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
 
-        // Sessions
-        await tx.session.deleteMany({
-          where: { id: { in: sessionIds } },
-        });
-      }
-
-      // 3. Clean up enrolments and all nested progress/attempts
-      const enrolments =
-        typeof (tx as any).enrolment?.findMany === 'function'
-          ? await (tx as any).enrolment.findMany({
-              where: { batchId: id },
+          // Invoices linked to payments must be deleted before deleting payments
+          if (typeof (tx as any).payment?.findMany === 'function') {
+            const payments = await (tx as any).payment.findMany({
+              where: { enrolmentId: { in: enrolmentIds } },
               select: { id: true },
-            })
-          : [];
-      const enrolmentIds = enrolments.map((e: any) => e.id);
+            });
+            const paymentIds = payments.map((p: any) => p.id);
+            if (paymentIds.length > 0 && typeof (tx as any).invoice?.deleteMany === 'function') {
+              await (tx as any).invoice.deleteMany({ where: { paymentId: { in: paymentIds } } });
+            }
+          }
+          if (typeof (tx as any).payment?.deleteMany === 'function') {
+            await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+          }
+          if (typeof (tx as any).enrolment?.deleteMany === 'function') {
+            await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+          }
+        }
 
-      if (enrolmentIds.length > 0) {
-        await tx.attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
-        await tx.enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
-      }
+        // 4. Clean up batch metadata relations
+        if (typeof (tx as any).batchTrainer?.deleteMany === 'function') {
+          await (tx as any).batchTrainer.deleteMany({ where: { batchId: id } });
+        }
+        if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
+          await (tx as any).batchStepOverride.deleteMany({ where: { batchId: id } });
+        }
+        if (typeof (tx as any).batchAnnouncement?.deleteMany === 'function') {
+          await (tx as any).batchAnnouncement.deleteMany({ where: { batchId: id } });
+        }
 
-      // 4. Clean up batch metadata relations
-      if (typeof (tx as any).batchTrainer?.deleteMany === 'function') {
-        await (tx as any).batchTrainer.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).batchStepOverride?.deleteMany === 'function') {
-        await (tx as any).batchStepOverride.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).batchAnnouncement?.deleteMany === 'function') {
-        await (tx as any).batchAnnouncement.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).conversation?.deleteMany === 'function') {
-        await (tx as any).conversation.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).resource?.deleteMany === 'function') {
-        await (tx as any).resource.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
-      if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
-        await (tx as any).resourceItem.deleteMany({ where: { batchId: id } }).catch(() => {});
-      }
+        // Clean up conversations and messages
+        if (typeof (tx as any).conversation?.findMany === 'function') {
+          const convs = await (tx as any).conversation.findMany({
+            where: { batchId: id },
+            select: { id: true },
+          });
+          const convIds = convs.map((c: any) => c.id);
+          if (convIds.length > 0) {
+            if (typeof (tx as any).message?.deleteMany === 'function') {
+              await (tx as any).message.deleteMany({ where: { conversationId: { in: convIds } } });
+            }
+            await (tx as any).conversation.deleteMany({ where: { id: { in: convIds } } });
+          }
+        }
 
-      // 5. Clean delete batch record
-      await tx.batch.delete({ where: { id } });
-    });
+        if (typeof (tx as any).resource?.deleteMany === 'function') {
+          await (tx as any).resource.deleteMany({ where: { batchId: id } });
+        }
+        if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
+          await (tx as any).resourceItem.deleteMany({ where: { batchId: id } });
+        }
+
+        // 5. Clean delete batch record
+        await tx.batch.delete({ where: { id } });
+      },
+      {
+        maxWait: 15000,
+        timeout: 30000,
+      }
+    );
 
     // 3. Create Zoom cancel outbox events
     try {
@@ -648,6 +781,25 @@ export class BatchesService {
     const remainingCapacity = Math.max(0, capacity - enrolledCount);
     const isFull = enrolledCount >= capacity;
 
+    const now = new Date();
+    const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const nowMs = now.getTime();
+    let computedStatus = batch.status;
+    if (batch.status === BatchStatus.UPCOMING && batch.startDate) {
+      const bStart = new Date(batch.startDate);
+      const bStartDayMs = new Date(bStart.getFullYear(), bStart.getMonth(), bStart.getDate()).getTime();
+      if (bStart.getTime() <= nowMs || bStartDayMs <= todayStartMs) {
+        computedStatus =
+          batch.endDate && new Date(batch.endDate).getTime() < nowMs
+            ? BatchStatus.COMPLETED
+            : BatchStatus.ACTIVE;
+      }
+    } else if (batch.status === BatchStatus.ACTIVE && batch.endDate) {
+      if (new Date(batch.endDate).getTime() < nowMs) {
+        computedStatus = BatchStatus.COMPLETED;
+      }
+    }
+
     return {
       id: batch.id,
       name: batch.name,
@@ -658,7 +810,7 @@ export class BatchesService {
       startDate: batch.startDate,
       endDate: batch.endDate,
       capacity,
-      status: batch.status,
+      status: computedStatus,
       enrolledCount,
       remainingCapacity,
       isFull,

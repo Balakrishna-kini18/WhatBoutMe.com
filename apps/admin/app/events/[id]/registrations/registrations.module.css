@@ -1,0 +1,306 @@
+/* Registrations Page Styling */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #64748b;
+  font-size: 0.825rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
+  width: fit-content;
+  transition: all 0.15s ease;
+}
+
+.backBtn:hover {
+  color: #0f172a;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.eventHero {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.kpiCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 1.15rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.kpiCard:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.kpiLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.kpiValue {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.kpiSub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+
+.heroLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.heroTitle {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.heroMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.825rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.heroMetaItem {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.heroRight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.exportBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #ffffff;
+  border: 1px solid #0f172a;
+  color: #0f172a;
+  padding: 0.6rem 1.15rem;
+  border-radius: 12px;
+  font-size: 0.825rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.exportBtn:hover {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.tableToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  background: #ffffff;
+  padding: 0.85rem 1.25rem;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.statChips {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chipConfirmed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.775rem;
+  font-weight: 700;
+}
+
+.chipRejected {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.775rem;
+  font-weight: 700;
+}
+
+.chipDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.searchWrap {
+  position: relative;
+  min-width: 280px;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.45rem 0.75rem 0.45rem 2.25rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 0.825rem;
+  background: #ffffff;
+  outline: none;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.tableWrap {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.th {
+  background: #f8fafc;
+  padding: 0.85rem 1rem;
+  font-size: 0.725rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.td {
+  padding: 0.95rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.tr:hover .td {
+  background: #f8fafc;
+}
+
+.avatarWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.userName {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.rejectBtn {
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rejectBtn:hover {
+  background: #fecaca;
+  color: #b91c1c;
+}
+
+.emptyRoster {
+  padding: 4rem 1rem;
+  text-align: center;
+  color: #64748b;
+  font-weight: 500;
+}

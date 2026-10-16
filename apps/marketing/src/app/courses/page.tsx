@@ -12,7 +12,7 @@ import { getCourses, type Course } from "@/lib/courses";
 export const metadata: Metadata = {
   title: "Courses & Workshops — whatboutme",
   description:
-    "Every whatboutme course and workshop, in person or online. Pick one to see what it covers and enrol.",
+    "The 11 Steps to U Program, Resilience Speaker sessions and the Vision Board from whatboutme.",
 };
 
 export default async function CoursesPage() {
@@ -37,8 +37,7 @@ export default async function CoursesPage() {
             All Courses &amp; Workshops
           </h1>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-ink-soft sm:mt-5 sm:text-base md:text-lg">
-            Pick a course to see what it covers and enrol. Every format runs in
-            person or online.
+            Pick a course to see what it covers and enrol.
           </p>
         </div>
       </header>

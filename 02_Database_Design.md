@@ -25,8 +25,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // -----------------------------------------------------------------------------
@@ -492,5 +493,174 @@ model Lead {
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([email])
+}
+
+// -----------------------------------------------------------------------------
+// REQUIREMENT 10: DYNAMIC EVENTS MANAGEMENT & TICKETING
+// -----------------------------------------------------------------------------
+
+enum EventLocationType {
+  ONLINE
+  PHYSICAL
+}
+
+enum CurrencyCode {
+  USD
+  AED
+  INR
+}
+
+enum EventPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Event {
+  id              String              @id @default(uuid())
+  title           String
+  slug            String              @unique
+  description     String              @db.Text
+  bannerUrl       String?
+  startDateTime   DateTime
+  endDateTime     DateTime?
+  timezone        String              @default("UTC")
+  
+  // Online vs Physical Toggle
+  locationType    EventLocationType   @default(ONLINE)
+  meetingLink     String?             // Required if ONLINE (kept private until paid)
+  venueName       String?             // Required if PHYSICAL (e.g., Hall Name)
+  venueAddress    String?             // Required if PHYSICAL (Full address / Map link)
+  
+  // Dynamic Pricing & Multi-Currency
+  price           Decimal             @default(0.00) @db.Decimal(10, 2)
+  currency        CurrencyCode        @default(USD)
+  seatLimit       Int?                // Null = unlimited seats
+  seatsBooked     Int                 @default(0)
+  
+  isPublished     Boolean             @default(true)
+  createdById     String?
+  createdBy       User?               @relation("CreatedEvents", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  registrations   EventRegistration[]
+
+  @@index([locationType, isPublished])
+  @@index([startDateTime])
+  @@index([createdAt])
+}
+
+model EventRegistration {
+  id                String             @id @default(uuid())
+  eventId           String
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId            String?            // Optional if guest checkout is allowed, or linked to User
+  user              User?              @relation("UserEventRegistrations", fields: [userId], references: [id], onDelete: SetNull)
+  
+  attendeeName      String
+  attendeeEmail     String
+  attendeePhone     String
+  
+  amount            Decimal            @default(0.00) @db.Decimal(10, 2)
+  currency          CurrencyCode       @default(USD)
+  paymentGateway    String             @default("SIMULATION") // "RAZORPAY" | "STRIPE" | "SIMULATION" | "FREE"
+  gatewayOrderId    String?            @unique
+  gatewayPaymentId  String?
+  paymentStatus     EventPaymentStatus @default(PENDING)
+  
+  emailSent         Boolean            @default(false)
+  registeredAt      DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  rejectedById      String?
+  rejectedBy        User?              @relation("RejectedEventRegistrations", fields: [rejectedById], references: [id], onDelete: SetNull)
+  rejectionReason   String?
+
+  @@index([eventId, paymentStatus])
+  @@index([attendeeEmail])
+  @@index([userId])
 }
 ```
+
+---
+
+## 3. Free-Tier Performance & High-Concurrency Architecture
+
+To support free-tier PostgreSQL hosting (e.g., Neon / Supabase) without latency spikes, cold-start timeouts, or connection pool exhaustion, the database layer adheres to these four architectural principles:
+
+### 3.1. Global Singleton & Connection Pooling Strategy
+- **Shared Global Instance:** In both development and production (including serverless container reuse), `PrismaService` and `db.ts` utilize a global singleton attached to `globalThis` (`globalThis.__prismaServiceInstance` and `globalThis.prisma`). This prevents allocating new connection pools on warm serverless invocations or hot module reloading.
+- **PgBouncer / Transaction Mode:** Pooled URLs with `-pooler` hostname or port `6543` automatically attach `pgbouncer=true`. This switches Prisma's query engine to simple query protocol without prepared statements, preventing `prepared statement "sX" already exists` transaction pooling clashes.
+- **Connection Limits & Timeouts:**
+  - `connection_limit=10` (or `DB_POOL_MAX=10` / `5` in dev) limits client-side pooling so multi-instance horizontal scaling does not exhaust free-tier limits (typically 20–50 connections max).
+  - `connect_timeout=15` (or `DB_CONNECT_TIMEOUT=15`) prevents premature TCP aborts during compute cold-start wakeups.
+  - `pool_timeout=10` (or `DB_POOL_TIMEOUT=10`) bounds connection acquisition delays.
+- **Direct Migrations (`DIRECT_URL`):** Prisma migrations and DDL operations bypass the connection pooler via `DIRECT_URL` to support advisory locks and schema manipulation.
+
+### 3.2. Automated Keep-Alive & Anti-Sleep Engine
+- Free-tier serverless PostgreSQL computes sleep after 5 minutes of inactivity, adding 1–3s latency to subsequent requests.
+- A dedicated keep-alive warmup endpoint (`GET /api/health` and `/health`) executes an ultra-lightweight `SELECT 1` query.
+- External cron/uptime monitors (or cloud schedulers) ping this endpoint every 4 minutes to guarantee the database instance remains in a warm, low-latency state.
+
+### 3.3. Payload Slimming & Selective Fetching
+- List and overview endpoints NEVER issue `SELECT *` or unrestricted Prisma `include` clauses.
+- Heavy textual and JSON blobs (`taxFields`, `rawPayload`, `drawnSignature`, `message`, `certificateTemplate`, `passwordHash`) are explicitly excluded from bulk table queries.
+- Aggregations and counts utilize database-level `groupBy` and `_count` / `_sum` instead of loading entire tables into Node.js memory.
+
+### 3.4. Composite & Foreign-Key Indexing Matrix
+All columns involved in `WHERE`, `JOIN` (foreign keys), `ORDER BY`, and `GROUP BY` are indexed with appropriate composite and sorting semantics:
+- **User:** `[role, createdAt DESC]`, `[createdAt DESC]`, `[deletedAt]`
+- **Program:** `[status, isActive, createdAt DESC]`, `[status, createdAt DESC]`, `[createdAt DESC]`
+- **Batch:** `[status, startDate DESC]`, `[startDate DESC]`, `[programId]`, `[managerId]`
+- **Enrolment:** `[batchId, createdAt DESC]`, `[createdAt DESC]`, `[programId, status]`, `[userId]`, `[batchId]`, `[programId]`
+- **Session:** `[learnerId, startTime DESC]`, `[hostTrainerId, startTime DESC]`, `[batchId, sessionType, startTime]`, `[startTime DESC]`, `[zoomMeetingId]`, `[providerMeetingId]`, `[externalMeetingId]`
+- **SessionBooking:** `[userId, status]`, `[sessionId, status]`, `[createdAt DESC]`
+- **Attendance:** `[enrolmentId, status]`, `[userId, status]`, `[correctedById]`
+- **UnmatchedAttendance:** `[sessionId, joinTime ASC]`, `[status, createdAt DESC]`, `[linkedEnrolmentId]`, `[linkedUserId]`, `[resolvedById]`
+- **Lead:** `[status, createdAt DESC]`, `[createdAt DESC]`, `[email]`
+- **Invoice:** `[status, createdAt DESC]`, `[createdAt DESC]`, `[creditNoteId]`
+- **Payment:** `[enrolmentId]`, `[status, createdAt DESC]`, `[couponId]`
+- **Coupon:** `[isActive, expiresAt]`, `[createdAt DESC]`, `[discountType]`
+- **CouponRedemption:** `[couponId, redeemedAt DESC]`, `[enrolmentId]`, `[paymentId]`, `[redeemedAt DESC]`
+- **Message:** `[conversationId, createdAt DESC]`, `[conversationId, read]`, `[senderId]`
+- **Conversation:** `[updatedAt DESC]`
+- **Notification:** `[userId, createdAt DESC]`, `[deliveryStatus, schedule]`
+- **SignedAgreement:** `[templateId, signedAt DESC]`, `[userId, status]`
+- **AgreementTemplateVersion:** `[templateId, createdAt DESC]`, `[createdById]`
+- **Certificate:** `[approvedById]`, `[createdAt DESC]`
+- **Step / Lesson:** `[programId, status]`, `[stepId, status]`
+- **DailyAttendance:** `[date]`
+- **Event:** `[locationType, isPublished]`, `[startDateTime]`, `[createdAt]`, `[slug (UNIQUE)]`
+- **EventRegistration:** `[eventId, paymentStatus]`, `[attendeeEmail]`, `[userId]`, `[gatewayOrderId (UNIQUE)]`
+- **GalleryItem:** `[isPublished, displayOrder, createdAt DESC]`
+
+---
+
+## 4. Photo Gallery (Requirement 9)
+
+```prisma
+model GalleryItem {
+  id           String   @id @default(cuid())
+  title        String   @db.VarChar(160) // e.g., "Attended Research Course at US"
+  description  String?  @db.Text         // Context about the course/conference photo
+  imageUrl     String                    // Uploaded image URL (WebP/AVIF/JPEG/PNG)
+  altText      String?  @db.VarChar(200) // Accessibility fallback (defaults to title)
+  category     String?  @db.VarChar(60)  // Optional tag: "Course", "Conference", "Workshop"
+  displayOrder Int      @default(0)      // Controls sort order on the user website
+  isPublished  Boolean  @default(true)   // Allows Admin to hide/show without deleting
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isPublished, displayOrder, createdAt(sort: Desc)])
+}
+```
+
+

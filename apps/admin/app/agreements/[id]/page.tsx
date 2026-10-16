@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, use, FormEvent } from "react";
+import Image from "next/image";
 import styles from "../../page.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../../lib/api";
-import { StatusBadge, CustomSelect, type CustomSelectOption } from "../../components";
+import { API_URL, errorMessage, cachedFetch } from "../../lib/api";
+import { StatusBadge, CustomSelect, type CustomSelectOption, ConfirmDialog, useToast } from "../../components";
 
 const ENROLMENT_STATUS_OPTIONS: CustomSelectOption[] = [
   { value: "ALL", label: "Enrolment: All" },
@@ -195,6 +196,17 @@ export default function AgreementTemplateDetailPage({
   const [signedRecords, setSignedRecords] = useState<SignedRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"versions" | "signed">("versions");
+  const toast = useToast();
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    subtitle?: string;
+    description: React.ReactNode;
+    confirmText?: string;
+    tone?: "danger" | "warning" | "info";
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Create new version modal
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -458,61 +470,73 @@ export default function AgreementTemplateDetailPage({
     }
   };
 
-  const handlePublishVersion = async (ver: TemplateVersion) => {
-    const confirmPublish = window.confirm(
-      `Are you sure you want to publish version ${ver.version} live? This will activate these terms for learners and archive previous published versions.`
-    );
-    if (!confirmPublish) return;
 
-    setStatusMsg(null);
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/admin/agreement-templates/${templateId}/versions/${ver.id}/publish`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
+  const handlePublishVersion = (version: TemplateVersion) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Publish Agreement Version",
+      subtitle: `Version: ${version.version}`,
+      description: `Are you sure you want to publish ${version.version}? This will make it active for all enrolled learners and automatically archive previous versions.`,
+      confirmText: "Publish Version",
+      tone: "info",
+      onConfirm: async () => {
+        setIsConfirming(true);
+        setStatusMsg(null);
+        try {
+          const res = await cachedFetch(`${API_URL}/admin/agreement-templates/${templateId}/versions/${version.id}/publish`, {
+            method: "POST",
+          });
 
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to publish version"));
-      }
+          if (!res.ok) {
+            throw new Error(await errorMessage(res, `Failed to publish ${version.version}`));
+          }
 
-      setStatusMsg({ type: "success", text: `Version ${ver.version} is now published and active.` });
-      await fetchTemplateData();
-    } catch (err: any) {
-      console.error(err);
-      setStatusMsg({ type: "error", text: err.message || "Failed to publish version" });
-    }
+          toast.success(`Version ${version.version} is now PUBLISHED and live.`);
+          setStatusMsg({ type: "success", text: `Version ${version.version} is now PUBLISHED and live for learners.` });
+          await fetchTemplateData();
+        } catch (err: any) {
+          toast.error(err.message || "Publish action failed");
+          setStatusMsg({ type: "error", text: err.message || "Publish action failed" });
+        } finally {
+          setIsConfirming(false);
+          setConfirmConfig(null);
+        }
+      },
+    });
   };
 
-  const handleDeleteDraft = async (ver: TemplateVersion) => {
-    const confirmDelete = window.confirm(
-      `Are you sure you want to delete draft version ${ver.version}? This action cannot be undone.`
-    );
-    if (!confirmDelete) return;
+  const handleDeleteDraft = (version: TemplateVersion) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Draft Version",
+      subtitle: `Version: ${version.version}`,
+      description: `Are you sure you want to delete draft version ${version.version}? This action cannot be undone.`,
+      confirmText: "Delete Draft",
+      tone: "danger",
+      onConfirm: async () => {
+        setIsConfirming(true);
+        setStatusMsg(null);
+        try {
+          const res = await cachedFetch(`${API_URL}/admin/agreement-templates/${templateId}/versions/${version.id}`, {
+            method: "DELETE",
+          });
 
-    setStatusMsg(null);
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/admin/agreement-templates/${templateId}/versions/${ver.id}`, {
-        method: "DELETE",
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
+          if (!res.ok) {
+            throw new Error(await errorMessage(res, `Failed to delete ${version.version}`));
+          }
 
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to delete draft version"));
-      }
-
-      setStatusMsg({ type: "success", text: `Draft version ${ver.version} deleted.` });
-      await fetchTemplateData();
-    } catch (err: any) {
-      console.error(err);
-      setStatusMsg({ type: "error", text: err.message || "Failed to delete draft version" });
-    }
+          toast.success(`Draft ${version.version} deleted.`);
+          setStatusMsg({ type: "success", text: `Draft ${version.version} deleted.` });
+          await fetchTemplateData();
+        } catch (err: any) {
+          toast.error(err.message || "Failed to delete draft");
+          setStatusMsg({ type: "error", text: err.message || "Failed to delete draft" });
+        } finally {
+          setIsConfirming(false);
+          setConfirmConfig(null);
+        }
+      },
+    });
   };
 
   const handleDownloadSignedPdf = async (rec: SignedRecord) => {
@@ -1485,7 +1509,6 @@ export default function AgreementTemplateDetailPage({
                         <td>
                           <StatusBadge status={enrolmentStatus} />
                         </td>
-
                         {/* Actions */}
                         <td className={styles.alignRight}>
                           <div style={{ display: "inline-flex", gap: "0.4rem", alignItems: "center" }}>
@@ -2325,6 +2348,21 @@ export default function AgreementTemplateDetailPage({
           </div>
         </div>
       )}
+      {/* In-website branded ConfirmDialog */}
+      <ConfirmDialog
+        isOpen={Boolean(confirmConfig?.isOpen)}
+        onClose={() => {
+          if (!isConfirming) setConfirmConfig(null);
+        }}
+        onConfirm={confirmConfig?.onConfirm || (() => {})}
+        title={confirmConfig?.title || "Confirm Action"}
+        subtitle={confirmConfig?.subtitle}
+        description={confirmConfig?.description || "Are you sure you want to proceed?"}
+        confirmText={isConfirming ? "Processing..." : confirmConfig?.confirmText || "Confirm"}
+        cancelText="Cancel"
+        tone={confirmConfig?.tone || "danger"}
+        isLoading={isConfirming}
+      />
     </div>
   );
 }

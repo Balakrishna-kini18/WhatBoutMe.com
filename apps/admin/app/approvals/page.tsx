@@ -221,7 +221,7 @@ export default function OralAssessmentsPage() {
   const totalPossible = rubricScores.reduce((acc, r) => acc + (r.maxScore || 10), 0);
   const calculatedPercent = totalPossible > 0 ? Math.round((totalEarned / totalPossible) * 100) : 0;
 
-  // Submit Grade
+  // Submit Grade with optimistic UI update
   async function handleSubmitGrade(e: FormEvent) {
     e.preventDefault();
     if (!gradingAssessment) return;
@@ -236,13 +236,37 @@ export default function OralAssessmentsPage() {
       return;
     }
 
-    setSubmittingGrade(true);
+    const targetId = gradingAssessment.id;
+    const previousAssessments = assessments;
+    const optimisticStatus: "PASSED" | "FAILED" = passed ? "PASSED" : "FAILED";
+
+    // Optimistic UI update: immediately mark oral assessment as graded in local state
+    setAssessments((prev) =>
+      prev.map((a) =>
+        a.id === targetId
+          ? {
+              ...a,
+              status: optimisticStatus,
+              overallScore: calculatedPercent,
+              trainerNotes: trainerNotes.trim(),
+              retryGuidance: !passed ? retryGuidance.trim() : null,
+              gradedAt: new Date().toISOString(),
+              scores: rubricScores,
+            }
+          : a
+      )
+    );
+
+    // Dismiss modal immediately for instant feedback
+    setGradingAssessment(null);
+    setPageSuccess(
+      `Oral assessment successfully graded (${passed ? "PASSED" : "RETRY REQUIRED"}, ${calculatedPercent}%).`
+    );
     setGradeModalError(null);
     setPageError(null);
-    setPageSuccess(null);
 
     try {
-      const token = localStorage.getItem("token");
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const payload = {
         scores: rubricScores.map((r) => ({
           rubricCategory: r.rubricCategory.trim(),
@@ -255,7 +279,7 @@ export default function OralAssessmentsPage() {
         retryGuidance: !passed ? retryGuidance.trim() : undefined,
       };
 
-      const res = await fetch(`${API_URL}/oral-assessments/${gradingAssessment.id}/grade`, {
+      const res = await fetch(`${API_URL}/oral-assessments/${targetId}/grade`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -265,17 +289,15 @@ export default function OralAssessmentsPage() {
       });
 
       if (!res.ok) {
+        // Rollback on server error
+        setAssessments(previousAssessments);
         throw new Error(await errorMessage(res, "Failed to submit oral assessment evaluation"));
       }
 
-      setGradingAssessment(null);
-      setPageSuccess(
-        `Oral assessment successfully graded (${passed ? "PASSED" : "RETRY REQUIRED"}, ${calculatedPercent}%).`
-      );
-      // Refresh list
-      await fetchAssessments(selectedBatchId);
+      // Background re-fetch to synchronize canonical server state
+      fetchAssessments(selectedBatchId);
     } catch (err: any) {
-      setGradeModalError(err.message);
+      setPageError(err.message || "Failed to submit grade evaluation");
     } finally {
       setSubmittingGrade(false);
     }

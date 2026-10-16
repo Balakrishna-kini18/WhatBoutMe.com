@@ -16,7 +16,7 @@ export default async function Offerings() {
           center
           eyebrow="Courses"
           title="Courses & Workshops"
-          intro="From a one-hour keynote to a twelve-class certified programme, built on neuroscience and lived experience."
+          intro="The 11 Steps to U Program, Speaker Assignments on Brain Health, and the Vision Board Kit developed with neuroscience and lived experience."
         />
 
         {/* phones swipe through the cards; from sm up, flex rather than grid

@@ -12,14 +12,13 @@ export default function Facilitator({ image }: { image: string }) {
         <div className="relative mx-auto grid max-w-[1240px] items-end gap-10 px-5 pt-20 sm:pt-32 md:px-10 md:pt-40 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16">
           <div className="pb-4 text-center lg:pb-20 lg:text-left">
             <h1 className="text-balance text-[1.75rem] font-bold sm:text-4xl leading-[1.08] tracking-tight md:text-[3.25rem]">
-              Eighteen Years in the Corporate World. One Question That Changed
-              It.
+              I Lived It, So I Coach It!
             </h1>
             <p className="mt-6 text-lg font-semibold tracking-tight">
               Roweena Britto
             </p>
             <p className="text-ink-soft">
-              Founder &amp; lead facilitator · Brain Health Coach
+              About Me · Brain Health Coach
             </p>
           </div>
 
@@ -27,11 +26,12 @@ export default function Facilitator({ image }: { image: string }) {
             <span className="absolute inset-x-0 bottom-0 aspect-square rounded-full bg-[linear-gradient(160deg,#f8cf86,#efa944)]" />
             <Image
               src={image}
-            unoptimized={!isLocalImage(image)}
+              unoptimized={!isLocalImage(image)}
               alt="Roweena Britto, Brain Health Coach"
               width={623}
               height={1289}
               priority
+              quality={80}
               sizes="(max-width: 640px) 80vw, 400px"
               className="absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
             />
@@ -43,21 +43,23 @@ export default function Facilitator({ image }: { image: string }) {
       <section className="py-10 sm:py-16 md:py-24">
         <div className="mx-auto max-w-[760px] px-5 md:px-10">
           <p className="text-xl font-medium leading-relaxed tracking-tight md:text-2xl md:leading-relaxed">
-            Roweena Britto spent eighteen years in Dubai running projects for
-            multinationals like PepsiCo and DHL, in a career built on delivery,
-            deadlines and looking after everyone else&apos;s outcomes.
+            The moment I fell in love with my condition and my BRAIN, I chased
+            it to become its best version; only to realize, it changed
+            everything for the BETTER!
           </p>
           <div className="mt-8 space-y-6 leading-relaxed text-ink-soft md:text-lg md:leading-relaxed">
             <p>
-              What she learned there is the reason whatboutme exists: capable,
-              dependable people quietly run their brains into the ground, and
-              almost none of them have the language to notice it happening.
+              Where is my life going with all the trauma, anxiety, depression,
+              and confusion battling in my brain? I often wondered if there was
+              any anxiety and depression support available for someone like me.
+              Will I see better days? Why go through this pain? When will I be
+              free of my addictions and live with purpose? Who can help me
+              navigate this mental health journey?
             </p>
             <p>
-              Today she works as a Brain Health Coach, licensed in the UAE and
-              India, translating neuroscience into something a room of
-              ordinary, tired, high-performing people can actually use on a
-              Monday morning, grounded in her own lived resilience story.
+              Through my struggles with bipolar management, I found the path to
+              becoming a Brain Health Coach, guiding others towards healing and
+              fulfillment.
             </p>
           </div>
           <Image
@@ -65,6 +67,9 @@ export default function Facilitator({ image }: { image: string }) {
             alt="Roweena Britto signature"
             width={488}
             height={208}
+            quality={80}
+            loading="lazy"
+            sizes="(max-width: 768px) 180px, 240px"
             className="mt-8 h-20 w-auto"
           />
         </div>
@@ -114,6 +119,8 @@ export default function Facilitator({ image }: { image: string }) {
               src="/site/about-photo.jpg"
               alt="Roweena Britto smiling, seated on a motorbike"
               fill
+              quality={80}
+              loading="lazy"
               sizes="(max-width: 1024px) 100vw, 480px"
               className="object-cover"
             />
@@ -121,7 +128,7 @@ export default function Facilitator({ image }: { image: string }) {
 
           <div>
             <h2 className="text-2xl font-bold sm:text-3xl leading-[1.12] tracking-tight md:text-[2.75rem]">
-              I&apos;m Human, Like You
+              I&apos;m Human, Like You!
             </h2>
             <div className="mt-6 space-y-5 leading-relaxed text-ink-soft md:text-lg">
               {STORY.map((paragraph) => (
@@ -145,7 +152,7 @@ export default function Facilitator({ image }: { image: string }) {
       <section className="py-10 sm:py-16 md:py-24">
         <div className="mx-auto max-w-[1240px] px-5 md:px-10">
           <h2 className="text-center text-2xl font-bold tracking-tight md:text-3xl">
-            Certifications &amp; Badges
+            Certifications and Badges
           </h2>
           <ul className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             {BADGES.map((badge) => (
@@ -158,6 +165,9 @@ export default function Facilitator({ image }: { image: string }) {
                   alt={badge.alt}
                   width={320}
                   height={320}
+                  quality={80}
+                  loading="lazy"
+                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 160px"
                   className="max-h-full w-auto max-w-full object-contain"
                 />
               </li>

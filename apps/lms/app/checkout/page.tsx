@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import styles from "../login/auth.module.css";
 import { SITE_URL } from "../lib/site";
 import { parseCourseInfo } from "../lib/courseInfo";
 import EnrollmentStepper from "../components/EnrollmentStepper";
+import { API_URL } from "../lib/api";
 
 function CheckoutContent() {
   const router = useRouter();
@@ -39,7 +41,7 @@ function CheckoutContent() {
     }
 
     if (programId) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/programs`)
+      fetch(`${API_URL}/programs`)
         .then((res) => res.json())
         .then((data) => {
           const p = Array.isArray(data) ? data.find((x: any) => x.id === programId) : null;
@@ -107,7 +109,7 @@ function CheckoutContent() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/checkout/mock`, {
+      const res = await fetch(`${API_URL}/checkout/mock`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -225,21 +227,15 @@ function CheckoutContent() {
           }}
         >
           {courseInfo?.image && (
-            <div
-              style={{
-                width: "100%",
-                height: "160px",
-                borderRadius: "10px",
-                overflow: "hidden",
-                marginBottom: "1.25rem",
-                background: "#F7F3EC",
-                border: "1px solid #E7E0D6",
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+            <div style={{ width: "100%", height: "160px", borderRadius: "8px", overflow: "hidden", marginBottom: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-light)" }}>
+              <Image
                 src={courseInfo.image}
                 alt={program.title}
+                width={480}
+                height={160}
+                quality={80}
+                loading="lazy"
+                unoptimized={!courseInfo.image.startsWith("/")}
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                 onError={(e) => {
                   if (e.currentTarget.parentElement) {

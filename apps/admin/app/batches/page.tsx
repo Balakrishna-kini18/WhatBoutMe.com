@@ -3,7 +3,7 @@
 import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, errorMessage, cachedFetch } from "../lib/api";
 import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast } from "../components";
 
 interface Batch {
@@ -75,6 +75,7 @@ function BatchesContent() {
   const [endDate, setEndDate] = useState("");
   const [capacity, setCapacity] = useState("");
   const [manager, setManager] = useState("");
+  const [batchStatus, setBatchStatus] = useState("");
   const [awardCertificate, setAwardCertificate] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -148,10 +149,7 @@ function BatchesContent() {
 
   const fetchPrograms = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/programs`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -163,24 +161,40 @@ function BatchesContent() {
 
   const fetchBatches = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/batches`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
-        const mappedBatches = data.map((b: any) => ({
-          ...b,
-          program: b.program?.title || "Unknown",
-          manager: b.manager?.name || "Unknown",
-          managerId: b.managerId || b.manager?.id || "",
-          rawStartDate: b.startDate,
-          rawEndDate: b.endDate,
-          startDate: b.startDate
-            ? new Date(b.startDate).toLocaleDateString()
-            : "--",
-          students: b.enrolledCount || 0,
-        }));
+        const now = new Date();
+        const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const nowMs = now.getTime();
+        const mappedBatches = data.map((b: any) => {
+          let status = b.status;
+          if (b.startDate) {
+            const bDate = new Date(b.startDate);
+            const bDayMs = new Date(bDate.getFullYear(), bDate.getMonth(), bDate.getDate()).getTime();
+            const bEndDate = b.endDate ? new Date(b.endDate) : null;
+            if (bEndDate && bEndDate.getTime() < nowMs) {
+              status = "COMPLETED";
+            } else if (bDate.getTime() <= nowMs || bDayMs <= todayStartMs) {
+              if (b.status === "UPCOMING" || b.status === "ACTIVE") {
+                status = "ACTIVE";
+              }
+            }
+          }
+          return {
+            ...b,
+            status,
+            program: b.program?.title || "Unknown",
+            manager: b.manager?.name || "Unknown",
+            managerId: b.managerId || b.manager?.id || "",
+            rawStartDate: b.startDate,
+            rawEndDate: b.endDate,
+            startDate: b.startDate
+              ? new Date(b.startDate).toLocaleDateString()
+              : "--",
+            students: b.enrolledCount || 0,
+          };
+        });
         setBatches(mappedBatches);
       }
     } catch (e) {
@@ -197,6 +211,7 @@ function BatchesContent() {
     setEndDate("");
     setCapacity("");
     setManager("");
+    setBatchStatus("");
     setFormError("");
     if (searchParams.get("create") || searchParams.get("action")) {
       router.replace("/batches");
@@ -224,6 +239,7 @@ function BatchesContent() {
     }
     setCapacity(String(batch.capacity || "50"));
     setManager(batch.managerId || "");
+    setBatchStatus(batch.status || "");
     setAwardCertificate(true);
     setIsModalOpen(true);
   };
@@ -234,6 +250,7 @@ function BatchesContent() {
     setProgramId(programs[0]?.id || "");
     setStartDate("");
     setEndDate("");
+    setBatchStatus("");
     setCapacity("50");
     setManager("");
     setAwardCertificate(true);
@@ -308,12 +325,10 @@ function BatchesContent() {
     setIsDeletingBatch(true);
     setDeleteError(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/batches/${batchToDelete.id}`, {
+      const res = await cachedFetch(`${API_URL}/batches/${batchToDelete.id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.ok) {
+      if (res.ok || res.status === 404) {
         toastSuccess(`Cohort batch "${batchToDelete.name}" deleted successfully.`);
         setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);
@@ -346,6 +361,7 @@ function BatchesContent() {
       startDate: new Date(startDate).toISOString(),
       capacity: parseInt(capacity) || 50,
       managerId: manager || null,
+      ...(batchStatus ? { status: batchStatus } : {}),
     };
 
     if (endDate) {
@@ -1002,6 +1018,26 @@ function BatchesContent() {
                           value: m.id,
                           label: m.name || m.email,
                         })),
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label>Batch Status</label>
+                    <CustomSelect
+                      value={batchStatus}
+                      onChange={setBatchStatus}
+                      fullWidth
+                      ariaLabel="Batch Status"
+                      placeholder="Auto (Based on Start & End Date)"
+                      options={[
+                        { value: "", label: "Auto (Active if started today or earlier)" },
+                        { value: "ACTIVE", label: "Active" },
+                        { value: "UPCOMING", label: "Upcoming" },
+                        { value: "COMPLETED", label: "Completed" },
+                        { value: "CANCELLED", label: "Cancelled" },
                       ]}
                     />
                   </div>

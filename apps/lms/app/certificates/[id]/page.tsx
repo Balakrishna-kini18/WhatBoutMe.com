@@ -3,8 +3,18 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Certificate, { type CertificateDetails } from "../Certificate";
+import dynamic from "next/dynamic";
+import { type CertificateDetails } from "../Certificate";
 import styles from "../Certificate.module.css";
+
+const Certificate = dynamic(() => import("../Certificate"), {
+  ssr: false,
+  loading: () => (
+    <div style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>
+      Loading certificate...
+    </div>
+  ),
+});
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 

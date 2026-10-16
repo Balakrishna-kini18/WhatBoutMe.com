@@ -106,8 +106,8 @@ activities, values and triggers that govern you and your decisions, intro to
 the BRAIN and its possibilities of rewiring itself with your efforts.
 
 > **Differs from the brochure.** The brochure says 3 days, 6 hours a day. The
-> live site says 12 Saturday classes of 2 hours. The website here still shows
-> the brochure version.
+> live site says 12 Saturday classes of 2 hours. The website here follows the
+> live site.
 
 ## Vision Boards
 

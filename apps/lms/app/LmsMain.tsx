@@ -6,8 +6,7 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./layout.module.css";
 import { SITE_URL, signOutEverywhere } from "./lib/site";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { API_URL } from "./lib/api";
 const VISIT_KEY = "attendance_visit";
 
 type Notice = { id: string; template: string; schedule: string | null; createdAt: string };
@@ -161,6 +160,7 @@ function ProfileMenu() {
           {name && <p style={{ margin: 0, padding: "8px 12px 10px", fontWeight: 700, borderBottom: "1px solid var(--border-light)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</p>}
           <Link href="/profile" style={item} onClick={() => setOpen(false)}>My Profile</Link>
           <Link href="/live" style={item} onClick={() => setOpen(false)}>Live Sessions</Link>
+          <Link href="/events" style={item} onClick={() => setOpen(false)}>Events & Webinars</Link>
           <Link href="/chat" style={item} onClick={() => setOpen(false)}>Messages</Link>
           <Link href="/attendance" style={item} onClick={() => setOpen(false)}>Attendance</Link>
           <Link href="/certificates" style={item} onClick={() => setOpen(false)}>Certificates</Link>

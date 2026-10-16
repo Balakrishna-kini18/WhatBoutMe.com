@@ -7,6 +7,7 @@ import Programme from "@/components/site/Programme";
 import AboutTeaser from "@/components/site/AboutTeaser";
 import LogoStrip from "@/components/site/LogoStrip";
 import Testimonials from "@/components/site/Testimonials";
+import GalleryTeaser from "@/components/site/GalleryTeaser";
 import Faq from "@/components/site/Faq";
 import Footer from "@/components/site/Footer";
 import { getSiteContent } from "@/lib/siteContent";
@@ -24,6 +25,7 @@ export default async function Home() {
       <Offerings />
       <Programme />
       <AboutTeaser image={content.about.image} />
+      <GalleryTeaser />
       <Testimonials testimonials={content.testimonials} />
       <Faq faqs={content.faqs} />
       <Footer />

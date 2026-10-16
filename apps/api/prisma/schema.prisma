@@ -302,6 +302,9 @@ model User {
   createdResourceItems         ResourceItem[]             @relation("CreatedResourceItems")
   couponRedemptions            CouponRedemption[]
   sentAnnouncements            BatchAnnouncement[]        @relation("SentAnnouncements")
+  createdEvents                Event[]                    @relation("CreatedEvents")
+  eventRegistrations           EventRegistration[]        @relation("UserEventRegistrations")
+  rejectedEventRegistrations   EventRegistration[]        @relation("RejectedEventRegistrations")
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -310,6 +313,9 @@ model User {
 
   @@index([role])
   @@index([companyId])
+  @@index([role, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([deletedAt])
 }
 
 model UserSession {
@@ -419,6 +425,11 @@ model Program {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, isActive, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([isActive])
 }
 
 model Step {
@@ -448,6 +459,7 @@ model Step {
 
   @@unique([programId, sequence])
   @@index([programId, sequence])
+  @@index([programId, status])
 }
 
 model Lesson {
@@ -469,6 +481,7 @@ model Lesson {
   updatedAt DateTime @updatedAt
 
   @@index([stepId, order])
+  @@index([stepId, status])
 }
 
 model Resource {
@@ -555,6 +568,7 @@ model ResourceItem {
   @@index([requiredStepId])
   @@index([stepTagNumber])
   @@index([isPublished])
+  @@index([createdById])
 }
 
 // -----------------------------------------------------------------------------
@@ -766,6 +780,10 @@ model Batch {
 
   @@index([programId, status])
   @@index([managerId, status])
+  @@index([status, startDate(sort: Desc)])
+  @@index([startDate(sort: Desc)])
+  @@index([programId])
+  @@index([managerId])
 }
 
 model BatchTrainer {
@@ -818,6 +836,12 @@ model Enrolment {
   @@unique([userId, batchId])
   @@index([userId, status])
   @@index([batchId, status])
+  @@index([createdAt(sort: Desc)])
+  @@index([batchId, createdAt(sort: Desc)])
+  @@index([programId, status])
+  @@index([userId])
+  @@index([batchId])
+  @@index([programId])
 }
 
 // -----------------------------------------------------------------------------
@@ -952,6 +976,7 @@ model StepProgress {
   @@index([stepId])
   @@index([enrolmentId, isCompleted])
   @@index([enrolmentId, overrideState])
+  @@index([overriddenById])
 }
 
 // -----------------------------------------------------------------------------
@@ -1027,6 +1052,12 @@ model Session {
   @@index([hostTrainerId])
   @@index([learnerId])
   @@index([userId])
+  @@index([learnerId, startTime(sort: Desc)])
+  @@index([hostTrainerId, startTime(sort: Desc)])
+  @@index([batchId, sessionType, startTime])
+  @@index([zoomMeetingId])
+  @@index([providerMeetingId])
+  @@index([externalMeetingId])
 }
 
 model SessionBooking {
@@ -1055,6 +1086,9 @@ model SessionBooking {
   @@index([sessionId])
   @@index([status])
   @@index([enrolmentId])
+  @@index([userId, status])
+  @@index([sessionId, status])
+  @@index([createdAt(sort: Desc)])
 }
 
 model Attendance {
@@ -1091,6 +1125,9 @@ model Attendance {
   @@index([userId])
   @@index([status])
   @@index([enrolmentId])
+  @@index([enrolmentId, status])
+  @@index([userId, status])
+  @@index([correctedById])
 }
 
 // -----------------------------------------------------------------------------
@@ -1137,6 +1174,11 @@ model UnmatchedAttendance {
 
   @@index([sessionId, status])
   @@index([participantEmail])
+  @@index([sessionId, joinTime(sort: Asc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([linkedEnrolmentId])
+  @@index([linkedUserId])
+  @@index([resolvedById])
 }
 
 // -----------------------------------------------------------------------------
@@ -1160,6 +1202,7 @@ model DailyAttendance {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, date])
+  @@index([date])
 }
 
 model Payment {
@@ -1179,6 +1222,10 @@ model Payment {
   redemptions     CouponRedemption[]
 
   createdAt DateTime @default(now())
+
+  @@index([enrolmentId])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([couponId])
 }
 
 model Certificate {
@@ -1216,6 +1263,8 @@ model Certificate {
   @@index([programId])
   @@index([status])
   @@index([certificateCode])
+  @@index([approvedById])
+  @@index([createdAt(sort: Desc)])
 }
 
 // -----------------------------------------------------------------------------
@@ -1236,6 +1285,7 @@ model Conversation {
 
   @@index([status])
   @@index([batchId])
+  @@index([updatedAt(sort: Desc)])
 }
 
 model Message {
@@ -1251,6 +1301,10 @@ model Message {
   read          Boolean @default(false)
 
   createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([conversationId, read])
+  @@index([senderId])
 }
 
 // -----------------------------------------------------------------------------
@@ -1274,6 +1328,10 @@ model Invoice {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([creditNoteId])
 }
 
 model Coupon {
@@ -1305,6 +1363,9 @@ model Coupon {
 
   @@index([code])
   @@index([isActive])
+  @@index([isActive, expiresAt])
+  @@index([createdAt(sort: Desc)])
+  @@index([discountType])
 }
 
 model CouponRedemption {
@@ -1328,6 +1389,10 @@ model CouponRedemption {
   @@index([couponId])
   @@index([userId])
   @@index([couponId, userId])
+  @@index([couponId, redeemedAt(sort: Desc)])
+  @@index([enrolmentId])
+  @@index([paymentId])
+  @@index([redeemedAt(sort: Desc)])
 }
 
 // -----------------------------------------------------------------------------
@@ -1371,6 +1436,8 @@ model AgreementTemplateVersion {
 
   @@unique([templateId, version])
   @@index([templateId, status])
+  @@index([templateId, createdAt(sort: Desc)])
+  @@index([createdById])
 }
 
 model SignedAgreement {
@@ -1411,6 +1478,8 @@ model SignedAgreement {
   @@index([templateId])
   @@index([versionId])
   @@index([status])
+  @@index([templateId, signedAt(sort: Desc)])
+  @@index([userId, status])
 }
 
 model Notification {
@@ -1426,6 +1495,9 @@ model Notification {
   sentAt         DateTime?
 
   createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([deliveryStatus, schedule])
 }
 
 model AuditLog {
@@ -1454,6 +1526,10 @@ model Lead {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([email])
 }
 
 enum CertificateStatus {
@@ -1510,3 +1586,126 @@ enum OutboxStatus {
   COMPLETED
   FAILED
 }
+
+// -----------------------------------------------------------------------------
+// EVENTS & WEBINARS
+// -----------------------------------------------------------------------------
+
+enum EventType {
+  EVENT
+  WEBINAR
+}
+
+enum EventStatus {
+  SCHEDULED
+  REGISTRATION_OPEN
+  ONGOING
+  ENDED
+  CANCELLED
+}
+
+enum EventLocationType {
+  ONLINE
+  PHYSICAL
+}
+
+enum CurrencyCode {
+  USD
+  AED
+  INR
+}
+
+enum EventPaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Event {
+  id              String              @id @default(uuid())
+  title           String
+  slug            String              @unique
+  description     String              @db.Text
+  bannerUrl       String?
+  startDateTime   DateTime
+  endDateTime     DateTime?
+  timezone        String              @default("UTC")
+  
+  // Online vs Physical Toggle
+  locationType    EventLocationType   @default(ONLINE)
+  meetingLink     String?             // Required if ONLINE (kept private until paid)
+  venueName       String?             // Required if PHYSICAL (e.g., Hall Name)
+  venueAddress    String?             // Required if PHYSICAL (Full address / Map link)
+  
+  // Dynamic Pricing & Multi-Currency
+  price           Decimal             @default(0.00) @db.Decimal(10, 2)
+  currency        CurrencyCode        @default(USD)
+  seatLimit       Int?                // Null = unlimited seats
+  seatsBooked     Int                 @default(0)
+  
+  isPublished     Boolean             @default(true)
+  createdById     String?
+  createdBy       User?               @relation("CreatedEvents", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  registrations   EventRegistration[]
+
+  @@index([locationType, isPublished])
+  @@index([startDateTime])
+  @@index([createdAt])
+}
+
+model EventRegistration {
+  id                String             @id @default(uuid())
+  eventId           String
+  event             Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId            String?            // Optional if guest checkout is allowed, or linked to User
+  user              User?              @relation("UserEventRegistrations", fields: [userId], references: [id], onDelete: SetNull)
+  
+  attendeeName      String
+  attendeeEmail     String
+  attendeePhone     String
+  
+  amount            Decimal            @default(0.00) @db.Decimal(10, 2)
+  currency          CurrencyCode       @default(USD)
+  paymentGateway    String             @default("SIMULATION") // "RAZORPAY" | "STRIPE" | "SIMULATION" | "FREE"
+  gatewayOrderId    String?            @unique
+  gatewayPaymentId  String?
+  paymentStatus     EventPaymentStatus @default(PENDING)
+  
+  emailSent         Boolean            @default(false)
+  registeredAt      DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  rejectedById      String?
+  rejectedBy        User?              @relation("RejectedEventRegistrations", fields: [rejectedById], references: [id], onDelete: SetNull)
+  rejectionReason   String?
+
+  @@index([eventId, paymentStatus])
+  @@index([attendeeEmail])
+  @@index([userId])
+}
+
+// -----------------------------------------------------------------------------
+// PHOTO GALLERY (COURSES & CONFERENCES SHOWCASE)
+// -----------------------------------------------------------------------------
+
+model GalleryItem {
+  id           String   @id @default(cuid())
+  title        String   @db.VarChar(160) // e.g., "Attended Research Course at US"
+  description  String?  @db.Text         // Context about the course/conference photo
+  imageUrl     String                    // Uploaded image URL (WebP/AVIF/JPEG/PNG)
+  altText      String?  @db.VarChar(200) // Accessibility fallback (defaults to title)
+  category     String?  @db.VarChar(60)  // Optional tag: "Course", "Conference", "Workshop"
+  displayOrder Int      @default(0)      // Controls sort order on the user website
+  isPublished  Boolean  @default(true)   // Allows Admin to hide/show without deleting
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isPublished, displayOrder, createdAt(sort: Desc)])
+}
+

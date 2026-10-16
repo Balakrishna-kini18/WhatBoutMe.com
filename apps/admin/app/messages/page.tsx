@@ -3,7 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import page from "../page.module.css";
 import styles from "./messages.module.css";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, errorMessage, cachedFetch } from "../lib/api";
+import { ConfirmDialog, useToast } from "../components";
 
 type Participant = { id: string; name: string; role: string };
 type Conversation = {
@@ -97,10 +98,14 @@ export default function MessagesPage() {
   const [pendingFile, setPendingFile] = useState<{ url: string; name: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const toast = useToast();
+  const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
   const prevMsgCountRef = useRef(0);
 
   const inFlightRef = useRef(false);
@@ -236,11 +241,17 @@ export default function MessagesPage() {
   const handleDraftChange = (text: string) => {
     setDraft(text);
     if (!activeId) return;
-    fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
-      method: "POST",
-      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ typing: true }),
-    }).catch(() => {});
+
+    const now = Date.now();
+    // Throttle typing notification so it does not fire on every single keystroke
+    if (now - lastTypingSentRef.current > 3500) {
+      lastTypingSentRef.current = now;
+      fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ typing: true }),
+      }).catch(() => {});
+    }
 
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
@@ -249,6 +260,7 @@ export default function MessagesPage() {
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ typing: false }),
       }).catch(() => {});
+      lastTypingSentRef.current = 0;
     }, 3000);
   };
 
@@ -283,6 +295,32 @@ export default function MessagesPage() {
     const attachmentUrl = pendingFile?.url;
     if ((!content && !attachmentUrl) || !activeId || sending) return;
 
+    // Optimistic UI update: immediately display message in chat stream
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      senderId: myId || "current-user",
+      senderName: "You",
+      content,
+      attachmentUrl,
+      read: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setDraft("");
+    setPendingFile(null);
+    setEmojiOpen(false);
+    if (soundEnabled) playTone(800, 1200, 0.08);
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    lastTypingSentRef.current = 0;
+    fetch(`${API_URL}/messages/conversations/${activeId}/typing`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ typing: false }),
+    }).catch(() => {});
+
     setSending(true);
     try {
       const res = await fetch(`${API_URL}/messages/conversations/${activeId}`, {
@@ -294,28 +332,34 @@ export default function MessagesPage() {
         }),
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not send the message"));
-      setDraft("");
-      setPendingFile(null);
-      setEmojiOpen(false);
-      if (soundEnabled) playTone(800, 1200, 0.08);
       await Promise.all([loadMessages(activeId), loadConversations()]);
     } catch (err) {
+      // Rollback optimistic message on network error and restore draft
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setDraft(content);
       setError(err instanceof Error ? err.message : "Could not send the message");
     } finally {
       setSending(false);
     }
   };
 
-  const handleDeleteMessage = async (msgId: string) => {
-    if (!confirm("Are you sure you want to unsend this message?")) return;
+  const confirmDeleteMessage = async () => {
+    if (!messageToDelete || !activeId) return;
+    const msgId = messageToDelete.id;
+    setIsDeletingMessage(true);
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    toast.success("Message unsent.");
+    setMessageToDelete(null);
+
     try {
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
-      await fetch(`${API_URL}/messages/conversations/${activeId}/messages/${msgId}`, {
+      await cachedFetch(`${API_URL}/messages/conversations/${activeId}/messages/${msgId}`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
     } catch {
       if (activeId) loadMessages(activeId);
+    } finally {
+      setIsDeletingMessage(false);
     }
   };
 
@@ -435,7 +479,7 @@ export default function MessagesPage() {
                                   type="button"
                                   className={styles.actionBtn}
                                   title="Delete message"
-                                  onClick={() => handleDeleteMessage(m.id)}
+                                  onClick={() => setMessageToDelete(m)}
                                 >
                                   🗑️
                                 </button>
@@ -612,6 +656,30 @@ export default function MessagesPage() {
           <img src={lightboxUrl} alt="Photo" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+
+      {/* In-website branded ConfirmDialog */}
+      <ConfirmDialog
+        isOpen={Boolean(messageToDelete)}
+        onClose={() => {
+          if (!isDeletingMessage) setMessageToDelete(null);
+        }}
+        onConfirm={confirmDeleteMessage}
+        title="Unsend Message"
+        description={
+          <>
+            Are you sure you want to unsend this message? It will be removed for all participants.
+            {messageToDelete?.content && (
+              <div style={{ marginTop: "8px", padding: "10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.85rem" }}>
+                &ldquo;{messageToDelete.content}&rdquo;
+              </div>
+            )}
+          </>
+        }
+        tone="danger"
+        confirmText={isDeletingMessage ? "Unsending..." : "Unsend"}
+        cancelText="Cancel"
+        isLoading={isDeletingMessage}
+      />
     </div>
   );
 }

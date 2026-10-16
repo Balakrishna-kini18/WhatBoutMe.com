@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
-import { API_URL } from "../lib/api";
-import { CustomSelect, ActionMenu } from "../components";
+import { API_URL, cachedFetch } from "../lib/api";
+import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
 
 interface Lead {
   id: string;
@@ -26,6 +26,9 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
+  const toast = useToast();
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+  const [isDeletingLead, setIsDeletingLead] = useState(false);
 
   const load = async () => {
     try {
@@ -42,19 +45,46 @@ export default function LeadsPage() {
     load();
   }, []);
 
-  const setStatus = async (id: string, status: string) => {
-    const res = await fetch(`${API_URL}/leads/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) setLeads((all) => all.map((l) => (l.id === id ? { ...l, status } : l)));
+  const setStatus = async (id: string, nextStatus: string) => {
+    const previous = leads;
+    // Optimistic UI update: immediately reflect new lead status
+    setLeads((all) => all.map((l) => (l.id === id ? { ...l, status: nextStatus } : l)));
+    try {
+      const res = await fetch(`${API_URL}/leads/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        // Rollback on server error
+        setLeads(previous);
+      }
+    } catch {
+      setLeads(previous);
+    }
   };
 
-  const remove = async (id: string) => {
-    if (!confirm("Delete this enquiry permanently?")) return;
-    const res = await fetch(`${API_URL}/leads/${id}`, { method: "DELETE" });
-    if (res.ok) setLeads((all) => all.filter((l) => l.id !== id));
+  const confirmDeleteLead = async () => {
+    if (!leadToDelete) return;
+    const id = leadToDelete.id;
+    setIsDeletingLead(true);
+    const previous = leads;
+    setLeads((all) => all.filter((l) => l.id !== id));
+    toast.success("Enquiry removed.");
+    setLeadToDelete(null);
+
+    try {
+      const res = await cachedFetch(`${API_URL}/leads/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        setLeads(previous);
+        toast.error("Failed to delete enquiry.");
+      }
+    } catch {
+      setLeads(previous);
+      toast.error("Failed to delete enquiry.");
+    } finally {
+      setIsDeletingLead(false);
+    }
   };
 
   const visible = filter === "ALL" ? leads : leads.filter((l) => l.status === filter);
@@ -143,7 +173,7 @@ export default function LeadsPage() {
                           label: "Delete Enquiry",
                           danger: true,
                           dividerAbove: true,
-                          onClick: () => remove(lead.id),
+                          onClick: () => setLeadToDelete(lead),
                           icon: (
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <polyline points="3 6 5 6 21 6" />
@@ -160,6 +190,31 @@ export default function LeadsPage() {
           </table>
         </div>
       </section>
+
+      {/* In-website branded ConfirmDialog */}
+      <ConfirmDialog
+        isOpen={Boolean(leadToDelete)}
+        onClose={() => {
+          if (!isDeletingLead) setLeadToDelete(null);
+        }}
+        onConfirm={confirmDeleteLead}
+        title="Delete CRM Enquiry"
+        subtitle={leadToDelete ? `${leadToDelete.name} (${leadToDelete.email})` : undefined}
+        description={
+          <>
+            Are you sure you want to permanently delete the enquiry from <strong>{leadToDelete?.name}</strong>?
+            {leadToDelete?.message && (
+              <div style={{ marginTop: "8px", padding: "10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.85rem" }}>
+                &ldquo;{leadToDelete.message}&rdquo;
+              </div>
+            )}
+          </>
+        }
+        tone="danger"
+        confirmText={isDeletingLead ? "Deleting..." : "Delete Enquiry"}
+        cancelText="Cancel"
+        isLoading={isDeletingLead}
+      />
     </div>
   );
 }

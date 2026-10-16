@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import styles from "../curriculum.module.css";
-import { API_URL, uploadFile, errorMessage } from "../../../lib/api";
+import { API_URL, uploadFile, errorMessage, cachedFetch } from "../../../lib/api";
 
 interface Step6AddPdfLessonProps {
   moduleTitle: string;
@@ -53,12 +53,10 @@ export default function Step6AddPdfLesson({
       const mediaUrl = await uploadFile(selectedFile);
       setStatusMessage("Attaching PDF resource to module...");
 
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/programs/steps/${moduleId}/lessons`, {
+      const res = await cachedFetch(`${API_URL}/programs/steps/${moduleId}/lessons`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           title: title.trim(),

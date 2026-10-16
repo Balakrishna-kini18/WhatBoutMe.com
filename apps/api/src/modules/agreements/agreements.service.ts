@@ -89,14 +89,20 @@ export class AgreementsService {
     return template;
   }
 
-  async findAllTemplates(query: QueryAgreementTemplatesDto) {
+  async findAllTemplates(query: QueryAgreementTemplatesDto & { page?: number; limit?: number }) {
     const where: any = {};
     if (query.programId) {
       where.programId = query.programId;
     }
 
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 50));
+    const skip = (page - 1) * limit;
+
     const templates = await this.prisma.agreementTemplate.findMany({
       where,
+      skip,
+      take: limit,
       include: {
         program: { select: { id: true, title: true, slug: true } },
         versions: {
@@ -1365,7 +1371,6 @@ export class AgreementsService {
     if (!template) {
       throw new NotFoundException(`Agreement template with ID ${templateId} not found`);
     }
-
     const isManager = user?.role === Role.MANAGER;
     const managerId = user?.sub ?? user?.id;
     const managerBatchCondition = isManager && managerId ? { batch: { managerId } } : undefined;

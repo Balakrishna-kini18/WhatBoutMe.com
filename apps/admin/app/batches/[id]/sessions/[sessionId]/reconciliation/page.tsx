@@ -74,12 +74,13 @@ export default function ReconciliationPage({
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const fetchData = async () => {
+  const fetchData = async (signal?: AbortSignal) => {
     setIsLoading(true);
     setErrorMessage("");
     try {
       const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/reconciliation`, {
         headers: getAuthHeaders(),
+        signal,
       });
 
       if (!res.ok) {
@@ -90,14 +91,18 @@ export default function ReconciliationPage({
       const json: ReconciliationResponse = await res.json();
       setData(json);
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to load reconciliation records");
+      if (err?.name !== "AbortError") {
+        setErrorMessage(err.message || "Failed to load reconciliation records");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [batchId, sessionId]);
 
   const handleOpenLinkModal = (item: UnmatchedItem) => {
@@ -118,10 +123,26 @@ export default function ReconciliationPage({
       return;
     }
 
-    setLinkModal((prev) => ({ ...prev, loading: true, error: "" }));
+    const previousData = data;
+    const targetUnmatchedId = linkModal.unmatchedItem.id;
+    const targetUserId = linkModal.selectedUserId;
+    const linkedName = linkModal.unmatchedItem?.participantName || "Attendee";
+
+    // Optimistic UI update: immediately remove linked item from unmatched and unlinked lists
+    if (data) {
+      setData({
+        ...data,
+        unmatched: data.unmatched.filter((u) => u.id !== targetUnmatchedId),
+        unlinkedLearners: data.unlinkedLearners.filter((l) => l.userId !== targetUserId),
+      });
+    }
+
+    setLinkModal((prev) => ({ ...prev, isOpen: false, loading: false }));
+    toastSuccess(`Attendee "${linkedName}" successfully linked to enrolled learner.`, "Participant Linked");
+
     try {
       const res = await fetch(
-        `${API_URL}/batches/${batchId}/sessions/${sessionId}/reconciliation/${linkModal.unmatchedItem.id}/link`,
+        `${API_URL}/batches/${batchId}/sessions/${sessionId}/reconciliation/${targetUnmatchedId}/link`,
         {
           method: "POST",
           headers: {
@@ -129,57 +150,71 @@ export default function ReconciliationPage({
             ...getAuthHeaders(),
           },
           body: JSON.stringify({
-            userId: linkModal.selectedUserId,
+            userId: targetUserId,
             reason: linkModal.reason.trim(),
           }),
         },
       );
 
       if (!res.ok) {
+        // Rollback on server error
+        setData(previousData);
         const err = await res.json().catch(() => null);
         const msg = err?.message || "Failed to link participant";
-        setLinkModal((prev) => ({ ...prev, loading: false, error: msg }));
         toastError(msg, "Linking Failed");
         return;
       }
 
-      const linkedName = linkModal.unmatchedItem?.participantName || "Attendee";
-      setLinkModal((prev) => ({ ...prev, isOpen: false, loading: false }));
-      toastSuccess(`Attendee "${linkedName}" successfully linked to enrolled learner.`, "Participant Linked");
-      await fetchData();
+      fetchData();
     } catch (err: any) {
+      setData(previousData);
       const netErr = err?.message || "Network error";
-      setLinkModal((prev) => ({ ...prev, loading: false, error: netErr }));
       toastError(netErr, "Connection Error");
     }
   };
 
   const confirmDismiss = async () => {
     if (!itemToDismiss) return;
+    const previousData = data;
+    const targetId = itemToDismiss.id;
+    const dismissedName = itemToDismiss.participantName;
+
+    // Optimistic UI update: immediately remove dismissed attendee from unmatched list
+    if (data) {
+      setData({
+        ...data,
+        unmatched: data.unmatched.filter((u) => u.id !== targetId),
+      });
+    }
+
+    toastSuccess(
+      `Attendee "${dismissedName}" dismissed from reconciliation.`,
+      "Attendee Dismissed"
+    );
+    setItemToDismiss(null);
     setIsDismissing(true);
     setDismissError(null);
+
     try {
       const res = await fetch(
-        `${API_URL}/sessions/${sessionId}/unmatched-attendance/${itemToDismiss.id}/dismiss`,
+        `${API_URL}/sessions/${sessionId}/unmatched-attendance/${targetId}/dismiss`,
         {
           method: "PATCH",
           headers: getAuthHeaders(),
         }
       );
 
-      if (res.ok) {
-        toastSuccess(
-          `Attendee "${itemToDismiss.participantName}" dismissed from reconciliation.`,
-          "Attendee Dismissed"
-        );
-        setItemToDismiss(null);
-        await fetchData();
-      } else {
+      if (!res.ok) {
+        // Rollback on server error
+        setData(previousData);
         const err = await extractErrorMessage(res, "Failed to dismiss unmatched participant.");
         setDismissError(err);
         toastError(err, "Dismissal Failed");
+      } else {
+        fetchData();
       }
     } catch (e: any) {
+      setData(previousData);
       console.error("Failed to dismiss unmatched attendee:", e);
       const netErr = "Network error: failed to communicate with the server.";
       setDismissError(netErr);

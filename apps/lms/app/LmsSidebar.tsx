@@ -230,6 +230,10 @@ export default function LmsSidebar() {
 
         <div className={styles.navGroup}>
           <p className={styles.navTitle}>COMMUNITY</p>
+          <Link href="/events" className={`${styles.navItem} ${pathname === "/events" || pathname.startsWith("/events/") ? styles.active : ""}`}>
+            <Icons.Sessions />
+            <span>Events</span>
+          </Link>
           <Link href="/chat" className={`${styles.navItem} ${pathname === "/chat" || pathname.startsWith("/chat/") ? styles.active : ""}`}>
             <Icons.Messages />
             <span>Messages</span>

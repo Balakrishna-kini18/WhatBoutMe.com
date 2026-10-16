@@ -1,10 +1,10 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { RedisService } from '../../common/redis/redis.service.js';
 
-@Controller('health')
+@Controller(['health', 'api/health'])
 export class HealthController {
   constructor(
     private health: HealthCheckService,
@@ -14,8 +14,37 @@ export class HealthController {
 
   @Public()
   @Get()
+  async check() {
+    const start = Date.now();
+    try {
+      // Ultra-lightweight keep-alive & warmup: executes SELECT 1 to prevent free-tier DB sleep
+      await this.prisma.$queryRaw`SELECT 1`;
+      return {
+        status: 'ok',
+        database: 'connected',
+        latencyMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+        info: {
+          database: { status: 'up' },
+        },
+      };
+    } catch (error: any) {
+      throw new ServiceUnavailableException({
+        status: 'error',
+        database: 'disconnected',
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString(),
+        info: {
+          database: { status: 'down', error: error?.message },
+        },
+      });
+    }
+  }
+
+  @Public()
+  @Get('details')
   @HealthCheck()
-  check() {
+  detailedCheck() {
     return this.health.check([
       // Database health check
       async () => {

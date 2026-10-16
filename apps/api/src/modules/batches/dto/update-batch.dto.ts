@@ -5,7 +5,9 @@ import {
   IsDateString,
   IsOptional,
   Min,
+  IsEnum,
 } from 'class-validator';
+import { BatchStatus } from '@prisma/client';
 
 export class UpdateBatchDto {
   @IsOptional()
@@ -34,4 +36,8 @@ export class UpdateBatchDto {
   @IsInt()
   @Min(1)
   capacity?: number;
+
+  @IsOptional()
+  @IsEnum(BatchStatus)
+  status?: BatchStatus;
 }

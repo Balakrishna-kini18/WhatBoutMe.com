@@ -66,6 +66,7 @@ export default async function CoursePage({ params }: Props) {
                   alt={course.alt || course.title || "Course"}
                   fill
                   priority
+                  quality={80}
                   unoptimized={!isOptimisable(course.image)}
                   sizes="(max-width: 1024px) 100vw, 720px"
                   className="object-cover"
@@ -120,6 +121,8 @@ export default async function CoursePage({ params }: Props) {
                       src={photo.src}
                       alt={photo.alt}
                       fill
+                      quality={80}
+                      loading="lazy"
                       sizes="(max-width: 1024px) 50vw, 340px"
                       className="object-cover"
                     />
@@ -176,9 +179,6 @@ export default async function CoursePage({ params }: Props) {
                 See the 11 Steps
               </Link>
             )}
-            <p className="mt-5 text-xs leading-relaxed text-ink-soft">
-              Travel and accommodation costs excluded for in-person engagements.
-            </p>
           </aside>
         </div>
 

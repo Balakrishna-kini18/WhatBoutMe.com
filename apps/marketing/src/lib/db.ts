@@ -17,15 +17,39 @@ const globalForPrisma = globalThis as unknown as {
 // actually queries `db.someModel.findMany()`).  Next.js App Router error
 // boundaries CAN catch request-time throws → real error UI with the actual
 // DATABASE_URL parsing error message → user sees exactly which var to fix.
+function buildPooledUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl) return rawUrl;
+  try {
+    const url = new URL(rawUrl);
+    if (!url.protocol.startsWith('postgres')) return rawUrl;
+    const poolMax = process.env.DB_POOL_MAX || (process.env.NODE_ENV === 'production' ? '10' : '5');
+    const connectTimeout = process.env.DB_CONNECT_TIMEOUT || '15';
+    const poolTimeout = process.env.DB_POOL_TIMEOUT || '10';
+    if (!url.searchParams.has('connection_limit')) url.searchParams.set('connection_limit', poolMax);
+    if (!url.searchParams.has('connect_timeout')) url.searchParams.set('connect_timeout', connectTimeout);
+    if (!url.searchParams.has('pool_timeout')) url.searchParams.set('pool_timeout', poolTimeout);
+    const isPooler = url.hostname.includes('-pooler') || url.hostname.includes('pooler') || url.port === '6543';
+    if ((isPooler || process.env.DB_PGBOUNCER === 'true') && !url.searchParams.has('pgbouncer')) {
+      url.searchParams.set('pgbouncer', 'true');
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 let db: PrismaClient;
 try {
   if (globalForPrisma.prisma) {
     db = globalForPrisma.prisma;
   } else {
+    const configuredUrl = buildPooledUrl(process.env.DATABASE_URL);
     db = new PrismaClient({
+      datasources: configuredUrl ? { db: { url: configuredUrl } } : undefined,
       log: ['query'],
     });
-    if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db;
+    // Persist singleton in both development and production (serverless warm reuse)
+    globalForPrisma.prisma = db;
   }
 } catch (err: any) {
   const msg = (err?.message || String(err)).slice(0, 500);

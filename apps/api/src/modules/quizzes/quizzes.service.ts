@@ -33,6 +33,16 @@ export class QuizzesService {
     private readonly progressionService: ProgressionService,
   ) {}
 
+  private async safeInvalidateTags(tags: string[]) {
+    if (typeof (this.cacheHelper as any)?.invalidateTags === 'function') {
+      await this.cacheHelper.invalidateTags(tags);
+    } else if (typeof (this.cacheHelper as any)?.invalidateNamespace === 'function') {
+      for (const tag of tags) {
+        await (this.cacheHelper as any).invalidateNamespace(tag);
+      }
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. ADMINISTRATIVE CRUD
   // ─────────────────────────────────────────────────────────────────────────────
@@ -90,8 +100,25 @@ export class QuizzesService {
   }
 
   async create(data: CreateQuizDto) {
-    const res = await this.prisma.quiz.create({ data });
-    await this.cacheHelper.invalidateNamespace('programs');
+    // Idempotent upsert: if a quiz already exists for this stepId, update and return it
+    if (data.stepId) {
+      const existing = await this.prisma.quiz.findUnique({
+        where: { stepId: data.stepId },
+      });
+      if (existing) {
+        const { stepId, questions, ...updateFields } = data;
+        const res = await this.prisma.quiz.update({
+          where: { id: existing.id },
+          data: updateFields,
+        });
+        await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
+        return res;
+      }
+    }
+
+    const { questions, ...createFields } = data;
+    const res = await this.prisma.quiz.create({ data: createFields as any });
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
 
@@ -100,7 +127,7 @@ export class QuizzesService {
       where: { id },
       data,
     });
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
 
@@ -111,7 +138,7 @@ export class QuizzesService {
     const res = await this.prisma.quiz.delete({
       where: { id },
     });
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
 
@@ -990,7 +1017,7 @@ export class QuizzesService {
       });
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return created;
   }
 
@@ -1051,7 +1078,7 @@ export class QuizzesService {
       });
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return updated;
   }
 
@@ -1078,7 +1105,7 @@ export class QuizzesService {
       where: { id: questionId },
     });
 
-    await this.cacheHelper.invalidateNamespace('programs');
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return {
       success: true,
       message: 'Question deleted successfully',

@@ -7,9 +7,9 @@ import Footer from "@/components/site/Footer";
 import { getSiteContent } from "@/lib/siteContent";
 
 export const metadata: Metadata = {
-  title: "About Roweena Britto — whatboutme",
+  title: "About Me — whatboutme",
   description:
-    "Roweena Britto spent eighteen years in the corporate world before becoming a Brain Health Coach, licensed in the UAE and India, and founding whatboutme.",
+    "I'm human, like you! Roweena Britto on her mental health journey with Bipolar Disorder and becoming a Brain Health Coach.",
 };
 
 export default async function AboutPage() {

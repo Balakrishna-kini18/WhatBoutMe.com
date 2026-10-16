@@ -123,6 +123,15 @@ async function bootstrapServer() {
         credentials: true,
       });
 
+      // Raw body parser for file uploads (PDF, DOCX, images, videos, audios)
+      const rawUploadParser = express.raw({ type: () => true, limit: '25mb' });
+      const corpHeader = (_req: any, res: any, next: any) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        next();
+      };
+      nestApp.use('/uploads', corpHeader, rawUploadParser);
+      nestApp.use('/api/uploads', corpHeader, rawUploadParser);
+
       nestApp.use(express.json({ limit: '10mb' }));
       nestApp.use(express.urlencoded({ limit: '10mb', extended: true }));
 

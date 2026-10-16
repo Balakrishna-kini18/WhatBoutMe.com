@@ -182,6 +182,7 @@ export default function AdminDashboard() {
 
   // Fetch real admin dashboard summary from backend API
   useEffect(() => {
+    const controller = new AbortController();
     const fetchDashboardData = async () => {
       try {
         const token = localStorage.getItem("token");
@@ -189,20 +190,23 @@ export default function AdminDashboard() {
 
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/admin/dashboard`,
-          { headers }
+          { headers, signal: controller.signal }
         );
         if (res.ok) {
           const data = await res.json();
           setDashboardData(data);
         }
-      } catch (e) {
-        console.error("Dashboard fetch error (using baseline fallback):", e);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          console.error("Dashboard fetch error (using baseline fallback):", e);
+        }
       } finally {
         setLoading(false);
       }
     };
 
     fetchDashboardData();
+    return () => controller.abort();
   }, []);
 
   // Metrics from legitimate API contract or graceful baseline defaults

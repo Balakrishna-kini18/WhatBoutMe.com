@@ -41,16 +41,19 @@ export default function RevenuePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchRevenue();
+    const controller = new AbortController();
+    fetchRevenue(controller.signal);
+    return () => controller.abort();
   }, []);
 
-  const fetchRevenue = async () => {
+  const fetchRevenue = async (signal?: AbortSignal) => {
     setIsLoading(true);
     setError(null);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const res = await fetch(`${API_URL}/revenue`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
       });
       if (res.ok) {
         const json = await res.json();
@@ -60,8 +63,10 @@ export default function RevenuePage() {
         setError(errJson?.message || `Failed to load revenue data (HTTP ${res.status})`);
       }
     } catch (e: any) {
-      console.error("Failed to fetch revenue", e);
-      setError(e?.message || "Unable to connect to the revenue service. Please check your connection.");
+      if (e?.name !== "AbortError") {
+        console.error("Failed to fetch revenue", e);
+        setError(e?.message || "Unable to connect to the revenue service. Please check your connection.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +132,7 @@ export default function RevenuePage() {
           <span>{error}</span>
           <button
             type="button"
-            onClick={fetchRevenue}
+            onClick={() => fetchRevenue()}
             style={{
               background: "#ef4444",
               color: "#fff",

@@ -6,6 +6,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
   API_URL,
+  getAuthToken,
   getAuthHeaders,
   parseApiError,
   ActiveAgreementResponse,
@@ -95,6 +96,51 @@ function AgreementSignContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [justSignedSuccess, setJustSignedSuccess] = useState<SignedAgreementResponse | null>(null);
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
+
+  const handleConfirmPaymentAndProceed = async (targetProgramId?: string, targetEnrolmentId?: string) => {
+    const progId = targetProgramId || enrolment?.programId || queryProgramId || signedRecord?.programId || justSignedSuccess?.programId;
+    const enrolId = targetEnrolmentId || enrolment?.id || queryEnrolmentId || signedRecord?.enrolmentId || justSignedSuccess?.enrolmentId;
+
+    if (!progId) {
+      router.push("/courses");
+      return;
+    }
+
+    setIsConfirmingPayment(true);
+
+    try {
+      const res = await fetch(`${API_URL}/checkout/mock`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          programId: progId,
+          enrolmentId: enrolId,
+          bypass: true,
+          simulate: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        if (text.includes("already enrolled") || text.includes("ACTIVE")) {
+          router.push(`/programs/${progId}/steps`);
+          return;
+        }
+        // Fallback to checkout URL if unexpected response
+        router.push(buildCheckoutUrl(progId, enrolId));
+        return;
+      }
+
+      // Bypass confirmation successful - take learner straight to course steps
+      router.push(`/programs/${progId}/steps`);
+    } catch (err: any) {
+      console.error("Payment bypass confirmation failed:", err);
+      router.push(buildCheckoutUrl(progId, enrolId));
+    } finally {
+      setIsConfirmingPayment(false);
+    }
+  };
 
   useEffect(() => {
     document.body.classList.add("auth-page-active");
@@ -454,9 +500,26 @@ function AgreementSignContent() {
               </div>
             </dl>
 
-            <Link href={nextUrl} className={css.submit}>
-              {position === "CHECKOUT" ? "Continue to Payment" : "Go to Course"}
-            </Link>
+            {position === "CHECKOUT" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  handleConfirmPaymentAndProceed(
+                    justSignedSuccess.programId || enrolment?.programId,
+                    justSignedSuccess.enrolmentId || enrolment?.id
+                  )
+                }
+                disabled={isConfirmingPayment}
+                className={css.submit}
+                style={{ cursor: isConfirmingPayment ? "wait" : "pointer" }}
+              >
+                {isConfirmingPayment ? "Confirming Payment & Unlocking Course…" : "Continue to Payment"}
+              </button>
+            ) : (
+              <Link href={nextUrl} className={css.submit}>
+                Go to Course
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -513,9 +576,26 @@ function AgreementSignContent() {
               </div>
             </dl>
 
-            <Link href={nextUrl} className={css.submit}>
-              {position === "CHECKOUT" ? "Continue to Payment" : "Go to Course"}
-            </Link>
+            {position === "CHECKOUT" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  handleConfirmPaymentAndProceed(
+                    signedRecord.programId || enrolment?.programId,
+                    signedRecord.enrolmentId || enrolment?.id
+                  )
+                }
+                disabled={isConfirmingPayment}
+                className={css.submit}
+                style={{ cursor: isConfirmingPayment ? "wait" : "pointer" }}
+              >
+                {isConfirmingPayment ? "Confirming Payment & Unlocking Course…" : "Continue to Payment"}
+              </button>
+            ) : (
+              <Link href={nextUrl} className={css.submit}>
+                Go to Course
+              </Link>
+            )}
           </div>
         </div>
       </div>

@@ -194,7 +194,6 @@ function CheckoutContent() {
           targetType: "ENROLMENT",
           targetId: programId,
           enrolmentId: targetEnrolmentId || undefined,
-          userId: user?.id || user?.sub,
           amount: finalAmount,
           currency,
           status,

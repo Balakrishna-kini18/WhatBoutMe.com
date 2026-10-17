@@ -188,3 +188,31 @@ export function formatShortTimeInTz(utcIso: string, timeZone: string): string {
     return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true });
   }
 }
+
+/**
+ * Formats a given UTC timestamp showing both the visitor's local timezone and GST (Dubai) / IST (India).
+ */
+export function formatMultiTimezoneSummary(
+  utcIso: string,
+  localTz: string = getSystemTimezone(),
+): { local: string; gst: string; ist: string; fullDate: string } {
+  const d = new Date(utcIso);
+  const timeOpts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit", hour12: true };
+  const dateOpts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", year: "numeric" };
+
+  try {
+    const fullDate = d.toLocaleDateString("en-US", { ...dateOpts, timeZone: localTz });
+    const local = `${d.toLocaleTimeString("en-US", { ...timeOpts, timeZone: localTz })} (${localTz.split("/").pop()?.replace(/_/g, " ") || localTz})`;
+    const gst = `${d.toLocaleTimeString("en-US", { ...timeOpts, timeZone: "Asia/Dubai" })} GST (Dubai)`;
+    const ist = `${d.toLocaleTimeString("en-US", { ...timeOpts, timeZone: "Asia/Kolkata" })} IST (India)`;
+
+    return { local, gst, ist, fullDate };
+  } catch {
+    return {
+      local: d.toLocaleTimeString(),
+      gst: d.toLocaleTimeString(),
+      ist: d.toLocaleTimeString(),
+      fullDate: d.toLocaleDateString(),
+    };
+  }
+}

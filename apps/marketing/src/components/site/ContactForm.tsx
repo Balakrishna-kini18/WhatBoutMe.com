@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ArrowRight, CheckCircle2, Calendar, Sparkles } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
+import DiscoveryCallBooking from "./DiscoveryCallBooking";
 
 const FIELD =
   "w-full rounded-xl border border-line bg-cream px-4 py-3 text-ink outline-none transition-colors focus:border-gold-deep focus:bg-white text-sm sm:text-base";
@@ -52,6 +53,32 @@ export default function ContactForm() {
       setInquiryType("COURSE");
     }
   }, [urlCourseParam]);
+
+  // Check for direct discovery scheduler query params (?discovery=true)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("discovery") === "true") {
+        const leadId = sp.get("leadId") || undefined;
+        const cId = sp.get("courseId") || undefined;
+        const cTitle = sp.get("courseTitle") || undefined;
+        const n = sp.get("name") || "";
+        const e = sp.get("email") || "";
+        const p = sp.get("phone") || "";
+        if (n) setName(n);
+        if (e) setEmail(e);
+        if (p) setPhone(p);
+        setInquiryType("COURSE");
+        setResult({
+          success: true,
+          inquiryType: "COURSE",
+          leadId,
+          courseId: cId,
+          courseTitle: cTitle,
+        });
+      }
+    }
+  }, []);
 
   // Fetch active public courses for the conditional dropdown
   useEffect(() => {
@@ -189,49 +216,15 @@ export default function ContactForm() {
   if (result) {
     if (result.inquiryType === "COURSE") {
       return (
-        <div role="status" className="rounded-2xl bg-cream-deep p-6 sm:p-8 text-center animate-fadeIn">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gold/20 text-gold-deep mb-4">
-            <Sparkles className="h-7 w-7 text-gold-deep" />
-          </div>
-          <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gold-deep bg-gold/15 rounded-full mb-3">
-            Course Inquiry Received
-          </span>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink">
-            {result.courseTitle ? `Next: Discovery Call for ${result.courseTitle}` : "Next: Book Your Discovery Call"}
-          </h2>
-          <p className="mt-2 text-sm sm:text-base text-ink-soft max-w-md mx-auto leading-relaxed">
-            Thank you, <strong className="text-ink">{name}</strong>! Your inquiry has been prioritized. To finalize your personalized curriculum plan and schedule, book your 1-on-1 session with Roweena.
-          </p>
-
-          <div className="mt-6 p-4 rounded-xl border border-gold/30 bg-white/70 max-w-md mx-auto text-left flex items-start gap-3">
-            <Calendar className="h-5 w-5 text-gold-deep shrink-0 mt-0.5" />
-            <div className="text-xs sm:text-sm text-ink-soft">
-              <strong className="text-ink block font-semibold">15-Minute 1-on-1 Discovery Call</strong>
-              Roweena will discuss your goals, answer curriculum questions, and guide your enrolment.
-            </div>
-          </div>
-
-          <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <a
-              href={`/contact?discovery=true&leadId=${result.leadId || ""}&name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`}
-              onClick={(e) => {
-                e.preventDefault();
-                alert(`Discovery Call scheduler triggered for ${name} (${email}). Roweena's booking coordinator will confirm your 15-minute slot!`);
-              }}
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-ink px-7 py-3.5 text-sm font-semibold text-cream transition hover:bg-gold hover:text-ink shadow-sm"
-            >
-              <span>Schedule 15-Min Discovery Call</span>
-              <ArrowRight className="h-4 w-4" />
-            </a>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="text-xs text-ink-soft underline hover:text-ink py-2"
-            >
-              Send another message
-            </button>
-          </div>
-        </div>
+        <DiscoveryCallBooking
+          leadId={result.leadId}
+          name={name}
+          email={email}
+          phone={phone}
+          courseId={result.courseId}
+          courseTitle={result.courseTitle}
+          onBack={handleReset}
+        />
       );
     }
 

@@ -142,22 +142,40 @@ export default function LeadsPage() {
                     {lead.phone && <span className={styles.cellTextMuted}>{lead.phone}</span>}
                   </td>
                   <td style={{ maxWidth: "340px", whiteSpace: "normal" }}>
-                    {lead.message && (lead.message.includes("Course Inquiry:") || lead.message.includes("Course:")) ? (
+                    {lead.message && (lead.message.includes("Course Inquiry:") || lead.message.includes("Course:") || lead.message.includes("Discovery Call Booked:")) ? (
                       <div>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "2px 8px",
-                            borderRadius: "12px",
-                            backgroundColor: "rgba(217, 119, 6, 0.12)",
-                            color: "#b45309",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            marginBottom: "4px",
-                          }}
-                        >
-                          🎓 High-Intent Course Lead
-                        </span>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "4px" }}>
+                          {(lead.message.includes("Course Inquiry:") || lead.message.includes("Course:")) && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "12px",
+                                backgroundColor: "rgba(217, 119, 6, 0.12)",
+                                color: "#b45309",
+                                fontSize: "0.75rem",
+                                fontWeight: 600,
+                              }}
+                            >
+                              🎓 High-Intent Course Lead
+                            </span>
+                          )}
+                          {lead.message.includes("Discovery Call Booked:") && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "12px",
+                                backgroundColor: "rgba(16, 185, 129, 0.12)",
+                                color: "#047857",
+                                fontSize: "0.75rem",
+                                fontWeight: 600,
+                              }}
+                            >
+                              📅 1-on-1 Discovery Confirmed
+                            </span>
+                          )}
+                        </div>
                         <div className={styles.cellText} style={{ lineHeight: 1.45 }}>
                           {lead.message}
                         </div>
@@ -178,9 +196,23 @@ export default function LeadsPage() {
                     />
                   </td>
                   <td className={styles.alignRight}>
-                    <ActionMenu
-                      ariaLabel={`Actions for ${lead.name}`}
-                      items={[
+                    {(() => {
+                      const zoomMatch = lead.message?.match(/https:\/\/zoom\.us\/[^\s\]]+/);
+                      const actionItems = [
+                        ...(zoomMatch
+                          ? [
+                              {
+                                label: "Join Zoom Discovery Call",
+                                href: zoomMatch[0],
+                                icon: (
+                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <polygon points="23 7 16 12 23 17 23 7" />
+                                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                                  </svg>
+                                ),
+                              },
+                            ]
+                          : []),
                         {
                           label: `Email ${lead.name}`,
                           href: `mailto:${lead.email}`,
@@ -203,8 +235,15 @@ export default function LeadsPage() {
                             </svg>
                           ),
                         },
-                      ]}
-                    />
+                      ];
+
+                      return (
+                        <ActionMenu
+                          ariaLabel={`Actions for ${lead.name}`}
+                          items={actionItems}
+                        />
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}

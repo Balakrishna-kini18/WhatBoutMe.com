@@ -252,6 +252,12 @@ export class DiscoveryService {
 
     // 1. Transactional Slot Locking
     const result = await this.prisma.$transaction(async (tx) => {
+      // PostgreSQL transactional advisory lock serializes concurrent bookings for the same slot
+      if (typeof tx.$executeRaw === 'function') {
+        const lockKey = `discovery_slot_${slotStart.getTime()}`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      }
+
       // Clash verification under transaction:
       const clash = await tx.session.findFirst({
         where: {

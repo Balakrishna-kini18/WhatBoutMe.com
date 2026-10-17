@@ -202,11 +202,15 @@ export interface EventItem {
   timezone: string;
   locationType: EventLocationType;
   meetingLink?: string | null;
+  onlineMeetingLink?: string | null;
   venueName?: string | null;
   venueAddress?: string | null;
+  physicalAddress?: string | null;
   price: number;
+  amount?: number;
   currency: CurrencyCode;
   seatLimit?: number | null;
+  capacity?: number | null;
   seatsBooked: number;
   seatsRemaining?: number | null;
   isSoldOut?: boolean;
@@ -217,6 +221,8 @@ export interface EventItem {
   // Backward compatibility aliases
   type?: "EVENT" | "WEBINAR";
   status?: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
+  startDateTimeUtc?: string;
+  endDateTimeUtc?: string | null;
   startAt?: string;
   endAt?: string;
   location?: string | null;

@@ -152,6 +152,7 @@ describe('EventsService - Target Architecture Verification', () => {
 
       // CRITICAL SECURITY ASSERTION:
       expect(result.meetingLink).toBeNull();
+      expect(result.onlineMeetingLink).toBeNull();
       expect(result.seatsRemaining).toBe(40);
       expect(result.isSoldOut).toBe(false);
     });
@@ -235,6 +236,52 @@ describe('EventsService - Target Architecture Verification', () => {
       expect(emailMock.sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({
           to: 'alex@example.com',
+        }),
+      );
+    });
+
+    it('sends confirmation email with venue details and QR code for physical events', async () => {
+      const mockRegPhysical = {
+        id: 'reg-phys-1',
+        eventId: 'evt-phys',
+        attendeeName: 'Jordan Smith',
+        attendeeEmail: 'jordan@example.com',
+        amount: new Prisma.Decimal(0),
+        currency: CurrencyCode.USD,
+        gatewayOrderId: 'sim_free_123',
+        paymentStatus: EventPaymentStatus.PAID,
+        emailSent: false,
+        event: {
+          id: 'evt-phys',
+          title: 'Physical Masterclass',
+          locationType: EventLocationType.PHYSICAL,
+          meetingLink: null,
+          startDateTime: new Date('2026-11-20T10:00:00Z'),
+          timezone: 'UTC',
+          venueName: 'Grand Conference Hall',
+          venueAddress: '123 Sheikh Zayed Rd, Dubai',
+        },
+      };
+
+      prismaMock.eventRegistration.findUnique
+        .mockResolvedValueOnce({ ...mockRegPhysical, paymentStatus: EventPaymentStatus.PENDING })
+        .mockResolvedValueOnce(mockRegPhysical);
+
+      await service.verifyPayment({
+        registrationId: 'reg-phys-1',
+        gatewayOrderId: 'sim_free_123',
+        gatewayPaymentId: 'sim_free_pay',
+      });
+
+      expect(emailMock.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'jordan@example.com',
+          html: expect.stringContaining('Grand Conference Hall'),
+        }),
+      );
+      expect(emailMock.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          html: expect.stringContaining('Check-in QR Code'),
         }),
       );
     });

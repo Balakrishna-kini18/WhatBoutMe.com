@@ -657,11 +657,15 @@ export interface EventItem {
   timezone: string;
   locationType: EventLocationType;
   meetingLink?: string | null;
+  onlineMeetingLink?: string | null;
   venueName?: string | null;
   venueAddress?: string | null;
+  physicalAddress?: string | null;
   price: number;
+  amount?: number;
   currency: CurrencyCode;
   seatLimit?: number | null;
+  capacity?: number | null;
   seatsBooked: number;
   seatsRemaining?: number | null;
   isSoldOut?: boolean;
@@ -670,6 +674,8 @@ export interface EventItem {
   updatedAt: string;
 
   // Backward compatibility aliases
+  startDateTimeUtc?: string;
+  endDateTimeUtc?: string | null;
   startAt?: string;
   endAt?: string;
   location?: string | null;
@@ -682,15 +688,44 @@ export interface CreateEventPayload {
   title: string;
   description: string;
   startDateTime: string;
+  startDateTimeUtc?: string;
   endDateTime?: string;
+  endDateTimeUtc?: string;
   timezone?: string;
   locationType: EventLocationType;
   meetingLink?: string;
+  onlineMeetingLink?: string;
   venueName?: string;
   venueAddress?: string;
+  physicalAddress?: string;
   price: number;
+  amount?: number;
   currency: CurrencyCode;
   seatLimit?: number | null;
+  capacity?: number | null;
+  isPublished?: boolean;
+  bannerUrl?: string;
+}
+
+export interface UpdateEventPayload {
+  title?: string;
+  description?: string;
+  startDateTime?: string;
+  startDateTimeUtc?: string;
+  endDateTime?: string;
+  endDateTimeUtc?: string;
+  timezone?: string;
+  locationType?: EventLocationType;
+  meetingLink?: string;
+  onlineMeetingLink?: string;
+  venueName?: string;
+  venueAddress?: string;
+  physicalAddress?: string;
+  price?: number;
+  amount?: number;
+  currency?: CurrencyCode;
+  seatLimit?: number | null;
+  capacity?: number | null;
   isPublished?: boolean;
   bannerUrl?: string;
 }

@@ -263,6 +263,11 @@ export class EventsService {
     // Free RSVP flow
     if (priceNum === 0) {
       const registration = await this.prisma.$transaction(async (tx) => {
+        const currentEvt = await tx.event.findUnique({ where: { id: event.id } });
+        if (currentEvt && currentEvt.seatLimit !== null && currentEvt.seatsBooked >= currentEvt.seatLimit) {
+          throw new BadRequestException('Sorry, this event is completely sold out');
+        }
+
         const reg = await tx.eventRegistration.create({
           data: {
             eventId: event.id,
@@ -387,6 +392,11 @@ export class EventsService {
     const paymentId = dto.gatewayPaymentId || `sim_pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
     await this.prisma.$transaction(async (tx) => {
+      const currentEvt = await tx.event.findUnique({ where: { id: reg.eventId } });
+      if (currentEvt && currentEvt.seatLimit !== null && currentEvt.seatsBooked >= currentEvt.seatLimit) {
+        throw new BadRequestException('Sorry, this event reached maximum capacity while payment was processing');
+      }
+
       await tx.eventRegistration.update({
         where: { id: reg.id },
         data: {
@@ -543,26 +553,31 @@ export class EventsService {
 
   async createForAdmin(adminId: string, dto: CreateEventDto, meta?: RequestMeta) {
     const locationType = dto.locationType || EventLocationType.ONLINE;
+    const meetingLink = (dto.meetingLink || dto.onlineMeetingLink || '').trim();
+    const venueName = (dto.venueName || '').trim();
+    const venueAddress = (dto.venueAddress || dto.physicalAddress || '').trim();
 
     // Strict validation of Online vs Physical
     if (locationType === EventLocationType.ONLINE) {
-      if (!dto.meetingLink || !dto.meetingLink.trim()) {
+      if (!meetingLink) {
         throw new BadRequestException('Online events require a valid Meeting Link (Zoom, Google Meet, etc.)');
       }
     } else if (locationType === EventLocationType.PHYSICAL) {
-      if (!dto.venueName?.trim() || !dto.venueAddress?.trim()) {
+      if (!venueName || !venueAddress) {
         throw new BadRequestException('Physical in-person events require Venue / Hall Name and Full Physical Address');
       }
     }
 
-    const startDateTime = new Date(dto.startDateTime || dto.startAt!);
+    const startRaw = dto.startDateTime || dto.startDateTimeUtc || dto.startAt;
+    const startDateTime = new Date(startRaw!);
     if (isNaN(startDateTime.getTime())) {
       throw new BadRequestException('Invalid start date and time');
     }
 
     let endDateTime: Date | null = null;
-    if (dto.endDateTime || dto.endAt) {
-      endDateTime = new Date(dto.endDateTime || dto.endAt!);
+    const endRaw = dto.endDateTime || dto.endDateTimeUtc || dto.endAt;
+    if (endRaw) {
+      endDateTime = new Date(endRaw);
       if (isNaN(endDateTime.getTime())) {
         throw new BadRequestException('Invalid end date and time');
       }
@@ -578,11 +593,14 @@ export class EventsService {
       slug = `${slug}-${Math.floor(1000 + Math.random() * 9000)}`;
     }
 
-    const price = new Prisma.Decimal(Math.max(0, Number(dto.price || 0)));
+    const priceNum = dto.price !== undefined ? dto.price : (dto.amount !== undefined ? dto.amount : 0);
+    const price = new Prisma.Decimal(Math.max(0, Number(priceNum)));
     const currency = dto.currency || CurrencyCode.USD;
     const seatLimit =
       dto.seatLimit !== undefined
         ? dto.seatLimit
+        : dto.capacity !== undefined
+        ? dto.capacity
         : dto.maxRegistrations !== undefined
         ? dto.maxRegistrations
         : null;
@@ -597,9 +615,9 @@ export class EventsService {
         endDateTime,
         timezone: dto.timezone || 'UTC',
         locationType,
-        meetingLink: locationType === EventLocationType.ONLINE ? dto.meetingLink?.trim() || null : null,
-        venueName: locationType === EventLocationType.PHYSICAL ? dto.venueName?.trim() || null : null,
-        venueAddress: locationType === EventLocationType.PHYSICAL ? dto.venueAddress?.trim() || null : null,
+        meetingLink: locationType === EventLocationType.ONLINE ? meetingLink || null : null,
+        venueName: locationType === EventLocationType.PHYSICAL ? venueName || null : null,
+        venueAddress: locationType === EventLocationType.PHYSICAL ? venueAddress || null : null,
         price,
         currency,
         seatLimit,
@@ -626,32 +644,48 @@ export class EventsService {
     }
 
     const locationType = dto.locationType || existing.locationType;
+    const meetingLink =
+      dto.meetingLink !== undefined
+        ? dto.meetingLink
+        : dto.onlineMeetingLink !== undefined
+        ? dto.onlineMeetingLink
+        : existing.meetingLink;
+    const venueName = dto.venueName !== undefined ? dto.venueName : existing.venueName;
+    const venueAddress =
+      dto.venueAddress !== undefined
+        ? dto.venueAddress
+        : dto.physicalAddress !== undefined
+        ? dto.physicalAddress
+        : existing.venueAddress;
 
     if (locationType === EventLocationType.ONLINE) {
-      const meetingLink = dto.meetingLink !== undefined ? dto.meetingLink : existing.meetingLink;
       if (!meetingLink || !meetingLink.trim()) {
         throw new BadRequestException('Online events require a valid Meeting Link (Zoom, Google Meet, etc.)');
       }
     } else if (locationType === EventLocationType.PHYSICAL) {
-      const venueName = dto.venueName !== undefined ? dto.venueName : existing.venueName;
-      const venueAddress = dto.venueAddress !== undefined ? dto.venueAddress : existing.venueAddress;
       if (!venueName?.trim() || !venueAddress?.trim()) {
         throw new BadRequestException('Physical in-person events require Venue / Hall Name and Full Physical Address');
       }
     }
 
+    const startRaw = dto.startDateTime || dto.startDateTimeUtc || dto.startAt;
     let startDateTime = existing.startDateTime;
-    if (dto.startDateTime || dto.startAt) {
-      startDateTime = new Date(dto.startDateTime || dto.startAt!);
+    if (startRaw) {
+      startDateTime = new Date(startRaw);
       if (isNaN(startDateTime.getTime())) {
         throw new BadRequestException('Invalid start date and time');
       }
     }
 
     let endDateTime = existing.endDateTime;
-    if (dto.endDateTime !== undefined || dto.endAt !== undefined) {
-      const rawEnd = dto.endDateTime || dto.endAt;
-      endDateTime = rawEnd ? new Date(rawEnd) : null;
+    const endRaw =
+      dto.endDateTime !== undefined
+        ? dto.endDateTime
+        : dto.endDateTimeUtc !== undefined
+        ? dto.endDateTimeUtc
+        : dto.endAt;
+    if (endRaw !== undefined) {
+      endDateTime = endRaw ? new Date(endRaw) : null;
       if (endDateTime && (isNaN(endDateTime.getTime()) || endDateTime < startDateTime)) {
         throw new BadRequestException('End date and time must be valid and after start date and time');
       }
@@ -660,9 +694,13 @@ export class EventsService {
     const seatLimit =
       dto.seatLimit !== undefined
         ? dto.seatLimit
+        : dto.capacity !== undefined
+        ? dto.capacity
         : dto.maxRegistrations !== undefined
         ? dto.maxRegistrations
         : existing.seatLimit;
+
+    const priceNum = dto.price !== undefined ? dto.price : dto.amount;
 
     const event = await this.prisma.event.update({
       where: { id },
@@ -676,17 +714,17 @@ export class EventsService {
         locationType,
         meetingLink:
           locationType === EventLocationType.ONLINE
-            ? dto.meetingLink !== undefined ? dto.meetingLink?.trim() || null : existing.meetingLink
+            ? meetingLink !== undefined ? meetingLink?.trim() || null : existing.meetingLink
             : null,
         venueName:
           locationType === EventLocationType.PHYSICAL
-            ? dto.venueName !== undefined ? dto.venueName?.trim() || null : existing.venueName
+            ? venueName !== undefined ? venueName?.trim() || null : existing.venueName
             : null,
         venueAddress:
           locationType === EventLocationType.PHYSICAL
-            ? dto.venueAddress !== undefined ? dto.venueAddress?.trim() || null : existing.venueAddress
+            ? venueAddress !== undefined ? venueAddress?.trim() || null : existing.venueAddress
             : null,
-        price: dto.price !== undefined ? new Prisma.Decimal(Math.max(0, Number(dto.price))) : undefined,
+        price: priceNum !== undefined ? new Prisma.Decimal(Math.max(0, Number(priceNum))) : undefined,
         currency: dto.currency || undefined,
         seatLimit,
         isPublished: dto.isPublished !== undefined ? dto.isPublished : undefined,
@@ -830,7 +868,12 @@ export class EventsService {
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
             <h3 style="color: #0f172a; margin: 0 0 8px; font-size: 16px;">📍 In-Person Venue Information</h3>
             <p style="margin: 0 0 4px; font-weight: bold; color: #1e293b; font-size: 15px;">${event.venueName}</p>
-            <p style="margin: 0; color: #475569; font-size: 14px;">${event.venueAddress}</p>
+            <p style="margin: 0 0 16px; color: #475569; font-size: 14px;">${event.venueAddress}</p>
+            <div style="text-align: center; background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 16px; margin-top: 12px;">
+              <p style="margin: 0 0 8px; font-weight: bold; color: #0f172a; font-size: 13px;">🎟️ Check-in QR Code</p>
+              <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`whatboutme://checkin/event/${event.id}/reg/${reg.id}`)}" alt="Check-in QR Code" width="160" height="160" style="display: block; margin: 0 auto; border-radius: 4px;" />
+              <p style="margin: 8px 0 0; font-size: 11px; color: #64748b;">Show this QR code at the door for express attendance check-in</p>
+            </div>
           </div>
         `;
 

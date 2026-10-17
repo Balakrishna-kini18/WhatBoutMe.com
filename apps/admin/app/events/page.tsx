@@ -216,8 +216,8 @@ export default function EventsAdminPage() {
     setTitle(evt.title);
     setDescription(evt.description);
 
-    const startIso = evt.startDateTime || evt.startAt;
-    const endIso = evt.endDateTime || evt.endAt;
+    const startIso = evt.startDateTime || evt.startDateTimeUtc || evt.startAt;
+    const endIso = evt.endDateTime || evt.endDateTimeUtc || evt.endAt;
     const sParts = toLocalDatetimeInput(startIso).split("T");
     const eParts = toLocalDatetimeInput(endIso).split("T");
     const sDate = sParts[0] || "";
@@ -231,13 +231,21 @@ export default function EventsAdminPage() {
     setTimezone(evt.timezone || "UTC");
 
     setLocationType(evt.locationType || "ONLINE");
-    setMeetingLink(evt.meetingLink || "");
+    setMeetingLink(evt.onlineMeetingLink || evt.meetingLink || "");
     setVenueName(evt.venueName || "");
-    setVenueAddress(evt.venueAddress || evt.location || "");
+    setVenueAddress(evt.physicalAddress || evt.venueAddress || evt.location || "");
 
-    setPrice(String(evt.price ?? 0));
+    setPrice(String(evt.amount ?? evt.price ?? 0));
     setCurrency(evt.currency || "USD");
-    setSeatLimit(evt.seatLimit ? String(evt.seatLimit) : (evt.maxRegistrations ? String(evt.maxRegistrations) : ""));
+    setSeatLimit(
+      evt.capacity !== undefined && evt.capacity !== null
+        ? String(evt.capacity)
+        : evt.seatLimit !== undefined && evt.seatLimit !== null
+        ? String(evt.seatLimit)
+        : evt.maxRegistrations !== undefined && evt.maxRegistrations !== null
+        ? String(evt.maxRegistrations)
+        : ""
+    );
     setBannerUrl(evt.bannerUrl || evt.coverImageUrl || "");
     setIsPublished(evt.isPublished ?? true);
 
@@ -362,15 +370,21 @@ export default function EventsAdminPage() {
         title: title.trim(),
         description: description.trim(),
         startDateTime,
+        startDateTimeUtc: startDateTime,
         endDateTime,
+        endDateTimeUtc: endDateTime,
         timezone,
         locationType,
         meetingLink: locationType === "ONLINE" ? meetingLink.trim() : undefined,
+        onlineMeetingLink: locationType === "ONLINE" ? meetingLink.trim() : undefined,
         venueName: locationType === "PHYSICAL" ? venueName.trim() : undefined,
         venueAddress: locationType === "PHYSICAL" ? venueAddress.trim() : undefined,
+        physicalAddress: locationType === "PHYSICAL" ? venueAddress.trim() : undefined,
         price: numPrice,
+        amount: numPrice,
         currency,
         seatLimit: seatLimit.trim() ? Number(seatLimit) : null,
+        capacity: seatLimit.trim() ? Number(seatLimit) : null,
         bannerUrl: bannerUrl.trim() || undefined,
         isPublished,
       };

@@ -17,6 +17,13 @@ interface Step1CourseSetupProps {
     category?: string;
     level?: string;
     price?: number;
+    currency?: "USD" | "AED" | "INR";
+    priceUSD?: number;
+    priceAED?: number;
+    priceINR?: number;
+    earlyBirdPrice?: number | null;
+    earlyBirdCurrency?: "USD" | "AED" | "INR" | null;
+    earlyBirdDeadline?: string | null;
     hasCertificate?: boolean;
   }) => Promise<void>;
   isSaving: boolean;
@@ -42,7 +49,49 @@ export default function Step1CourseSetup({
   const [thumbnailUrl, setThumbnailUrl] = useState(initialThumb);
   const [category, setCategory] = useState(programData?.category || courseInfo.type || "Leadership & Mindset");
   const [level, setLevel] = useState(programData?.level || "Beginner");
-  const [price, setPrice] = useState<number>(programData?.price ?? 1999);
+
+  // Multi-Currency Pricing State
+  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">(
+    programData?.currency || "USD"
+  );
+  const [priceUSD, setPriceUSD] = useState<string>(
+    programData?.priceUSD !== undefined && programData?.priceUSD !== null
+      ? String(programData.priceUSD)
+      : programData?.currency === "USD"
+      ? String(programData?.price || 199)
+      : "199"
+  );
+  const [priceAED, setPriceAED] = useState<string>(
+    programData?.priceAED !== undefined && programData?.priceAED !== null
+      ? String(programData.priceAED)
+      : programData?.currency === "AED"
+      ? String(programData?.price || 749)
+      : "749"
+  );
+  const [priceINR, setPriceINR] = useState<string>(
+    programData?.priceINR !== undefined && programData?.priceINR !== null
+      ? String(programData.priceINR)
+      : programData?.currency === "INR"
+      ? String(programData?.price || 14999)
+      : "14999"
+  );
+
+  // Early Bird State
+  const [hasEarlyBird, setHasEarlyBird] = useState(
+    Boolean(programData?.earlyBirdPrice)
+  );
+  const [earlyBirdPrice, setEarlyBirdPrice] = useState<string>(
+    programData?.earlyBirdPrice ? String(programData.earlyBirdPrice) : ""
+  );
+  const [earlyBirdCurrency, setEarlyBirdCurrency] = useState<"USD" | "AED" | "INR">(
+    programData?.earlyBirdCurrency || programData?.currency || "USD"
+  );
+  const [earlyBirdDeadline, setEarlyBirdDeadline] = useState<string>(
+    programData?.earlyBirdDeadline
+      ? programData.earlyBirdDeadline.split("T")[0]
+      : ""
+  );
+
   const [hasCertificate, setHasCertificate] = useState(programData?.hasCertificate ?? true);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -57,7 +106,6 @@ export default function Step1CourseSetup({
       setThumbnailUrl(url);
     } catch (err: any) {
       console.warn("Could not upload cover image", err);
-      // Fallback to local object URL for preview
       const localUrl = URL.createObjectURL(file);
       setThumbnailUrl(localUrl);
     } finally {
@@ -73,6 +121,13 @@ export default function Step1CourseSetup({
     }
     setErrorMsg(null);
 
+    const activeBasePrice =
+      currency === "USD"
+        ? Number(priceUSD) || 0
+        : currency === "AED"
+        ? Number(priceAED) || 0
+        : Number(priceINR) || 0;
+
     await onSaveAndContinue({
       title: title.trim(),
       description: description.trim(),
@@ -80,7 +135,14 @@ export default function Step1CourseSetup({
       thumbnailUrl,
       category,
       level,
-      price: Number(price) || 0,
+      price: activeBasePrice,
+      currency,
+      priceUSD: priceUSD ? Number(priceUSD) : undefined,
+      priceAED: priceAED ? Number(priceAED) : undefined,
+      priceINR: priceINR ? Number(priceINR) : undefined,
+      earlyBirdPrice: hasEarlyBird && earlyBirdPrice ? Number(earlyBirdPrice) : null,
+      earlyBirdCurrency: hasEarlyBird ? earlyBirdCurrency : null,
+      earlyBirdDeadline: hasEarlyBird && earlyBirdDeadline ? earlyBirdDeadline : null,
       hasCertificate,
     });
   };
@@ -229,36 +291,175 @@ export default function Step1CourseSetup({
               </div>
             </div>
 
-            {/* Panel 2: Pricing & Credentials */}
+            {/* Panel 2: Multi-Currency Pricing & Certification */}
             <div className={styles.formSectionPanel}>
               <h3 className={styles.sectionPanelTitle}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #c97a1e)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="12" cy="8" r="7" />
                   <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
                 </svg>
-                <span>Pricing &amp; Certification</span>
+                <span>Multi-Currency Pricing &amp; Certification</span>
               </h3>
               <p className={styles.sectionPanelSubtitle}>
-                Configure learner enrollment fees and accredited completion certificates.
+                Configure tuition rates across USD, AED, and INR along with early-bird discounts and completion credentials.
               </p>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1.25rem" }}>
+                {/* Default / Primary Currency */}
                 <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>Course Tuition (INR)</label>
-                  <div className={styles.priceInputWrap}>
-                    <span className={styles.currencyPrefix}>₹</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={price}
-                      onChange={(e) => setPrice(Number(e.target.value))}
-                      className={`${styles.formInput} ${styles.priceInput}`}
-                      placeholder="1999"
-                    />
-                  </div>
+                  <label className={styles.formLabel}>
+                    <span>Primary Store Currency</span>
+                  </label>
+                  <CustomSelect
+                    value={currency}
+                    onChange={(val) => setCurrency(val as "USD" | "AED" | "INR")}
+                    options={[
+                      { value: "USD", label: "USD ($) — International / US" },
+                      { value: "AED", label: "AED (AED) — United Arab Emirates (VAT 5%)" },
+                      { value: "INR", label: "INR (₹) — India (GST 18%)" },
+                    ]}
+                    ariaLabel="Primary Store Currency"
+                  />
                   <p className={styles.formHelperText}>
-                    Set to 0 for complimentary community courses or onboarding workshops.
+                    Selected currency will be the default checkout currency presented to learners.
                   </p>
+                </div>
+
+                {/* 3 Multi-Currency Pricing Inputs */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1rem" }}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Tuition (USD)</label>
+                    <div className={styles.priceInputWrap}>
+                      <span className={styles.currencyPrefix}>$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={priceUSD}
+                        onChange={(e) => setPriceUSD(e.target.value)}
+                        className={`${styles.formInput} ${styles.priceInput}`}
+                        placeholder="199"
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Tuition (AED)</label>
+                    <div className={styles.priceInputWrap}>
+                      <span className={styles.currencyPrefix}>AED</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={priceAED}
+                        onChange={(e) => setPriceAED(e.target.value)}
+                        className={`${styles.formInput} ${styles.priceInput}`}
+                        placeholder="749"
+                      />
+                    </div>
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.formLabel}>Tuition (INR)</label>
+                    <div className={styles.priceInputWrap}>
+                      <span className={styles.currencyPrefix}>₹</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={priceINR}
+                        onChange={(e) => setPriceINR(e.target.value)}
+                        className={`${styles.formInput} ${styles.priceInput}`}
+                        placeholder="14999"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Early-Bird Discount Card */}
+                <div
+                  style={{
+                    border: "1px solid var(--border-light, #e7e0d6)",
+                    borderRadius: "12px",
+                    padding: "1.25rem",
+                    background: hasEarlyBird ? "rgba(184, 107, 17, 0.04)" : "var(--bg-surface, #ffffff)",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => setHasEarlyBird(!hasEarlyBird)}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, color: "var(--text-primary, #1c1917)", fontSize: "0.95rem" }}>
+                        Early-Bird Discount Pricing
+                      </div>
+                      <div style={{ fontSize: "0.82rem", color: "var(--text-muted, #78716a)", marginTop: "2px" }}>
+                        Offer a promotional discounted rate with an automated expiration date.
+                      </div>
+                    </div>
+                    <div className={styles.toggleSwitch}>
+                      <input
+                        type="checkbox"
+                        checked={hasEarlyBird}
+                        onChange={(e) => setHasEarlyBird(e.target.checked)}
+                        tabIndex={-1}
+                        aria-hidden="true"
+                      />
+                      <span className={styles.toggleSlider}></span>
+                    </div>
+                  </div>
+
+                  {hasEarlyBird && (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr",
+                        gap: "1rem",
+                        marginTop: "1.25rem",
+                        paddingTop: "1.25rem",
+                        borderTop: "1px dashed var(--border-light, #e7e0d6)",
+                      }}
+                    >
+                      <div className={styles.formGroup}>
+                        <label className={styles.formLabel}>Early-Bird Price</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={earlyBirdPrice}
+                          onChange={(e) => setEarlyBirdPrice(e.target.value)}
+                          className={styles.formInput}
+                          placeholder="99"
+                        />
+                      </div>
+
+                      <div className={styles.formGroup}>
+                        <label className={styles.formLabel}>Currency</label>
+                        <CustomSelect
+                          value={earlyBirdCurrency}
+                          onChange={(val) => setEarlyBirdCurrency(val as "USD" | "AED" | "INR")}
+                          options={[
+                            { value: "USD", label: "USD ($)" },
+                            { value: "AED", label: "AED" },
+                            { value: "INR", label: "INR (₹)" },
+                          ]}
+                          ariaLabel="Early-Bird Currency"
+                        />
+                      </div>
+
+                      <div className={styles.formGroup}>
+                        <label className={styles.formLabel}>Offer Valid Until</label>
+                        <input
+                          type="date"
+                          value={earlyBirdDeadline}
+                          onChange={(e) => setEarlyBirdDeadline(e.target.value)}
+                          className={styles.formInput}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Certificate Award Card */}
@@ -423,9 +624,20 @@ export default function Step1CourseSetup({
                   </p>
 
                   <div className={styles.mockFooter}>
-                    <span className={styles.mockPrice}>
-                      {price > 0 ? `₹${price.toLocaleString("en-IN")}` : "Free"}
-                    </span>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span className={styles.mockPrice}>
+                        {currency === "USD"
+                          ? Number(priceUSD) > 0 ? `$${Number(priceUSD).toLocaleString()}` : "Free"
+                          : currency === "AED"
+                          ? Number(priceAED) > 0 ? `AED ${Number(priceAED).toLocaleString()}` : "Free"
+                          : Number(priceINR) > 0 ? `₹${Number(priceINR).toLocaleString("en-IN")}` : "Free"}
+                      </span>
+                      {hasEarlyBird && earlyBirdPrice && (
+                        <span style={{ fontSize: "0.72rem", color: "#b86b11", fontWeight: 600 }}>
+                          Early Bird: {earlyBirdCurrency === "USD" ? `$${earlyBirdPrice}` : earlyBirdCurrency === "AED" ? `AED ${earlyBirdPrice}` : `₹${earlyBirdPrice}`}
+                        </span>
+                      )}
+                    </div>
                     {hasCertificate && (
                       <span className={styles.mockCertTag}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

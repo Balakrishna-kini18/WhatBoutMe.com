@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { of } from 'rxjs';
+import { of, lastValueFrom } from 'rxjs';
 import { CacheControlInterceptor } from './cache-control.interceptor.js';
 import { CACHE_CONTROL_METADATA } from '../decorators/cache-control.decorator.js';
 
@@ -48,11 +48,7 @@ describe('CacheControlInterceptor & HTTP Directives', () => {
 
     const callHandler: CallHandler = { handle: () => of({ ok: true }) };
 
-    await new Promise((resolve) => {
-      interceptor.intercept(context, callHandler).subscribe({
-        complete: resolve,
-      });
-    });
+    await lastValueFrom(interceptor.intercept(context, callHandler));
 
     expect(res.setHeader).toHaveBeenCalledWith(
       'Cache-Control',
@@ -68,11 +64,7 @@ describe('CacheControlInterceptor & HTTP Directives', () => {
 
     const callHandler: CallHandler = { handle: () => of({ stats: true }) };
 
-    await new Promise((resolve) => {
-      interceptor.intercept(context, callHandler).subscribe({
-        complete: resolve,
-      });
-    });
+    await lastValueFrom(interceptor.intercept(context, callHandler));
 
     expect(res.setHeader).toHaveBeenCalledWith(
       'Cache-Control',
@@ -87,11 +79,7 @@ describe('CacheControlInterceptor & HTTP Directives', () => {
 
       const callHandler: CallHandler = { handle: () => of({ mutated: true }) };
 
-      await new Promise((resolve) => {
-        interceptor.intercept(context, callHandler).subscribe({
-          complete: resolve,
-        });
-      });
+      await lastValueFrom(interceptor.intercept(context, callHandler));
 
       expect(res.setHeader).toHaveBeenCalledWith(
         'Cache-Control',
@@ -106,11 +94,7 @@ describe('CacheControlInterceptor & HTTP Directives', () => {
 
     const callHandler: CallHandler = { handle: () => of({ custom: true }) };
 
-    await new Promise((resolve) => {
-      interceptor.intercept(context, callHandler).subscribe({
-        complete: resolve,
-      });
-    });
+    await lastValueFrom(interceptor.intercept(context, callHandler));
 
     expect(res.setHeader).not.toHaveBeenCalled();
   });

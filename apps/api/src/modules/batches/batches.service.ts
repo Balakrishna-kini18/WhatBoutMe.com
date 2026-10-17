@@ -69,25 +69,27 @@ export class BatchesService {
       // and batches whose endDate has passed to COMPLETED
       const now = new Date();
       const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      await this.prisma.batch.updateMany({
-        where: {
-          status: BatchStatus.UPCOMING,
-          startDate: { lte: endOfToday },
-        },
-        data: {
-          status: BatchStatus.ACTIVE,
-        },
-      }).catch(() => {});
+      if (typeof (this.prisma.batch as any)?.updateMany === 'function') {
+        await this.prisma.batch.updateMany({
+          where: {
+            status: BatchStatus.UPCOMING,
+            startDate: { lte: endOfToday },
+          },
+          data: {
+            status: BatchStatus.ACTIVE,
+          },
+        }).catch(() => {});
 
-      await this.prisma.batch.updateMany({
-        where: {
-          status: BatchStatus.ACTIVE,
-          endDate: { lt: now, not: null },
-        },
-        data: {
-          status: BatchStatus.COMPLETED,
-        },
-      }).catch(() => {});
+        await this.prisma.batch.updateMany({
+          where: {
+            status: BatchStatus.ACTIVE,
+            endDate: { lt: now, not: null },
+          },
+          data: {
+            status: BatchStatus.COMPLETED,
+          },
+        }).catch(() => {});
+      }
 
       const batches = await this.prisma.batch.findMany({
         where,

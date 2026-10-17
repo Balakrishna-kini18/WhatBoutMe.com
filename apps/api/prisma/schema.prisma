@@ -400,6 +400,13 @@ model Program {
   slug        String        @unique
   description String?
   price       Float
+  currency    CurrencyCode  @default(USD)
+  priceUSD    Float?
+  priceAED    Float?
+  priceINR    Float?
+  earlyBirdPrice    Float?
+  earlyBirdCurrency CurrencyCode?
+  earlyBirdDeadline DateTime?
   isActive    Boolean       @default(true)
   status      ContentStatus @default(DRAFT)
 
@@ -765,6 +772,14 @@ model Batch {
   capacity            Int
   status              BatchStatus @default(UPCOMING)
   attendanceThreshold Int?
+
+  price               Float?
+  currency            CurrencyCode?
+  priceUSD            Float?
+  priceAED            Float?
+  priceINR            Float?
+  earlyBirdPrice      Float?
+  earlyBirdDeadline   DateTime?
 
   enrolments    Enrolment[]
   sessions      Session[]
@@ -1206,15 +1221,17 @@ model DailyAttendance {
 }
 
 model Payment {
-  id          String    @id @default(uuid())
-  enrolmentId String
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  id          String     @id @default(uuid())
+  enrolmentId String?
+  enrolment   Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  eventRegistrationId String?
+  idempotencyKey String? @unique
   invoice     Invoice?
 
   stripeSessionId String @unique
   amount          Float
   currency        String @default("USD")
-  status          String // e.g., 'succeeded', 'failed'
+  status          String // e.g., 'succeeded', 'failed', 'pending'
 
   couponId        String?
   couponCode      String?
@@ -1224,6 +1241,7 @@ model Payment {
   createdAt DateTime @default(now())
 
   @@index([enrolmentId])
+  @@index([eventRegistrationId])
   @@index([status, createdAt(sort: Desc)])
   @@index([couponId])
 }
@@ -1312,9 +1330,11 @@ model Message {
 // -----------------------------------------------------------------------------
 
 model Invoice {
-  id        String  @id @default(uuid())
-  paymentId String  @unique
-  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  enrolmentId String?
+  eventRegistrationId String?
 
   invoiceNumber String        @unique
   amount        Float
@@ -1332,6 +1352,8 @@ model Invoice {
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@index([creditNoteId])
+  @@index([enrolmentId])
+  @@index([eventRegistrationId])
 }
 
 model Coupon {

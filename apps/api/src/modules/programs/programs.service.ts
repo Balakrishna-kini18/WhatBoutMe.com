@@ -154,6 +154,13 @@ export class ProgramsService {
         slug: slug!,
         description: data.description ?? data.shortDescription ?? null,
         price: data.price,
+        currency: data.currency ?? 'USD',
+        priceUSD: data.priceUSD !== undefined ? data.priceUSD : (data.currency === 'USD' || !data.currency ? data.price : null),
+        priceAED: data.priceAED !== undefined ? data.priceAED : (data.currency === 'AED' ? data.price : null),
+        priceINR: data.priceINR !== undefined ? data.priceINR : (data.currency === 'INR' ? data.price : null),
+        earlyBirdPrice: data.earlyBirdPrice ?? null,
+        earlyBirdCurrency: data.earlyBirdCurrency ?? null,
+        earlyBirdDeadline: data.earlyBirdDeadline ? new Date(data.earlyBirdDeadline) : null,
         isActive: data.isActive !== undefined ? data.isActive : true,
         status: data.status ?? ContentStatus.DRAFT,
         hasCertificate: data.hasCertificate ?? false,
@@ -180,6 +187,13 @@ export class ProgramsService {
       updateData.description = data.shortDescription;
     }
     if (data.price !== undefined) updateData.price = data.price;
+    if (data.currency !== undefined) updateData.currency = data.currency;
+    if (data.priceUSD !== undefined) updateData.priceUSD = data.priceUSD;
+    if (data.priceAED !== undefined) updateData.priceAED = data.priceAED;
+    if (data.priceINR !== undefined) updateData.priceINR = data.priceINR;
+    if (data.earlyBirdPrice !== undefined) updateData.earlyBirdPrice = data.earlyBirdPrice;
+    if (data.earlyBirdCurrency !== undefined) updateData.earlyBirdCurrency = data.earlyBirdCurrency;
+    if (data.earlyBirdDeadline !== undefined) updateData.earlyBirdDeadline = data.earlyBirdDeadline ? new Date(data.earlyBirdDeadline) : null;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     if (data.status !== undefined) updateData.status = data.status;
     if (data.hasCertificate !== undefined) updateData.hasCertificate = data.hasCertificate;

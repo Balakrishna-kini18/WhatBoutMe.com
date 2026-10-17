@@ -958,8 +958,10 @@ export class ProgressionService {
         ? passedQuizIds.has(step.quiz.id)
         : true;
 
-      // A step is only completed when it has content and all requirements are genuinely fulfilled
-      const isStepCompleted = (hasLessons || Boolean(step.quiz)) && allLessonsCompleted && quizCompleted;
+      // A step is only completed when it was previously completed or when it has content and all requirements are genuinely fulfilled
+      const isStepCompleted =
+        (stepProgress?.isCompleted ?? false) ||
+        ((hasLessons || Boolean(step.quiz)) && allLessonsCompleted && quizCompleted);
 
       const completedAt = isStepCompleted
         ? stepProgress?.completedAt ?? now

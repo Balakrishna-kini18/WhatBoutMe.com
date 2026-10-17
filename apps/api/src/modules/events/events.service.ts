@@ -10,6 +10,7 @@ import {
   EventLocationType,
   EventPaymentStatus,
   EventRegistration,
+  InvoiceStatus,
   Prisma,
 } from '@prisma/client';
 import { v2 as cloudinary } from 'cloudinary';
@@ -405,6 +406,41 @@ export class EventsService {
       where: { id: reg.id },
       include: { event: true },
     });
+
+    if (updatedReg && Number(updatedReg.amount) > 0 && typeof (this.prisma as any).invoice?.count === 'function') {
+      try {
+        const invCount = await this.prisma.invoice.count();
+        const invoiceNumber = `INV-${new Date().getFullYear()}-${String(invCount + 1).padStart(5, '0')}`;
+        const curr = (updatedReg.currency || 'USD').toUpperCase();
+        const isAED = curr === 'AED';
+        const isINR = curr === 'INR';
+        const taxRate = isAED ? 0.05 : isINR ? 0.18 : 0;
+        const taxAmount = Number(updatedReg.amount) * taxRate;
+
+        await this.prisma.invoice.create({
+          data: {
+            invoiceNumber,
+            amount: Number(updatedReg.amount) + taxAmount,
+            currency: curr as any,
+            status: InvoiceStatus.PAID,
+            eventRegistrationId: updatedReg.id,
+            taxFields: {
+              subtotal: Number(updatedReg.amount),
+              taxRate,
+              taxAmount,
+              taxName: isAED ? 'UAE VAT (5%)' : isINR ? 'India GST (18%)' : 'Tax Exempt',
+              trn: isAED ? '10049281900003' : null,
+              companyName: 'WhatBoutMe FZE',
+              companyAddress: 'Dubai Silicon Oasis, DDP, Building A2, Dubai, United Arab Emirates',
+              clientName: updatedReg.attendeeName,
+              clientEmail: updatedReg.attendeeEmail,
+            },
+          },
+        });
+      } catch (invErr: any) {
+        this.logger.error(`Failed to auto-generate invoice for event registration: ${invErr?.message}`);
+      }
+    }
 
     if (updatedReg && !updatedReg.emailSent) {
       this.sendEventConfirmationEmail(updatedReg.event, updatedReg).catch((err) => {

@@ -829,3 +829,64 @@ export async function deleteGalleryItem(id: string): Promise<{ success: boolean;
   return apiDelete<{ success: boolean; id: string }>(`/admin/gallery/${id}`);
 }
 
+// -----------------------------------------------------------------------------
+// PAYMENTS & INVOICES INTERFACES & HELPERS
+// -----------------------------------------------------------------------------
+
+export interface InvoiceItem {
+  id: string;
+  invoiceNumber: string;
+  client: string;
+  clientEmail?: string | null;
+  amount: string;
+  numericAmount?: number;
+  currency?: string;
+  status: string;
+  pdfUrl?: string | null;
+  creditNoteId?: string | null;
+  date: string;
+}
+
+export interface SimulateTestPaymentPayload {
+  targetType: "ENROLMENT" | "EVENT";
+  targetId?: string;
+  enrolmentId?: string;
+  eventRegistrationId?: string;
+  userId?: string;
+  amount?: number;
+  currency?: "USD" | "AED" | "INR";
+  status?: "PAID" | "FAILED";
+  failureReason?: string;
+  idempotencyKey?: string;
+  couponCode?: string;
+}
+
+export interface SimulateTestPaymentResponse {
+  success: boolean;
+  status: "PAID" | "FAILED";
+  enrolmentId?: string;
+  paymentId?: string;
+  invoiceNumber?: string | null;
+  invoiceUrl?: string | null;
+  idempotent?: boolean;
+  message?: string;
+}
+
+export async function simulateTestPayment(
+  payload: SimulateTestPaymentPayload
+): Promise<SimulateTestPaymentResponse> {
+  return apiPost<SimulateTestPaymentResponse>("/payments/webhook/test-simulate", payload);
+}
+
+export async function resendInvoice(id: string): Promise<{ success: boolean; message: string }> {
+  return apiPost<{ success: boolean; message: string }>(`/invoices/${id}/resend`, {});
+}
+
+export function getInvoicePdfUrl(id: string): string {
+  return `${API_URL}/invoices/${id}/pdf`;
+}
+
+export function getInvoiceDownloadUrl(id: string): string {
+  return `${API_URL}/invoices/${id}/download`;
+}
+

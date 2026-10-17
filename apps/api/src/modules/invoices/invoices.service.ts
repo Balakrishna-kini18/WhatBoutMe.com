@@ -4,16 +4,49 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { InvoiceStatus, Role } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { CreateCreditNoteDto } from './dto/create-credit-note.dto.js';
 import { CreateInvoiceDto } from './dto/create-invoice.dto.js';
+import { InvoicePdfService, InvoicePdfData } from './invoice-pdf.service.js';
+import { EmailService } from '../email/email.service.js';
+
+export function formatInvoiceAmount(amount: number, currency: string = 'USD'): string {
+  const code = (currency || 'USD').toUpperCase();
+  switch (code) {
+    case 'INR':
+      return `₹${amount.toLocaleString()}`;
+    case 'AED':
+      return `AED ${amount.toLocaleString()}`;
+    case 'USD':
+    default:
+      return `$${amount.toLocaleString()}`;
+  }
+}
+
+export function getInvoiceCurrencySymbol(currency: string = 'USD'): string {
+  const code = (currency || 'USD').toUpperCase();
+  switch (code) {
+    case 'INR':
+      return '₹';
+    case 'AED':
+      return 'AED';
+    case 'USD':
+    default:
+      return '$';
+  }
+}
 
 @Injectable()
 export class InvoicesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private invoicePdfService?: InvoicePdfService,
+    @Optional() private emailService?: EmailService,
+  ) {}
 
   async create(dto: CreateInvoiceDto, user?: any) {
     return this.prisma.$transaction(async (tx: any) => {
@@ -55,13 +88,38 @@ export class InvoicesService {
 
       const invoiceNumber = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
 
+      const currency = (dto.currency || 'USD').toUpperCase();
+      let taxType: 'UAE_VAT' | 'INDIA_GST' | 'NONE' = 'NONE';
+      let taxRate = 0;
+      if (currency === 'AED') {
+        taxType = 'UAE_VAT';
+        taxRate = 5;
+      } else if (currency === 'INR') {
+        taxType = 'INDIA_GST';
+        taxRate = 18;
+      }
+      const taxAmount = taxRate > 0 ? (dto.amount * taxRate) / 100 : 0;
+      const totalAmount = dto.amount + taxAmount;
+
       const invoice = await tx.invoice.create({
         data: {
           paymentId: payment.id,
+          enrolmentId: enrolment.id,
           invoiceNumber,
-          amount: dto.amount,
-          currency: dto.currency || 'USD',
+          amount: totalAmount,
+          currency,
           status: dto.status || InvoiceStatus.PAID,
+          taxFields: {
+            company: 'WhatBoutMe FZE',
+            trn: '10049281900003',
+            taxType,
+            taxRate,
+            taxAmount,
+            subtotal: dto.amount,
+            total: totalAmount,
+            currencySymbol: getInvoiceCurrencySymbol(currency),
+          },
+          pdfUrl: `/api/invoices/${payment.id}/pdf`,
         },
       });
 
@@ -73,7 +131,8 @@ export class InvoicesService {
           entityId: invoice.id,
           meta: {
             invoiceNumber,
-            amount: dto.amount,
+            amount: totalAmount,
+            currency,
             enrolmentId: enrolment.id,
             userId: enrolment.userId,
           },
@@ -87,7 +146,8 @@ export class InvoicesService {
             entityId: invoice.id,
             meta: {
               invoiceNumber,
-              amount: dto.amount,
+              amount: totalAmount,
+              currency,
               enrolmentId: enrolment.id,
               userId: enrolment.userId,
             },
@@ -100,10 +160,11 @@ export class InvoicesService {
         invoiceNumber: invoice.invoiceNumber,
         client: enrolment.user?.name || 'Unknown',
         clientEmail: enrolment.user?.email || null,
-        amount: `$${invoice.amount.toLocaleString()}`,
+        amount: formatInvoiceAmount(invoice.amount, invoice.currency),
         numericAmount: invoice.amount,
         currency: invoice.currency,
         status: invoice.status,
+        pdfUrl: invoice.pdfUrl,
         date: new Date(invoice.createdAt).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
@@ -150,6 +211,7 @@ export class InvoicesService {
         currency: true,
         status: true,
         creditNoteId: true,
+        pdfUrl: true,
         createdAt: true,
         payment: {
           select: {
@@ -174,11 +236,12 @@ export class InvoicesService {
       invoiceNumber: inv.invoiceNumber,
       client: inv.payment?.enrolment?.user?.name || 'Unknown',
       clientEmail: inv.payment?.enrolment?.user?.email || null,
-      amount: `$${inv.amount.toLocaleString()}`,
+      amount: formatInvoiceAmount(inv.amount, inv.currency),
       numericAmount: inv.amount,
       currency: inv.currency,
       status: inv.status,
       creditNoteId: inv.creditNoteId,
+      pdfUrl: inv.pdfUrl || `/api/invoices/${inv.id}/pdf`,
       date: new Date(inv.createdAt).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -472,5 +535,117 @@ export class InvoicesService {
     }
 
     return creditNotes;
+  }
+
+  async getInvoicePdf(id: string, user?: any): Promise<{ buffer: Buffer; filename: string }> {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { OR: [{ id }, { invoiceNumber: id }, { paymentId: id }] },
+      include: {
+        payment: {
+          include: {
+            enrolment: {
+              include: { user: true, program: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Invoice '${id}' not found`);
+    }
+
+    if (user && user.role === Role.USER) {
+      const userId = user.sub || user.userId || user.id;
+      if (invoice.payment?.enrolment?.userId && invoice.payment.enrolment.userId !== userId) {
+        throw new ForbiddenException('You do not have permission to download another learner\'s invoice');
+      }
+    }
+
+    if (!this.invoicePdfService) {
+      throw new BadRequestException('Invoice PDF service is unavailable');
+    }
+
+    const clientName = invoice.payment?.enrolment?.user?.name || 'Learner / Attendee';
+    const clientEmail = invoice.payment?.enrolment?.user?.email || null;
+    const itemDescription = invoice.payment?.enrolment?.program?.title || 'WhatBoutMe Professional Program';
+    const currency = invoice.currency || 'USD';
+    const taxFields = (invoice.taxFields as any) || {};
+
+    const pdfData: InvoicePdfData = {
+      invoiceNumber: invoice.invoiceNumber,
+      date: new Date(invoice.createdAt).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+      clientName,
+      clientEmail,
+      itemDescription,
+      amount: invoice.amount,
+      currency,
+      currencySymbol: getInvoiceCurrencySymbol(currency),
+      couponCode: invoice.couponCode,
+      discountAmount: invoice.discountAmount,
+      taxType: taxFields.taxType || (currency === 'AED' ? 'UAE_VAT' : currency === 'INR' ? 'INDIA_GST' : 'NONE'),
+      taxRate: taxFields.taxRate || (currency === 'AED' ? 5 : currency === 'INR' ? 18 : 0),
+      taxAmount: taxFields.taxAmount || 0,
+      subtotal: taxFields.subtotal || invoice.amount,
+      total: invoice.amount,
+      paymentMethod: 'Verified Payment / Test Bypass',
+      paymentReference: invoice.payment?.stripeSessionId || invoice.id,
+    };
+
+    const buffer = await this.invoicePdfService.generateInvoicePdf(pdfData);
+    return { buffer, filename: `${invoice.invoiceNumber}.pdf` };
+  }
+
+  async resendInvoice(id: string, user?: any) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { OR: [{ id }, { invoiceNumber: id }, { paymentId: id }] },
+      include: {
+        payment: {
+          include: {
+            enrolment: {
+              include: { user: true, program: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Invoice '${id}' not found`);
+    }
+
+    const email = invoice.payment?.enrolment?.user?.email;
+    const name = invoice.payment?.enrolment?.user?.name || 'Learner';
+    const programTitle = invoice.payment?.enrolment?.program?.title || 'Program Enrolment';
+
+    if (!email) {
+      throw new BadRequestException('No email address associated with this invoice to resend to.');
+    }
+
+    if (this.emailService) {
+      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      await this.emailService.sendTemplateEmail({
+        to: email,
+        subject: `Invoice Resend: ${invoice.invoiceNumber} - WhatBoutMe FZE`,
+        template: 'PaymentSuccessEmail',
+        props: {
+          learnerName: name,
+          programTitle,
+          amount: invoice.amount,
+          currencySymbol: getInvoiceCurrencySymbol(invoice.currency),
+          invoiceNumber: invoice.invoiceNumber,
+          dashboardUrl: `${lmsUrl}/dashboard`,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      message: `Invoice ${invoice.invoiceNumber} successfully resent to ${email}`,
+    };
   }
 }

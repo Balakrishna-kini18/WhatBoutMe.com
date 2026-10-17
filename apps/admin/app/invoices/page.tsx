@@ -36,7 +36,8 @@ export default function InvoicesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [enrolments, setEnrolments] = useState<EnrolmentItem[]>([]);
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState("");
-  const [amount, setAmount] = useState("1500");
+  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">("USD");
+  const [amount, setAmount] = useState("199");
   const [status, setStatus] = useState("PAID");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -135,7 +136,7 @@ export default function InvoicesPage() {
         body: JSON.stringify({
           enrolmentId: selectedEnrolmentId,
           amount: numAmount,
-          currency: "USD",
+          currency,
           status,
         }),
       });
@@ -162,13 +163,29 @@ export default function InvoicesPage() {
   };
 
   const handleDownloadPdf = (inv: Invoice) => {
-    if (inv.pdfUrl) {
-      window.open(inv.pdfUrl, "_blank");
-    } else {
-      toastWarning(
-        `PDF generation is not configured for invoice ${inv.invoiceNumber}. An asynchronous invoice PDF rendering service is required to produce downloadable documents.`,
-        "PDF Unavailable"
-      );
+    // Open the direct PDF stream or pre-stored cloud PDF URL
+    const url = inv.pdfUrl || `${API_URL}/invoices/${inv.id}/pdf`;
+    window.open(url, "_blank");
+  };
+
+  const handleResendInvoice = async (inv: Invoice) => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/invoices/${inv.id}/resend`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        toastSuccess(`Invoice ${inv.invoiceNumber} resent to ${inv.clientEmail || inv.client}.`, "Invoice Resent");
+      } else {
+        const data = await res.json().catch(() => null);
+        toastWarning(data?.message || `Failed to resend invoice (HTTP ${res.status}).`, "Resend Error");
+      }
+    } catch {
+      toastWarning("Unable to connect to invoice mail service.", "Network Error");
     }
   };
 
@@ -225,37 +242,59 @@ export default function InvoicesPage() {
                 <tr>
                   <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>No invoices found.</td>
                 </tr>
-              ) : invoices.map((inv) => (
-                <tr key={inv.id}>
-                  <td><span className={styles.cellText} style={{ fontWeight: 600 }}>{inv.invoiceNumber}</span></td>
-                  <td><span className={styles.cellUserName}>{inv.client}</span></td>
-                  <td><span className={styles.cellText}>{inv.amount}</span></td>
-                  <td><span className={styles.cellTextMuted}>{inv.date}</span></td>
-                  <td>
-                    <span className={`${styles.statusChip} ${inv.status?.toLowerCase() === 'paid' ? styles.completed : styles.pending}`}>
-                      {inv.status}
-                    </span>
-                  </td>
-                  <td className={styles.alignRight}>
-                    <button
-                      type="button"
-                      className={styles.iconActionBtn}
-                      title={inv.pdfUrl ? "Download PDF" : "PDF download unavailable (rendering service pending)"}
-                      aria-label="Download invoice PDF"
-                      onClick={() => handleDownloadPdf(inv)}
-                      style={{ opacity: inv.pdfUrl ? 1 : 0.6 }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                        <polyline points="10 9 9 9 8 9"></polyline>
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              ) : invoices.map((inv) => {
+                const curr = (inv.currency || "USD").toUpperCase();
+                const sym = curr === "INR" ? "₹" : curr === "AED" ? "AED" : "$";
+                const displayAmount =
+                  inv.amount && typeof inv.amount === "string" && (inv.amount.includes("$") || inv.amount.includes("₹") || inv.amount.includes("AED"))
+                    ? inv.amount
+                    : `${sym} ${Number(inv.numericAmount ?? parseFloat(inv.amount) ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+                return (
+                  <tr key={inv.id}>
+                    <td><span className={styles.cellText} style={{ fontWeight: 600 }}>{inv.invoiceNumber}</span></td>
+                    <td><span className={styles.cellUserName}>{inv.client}</span></td>
+                    <td><span className={styles.cellText} style={{ fontWeight: 600 }}>{displayAmount}</span></td>
+                    <td><span className={styles.cellTextMuted}>{inv.date}</span></td>
+                    <td>
+                      <span className={`${styles.statusChip} ${inv.status?.toLowerCase() === 'paid' ? styles.completed : styles.pending}`}>
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td className={styles.alignRight}>
+                      <div style={{ display: "inline-flex", gap: "6px" }}>
+                        <button
+                          type="button"
+                          className={styles.iconActionBtn}
+                          title="View / Download PDF Invoice"
+                          aria-label="Download invoice PDF"
+                          onClick={() => handleDownloadPdf(inv)}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.iconActionBtn}
+                          title={`Resend invoice to ${inv.clientEmail || inv.client}`}
+                          aria-label="Resend invoice email"
+                          onClick={() => handleResendInvoice(inv)}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -319,7 +358,22 @@ export default function InvoicesPage() {
 
                 <div className={styles.formRow}>
                   <div className={styles.formGroup}>
-                    <label>Amount (USD)</label>
+                    <label>Currency</label>
+                    <CustomSelect
+                      value={currency}
+                      onChange={(val) => setCurrency(val as "USD" | "AED" | "INR")}
+                      fullWidth
+                      ariaLabel="Invoice currency"
+                      options={[
+                        { value: "USD", label: "USD ($) — International" },
+                        { value: "AED", label: "AED (AED) — UAE (VAT 5%)" },
+                        { value: "INR", label: "INR (₹) — India (GST 18%)" },
+                      ]}
+                    />
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label>Amount ({currency})</label>
                     <input
                       type="number"
                       min="1"
@@ -327,7 +381,7 @@ export default function InvoicesPage() {
                       required
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
-                      placeholder="1500"
+                      placeholder={currency === "INR" ? "14999" : currency === "AED" ? "749" : "199"}
                     />
                   </div>
 

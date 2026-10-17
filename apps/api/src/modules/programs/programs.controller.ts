@@ -208,6 +208,12 @@ export class ProgramsController {
     return this.programsService.update(id, updateDto);
   }
 
+  @RequirePermission(Permission.PROGRAMS_CREATE)
+  @Post(':id/duplicate')
+  duplicate(@Param('id') id: string) {
+    return this.programsService.duplicate(id);
+  }
+
   @RequirePermission(Permission.PROGRAMS_DELETE)
   @Delete(':id')
   remove(@Param('id') id: string, @Query('force') force?: string) {

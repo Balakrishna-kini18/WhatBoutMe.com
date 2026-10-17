@@ -37,6 +37,7 @@ export interface Program {
   isActive: boolean;
   hasCertificate: boolean;
   certificateTemplate?: string | null;
+  faqs?: any;
   createdAt: string;
   updatedAt: string;
 }

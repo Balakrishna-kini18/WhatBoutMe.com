@@ -23,6 +23,12 @@ export type Course = {
   /** Present when the course comes from the admin portal. */
   programId?: string;
   price?: number;
+  faqs?: Array<{
+    id?: string;
+    question: string;
+    answer: string;
+    sortOrder?: number;
+  }>;
 };
 
 type Brochure = (typeof COURSES)[number];
@@ -54,6 +60,27 @@ function toCourse(program: Program, index: number): Course {
   const image = info.image || cover?.image || "";
   const alt = info.image ? (program.title || "Course") : (cover?.alt ?? program.title ?? "Course");
 
+  let rawFaqs: any[] = [];
+  if (Array.isArray((program as any).faqs) && (program as any).faqs.length > 0) {
+    rawFaqs = (program as any).faqs;
+  } else if (typeof (program as any).faqs === "string") {
+    try {
+      rawFaqs = JSON.parse((program as any).faqs);
+    } catch {}
+  } else if (info.faqs && info.faqs.length > 0) {
+    rawFaqs = info.faqs;
+  }
+
+  const faqs = (Array.isArray(rawFaqs) ? rawFaqs : [])
+    .filter((f) => f && (f.question || f.q) && (f.answer || f.a))
+    .map((f, i) => ({
+      id: f.id || `faq-${i}`,
+      question: (f.question || f.q || "").trim(),
+      answer: (f.answer || f.a || "").trim(),
+      sortOrder: typeof f.sortOrder === "number" ? f.sortOrder : i,
+    }))
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
   return {
     slug: program.slug || `program-${index}`,
     title: program.title || "Untitled Course",
@@ -72,6 +99,7 @@ function toCourse(program: Program, index: number): Course {
     links: brochure?.links,
     programId: program.id,
     price: typeof program.price === "number" && !isNaN(program.price) ? program.price : undefined,
+    faqs,
   };
 }
 

@@ -425,6 +425,8 @@ model Program {
   minAttendancePercentage Int           @default(75)
   deliveryMode            DeliveryMode  @default(ONLINE)
 
+  faqs                    Json?         @default("[]")
+
   steps              Step[]
   batches            Batch[]
   resources          Resource[]

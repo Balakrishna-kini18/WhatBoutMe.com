@@ -219,6 +219,29 @@ export default function ProgramsPage() {
     }
   };
 
+  const handleDuplicateProgram = async (prog: Program) => {
+    try {
+      const res = await fetch(`${API_URL}/programs/${prog.id}/duplicate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+      });
+
+      if (res.ok) {
+        const cloned = await res.json();
+        toastSuccess(`Course "${prog.title}" duplicated successfully as "${cloned.title}".`);
+        fetchPrograms();
+      } else {
+        const err = await res.json().catch(() => null);
+        toastError(err?.message || "Failed to duplicate course.");
+      }
+    } catch (e: any) {
+      toastError(e.message || "Failed to duplicate course.");
+    }
+  };
+
   const handleSaveProgram = async (e: FormEvent) => {
     e.preventDefault();
     setFormError("");
@@ -634,6 +657,16 @@ export default function ProgramsPage() {
                           ),
                         },
                         {
+                          label: "Duplicate Track",
+                          onClick: () => handleDuplicateProgram(prog),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          ),
+                        },
+                        {
                           label: "Delete Track",
                           danger: true,
                           dividerAbove: true,
@@ -773,6 +806,16 @@ export default function ProgramsPage() {
                                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                                   <polyline points="15 3 21 3 21 9" />
                                   <line x1="10" y1="14" x2="21" y2="3" />
+                                </svg>
+                              ),
+                            },
+                            {
+                              label: "Duplicate Track",
+                              onClick: () => handleDuplicateProgram(prog),
+                              icon: (
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                                 </svg>
                               ),
                             },

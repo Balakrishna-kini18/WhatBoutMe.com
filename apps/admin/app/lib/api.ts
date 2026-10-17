@@ -890,4 +890,15 @@ export function getInvoiceDownloadUrl(id: string): string {
   return `${API_URL}/invoices/${id}/download`;
 }
 
+export interface CourseFaq {
+  id: string;
+  question: string;
+  answer: string;
+  sortOrder: number;
+}
+
+export async function duplicateProgram(id: string): Promise<any> {
+  return apiPost<any>(`/programs/${id}/duplicate`, {});
+}
+
 

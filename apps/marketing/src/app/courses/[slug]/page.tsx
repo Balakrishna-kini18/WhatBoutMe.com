@@ -9,6 +9,12 @@ import Footer from "@/components/site/Footer";
 import CourseCard from "@/components/site/CourseCard";
 import EnrolLink from "@/components/site/EnrolLink";
 import { formatPrice, getCourses, isOptimisable } from "@/lib/courses";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -129,6 +135,30 @@ export default async function CoursePage({ params }: Props) {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {course.faqs && course.faqs.length > 0 && (
+              <div className="mt-12 border-t border-line pt-10">
+                <h2 className="text-xl font-bold tracking-tight md:text-2xl text-ink">
+                  Frequently Asked Questions
+                </h2>
+                <p className="mt-2 text-ink-soft text-sm md:text-base">
+                  Common questions regarding {course.title}.
+                </p>
+
+                <Accordion type="single" collapsible className="mt-6 divide-y divide-line">
+                  {course.faqs.map((faq, idx) => (
+                    <AccordionItem key={faq.id || `faq-${idx}`} value={faq.id || `faq-${idx}`} className="border-line">
+                      <AccordionTrigger className="py-4 text-base font-semibold hover:no-underline md:text-lg text-ink text-left [&>svg]:text-ink-soft">
+                        {faq.question}
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-5 text-base leading-relaxed text-ink-soft whitespace-pre-line">
+                        {faq.answer}
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              </div>
             )}
           </div>
 

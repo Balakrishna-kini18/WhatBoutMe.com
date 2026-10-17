@@ -582,5 +582,120 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
         data: { order: 2 },
       });
     });
+
+    it('creates program with course-specific faqs', async () => {
+      const faqs = [
+        { id: 'faq-1', question: 'Prerequisites?', answer: 'None needed.', sortOrder: 0 },
+      ];
+      prismaMock.program.findUnique.mockResolvedValue(null);
+      prismaMock.program.create.mockResolvedValue({
+        id: 'prog-faq',
+        title: 'FAQ Course',
+        slug: 'faq-course',
+        faqs,
+      });
+
+      const res = await service.create({
+        title: 'FAQ Course',
+        price: 99,
+        faqs,
+      });
+
+      expect(res.id).toBe('prog-faq');
+      expect(prismaMock.program.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            faqs,
+          }),
+        }),
+      );
+    });
+
+    it('updates program with course-specific faqs', async () => {
+      const faqs = [
+        { id: 'faq-1', question: 'Updated Q?', answer: 'Updated A.', sortOrder: 0 },
+      ];
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1' });
+      prismaMock.program.update.mockResolvedValue({
+        id: 'prog-1',
+        faqs,
+      });
+
+      const res = await service.update('prog-1', { faqs });
+
+      expect(res.faqs).toEqual(faqs);
+      expect(prismaMock.program.update).toHaveBeenCalledWith({
+        where: { id: 'prog-1' },
+        data: { faqs },
+      });
+    });
+
+    it('duplicates course and clones all its course-specific faqs, steps, and lessons', async () => {
+      const existingFaqs = [
+        { id: 'faq-1', question: 'Original Q?', answer: 'Original A.', sortOrder: 0 },
+      ];
+      prismaMock.program.findUnique
+        .mockResolvedValueOnce({
+          id: 'prog-orig',
+          title: 'Original Track',
+          slug: 'original-track',
+          description: 'Track Description',
+          price: 299,
+          currency: 'USD',
+          faqs: existingFaqs,
+          steps: [
+            {
+              id: 'step-1',
+              sequence: 1,
+              title: 'Step 1 Title',
+              description: 'Step 1 Desc',
+              status: ContentStatus.DRAFT,
+              releaseSchedule: 'IMMEDIATE',
+              quizPlacement: 'AFTER_VIDEO',
+              lessons: [
+                {
+                  id: 'les-1',
+                  order: 1,
+                  title: 'Lesson 1',
+                  type: 'VIDEO',
+                  content: null,
+                  mediaUrl: 'https://video.mp4',
+                  durationSec: 120,
+                },
+              ],
+            },
+          ],
+        })
+        .mockResolvedValueOnce(null); // slug check for -copy
+
+      prismaMock.program.create.mockResolvedValue({
+        id: 'prog-copy',
+        title: 'Original Track (Copy)',
+        slug: 'original-track-copy',
+        faqs: existingFaqs,
+      });
+
+      prismaMock.step.create.mockResolvedValue({
+        id: 'step-copy-1',
+      });
+      prismaMock.lesson.create.mockResolvedValue({
+        id: 'les-copy-1',
+      });
+
+      const copy = await service.duplicate('prog-orig');
+
+      expect(copy.id).toBe('prog-copy');
+      expect(prismaMock.program.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            title: 'Original Track (Copy)',
+            faqs: existingFaqs,
+            status: ContentStatus.DRAFT,
+          }),
+        }),
+      );
+      expect(prismaMock.step.create).toHaveBeenCalled();
+      expect(prismaMock.lesson.create).toHaveBeenCalled();
+    });
   });
 });

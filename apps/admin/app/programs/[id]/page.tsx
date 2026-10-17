@@ -145,6 +145,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         online: parsed.online || "",
         image: updatedData.thumbnailUrl || parsed.image || "",
         points: parsed.points || [],
+        faqs: updatedData.faqs || parsed.faqs || [],
       });
 
       const payload: Record<string, any> = {
@@ -163,6 +164,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         thumbnailUrl: updatedData.thumbnailUrl || "",
         category: updatedData.category || "",
         level: updatedData.level || "",
+        faqs: updatedData.faqs || parsed.faqs || [],
       };
 
       const res = await fetch(`${API_URL}/programs/${programId}`, {

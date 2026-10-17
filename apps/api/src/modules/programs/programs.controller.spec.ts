@@ -205,5 +205,11 @@ describe('D1-030: ProgramsController & Security Guard Tests', () => {
       await controller.completeStep('s1', 85.6, req);
       expect(serviceMock.completeStep).toHaveBeenCalledWith('s1', 'learner-99', 86);
     });
+
+    it('duplicate calls service.duplicate with program id', async () => {
+      serviceMock.duplicate = vi.fn().mockResolvedValue({ id: 'prog-copy' });
+      await controller.duplicate('prog-1');
+      expect(serviceMock.duplicate).toHaveBeenCalledWith('prog-1');
+    });
   });
 });

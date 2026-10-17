@@ -165,6 +165,7 @@ export class ProgramsService {
         status: data.status ?? ContentStatus.DRAFT,
         hasCertificate: data.hasCertificate ?? false,
         certificateTemplate: data.certificateTemplate ?? null,
+        faqs: data.faqs ? (data.faqs as any) : [],
       },
     });
 
@@ -198,6 +199,7 @@ export class ProgramsService {
     if (data.status !== undefined) updateData.status = data.status;
     if (data.hasCertificate !== undefined) updateData.hasCertificate = data.hasCertificate;
     if (data.certificateTemplate !== undefined) updateData.certificateTemplate = data.certificateTemplate;
+    if (data.faqs !== undefined) updateData.faqs = data.faqs as any;
 
     const updated = await this.prisma.program.update({
       where: { id },
@@ -206,6 +208,90 @@ export class ProgramsService {
 
     await this.safeInvalidateTags(['programs', `program:${id}`]);
     return updated;
+  }
+
+  async duplicate(id: string) {
+    const original = await this.prisma.program.findUnique({
+      where: { id },
+      include: {
+        steps: {
+          include: {
+            lessons: true,
+          },
+          orderBy: { sequence: 'asc' },
+        },
+      },
+    });
+
+    if (!original) {
+      throw new NotFoundException(`Program not found`);
+    }
+
+    const newTitle = `${original.title} (Copy)`;
+    let baseSlug = `${original.slug}-copy`;
+    let slug = baseSlug;
+    const existing = await this.prisma.program.findUnique({ where: { slug } });
+    if (existing) {
+      slug = `${baseSlug}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    const created = await this.prisma.program.create({
+      data: {
+        title: newTitle,
+        slug,
+        description: original.description,
+        price: original.price,
+        currency: original.currency,
+        priceUSD: original.priceUSD,
+        priceAED: original.priceAED,
+        priceINR: original.priceINR,
+        earlyBirdPrice: original.earlyBirdPrice,
+        earlyBirdCurrency: original.earlyBirdCurrency,
+        earlyBirdDeadline: original.earlyBirdDeadline,
+        isActive: false,
+        status: ContentStatus.DRAFT,
+        hasCertificate: original.hasCertificate,
+        certificateTemplate: original.certificateTemplate,
+        attendanceThreshold: original.attendanceThreshold,
+        attendanceRequired: original.attendanceRequired,
+        minAttendancePercentage: original.minAttendancePercentage,
+        deliveryMode: original.deliveryMode,
+        faqs: original.faqs ?? [],
+      },
+    });
+
+    for (const step of original.steps) {
+      const createdStep = await this.prisma.step.create({
+        data: {
+          programId: created.id,
+          sequence: step.sequence,
+          title: step.title,
+          description: step.description,
+          status: ContentStatus.DRAFT,
+          releaseSchedule: step.releaseSchedule,
+          unlockDelayDays: step.unlockDelayDays,
+          quizPlacement: step.quizPlacement,
+        },
+      });
+
+      for (const lesson of step.lessons) {
+        await this.prisma.lesson.create({
+          data: {
+            stepId: createdStep.id,
+            order: lesson.order,
+            title: lesson.title,
+            type: lesson.type,
+            content: lesson.content,
+            mediaUrl: lesson.mediaUrl,
+            durationSec: lesson.durationSec,
+            status: ContentStatus.DRAFT,
+          },
+        });
+      }
+    }
+
+    await this.safeInvalidateTags(['programs']);
+    return created;
   }
 
   async publishProgram(id: string, dto: PublishProgramDto) {

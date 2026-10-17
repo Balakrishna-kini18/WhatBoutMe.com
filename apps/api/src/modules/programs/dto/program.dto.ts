@@ -1,5 +1,23 @@
-import { IsString, IsNotEmpty, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, Min, IsArray } from 'class-validator';
 import { ContentStatus, CurrencyCode } from '@prisma/client';
+
+export class CourseFaqItemDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  question: string;
+
+  @IsString()
+  @IsNotEmpty()
+  answer: string;
+
+  @IsOptional()
+  @IsNumber()
+  sortOrder?: number;
+}
 
 export class CreateProgramDto {
   @IsString()
@@ -82,6 +100,10 @@ export class CreateProgramDto {
   @IsOptional()
   @IsString()
   level?: string;
+
+  @IsOptional()
+  @IsArray()
+  faqs?: CourseFaqItemDto[];
 }
 
 export class UpdateProgramDto {
@@ -167,6 +189,10 @@ export class UpdateProgramDto {
   @IsOptional()
   @IsString()
   level?: string;
+
+  @IsOptional()
+  @IsArray()
+  faqs?: CourseFaqItemDto[];
 }
 
 export class PublishProgramDto {

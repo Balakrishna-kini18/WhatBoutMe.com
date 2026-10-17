@@ -78,6 +78,20 @@ export async function getPrograms(): Promise<Program[]> {
   }
 }
 
+export async function getPublicPrograms(): Promise<Program[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/programs/public`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return getPrograms();
+    }
+    return await res.json();
+  } catch {
+    return getPrograms();
+  }
+}
+
 export async function getBatches(programId?: string) {
   try {
     const url = programId

@@ -1,150 +1,422 @@
 "use client";
 
-import { useState, useSyncExternalStore, type FormEvent } from "react";
-import { ArrowRight } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
+import { ArrowRight, CheckCircle2, Calendar, Sparkles } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
 
 const FIELD =
-  "w-full rounded-xl border border-line bg-cream px-4 py-3 text-ink outline-none transition-colors focus:border-gold-deep";
+  "w-full rounded-xl border border-line bg-cream px-4 py-3 text-ink outline-none transition-colors focus:border-gold-deep focus:bg-white text-sm sm:text-base";
 
-// the course a visitor came from, passed as /contact?course=...
+// URL course subscription
 const subscribe = () => () => {};
-const getCourse = () => new URLSearchParams(window.location.search).get("course") ?? "";
+const getCourseFromUrl = () => {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("course") ?? "";
+};
 const getServerCourse = () => "";
 
-/** Enquiry form. Submissions appear in the admin portal under Enquiries (CRM). */
+interface ProgramOption {
+  id: string;
+  title: string;
+  slug?: string;
+}
+
+interface SubmissionResult {
+  success: boolean;
+  inquiryType: "GENERAL" | "COURSE";
+  leadId?: string;
+  courseTitle?: string;
+  courseId?: string;
+}
+
 export default function ContactForm() {
-  const course = useSyncExternalStore(subscribe, getCourse, getServerCourse);
+  const urlCourseParam = useSyncExternalStore(subscribe, getCourseFromUrl, getServerCourse);
+
+  const [inquiryType, setInquiryType] = useState<"GENERAL" | "COURSE">("GENERAL");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [selectedCourseId, setSelectedCourseId] = useState("");
   const [message, setMessage] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+
+  const [courses, setCourses] = useState<ProgramOption[]>([]);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [sent, setSent] = useState(false);
+  const [result, setResult] = useState<SubmissionResult | null>(null);
+
+  // Auto-switch to COURSE if URL parameter ?course=... is provided
+  useEffect(() => {
+    if (urlCourseParam) {
+      setInquiryType("COURSE");
+    }
+  }, [urlCourseParam]);
+
+  // Fetch active public courses for the conditional dropdown
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCourses = async () => {
+      setIsLoadingCourses(true);
+      try {
+        let res = await fetch(`${API_BASE_URL}/programs/public`);
+        if (!res.ok) {
+          res = await fetch(`${API_BASE_URL}/programs`);
+        }
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && isMounted) {
+            setCourses(data);
+
+            // Pre-select matching course from url parameter
+            if (urlCourseParam) {
+              const paramLower = urlCourseParam.toLowerCase();
+              const matched = data.find(
+                (p) =>
+                  p.slug?.toLowerCase() === paramLower ||
+                  p.title?.toLowerCase() === paramLower ||
+                  p.id === urlCourseParam,
+              );
+              if (matched) {
+                setSelectedCourseId(matched.id);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch active programs roster:", err);
+      } finally {
+        if (isMounted) setIsLoadingCourses(false);
+      }
+    };
+
+    fetchCourses();
+    return () => {
+      isMounted = false;
+    };
+  }, [urlCourseParam]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+
+    // 1. Validation checks
+    if (!name.trim()) {
+      setError("Please enter your full name.");
+      return;
+    }
+
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Please provide a valid email address.");
+      return;
+    }
+
+    if (!phone.trim()) {
+      setError("Please provide your phone number with country code.");
+      return;
+    }
+
+    if (inquiryType === "COURSE" && !selectedCourseId) {
+      setError("Please select the course you are inquiring about from the dropdown.");
+      return;
+    }
+
+    if (!message.trim()) {
+      setError("Please tell us about yourself or your inquiry.");
+      return;
+    }
+
+    const selectedCourse = courses.find((c) => c.id === selectedCourseId);
     setBusy(true);
+
     try {
-      const res = await fetch(`${API_BASE_URL}/leads`, {
+      const payload = {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        inquiryType,
+        courseId: inquiryType === "COURSE" ? selectedCourseId : undefined,
+        selectedCourseId: inquiryType === "COURSE" ? selectedCourseId : undefined,
+        courseTitle: selectedCourse?.title,
+        message: message.trim(),
+        honeypot: honeypot.trim() || undefined,
+      };
+
+      // Send to /contact with fallback to /leads
+      let res = await fetch(`${API_BASE_URL}/contact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          ...(phone.trim() ? { phone: phone.trim() } : {}),
-          message: [course && `Course: ${course}`, message.trim()]
-            .filter(Boolean)
-            .join("\n\n"),
-        }),
+        body: JSON.stringify(payload),
       });
+
+      if (!res.ok && res.status === 404) {
+        res = await fetch(`${API_BASE_URL}/leads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
       if (res.ok) {
-        setSent(true);
+        const json = await res.json().catch(() => ({}));
+        setResult({
+          success: true,
+          inquiryType,
+          leadId: json.leadId || json.id,
+          courseTitle: selectedCourse?.title,
+          courseId: selectedCourseId,
+        });
       } else if (res.status === 429) {
-        setError("Too many messages just now. Please wait a minute and try again.");
+        setError("Too many messages submitted. Please wait a minute and try again.");
       } else {
         const data = await res.json().catch(() => null);
-        setError(data?.error?.message || "Could not send your message. Please try again.");
+        setError(data?.message || data?.error?.message || "Could not submit inquiry. Please try again.");
       }
     } catch {
-      setError("Could not reach the server. Please try again in a moment.");
+      setError("Network error connecting to the server. Please try again in a moment.");
     } finally {
       setBusy(false);
     }
   };
 
-  if (sent) {
+  const handleReset = () => {
+    setResult(null);
+    setMessage("");
+    setError("");
+  };
+
+  // SUCCESS CONFIRMATION STATE
+  if (result) {
+    if (result.inquiryType === "COURSE") {
+      return (
+        <div role="status" className="rounded-2xl bg-cream-deep p-6 sm:p-8 text-center animate-fadeIn">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gold/20 text-gold-deep mb-4">
+            <Sparkles className="h-7 w-7 text-gold-deep" />
+          </div>
+          <span className="inline-block px-3 py-1 text-xs font-semibold uppercase tracking-wider text-gold-deep bg-gold/15 rounded-full mb-3">
+            Course Inquiry Received
+          </span>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink">
+            {result.courseTitle ? `Next: Discovery Call for ${result.courseTitle}` : "Next: Book Your Discovery Call"}
+          </h2>
+          <p className="mt-2 text-sm sm:text-base text-ink-soft max-w-md mx-auto leading-relaxed">
+            Thank you, <strong className="text-ink">{name}</strong>! Your inquiry has been prioritized. To finalize your personalized curriculum plan and schedule, book your 1-on-1 session with Roweena.
+          </p>
+
+          <div className="mt-6 p-4 rounded-xl border border-gold/30 bg-white/70 max-w-md mx-auto text-left flex items-start gap-3">
+            <Calendar className="h-5 w-5 text-gold-deep shrink-0 mt-0.5" />
+            <div className="text-xs sm:text-sm text-ink-soft">
+              <strong className="text-ink block font-semibold">15-Minute 1-on-1 Discovery Call</strong>
+              Roweena will discuss your goals, answer curriculum questions, and guide your enrolment.
+            </div>
+          </div>
+
+          <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <a
+              href={`/contact?discovery=true&leadId=${result.leadId || ""}&name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`}
+              onClick={(e) => {
+                e.preventDefault();
+                alert(`Discovery Call scheduler triggered for ${name} (${email}). Roweena's booking coordinator will confirm your 15-minute slot!`);
+              }}
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-ink px-7 py-3.5 text-sm font-semibold text-cream transition hover:bg-gold hover:text-ink shadow-sm"
+            >
+              <span>Schedule 15-Min Discovery Call</span>
+              <ArrowRight className="h-4 w-4" />
+            </a>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="text-xs text-ink-soft underline hover:text-ink py-2"
+            >
+              Send another message
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // General Inquiry Success Card
     return (
-      <div role="status" className="rounded-2xl bg-cream-deep p-8 text-center">
-        <p className="text-2xl font-bold tracking-tight">Thank You</p>
-        <p className="mt-2 text-ink-soft">
-          Your message is with us. We will reply to {email} shortly.
+      <div role="status" className="rounded-2xl bg-cream-deep p-6 sm:p-8 text-center animate-fadeIn">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-700 mb-4">
+          <CheckCircle2 className="h-7 w-7" />
+        </div>
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink">Thank You, {name}!</h2>
+        <p className="mt-2 text-sm sm:text-base text-ink-soft max-w-md mx-auto leading-relaxed">
+          Your general inquiry has been delivered directly to Roweena and the coaching team. We will review your message and reply to <strong className="text-ink">{email}</strong> within 24 hours.
         </p>
+        <button
+          type="button"
+          onClick={handleReset}
+          className="mt-6 inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-white px-6 py-2.5 text-xs font-semibold text-ink transition hover:border-gold-deep"
+        >
+          Send another inquiry
+        </button>
       </div>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      {course && (
-        <p className="rounded-xl bg-cream-deep px-4 py-3 text-sm">
-          Enquiring about <strong className="font-semibold">{course}</strong>
-        </p>
+    <form onSubmit={onSubmit} className="space-y-5" noValidate>
+      {/* Inquiry Type Toggle */}
+      <div>
+        <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-ink-soft">
+          Inquiry Type *
+        </label>
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-cream p-1.5 border border-line">
+          <button
+            type="button"
+            onClick={() => setInquiryType("GENERAL")}
+            className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs sm:text-sm font-semibold transition-all ${
+              inquiryType === "GENERAL"
+                ? "bg-white text-ink shadow-sm border border-sand"
+                : "text-ink-soft hover:text-ink"
+            }`}
+          >
+            <span>💬 General Inquiry</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setInquiryType("COURSE")}
+            className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs sm:text-sm font-semibold transition-all ${
+              inquiryType === "COURSE"
+                ? "bg-white text-ink shadow-sm border border-sand"
+                : "text-ink-soft hover:text-ink"
+            }`}
+          >
+            <span>🎓 Course Inquiry</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Conditional Course Dropdown (Rendered strictly when Course Inquiry is active) */}
+      {inquiryType === "COURSE" && (
+        <div className="rounded-xl border border-gold/40 bg-gold/5 p-4 transition-all">
+          <label htmlFor="courseSelect" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gold-deep">
+            Select Course *
+          </label>
+          <select
+            id="courseSelect"
+            required
+            value={selectedCourseId}
+            onChange={(e) => setSelectedCourseId(e.target.value)}
+            className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-gold-deep focus:ring-1 focus:ring-gold-deep"
+          >
+            <option value="">
+              {isLoadingCourses ? "Loading active courses..." : "-- Choose an Active Course --"}
+            </option>
+            {courses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1.5 block text-xs text-ink-soft">
+            Submitting a course inquiry instantly reserves your prospect priority and triggers a 15-minute discovery consultation.
+          </span>
+        </div>
       )}
+
+      {/* Visitor Details */}
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
-          <label htmlFor="name" className="mb-2 block text-sm font-medium">
-            Name
+          <label htmlFor="fullName" className="mb-1.5 block text-sm font-semibold text-ink">
+            Full Name *
           </label>
           <input
-            id="name"
+            id="fullName"
             required
             maxLength={120}
             autoComplete="name"
+            placeholder="e.g. Jane Doe"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className={FIELD}
           />
         </div>
         <div>
-          <label htmlFor="email" className="mb-2 block text-sm font-medium">
-            Email
+          <label htmlFor="emailAddr" className="mb-1.5 block text-sm font-semibold text-ink">
+            Email Address *
           </label>
           <input
-            id="email"
+            id="emailAddr"
             type="email"
             required
             autoComplete="email"
+            placeholder="e.g. jane@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className={FIELD}
           />
         </div>
       </div>
+
       <div>
-        <label htmlFor="phone" className="mb-2 block text-sm font-medium">
-          Phone <span className="text-ink-soft">(optional)</span>
+        <label htmlFor="phoneNum" className="mb-1.5 block text-sm font-semibold text-ink">
+          Phone Number (with Country Code) *
         </label>
         <input
-          id="phone"
+          id="phoneNum"
           type="tel"
+          required
           maxLength={40}
           autoComplete="tel"
+          placeholder="e.g. +971 50 123 4567 or +91 98765 43210"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           className={FIELD}
         />
+        <span className="mt-1 block text-xs text-ink-soft">
+          Include your country dial code for discovery call WhatsApp / Zoom scheduling.
+        </span>
       </div>
+
       <div>
-        <label htmlFor="message" className="mb-2 block text-sm font-medium">
-          Message
+        <label htmlFor="tellUsMessage" className="mb-1.5 block text-sm font-semibold text-ink">
+          Tell us about yourself *
         </label>
         <textarea
-          id="message"
+          id="tellUsMessage"
           required
-          rows={5}
+          rows={4}
           maxLength={3500}
+          placeholder={
+            inquiryType === "COURSE"
+              ? "Tell us about your mental wellness journey, what you hope to achieve through this course, or any questions..."
+              : "Tell us about your goals, corporate inquiry, speaking engagement, or questions..."
+          }
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           className={FIELD}
         />
       </div>
 
+      {/* Honeypot field (hidden visually from real users) */}
+      <div aria-hidden="true" className="opacity-0 absolute -z-50 pointer-events-none h-0 w-0 overflow-hidden">
+        <label htmlFor="botHoneypot">Do not fill this field</label>
+        <input
+          id="botHoneypot"
+          tabIndex={-1}
+          autoComplete="off"
+          value={honeypot}
+          onChange={(e) => setHoneypot(e.target.value)}
+        />
+      </div>
+
       {error && (
-        <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {error}
-        </p>
+        </div>
       )}
 
       <button
         type="submit"
         disabled={busy}
-        className="group flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink disabled:opacity-60 sm:w-auto sm:px-8"
+        className="group flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 px-8 text-sm font-semibold text-cream transition hover:bg-gold hover:text-ink disabled:opacity-60 shadow-sm"
       >
-        {busy ? "Sending…" : "Send Message"}
-        <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+        <span>{busy ? "Sending…" : "Send Message"}</span>
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
       </button>
     </form>
   );

@@ -43,6 +43,13 @@ export class ProgramsController {
     return this.programsService.findAll(req?.user?.role);
   }
 
+  @Public()
+  @PublicCache(60, 300)
+  @Get('public')
+  findPublic() {
+    return this.programsService.findAll('USER');
+  }
+
   @RequirePermission(Permission.PROGRAMS_CREATE)
   @Post()
   create(@Body() createDto: CreateProgramDto) {

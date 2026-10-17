@@ -195,6 +195,14 @@ export function autoInvalidateOnMutation(url: string): void {
     return;
   }
 
+  const isCrmOrMessages = /\/(leads|messages|conversations|contact)/.test(url);
+  if (isCrmOrMessages) {
+    invalidateCache("/leads");
+    invalidateCache("/messages");
+    invalidateCache("/messages/conversations");
+    return;
+  }
+
   // Fallback: clear the entire cache to guarantee immediate UI updates
   clearApiCache();
 }

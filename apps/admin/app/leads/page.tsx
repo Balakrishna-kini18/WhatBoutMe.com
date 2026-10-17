@@ -142,7 +142,29 @@ export default function LeadsPage() {
                     {lead.phone && <span className={styles.cellTextMuted}>{lead.phone}</span>}
                   </td>
                   <td style={{ maxWidth: "340px", whiteSpace: "normal" }}>
-                    <span className={styles.cellText} style={{ lineHeight: 1.45 }}>{lead.message || "—"}</span>
+                    {lead.message && (lead.message.includes("Course Inquiry:") || lead.message.includes("Course:")) ? (
+                      <div>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                            backgroundColor: "rgba(217, 119, 6, 0.12)",
+                            color: "#b45309",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            marginBottom: "4px",
+                          }}
+                        >
+                          🎓 High-Intent Course Lead
+                        </span>
+                        <div className={styles.cellText} style={{ lineHeight: 1.45 }}>
+                          {lead.message}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className={styles.cellText} style={{ lineHeight: 1.45 }}>{lead.message || "—"}</span>
+                    )}
                   </td>
                   <td><span className={styles.cellTextMuted}>{new Date(lead.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span></td>
                   <td>

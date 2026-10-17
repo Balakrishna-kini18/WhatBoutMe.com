@@ -83,13 +83,6 @@ export default async function Footer() {
                 {contact.email}
               </a>
             </li>
-            {CONTACT.phones.map((p) => (
-              <li key={p.href}>
-                <a href={p.href} className={LINK}>
-                  {p.number} · {p.place}
-                </a>
-              </li>
-            ))}
           </ul>
         </div>
 

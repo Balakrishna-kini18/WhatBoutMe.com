@@ -31,41 +31,29 @@ export default async function ContactPage() {
               Thank you for investing your time on BRAIN HEALTH.
             </p>
 
-            <dl className="mt-10 space-y-5">
+            <dl className="mt-10 space-y-6">
               <div>
-                <dt className="eyebrow text-gold-deep">Email</dt>
+                <dt className="eyebrow text-gold-deep">Email Us</dt>
                 <dd className="mt-1.5">
                   <a
                     href={`mailto:${contact.email}`}
-                    className="transition-colors hover:text-gold-deep"
+                    className="text-lg font-medium transition-colors hover:text-gold-deep"
                   >
                     {contact.email}
                   </a>
                 </dd>
               </div>
               <div>
-                <dt className="eyebrow text-gold-deep">WhatsApp</dt>
-                <dd className="mt-1.5">
-                  <a
-                    href="https://wa.me/971565464014"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="transition-colors hover:text-gold-deep"
-                  >
-                    Message us on WhatsApp
-                  </a>
+                <dt className="eyebrow text-gold-deep">Inquiries & Consultations</dt>
+                <dd className="mt-1.5 text-sm text-ink-soft leading-relaxed">
+                  Submit a General or Course Inquiry using the form. Our coaching team reviews and responds to all messages within 24 hours.
                 </dd>
               </div>
               <div>
-                <dt className="eyebrow text-gold-deep">Mobile</dt>
-                {CONTACT.phones.map((p) => (
-                  <dd key={p.href} className="mt-1.5">
-                    <a href={p.href} className="transition-colors hover:text-gold-deep">
-                      {p.number}
-                    </a>{" "}
-                    <span className="text-ink-soft">· {p.place}</span>
-                  </dd>
-                ))}
+                <dt className="eyebrow text-gold-deep">Location & Global Reach</dt>
+                <dd className="mt-1.5 text-sm text-ink-soft">
+                  Dubai, UAE & Mangalore, India · Serving global learners worldwide
+                </dd>
               </div>
             </dl>
           </div>

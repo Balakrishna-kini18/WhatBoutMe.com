@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Optional, Query } from '@nestjs/common';
 // import { Throttle } from '@nestjs/throttler';
-import { LeadStatus, Role } from '@prisma/client';
+import { ConversationStatus, LeadStatus, Role } from '@prisma/client';
 import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
@@ -12,6 +12,11 @@ export class CreateLeadDto {
   @IsEmail() @MaxLength(200) email: string;
   @IsOptional() @IsString() @MaxLength(40) phone?: string;
   @IsOptional() @IsString() @MaxLength(4000) message?: string;
+  @IsOptional() @IsString() inquiryType?: 'GENERAL' | 'COURSE';
+  @IsOptional() @IsString() courseId?: string;
+  @IsOptional() @IsString() selectedCourseId?: string;
+  @IsOptional() @IsString() courseTitle?: string;
+  @IsOptional() @IsString() honeypot?: string;
 }
 
 export class UpdateLeadDto {
@@ -28,29 +33,132 @@ export class LeadsController {
 
   // public form: keep it to a handful of submissions a minute per address
   @Public()
-//   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post()
   async create(@Body() body: CreateLeadDto) {
-    const lead = await this.prisma.lead.create({ data: body });
+    if (body.honeypot?.trim()) {
+      return { success: true, message: 'Your message has been received.' };
+    }
+
+    const type = body.inquiryType?.toUpperCase() === 'GENERAL' ? 'GENERAL' : 'COURSE';
+
+    if (type === 'GENERAL') {
+      const email = body.email.toLowerCase().trim();
+      let user = await this.prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: {
+            email,
+            name: body.name.trim(),
+            phone: body.phone?.trim() || null,
+            role: Role.USER,
+          },
+        });
+      }
+
+      const admin = await this.prisma.user.findFirst({
+        where: { role: { in: [Role.SUPER_ADMIN, Role.ADMIN] } },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const participantIds = admin ? [user.id, admin.id] : [user.id];
+      let conversation = await this.prisma.conversation.findFirst({
+        where: {
+          AND: [
+            { participantIds: { has: user.id } },
+            admin ? { participantIds: { has: admin.id } } : {},
+          ],
+        },
+      });
+
+      if (!conversation) {
+        conversation = await this.prisma.conversation.create({
+          data: {
+            participantIds,
+            status: ConversationStatus.OPEN,
+          },
+        });
+      }
+
+      const formattedContent = [
+        body.phone ? `📞 Phone: ${body.phone}` : null,
+        body.message ? body.message.trim() : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: user.id,
+          content: formattedContent,
+          read: false,
+        },
+      });
+
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { updatedAt: new Date() },
+      });
+
+      if (this.emailService) {
+        const adminEmail = process.env.SMTP_USER || 'admin@whatboutme.com';
+        this.emailService
+          .sendTemplateEmail({
+            to: adminEmail,
+            subject: `New General Inquiry: ${body.name}`,
+            template: 'LeadEnquiryNotificationEmail',
+            props: {
+              name: body.name,
+              email: body.email,
+              phone: body.phone,
+              message: `[General Inquiry]\n\n${body.message || ''}`,
+            },
+          })
+          .catch((e: any) => console.warn('[LeadsController] General inquiry email error:', e?.message));
+      }
+
+      return { success: true, inquiryType: 'GENERAL', conversationId: conversation.id };
+    }
+
+    // Default COURSE lead creation
+    const courseId = body.courseId || body.selectedCourseId;
+    let messageText = body.message?.trim() || '';
+    if (courseId && !messageText.includes('Course:')) {
+      const program = await this.prisma.program.findUnique({
+        where: { id: courseId },
+        select: { title: true },
+      });
+      const title = program?.title || body.courseTitle || courseId;
+      messageText = [`Course Inquiry: ${title} (ID: ${courseId})`, messageText].filter(Boolean).join('\n\n');
+    }
+
+    const lead = await this.prisma.lead.create({
+      data: {
+        name: body.name.trim(),
+        email: body.email.toLowerCase().trim(),
+        phone: body.phone?.trim() || null,
+        message: messageText || null,
+      },
+    });
 
     if (this.emailService) {
       const adminEmail = process.env.SMTP_USER || 'admin@whatboutme.com';
       this.emailService
         .sendTemplateEmail({
           to: adminEmail,
-          subject: `New Website Enquiry: ${body.name}`,
+          subject: `New Course Inquiry Lead: ${body.name}`,
           template: 'LeadEnquiryNotificationEmail',
           props: {
             name: body.name,
             email: body.email,
             phone: body.phone,
-            message: body.message,
+            message: messageText,
           },
         })
         .catch((e: any) => console.warn('[LeadsController] Lead email notification error:', e?.message));
     }
 
-    return { id: lead.id, status: lead.status };
+    return { id: lead.id, status: lead.status, success: true, triggerDiscoveryCall: true, inquiryType: 'COURSE' };
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)

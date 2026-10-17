@@ -367,8 +367,11 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
         data: {
           userId: recipient.id,
           type: notificationType,
+          title: `Reminder: ${session.title} starts in ${timeframe}`,
+          message: `Your live session "${session.title}" starts in ${timeframe}. Click here to join on time.`,
+          link: joinUrl,
           template: 'SessionReminderEmail',
-          channel: NotificationChannel.EMAIL,
+          channel: NotificationChannel.BOTH,
           deliveryStatus: DeliveryStatus.SENT,
           sentAt: new Date(),
         },

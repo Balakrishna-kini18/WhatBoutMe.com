@@ -951,4 +951,64 @@ export async function duplicateProgram(id: string): Promise<any> {
   return apiPost<any>(`/programs/${id}/duplicate`, {});
 }
 
+// -----------------------------------------------------------------------------
+// NOTIFICATION BROADCAST & DELIVERY LOGS (TASK 13)
+// -----------------------------------------------------------------------------
+
+export interface BroadcastNotificationPayload {
+  target: 'ALL' | 'BATCH' | 'USER';
+  targetId?: string;
+  title: string;
+  message: string;
+  link?: string;
+  channels: ('IN_APP' | 'PUSH' | 'EMAIL')[];
+}
+
+export interface BroadcastResult {
+  success: boolean;
+  recipientsCount: number;
+  inAppSent: number;
+  pushSent: number;
+  emailSent: number;
+}
+
+export interface NotificationLogItem {
+  id: string;
+  title: string;
+  message: string | null;
+  recipient: string;
+  recipientName: string | null;
+  userTimezone: string;
+  channel: string;
+  deliveryStatus: string;
+  createdAtUtc: string;
+  sentAtUtc: string | null;
+  readAtUtc: string | null;
+}
+
+export interface EmailLogItem {
+  id: string;
+  to: string;
+  subject: string;
+  template: string | null;
+  status: string;
+  providerId: string | null;
+  error: string | null;
+  createdAtUtc: string;
+}
+
+export interface DeliveryLogsResponse {
+  notifications: NotificationLogItem[];
+  emails: EmailLogItem[];
+}
+
+export async function broadcastNotification(payload: BroadcastNotificationPayload): Promise<BroadcastResult> {
+  return apiPost<BroadcastResult>('/notifications/broadcast', payload);
+}
+
+export async function fetchDeliveryLogs(limit = 50): Promise<DeliveryLogsResponse> {
+  return apiGet<DeliveryLogsResponse>(`/notifications/logs?limit=${limit}`);
+}
+
+
 

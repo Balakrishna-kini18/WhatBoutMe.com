@@ -1090,3 +1090,198 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* -----------------------------------------------------------------------------
+   NOTIFICATION CENTER & BROADCAST MODAL (TASK 13)
+----------------------------------------------------------------------------- */
+
+.notifDropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 400px;
+  max-height: 520px;
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.16);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: fadeIn 0.15s ease-out forwards;
+}
+
+.notifHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.notifTitle {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.broadcastActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--accent-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.broadcastActionBtn:hover {
+  opacity: 0.9;
+}
+
+.notifTabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-light);
+  background: #ffffff;
+}
+
+.notifTabBtn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.notifTabBtnActive {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+  background: #fdfaf6;
+}
+
+.notifList {
+  overflow-y: auto;
+  max-height: 380px;
+  padding: 0;
+  margin: 0;
+}
+
+.notifItem {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  transition: background 0.15s ease;
+}
+
+.notifItem:hover {
+  background: #fcf9f5;
+}
+
+.notifItemHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.notifItemTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.notifItemRecipient {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 0.15rem 0 0;
+}
+
+.notifItemMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.35rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.channelTag {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #edf2f7;
+  color: #4a5568;
+}
+
+/* Broadcast Modal Form */
+.broadcastFormGroup {
+  margin-bottom: 1rem;
+}
+
+.broadcastLabel {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.35rem;
+}
+
+.broadcastInput,
+.broadcastSelect,
+.broadcastTextarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.broadcastInput:focus,
+.broadcastSelect:focus,
+.broadcastTextarea:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(224, 109, 40, 0.15);
+}
+
+.channelsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  background: var(--bg-soft);
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+}
+
+.channelCheckboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+

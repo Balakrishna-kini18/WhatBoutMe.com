@@ -38,6 +38,8 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+import PushNotificationOptIn from "./components/PushNotificationOptIn";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -49,7 +51,10 @@ export default function RootLayout({
       className={dmSans.variable}
       suppressHydrationWarning
     >
-      <body className="bg-cream text-ink antialiased">{children}</body>
+      <body className="bg-cream text-ink antialiased">
+        {children}
+        <PushNotificationOptIn />
+      </body>
     </html>
   );
 }

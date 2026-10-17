@@ -219,6 +219,8 @@ enum NotificationChannel {
   EMAIL
   IN_APP
   BOTH
+  PUSH
+  ALL
 }
 
 enum DeliveryStatus {
@@ -278,6 +280,9 @@ model User {
   savedSignatureType      String?   // "DRAWN" or "UPLOADED"
   savedSignatureUpdatedAt DateTime?
 
+  // Notification Preferences (Task 13)
+  notificationPreferences Json?
+
   // Relations
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
@@ -301,6 +306,7 @@ model User {
   messagesSent                 Message[]
   sessions                     UserSession[]
   notifications                Notification[]
+  pushSubscriptions            PushSubscription[]
   dailyAttendance              DailyAttendance[]
   emailVerificationTokens      EmailVerificationToken[]
   passwordResetTokens          PasswordResetToken[]
@@ -1559,6 +1565,12 @@ model Notification {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  title          String?
+  message        String?
+  link           String?
+  readAt         DateTime?
+  metadata       Json?
+
   type           String
   template       String
   channel        NotificationChannel @default(EMAIL)
@@ -1570,6 +1582,23 @@ model Notification {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([deliveryStatus, schedule])
+  @@index([userId, readAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model AuditLog {

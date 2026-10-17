@@ -472,4 +472,55 @@ export async function getPublicGallery(category?: string): Promise<{ items: Publ
   }
 }
 
+// -----------------------------------------------------------------------------
+// WEB PUSH HELPERS (TASK 13)
+// -----------------------------------------------------------------------------
+
+export function urlBase64ToUint8Array(base64String: string): BufferSource {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const buffer = new ArrayBuffer(rawData.length);
+  const outputArray = new Uint8Array(buffer);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export async function fetchVapidPublicKey(): Promise<string> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/notifications/vapid-public-key`);
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data.publicKey || '';
+  } catch {
+    return '';
+  }
+}
+
+export async function registerPushSubscription(sub: PushSubscription): Promise<boolean> {
+  const subJson = sub.toJSON();
+  if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return false;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/notifications/push-subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: subJson.endpoint,
+        keys: {
+          p256dh: subJson.keys.p256dh,
+          auth: subJson.keys.auth,
+        },
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+
 

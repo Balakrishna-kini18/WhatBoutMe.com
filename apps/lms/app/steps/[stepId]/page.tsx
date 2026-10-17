@@ -15,6 +15,7 @@ import {
   QuizSubmissionResult,
   QuizQuestion,
 } from "../../lib/api";
+import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
   const router = useRouter();
@@ -44,10 +45,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [videoError, setVideoError] = useState<string | null>(null);
   const [viewingPdf, setViewingPdf] = useState<{ id: string; title: string; url: string } | null>(null);
 
+  const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("Learner");
   const isFetchingRef = useRef<boolean>(false);
 
   useEffect(() => {
+    const rawUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    if (rawUser) {
+      try {
+        const parsed = JSON.parse(rawUser);
+        if (parsed.name) setUserName(parsed.name);
+        if (parsed.email) setUserEmail(parsed.email);
+      } catch (e) {}
+    }
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
@@ -55,6 +65,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         if (parts[1]) {
           const payload = JSON.parse(atob(parts[1]));
           if (payload.email) setUserEmail(payload.email);
+          if (payload.name) setUserName(payload.name);
         }
       } catch(e) {}
     }
@@ -275,7 +286,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // D1-035: Video/Audio media playback heartbeat
   const sendMediaHeartbeat = useCallback(
-    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number) => {
+    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number, deltaWatchedSec?: number) => {
       try {
         const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
         const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
@@ -285,6 +296,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             positionSec,
             videoDurationSec: dur > 0 ? dur : undefined,
             isEnded,
+            deltaWatchedSec,
+            timestamp: Date.now(),
           }),
         });
         if (res.ok) {
@@ -696,191 +709,32 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 }
 
                 return (
-                  <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                    {videoError ? (
-                      <div
-                        style={{
-                          width: "100%",
-                          aspectRatio: "16/9",
-                          backgroundColor: "#0f172a",
-                          borderRadius: "12px",
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "#f8fafc",
-                          padding: "24px",
-                          textAlign: "center",
-                        }}
-                      >
-                        <p style={{ margin: "0 0 12px", fontSize: "1rem", color: "#fca5a5" }}>
-                          ⚠️ Video stream unavailable or loading failed.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVideoError(null);
-                            if (videoRef.current) {
-                              videoRef.current.load();
-                              videoRef.current.play().catch(() => {});
-                            }
-                          }}
-                          className={styles.secondaryBtn}
-                          style={{
-                            padding: "8px 18px",
-                            backgroundColor: "var(--accent-primary, #c97a1e)",
-                            color: "#ffffff",
-                            border: "none",
-                            borderRadius: "8px",
-                            cursor: "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          Retry Playback
-                        </button>
-                      </div>
-                    ) : (
-                      <video
-                        ref={videoRef}
-                        key={`${currentMedia.id}-${videoSrc}`}
-                        controls
-                        playsInline
-                        preload="metadata"
-                        controlsList="nodownload"
-                        onError={() => {
-                          setVideoError("Video stream could not be loaded. Please click Retry Playback.");
-                        }}
-                        onLoadedMetadata={(e) => {
-                          setVideoError(null);
-                          const dur = Math.floor(e.currentTarget.duration || 0);
-                          if (dur > 0 && dur !== currentMedia.durationSec) {
-                            currentMedia.durationSec = dur;
-                          }
-                          const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
-                          if (resumeSec && resumeSec > 5 && dur > 0 && resumeSec < dur - 5) {
-                            e.currentTarget.currentTime = resumeSec;
-                            setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
-                          }
-                        }}
-                        onTimeUpdate={(e) => {
-                          const currentSec = Math.floor(e.currentTarget.currentTime);
-                          const duration = Math.floor(e.currentTarget.duration || 0);
-                          const isFinished = duration > 0 && (currentSec >= duration - 2 || (currentSec / duration) >= 0.85);
-
-                          if (isFinished && !lessonProgress[currentMedia.id]?.isCompleted) {
-                            setLessonProgress((prev) => ({
-                              ...prev,
-                              [currentMedia.id]: {
-                                ...(prev[currentMedia.id] || {}),
-                                isCompleted: true,
-                                viewed: true,
-                                progressPercent: 100,
-                                lastPositionSec: duration,
-                              },
-                            }));
-                            sendMediaHeartbeat(currentMedia.id, duration, true, duration);
-                            fetchStepAndProgression();
-                            return;
-                          }
-
-                          const now = Date.now();
-                          if (now - lastHeartbeatTimeRef.current > 10000) {
-                            lastHeartbeatTimeRef.current = now;
-                            sendMediaHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
-                          }
-                        }}
-                        onPause={(e) => {
-                          const currentSec = Math.floor(e.currentTarget.currentTime);
-                          const duration = Math.floor(e.currentTarget.duration || 0);
-                          if (duration > 0 && (currentSec >= duration - 2 || currentSec / duration >= 0.85)) {
-                            sendMediaHeartbeat(currentMedia.id, duration, true, duration);
-                          } else {
-                            sendMediaHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
-                          }
-                        }}
-                        onEnded={(e) => {
-                          const duration = Math.floor(e.currentTarget.duration || 0);
-                          setLessonProgress((prev) => ({
-                            ...prev,
-                            [currentMedia.id]: {
-                              ...(prev[currentMedia.id] || {}),
-                              isCompleted: true,
-                              viewed: true,
-                              progressPercent: 100,
-                              lastPositionSec: duration,
-                            },
-                          }));
-                          sendMediaHeartbeat(currentMedia.id, duration, true, duration);
-                          fetchStepAndProgression();
-                        }}
-                        style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px", display: "block" }}
-                        src={videoSrc}
-                      >
-                        Your browser does not support the video tag.
-                      </video>
-                    )}
-                    <img 
-                      src="/brand/logo-dark.png" 
-                      alt="WhatBoutMe"
-                      style={{
-                        position: "absolute",
-                        top: "20px",
-                        right: "20px",
-                        height: "24px",
-                        opacity: 0.7,
-                        pointerEvents: "none",
-                        zIndex: 40,
-                      }}
-                    />
-                    <div className={styles.movingWatermark}>
-                      {userEmail}
-                    </div>
-                  </div>
+                  <CompulsoryVideoPlayer
+                    lessonId={currentMedia.id}
+                    videoSrc={videoSrc}
+                    initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
+                    userName={userName}
+                    userEmail={userEmail}
+                    durationSec={currentMedia.durationSec}
+                    onHeartbeat={(posSec, isEnded, videoDur, delta) => {
+                      sendMediaHeartbeat(currentMedia.id, posSec, isEnded, videoDur, delta);
+                    }}
+                    onComplete={() => {
+                      setLessonProgress((prev) => ({
+                        ...prev,
+                        [currentMedia.id]: {
+                          ...(prev[currentMedia.id] || {}),
+                          isCompleted: true,
+                          viewed: true,
+                          progressPercent: 100,
+                          lastPositionSec: currentMedia.durationSec,
+                        },
+                      }));
+                      fetchStepAndProgression();
+                    }}
+                  />
                 );
               })()}
-
-              {/* Resume Notice with option to start over */}
-              {resumedFrom && resumedFrom.lessonId === currentMedia.id && (
-                <div
-                  style={{
-                    marginTop: "8px",
-                    padding: "8px 14px",
-                    backgroundColor: "#f0f9ff",
-                    border: "1px solid #bae6fd",
-                    borderRadius: "8px",
-                    fontSize: "0.85rem",
-                    color: "#0369a1",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <span>
-                    Resumed playback from <strong>{Math.floor(resumedFrom.timeSec / 60)}:{(resumedFrom.timeSec % 60).toString().padStart(2, "0")}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (videoRef.current) {
-                        videoRef.current.currentTime = 0;
-                      }
-                      setResumedFrom(null);
-                    }}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "#0284c7",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                      fontSize: "0.85rem",
-                      padding: 0,
-                    }}
-                  >
-                    Start from beginning
-                  </button>
-                </div>
-              )}
 
               <div style={{ marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
                 <div>

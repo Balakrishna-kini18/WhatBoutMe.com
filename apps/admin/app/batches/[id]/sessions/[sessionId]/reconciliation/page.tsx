@@ -52,6 +52,7 @@ export default function ReconciliationPage({
   const [itemToDismiss, setItemToDismiss] = useState<UnmatchedItem | null>(null);
   const [isDismissing, setIsDismissing] = useState(false);
   const [dismissError, setDismissError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [linkModal, setLinkModal] = useState<{
     isOpen: boolean;
@@ -104,6 +105,27 @@ export default function ReconciliationPage({
     fetchData(controller.signal);
     return () => controller.abort();
   }, [batchId, sessionId]);
+
+  const handleSyncMeeting = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/sync-attendance`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.message || `Failed to sync meeting attendance (${res.status})`);
+      }
+      const json = await res.json();
+      toastSuccess(`Meeting synchronized (${json.participantCount || 0} participants processed).`, "Attendance Synced");
+      await fetchData();
+    } catch (err: any) {
+      toastError(err.message || "Failed to synchronize meeting report.", "Sync Error");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleOpenLinkModal = (item: UnmatchedItem) => {
     setLinkModal({
@@ -249,6 +271,34 @@ export default function ReconciliationPage({
           <p className={styles.subtitle}>
             Link unrecognized Zoom or Google Meet attendees to enrolled batch learners to update their attendance percentage.
           </p>
+        </div>
+
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <button
+            type="button"
+            className={styles.secondaryBtn}
+            onClick={handleSyncMeeting}
+            disabled={isSyncing}
+            title="Pull latest attendance report from Zoom or Google Meet"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ animation: isSyncing ? "spin 1s linear infinite" : undefined }}
+            >
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            <span>{isSyncing ? "Syncing..." : "🔄 Sync Meeting Report"}</span>
+          </button>
         </div>
       </header>
 

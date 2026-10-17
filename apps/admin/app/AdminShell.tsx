@@ -279,6 +279,15 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     keywords: ["credentials", "awards", "graduation", "diploma"],
   },
   {
+    id: "approvals",
+    title: "Approvals & Certification Gates",
+    description: "Audit eligibility criteria, approve completion certificates, and grade oral assessments",
+    href: "/approvals",
+    category: "Curriculum",
+    iconName: "Certificates",
+    keywords: ["approvals", "certificates", "oral", "exam", "rubric", "gates", "verify"],
+  },
+  {
     id: "resources",
     title: "Resource Library",
     description: "Worksheets, readings, guided audios, and learning materials",
@@ -657,6 +666,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
         { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
         { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
+        { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Certificates />, perm: "manage_operations" },
         { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
       ],
     },

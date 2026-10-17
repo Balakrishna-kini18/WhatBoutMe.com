@@ -598,6 +598,15 @@ export default function UserDetailPage({
 
                 <span className={styles.metaItem}>
                   <StatusBadge status={user.role} />
+                  <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginLeft: "4px", fontWeight: 500 }}>
+                    {user.role === "SUPER_ADMIN"
+                      ? "(Super Admin — Full System Control)"
+                      : user.role === "ADMIN"
+                      ? "(Admin — Operations & Approvals)"
+                      : user.role === "MANAGER"
+                      ? "(Manager — Cohort & Attendance Scoped)"
+                      : "(Learner)"}
+                  </span>
                 </span>
 
                 <span className={styles.metaDot}>&bull;</span>

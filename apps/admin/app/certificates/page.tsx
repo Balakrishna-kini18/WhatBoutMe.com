@@ -199,6 +199,29 @@ export default function CertificatesQueue() {
                           </svg>
                           <span>PDF</span>
                         </button>
+                        <a
+                          href={`${process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000"}/verify/${cert.certificateCode || cert.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.secondaryBtnSmall}
+                          title="Open public verification page"
+                        >
+                          Verify ↗
+                        </a>
+                        <a
+                          href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(
+                            `${cert.enrolment?.batch?.program?.title || "Accredited"} Certification`
+                          )}&organizationName=whatboutme&issueYear=${new Date(cert.issueDate || cert.createdAt).getFullYear()}&issueMonth=${new Date(cert.issueDate || cert.createdAt).getMonth() + 1}&certUrl=${encodeURIComponent(
+                            `${process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000"}/verify/${cert.certificateCode || cert.id}`
+                          )}&certId=${encodeURIComponent(cert.certificateCode || cert.id)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.secondaryBtnSmall}
+                          style={{ color: "#0a66c2", borderColor: "#0a66c2" }}
+                          title="Add to LinkedIn profile"
+                        >
+                          LinkedIn
+                        </a>
                         <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtnSmall}>
                           View
                         </Link>

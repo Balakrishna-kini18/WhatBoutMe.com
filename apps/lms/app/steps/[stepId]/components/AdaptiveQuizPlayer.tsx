@@ -13,6 +13,8 @@ interface AdaptiveQuizPlayerProps {
   setCurrentQuestionIdx: (idx: number) => void;
   answers: Record<string, string>;
   onOptionChange: (questionId: string, optionId: string) => void;
+  onMultiOptionToggle?: (questionId: string, optionId: string) => void;
+  onTextChange?: (questionId: string, text: string) => void;
   lastResult: QuizSubmissionResult | null;
   isStartingQuiz: boolean;
   isSubmittingQuiz: boolean;
@@ -30,6 +32,8 @@ export default function AdaptiveQuizPlayer({
   setCurrentQuestionIdx,
   answers,
   onOptionChange,
+  onMultiOptionToggle,
+  onTextChange,
   lastResult,
   isStartingQuiz,
   isSubmittingQuiz,
@@ -41,8 +45,57 @@ export default function AdaptiveQuizPlayer({
   if (!quiz) return null;
 
   const currentQuestion = questions[currentQuestionIdx];
-  const answeredCount = Object.keys(answers).length;
+  const isText =
+    currentQuestion?.type === "SHORT_ANSWER" ||
+    currentQuestion?.type === "TEXT_BOX";
+  const isMulti = currentQuestion?.type === "MULTI_SELECT";
+  const selectedIds =
+    !isText && currentQuestion && answers[currentQuestion.id]
+      ? (answers[currentQuestion.id] ?? "").split(",").filter(Boolean)
+      : [];
+  const hasOptionImages =
+    !isText && currentQuestion?.options?.some((opt) => Boolean(opt.imageUrl));
+
+  const isCurrentAnswered = currentQuestion
+    ? isText
+      ? (answers[currentQuestion.id] || "").trim().length >=
+        (currentQuestion.minCharacters ?? 10)
+      : (answers[currentQuestion.id] || "").trim().length > 0
+    : false;
+
+  const answeredCount = questions.filter((q) => {
+    const val = answers[q.id];
+    if (!val) return false;
+    if (q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX") {
+      return val.trim().length >= (q.minCharacters ?? 10);
+    }
+    return val.trim().length > 0;
+  }).length;
   const isAllAnswered = questions.length > 0 && answeredCount === questions.length;
+
+  const handleToggle = (optId: string) => {
+    if (!currentQuestion) return;
+    if (onMultiOptionToggle) {
+      onMultiOptionToggle(currentQuestion.id, optId);
+    } else {
+      const current = answers[currentQuestion.id]
+        ? (answers[currentQuestion.id] ?? "").split(",").filter(Boolean)
+        : [];
+      const next = current.includes(optId)
+        ? current.filter((id) => id !== optId)
+        : [...current, optId];
+      onOptionChange(currentQuestion.id, next.join(","));
+    }
+  };
+
+  const handleText = (val: string) => {
+    if (!currentQuestion) return;
+    if (onTextChange) {
+      onTextChange(currentQuestion.id, val);
+    } else {
+      onOptionChange(currentQuestion.id, val);
+    }
+  };
 
   return (
     <div style={{ width: "100%" }}>
@@ -95,35 +148,158 @@ export default function AdaptiveQuizPlayer({
           {/* Question Indicator & Progress Bar */}
           <div className={styles.questionIndicatorBar}>
             <span>
-              QUESTION {currentQuestionIdx + 1} OF {questions.length}
+              QUESTION {currentQuestionIdx + 1} OF {questions.length} •{" "}
+              {isText
+                ? "Written Reflection"
+                : isMulti
+                ? "Select all that apply"
+                : "Single Choice"}
             </span>
             <span>{Math.round(((currentQuestionIdx + 1) / questions.length) * 100)}%</span>
           </div>
 
           <h3 className={styles.questionPrompt}>{currentQuestion.text}</h3>
 
-          {/* Options Radio List */}
-          <div className={styles.questionOptionsList}>
-            {currentQuestion.options?.map((opt) => {
-              const isChecked = answers[currentQuestion.id] === opt.id;
-              return (
-                <label
-                  key={opt.id}
-                  className={`${styles.questionOptionLabel} ${isChecked ? styles.questionOptionChecked : ""}`}
+          {/* Question Prompt Image */}
+          {currentQuestion.imageUrl && (
+            <div
+              style={{
+                marginBottom: "1rem",
+                borderRadius: "10px",
+                overflow: "hidden",
+                border: "1px solid var(--border-light, #e2e8f0)",
+                maxHeight: "260px",
+                background: "#f8fafc",
+              }}
+            >
+              <img
+                src={currentQuestion.imageUrl}
+                alt="Question visual"
+                style={{ width: "100%", maxHeight: "260px", objectFit: "contain", display: "block" }}
+              />
+            </div>
+          )}
+
+          {/* Text Box Format */}
+          {isText ? (
+            <div style={{ marginBottom: "1.25rem" }}>
+              <textarea
+                value={answers[currentQuestion.id] || ""}
+                onChange={(e) => handleText(e.target.value)}
+                placeholder="Write your reflection or response here (minimum 10 characters)..."
+                rows={5}
+                style={{
+                  width: "100%",
+                  padding: "12px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--border-light, #cbd5e1)",
+                  fontSize: "0.95rem",
+                  fontFamily: "inherit",
+                  resize: "vertical",
+                  boxSizing: "border-box",
+                }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "0.8rem",
+                  marginTop: "6px",
+                }}
+              >
+                <span
+                  style={{
+                    color: isCurrentAnswered ? "#16a34a" : "#dc2626",
+                    fontWeight: 600,
+                  }}
                 >
-                  <input
-                    type="radio"
-                    name={`quiz_${currentQuestion.id}`}
-                    value={opt.id}
-                    checked={isChecked}
-                    onChange={() => onOptionChange(currentQuestion.id, opt.id)}
-                    className={styles.questionRadioInput}
-                  />
-                  <span className={styles.optionTextSpan}>{opt.text}</span>
-                </label>
-              );
-            })}
-          </div>
+                  {(answers[currentQuestion.id] || "").trim().length} /{" "}
+                  {currentQuestion.minCharacters ?? 10} characters minimum
+                  {isCurrentAnswered ? " ✓" : ""}
+                </span>
+                <span style={{ color: "var(--text-secondary, #64748b)" }}>
+                  {currentQuestion.gradingMode === "MANUAL_REVIEW"
+                    ? "Held for instructor grading"
+                    : "Self-reflection auto-pass"}
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* Options Choice List / Visual Cards */
+            <div
+              className={styles.questionOptionsList}
+              style={
+                hasOptionImages
+                  ? {
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                      gap: "12px",
+                    }
+                  : undefined
+              }
+            >
+              {currentQuestion.options?.map((opt) => {
+                const isChecked = isMulti
+                  ? selectedIds.includes(opt.id)
+                  : answers[currentQuestion.id] === opt.id;
+
+                return (
+                  <label
+                    key={opt.id}
+                    className={`${styles.questionOptionLabel} ${isChecked ? styles.questionOptionChecked : ""}`}
+                    style={
+                      hasOptionImages
+                        ? {
+                            flexDirection: "column",
+                            alignItems: "stretch",
+                            padding: "10px",
+                          }
+                        : undefined
+                    }
+                  >
+                    {opt.imageUrl && (
+                      <div
+                        style={{
+                          height: "130px",
+                          borderRadius: "8px",
+                          overflow: "hidden",
+                          marginBottom: "8px",
+                          background: "#f1f5f9",
+                        }}
+                      >
+                        <img
+                          src={opt.imageUrl}
+                          alt={opt.text}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <input
+                        type={isMulti ? "checkbox" : "radio"}
+                        name={`quiz_${currentQuestion.id}`}
+                        value={opt.id}
+                        checked={isChecked}
+                        onChange={() => {
+                          if (isMulti) {
+                            handleToggle(opt.id);
+                          } else {
+                            onOptionChange(currentQuestion.id, opt.id);
+                          }
+                        }}
+                        className={styles.questionRadioInput}
+                      />
+                      <span className={styles.optionTextSpan}>{opt.text}</span>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
           {/* Question Navigation Buttons */}
           <div className={styles.questionNavRow}>
@@ -141,7 +317,7 @@ export default function AdaptiveQuizPlayer({
                 type="button"
                 className={styles.continueActionBtn}
                 onClick={() => setCurrentQuestionIdx(currentQuestionIdx + 1)}
-                disabled={!answers[currentQuestion.id]}
+                disabled={!isCurrentAnswered}
                 style={{ padding: "0.6rem 1.4rem", fontSize: "0.88rem" }}
               >
                 Next Question →

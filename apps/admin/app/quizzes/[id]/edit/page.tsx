@@ -3,12 +3,13 @@
 import { useEffect, useState, use, FormEvent } from "react";
 import styles from "../../../page.module.css";
 import Link from "next/link";
-import { API_URL, cachedFetch, errorMessage } from "../../../lib/api";
+import { API_URL, cachedFetch, errorMessage, uploadFile } from "../../../lib/api";
 import { ConfirmDialog, useToast } from "../../../components";
 
 interface Option {
   id?: string;
   text: string;
+  imageUrl?: string | null;
   isCorrect: boolean;
   order?: number;
 }
@@ -17,6 +18,9 @@ interface Question {
   id: string;
   text: string;
   type?: string;
+  imageUrl?: string | null;
+  gradingMode?: string | null;
+  minCharacters?: number | null;
   points?: number;
   explanation?: string | null;
   options: Option[];
@@ -69,14 +73,19 @@ export default function EditQuizPage({
 
   // Add Question Modal State
   const [isAddQuestionModalOpen, setIsAddQuestionModalOpen] = useState(false);
+  const [newQuestionType, setNewQuestionType] = useState<"SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TEXT_BOX">("SINGLE_CHOICE");
   const [newQuestionText, setNewQuestionText] = useState("");
+  const [newQuestionImageUrl, setNewQuestionImageUrl] = useState("");
+  const [newQuestionGradingMode, setNewQuestionGradingMode] = useState<"SELF_REFLECTION_AUTO_PASS" | "MANUAL_REVIEW">("SELF_REFLECTION_AUTO_PASS");
+  const [newQuestionMinCharacters, setNewQuestionMinCharacters] = useState(10);
   const [newQuestionPoints, setNewQuestionPoints] = useState(1);
   const [newQuestionExplanation, setNewQuestionExplanation] = useState("");
+  // Default 4 choices per question (expandable 2..8)
   const [newOptions, setNewOptions] = useState<Option[]>([
-    { text: "", isCorrect: true },
-    { text: "", isCorrect: false },
-    { text: "", isCorrect: false },
-    { text: "", isCorrect: false },
+    { text: "", imageUrl: "", isCorrect: true },
+    { text: "", imageUrl: "", isCorrect: false },
+    { text: "", imageUrl: "", isCorrect: false },
+    { text: "", imageUrl: "", isCorrect: false },
   ]);
   const [savingQuestion, setSavingQuestion] = useState(false);
   const [questionError, setQuestionError] = useState<string | null>(null);
@@ -149,8 +158,11 @@ export default function EditQuizPage({
         cooldownHours: Number(cooldownHours),
         retryGuidance: retryGuidance.trim() || undefined,
       };
+
       if (questionCount !== "") {
         payload.questionCount = Number(questionCount);
+      } else {
+        payload.questionCount = null;
       }
 
       const res = await fetch(`${API_URL}/quizzes/${quizId}`, {
@@ -163,42 +175,138 @@ export default function EditQuizPage({
       });
 
       if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to save quiz settings"));
+        throw new Error(await errorMessage(res, "Failed to update quiz settings"));
       }
 
-      setPageSuccess("Quiz configuration updated successfully.");
+      setPageSuccess("Quiz settings saved successfully.");
+      toastSuccess("Quiz configuration updated.");
+      await loadQuizData();
     } catch (err: any) {
       setPageError(err.message);
+      toastError(err.message);
     } finally {
       setSavingSettings(false);
     }
   }
 
-  // Add Question Handlers
+  // Question Type Switching
+  const handleTypeChange = (type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TEXT_BOX") => {
+    setNewQuestionType(type);
+    if (type !== "TEXT_BOX") {
+      if (newOptions.length < 2) {
+        setNewOptions([
+          { text: "", imageUrl: "", isCorrect: true },
+          { text: "", imageUrl: "", isCorrect: false },
+          { text: "", imageUrl: "", isCorrect: false },
+          { text: "", imageUrl: "", isCorrect: false },
+        ]);
+      } else if (!newOptions.some((o) => o.isCorrect)) {
+        setNewOptions((prev) => {
+          const next = [...prev];
+          if (next[0]) next[0].isCorrect = true;
+          return next;
+        });
+      }
+      if (type === "SINGLE_CHOICE") {
+        let found = false;
+        setNewOptions((prev) =>
+          prev.map((o) => {
+            if (o.isCorrect && !found) {
+              found = true;
+              return o;
+            }
+            return { ...o, isCorrect: false };
+          })
+        );
+      }
+    }
+  };
+
+  // Image upload helpers
+  const handlePromptUpload = async (file: File) => {
+    try {
+      let url = "";
+      try {
+        url = await uploadFile(file);
+      } catch {
+        url = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result as string);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
+      }
+      setNewQuestionImageUrl(url);
+    } catch (err: any) {
+      setQuestionError("Image upload failed: " + (err.message || "Unknown error"));
+    }
+  };
+
+  const handleOptionImageUpload = async (idx: number, file: File) => {
+    try {
+      let url = "";
+      try {
+        url = await uploadFile(file);
+      } catch {
+        url = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result as string);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
+      }
+      setNewOptions((prev) => {
+        const next = [...prev];
+        if (next[idx]) next[idx] = { ...next[idx], imageUrl: url };
+        return next;
+      });
+    } catch (err: any) {
+      setQuestionError("Option image upload failed: " + (err.message || "Unknown error"));
+    }
+  };
+
+  // Options Handlers
   function handleAddOption() {
-    setNewOptions((prev) => [...prev, { text: "", isCorrect: false }]);
+    if (newOptions.length >= 8) return;
+    setNewOptions((prev) => [...prev, { text: "", imageUrl: "", isCorrect: false }]);
+  }
+
+  function handleRemoveOption(idx: number) {
+    if (newOptions.length <= 2) return;
+    setNewOptions((prev) => {
+      const removedWasCorrect = prev[idx]?.isCorrect;
+      const next = prev.filter((_, i) => i !== idx);
+      if (removedWasCorrect && !next.some((o) => o.isCorrect) && next[0]) {
+        next[0].isCorrect = true;
+      }
+      return next;
+    });
   }
 
   function handleOptionTextChange(idx: number, text: string) {
     setNewOptions((prev) => {
       const next = [...prev];
-      if (next[idx]) next[idx].text = text;
+      if (next[idx]) next[idx] = { ...next[idx], text };
       return next;
     });
   }
 
-  function handleSetCorrectOption(correctIdx: number) {
-    setNewOptions((prev) =>
-      prev.map((opt, i) => ({
-        ...opt,
-        isCorrect: i === correctIdx,
-      }))
-    );
-  }
-
-  function handleRemoveOption(idx: number) {
-    if (newOptions.length <= 2) return;
-    setNewOptions((prev) => prev.filter((_, i) => i !== idx));
+  function handleToggleCorrectOption(idx: number) {
+    setNewOptions((prev) => {
+      if (newQuestionType === "SINGLE_CHOICE") {
+        return prev.map((opt, i) => ({
+          ...opt,
+          isCorrect: i === idx,
+        }));
+      } else {
+        return prev.map((opt, i) => {
+          if (i === idx) {
+            return { ...opt, isCorrect: !opt.isCorrect };
+          }
+          return opt;
+        });
+      }
+    });
   }
 
   async function handleCreateQuestionSubmit(e: FormEvent) {
@@ -208,15 +316,25 @@ export default function EditQuizPage({
       return;
     }
 
-    const filledOptions = newOptions.filter((o) => o.text.trim().length > 0);
-    if (filledOptions.length < 2) {
-      setQuestionError("At least 2 options are required.");
-      return;
-    }
+    const isText = newQuestionType === "TEXT_BOX";
+    const backendType =
+      newQuestionType === "TEXT_BOX"
+        ? "SHORT_ANSWER"
+        : newQuestionType === "MULTIPLE_CHOICE"
+        ? "MULTI_SELECT"
+        : "MULTIPLE_CHOICE";
 
-    if (!filledOptions.some((o) => o.isCorrect)) {
-      setQuestionError("At least one option must be marked as correct.");
-      return;
+    let filledOptions: Option[] = [];
+    if (!isText) {
+      filledOptions = newOptions.filter((o) => o.text.trim().length > 0 || Boolean(o.imageUrl));
+      if (filledOptions.length < 2) {
+        setQuestionError("At least 2 choices are required.");
+        return;
+      }
+      if (!filledOptions.some((o) => o.isCorrect)) {
+        setQuestionError("Please designate at least one option as the correct answer.");
+        return;
+      }
     }
 
     setSavingQuestion(true);
@@ -224,15 +342,22 @@ export default function EditQuizPage({
 
     try {
       const token = localStorage.getItem("token");
-      const payload = {
+      const payload: any = {
         text: newQuestionText.trim(),
+        type: backendType,
+        imageUrl: newQuestionImageUrl.trim() || undefined,
+        gradingMode: newQuestionGradingMode,
+        minCharacters: newQuestionMinCharacters,
         points: Number(newQuestionPoints) || 1,
         explanation: newQuestionExplanation.trim() || undefined,
-        options: filledOptions.map((o, idx) => ({
-          text: o.text.trim(),
-          isCorrect: o.isCorrect,
-          order: idx + 1,
-        })),
+        options: isText
+          ? undefined
+          : filledOptions.map((o, idx) => ({
+              text: o.text.trim() || `Option ${idx + 1}`,
+              imageUrl: o.imageUrl?.trim() || undefined,
+              isCorrect: o.isCorrect,
+              order: idx + 1,
+            })),
       };
 
       const res = await fetch(`${API_URL}/quizzes/${quizId}/questions`, {
@@ -250,13 +375,14 @@ export default function EditQuizPage({
 
       setIsAddQuestionModalOpen(false);
       setNewQuestionText("");
+      setNewQuestionImageUrl("");
       setNewQuestionPoints(1);
       setNewQuestionExplanation("");
       setNewOptions([
-        { text: "", isCorrect: true },
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
-        { text: "", isCorrect: false },
+        { text: "", imageUrl: "", isCorrect: true },
+        { text: "", imageUrl: "", isCorrect: false },
+        { text: "", imageUrl: "", isCorrect: false },
+        { text: "", imageUrl: "", isCorrect: false },
       ]);
       setPageSuccess("Question added to quiz successfully.");
       await loadQuizData();
@@ -299,28 +425,15 @@ export default function EditQuizPage({
   if (loading) {
     return (
       <div className={styles.dashboard}>
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <Link href="/quizzes" className={styles.backLink}>← Back to Quizzes</Link>
-            <h1 className={styles.title}>Loading quiz editor...</h1>
-          </div>
-        </header>
+        <div style={{ textAlign: "center", padding: "80px 20px" }}>
+          <h2>Loading assessment...</h2>
+          <p style={{ color: "var(--text-muted)" }}>Fetching questions and retry policies from server...</p>
+        </div>
       </div>
     );
   }
 
-  if (!quiz) {
-    return (
-      <div className={styles.dashboard}>
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <Link href="/quizzes" className={styles.backLink}>← Back to Quizzes</Link>
-            <h1 className={styles.title}>Quiz not found</h1>
-          </div>
-        </header>
-      </div>
-    );
-  }
+  const hasAnyOptionImages = newOptions.some((opt) => Boolean(opt.imageUrl));
 
   return (
     <div className={styles.dashboard}>
@@ -336,10 +449,10 @@ export default function EditQuizPage({
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>
-            Edit Assessment: {quiz.step ? `Step ${quiz.step.sequence}: ${quiz.step.title}` : `Quiz #${quiz.id}`}
+            {quiz?.step?.title ? `Assessment: ${quiz.step.title}` : "Visual Question Bank"}
           </h1>
           <p className={styles.subtitle}>
-            Manage question pool, passing score, attempt limits, and cooldown timer parameters.
+            Step {quiz?.step?.sequence ?? "?"} Knowledge Check • Visual image questions, multi-select checkboxes, and written reflection evaluation
           </p>
         </div>
       </header>
@@ -374,7 +487,7 @@ export default function EditQuizPage({
                   Questions ({questions.length})
                 </h2>
                 <p style={{ margin: "2px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Questions administered to learners upon reaching this step.
+                  Visual questions administered to learners upon reaching this step.
                 </p>
               </div>
               <button
@@ -393,87 +506,154 @@ export default function EditQuizPage({
 
             {questions.length === 0 ? (
               <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", background: "var(--bg-soft)", borderRadius: "8px" }}>
-                No questions in this quiz yet. Click <strong>Add Question</strong> to author questions.
+                No questions in this quiz yet. Click <strong>Add Question</strong> to author visual questions.
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                {questions.map((q, idx) => (
-                  <div
-                    key={q.id}
-                    className={styles.questionCard}
-                    style={{ margin: 0 }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-                      <strong style={{ fontSize: "0.95rem", color: "var(--text-primary)", flex: 1 }}>
-                        {idx + 1}. {q.text}
-                      </strong>
-                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                        <span className={styles.pointsBadge}>
-                          {q.points || 1} pt{q.points !== 1 ? "s" : ""}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDeleteQuestionError(null);
-                            setQuestionToDelete(q);
-                          }}
-                          className={styles.removeBtn}
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                          </svg>
-                          <span>Delete</span>
-                        </button>
+                {questions.map((q, idx) => {
+                  const isTextQ = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+                  const isMultiQ = q.type === "MULTI_SELECT";
+                  const qHasOptionImages = !isTextQ && q.options?.some((opt) => Boolean(opt.imageUrl));
+
+                  return (
+                    <div
+                      key={q.id}
+                      className={styles.questionCard}
+                      style={{ margin: 0, padding: "16px", borderRadius: "10px", border: "1px solid var(--border-light)" }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flex: 1 }}>
+                          <strong style={{ fontSize: "0.98rem", color: "var(--text-primary)" }}>
+                            {idx + 1}. {q.text}
+                          </strong>
+                          <span style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                            background: isTextQ ? "#ecfdf5" : isMultiQ ? "#fef3c7" : "#eff6ff",
+                            color: isTextQ ? "#065f46" : isMultiQ ? "#92400e" : "#1e40af",
+                            border: `1px solid ${isTextQ ? "#a7f3d0" : isMultiQ ? "#fde68a" : "#bfdbfe"}`
+                          }}>
+                            {isTextQ ? "Written Reflection" : isMultiQ ? "Multiple Choice (Checkboxes)" : "Single Choice"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <span className={styles.pointsBadge}>
+                            {q.points || 1} pt{q.points !== 1 ? "s" : ""}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeleteQuestionError(null);
+                              setQuestionToDelete(q);
+                            }}
+                            className={styles.removeBtn}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                            <span>Delete</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
-                    {q.explanation && (
-                      <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic", margin: "0 0 10px" }}>
-                        Explanation: {q.explanation}
-                      </p>
-                    )}
+                      {/* Question Image Preview */}
+                      {q.imageUrl && (
+                        <div style={{ marginBottom: "12px", borderRadius: 8, overflow: "hidden", maxHeight: 180, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                          <img
+                            src={q.imageUrl}
+                            alt="Question illustration"
+                            style={{ width: "100%", maxHeight: 180, objectFit: "contain", display: "block" }}
+                          />
+                        </div>
+                      )}
 
-                    <ul style={{ listStyleType: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {(q.options || []).map((opt) => (
-                        <li
-                          key={opt.id || opt.text}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "6px",
-                            fontSize: "0.85rem",
-                            border: opt.isCorrect ? "1px solid #86efac" : "1px solid var(--border-light)",
-                            backgroundColor: opt.isCorrect ? "#f0fdf4" : "var(--bg-soft)",
-                            color: opt.isCorrect ? "#166534" : "var(--text-primary)",
-                            fontWeight: opt.isCorrect ? 600 : 400,
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                          }}
-                        >
-                          <span>{opt.text}</span>
-                          {opt.isCorrect && (
-                            <span className={styles.correctBadge}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              <span>Correct Option</span>
+                      {q.explanation && (
+                        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic", margin: "0 0 10px" }}>
+                          Explanation: {q.explanation}
+                        </p>
+                      )}
+
+                      {isTextQ ? (
+                        <div style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px dashed #cbd5e1" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem" }}>
+                            <span style={{ fontWeight: 600, color: "#334155" }}>
+                              ✍️ Minimum {q.minCharacters ?? 10} characters written reflection
                             </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+                            <span style={{ color: q.gradingMode === "MANUAL_REVIEW" ? "#b45309" : "#15803d", fontWeight: 600 }}>
+                              {q.gradingMode === "MANUAL_REVIEW" ? "Held for manual grading" : "Auto-pass on length threshold"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          style={
+                            qHasOptionImages
+                              ? {
+                                  display: "grid",
+                                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                                  gap: "8px",
+                                }
+                              : {
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "6px",
+                                }
+                          }
+                        >
+                          {(q.options || []).map((opt) => (
+                            <div
+                              key={opt.id || opt.text}
+                              style={{
+                                padding: qHasOptionImages ? "8px" : "8px 12px",
+                                borderRadius: "6px",
+                                fontSize: "0.85rem",
+                                border: opt.isCorrect ? "1px solid #86efac" : "1px solid var(--border-light)",
+                                backgroundColor: opt.isCorrect ? "#f0fdf4" : "var(--bg-soft)",
+                                color: opt.isCorrect ? "#166534" : "var(--text-primary)",
+                                fontWeight: opt.isCorrect ? 600 : 400,
+                                display: "flex",
+                                flexDirection: qHasOptionImages ? "column" : "row",
+                                justifyContent: "space-between",
+                                alignItems: qHasOptionImages ? "stretch" : "center",
+                                gap: 6,
+                              }}
+                            >
+                              {opt.imageUrl && (
+                                <div style={{ height: 100, borderRadius: 4, overflow: "hidden", background: "#e2e8f0", marginBottom: 6 }}>
+                                  <img
+                                    src={opt.imageUrl}
+                                    alt={opt.text}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                  />
+                                </div>
+                              )}
+                              <span>{opt.text}</span>
+                              {opt.isCorrect && (
+                                <span style={{ color: "#16a34a", fontSize: "0.75rem", fontWeight: 700 }}>
+                                  ✓ Correct
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
         </div>
 
-        {/* Right Column: Quiz Settings Form */}
+        {/* Right Column: Quiz Policy Settings */}
         <div>
           <form onSubmit={handleSaveSettings} className={styles.tableSection} style={{ padding: "1.5rem" }}>
-            <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.15rem" }}>Quiz Parameters</h2>
+            <h2 style={{ margin: "0 0 1.25rem", fontSize: "1.1rem" }}>
+              Assessment Parameters
+            </h2>
 
             <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
               <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
@@ -493,7 +673,7 @@ export default function EditQuizPage({
 
             <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
               <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Max Attempts Before Lock
+                Max Retries Allowed <span style={{ color: "#ef4444" }}>*</span>
               </label>
               <input
                 type="number"
@@ -568,11 +748,11 @@ export default function EditQuizPage({
       {/* Add Question Modal */}
       {isAddQuestionModalOpen && (
         <div className={styles.modalOverlay} onClick={() => !savingQuestion && setIsAddQuestionModalOpen(false)}>
-          <div className={styles.modalContent} style={{ maxWidth: "620px" }} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.modalContent} style={{ maxWidth: "660px", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div>
-                <h2>Add Quiz Question</h2>
-                <p className={styles.modalIntro}>Create a new question prompt with points and verified options</p>
+                <h2>Add Visual Question</h2>
+                <p className={styles.modalIntro}>Create questions with images, checkboxes, or text reflections</p>
               </div>
               <button
                 type="button"
@@ -601,6 +781,27 @@ export default function EditQuizPage({
                   </div>
                 )}
 
+                {/* Question Type Selector */}
+                <div className={styles.formGroup}>
+                  <label>Question Format <span style={{ color: "#ef4444" }}>*</span></label>
+                  <select
+                    value={newQuestionType}
+                    onChange={(e) => handleTypeChange(e.target.value as any)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid #cbd5e1",
+                      fontSize: "0.9rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    <option value="SINGLE_CHOICE">Single Choice (Radio buttons — exactly 1 correct)</option>
+                    <option value="MULTIPLE_CHOICE">Multiple Choice (Checkboxes — 1+ correct)</option>
+                    <option value="TEXT_BOX">Text Box (Open-ended written self-reflection)</option>
+                  </select>
+                </div>
+
                 <div className={styles.formGroup}>
                   <label>
                     Question Prompt <span style={{ color: "#ef4444" }}>*</span>
@@ -612,6 +813,70 @@ export default function EditQuizPage({
                     onChange={(e) => setNewQuestionText(e.target.value)}
                     required
                   />
+                </div>
+
+                {/* Prompt Image Upload */}
+                <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>
+                      📷 Question Prompt Visual (PNG/JPEG)
+                    </label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
+                        id="new_q_prompt_img"
+                        style={{ display: "none" }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handlePromptUpload(file);
+                        }}
+                      />
+                      <label
+                        htmlFor="new_q_prompt_img"
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: 600,
+                          padding: "4px 10px",
+                          borderRadius: 6,
+                          background: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          cursor: "pointer",
+                          color: "var(--accent-primary, #0284c7)",
+                        }}
+                      >
+                        {newQuestionImageUrl ? "Replace Image" : "+ Attach Image"}
+                      </label>
+                      {newQuestionImageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setNewQuestionImageUrl("")}
+                          style={{
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            background: "#fee2e2",
+                            border: "1px solid #fca5a5",
+                            color: "#b91c1c",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {newQuestionImageUrl && (
+                    <div style={{ marginTop: 8, borderRadius: 6, overflow: "hidden", maxHeight: 160, background: "#ffffff", border: "1px solid #cbd5e1" }}>
+                      <img
+                        src={newQuestionImageUrl}
+                        alt="Question visual preview"
+                        style={{ width: "100%", maxHeight: 160, objectFit: "contain", display: "block" }}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className={styles.formRow}>
@@ -637,61 +902,213 @@ export default function EditQuizPage({
                   </div>
                 </div>
 
-                {/* Options Editor */}
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                      Answer Options (radio selects correct answer) <span style={{ color: "#ef4444" }}>*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleAddOption}
-                      className={styles.addOptionBtn}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                      <span>Add Option</span>
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {newOptions.map((opt, idx) => (
-                      <div key={idx} className={styles.optionRow}>
-                        <input
-                          type="radio"
-                          name="correctOption"
-                          checked={opt.isCorrect}
-                          onChange={() => handleSetCorrectOption(idx)}
-                          title="Mark as correct answer"
-                          className={styles.optionRadio}
-                        />
-                        <input
-                          type="text"
-                          placeholder={`Option ${idx + 1}`}
-                          value={opt.text}
-                          onChange={(e) => handleOptionTextChange(idx, e.target.value)}
-                          className={styles.optionInput}
-                          required
-                        />
-                        {newOptions.length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveOption(idx)}
-                            className={styles.removeBtn}
-                            title="Remove option"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
-                          </button>
-                        )}
+                {/* Text Box Settings vs Choice Options */}
+                {newQuestionType === "TEXT_BOX" ? (
+                  <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "14px", borderRadius: 8 }}>
+                    <h4 style={{ margin: "0 0 8px", fontSize: "0.88rem", color: "#166534" }}>
+                      ✍️ Written Reflection Evaluation Configuration
+                    </h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: 12 }}>
+                      <div>
+                        <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "#15803d", display: "block", marginBottom: 4 }}>
+                          Grading Policy
+                        </label>
+                        <select
+                          value={newQuestionGradingMode}
+                          onChange={(e) => setNewQuestionGradingMode(e.target.value as any)}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #86efac",
+                            fontSize: "0.85rem",
+                            background: "#ffffff",
+                          }}
+                        >
+                          <option value="SELF_REFLECTION_AUTO_PASS">
+                            Mode A: Self-Reflection Auto-Pass (Recommended)
+                          </option>
+                          <option value="MANUAL_REVIEW">
+                            Mode B: Staff Manual Review Queue
+                          </option>
+                        </select>
                       </div>
-                    ))}
+
+                      <div>
+                        <label style={{ fontSize: "0.78rem", fontWeight: 600, color: "#15803d", display: "block", marginBottom: 4 }}>
+                          Min Characters
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={newQuestionMinCharacters}
+                          onChange={(e) => setNewQuestionMinCharacters(parseInt(e.target.value, 10) || 10)}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #86efac",
+                            fontSize: "0.85rem",
+                            background: "#ffffff",
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* Choice Options Editor */
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                        {newQuestionType === "MULTIPLE_CHOICE"
+                          ? "Answer Choices (Checkboxes mark all correct answers)"
+                          : "Answer Choices (Radio marks the single correct answer)"}{" "}
+                        <span style={{ color: "#ef4444" }}>*</span>
+                      </label>
+                      {newOptions.length < 8 && (
+                        <button
+                          type="button"
+                          onClick={handleAddOption}
+                          className={styles.addOptionBtn}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                          <span>Add Option ({newOptions.length}/8)</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div
+                      style={
+                        hasAnyOptionImages
+                          ? {
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                              gap: "10px",
+                            }
+                          : {
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "8px",
+                            }
+                      }
+                    >
+                      {newOptions.map((opt, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            border: opt.isCorrect ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #e2e8f0)",
+                            borderRadius: 8,
+                            padding: "8px 10px",
+                            background: opt.isCorrect ? "rgba(2, 132, 199, 0.04)" : "#ffffff",
+                            display: "flex",
+                            flexDirection: hasAnyOptionImages ? "column" : "row",
+                            alignItems: hasAnyOptionImages ? "stretch" : "center",
+                            gap: 8,
+                          }}
+                        >
+                          {opt.imageUrl ? (
+                            <div style={{ position: "relative", height: 100, borderRadius: 6, overflow: "hidden", background: "#f1f5f9", marginBottom: 6 }}>
+                              <img
+                                src={opt.imageUrl}
+                                alt={`Option ${idx + 1}`}
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setNewOptions((prev) => {
+                                    const next = [...prev];
+                                    if (next[idx]) next[idx] = { ...next[idx], imageUrl: "" };
+                                    return next;
+                                  })
+                                }
+                                style={{
+                                  position: "absolute",
+                                  top: 4,
+                                  right: 4,
+                                  background: "rgba(0,0,0,0.6)",
+                                  color: "#ffffff",
+                                  border: "none",
+                                  borderRadius: 4,
+                                  padding: "2px 6px",
+                                  fontSize: "0.7rem",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/jpg,image/webp"
+                                id={`edit_opt_img_${idx}`}
+                                style={{ display: "none" }}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleOptionImageUpload(idx, file);
+                                }}
+                              />
+                              <label
+                                htmlFor={`edit_opt_img_${idx}`}
+                                style={{
+                                  fontSize: "0.72rem",
+                                  padding: "3px 6px",
+                                  borderRadius: 4,
+                                  background: "#f1f5f9",
+                                  border: "1px solid #cbd5e1",
+                                  cursor: "pointer",
+                                  color: "#475569",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                📷 +Img
+                              </label>
+                            </div>
+                          )}
+
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                            <input
+                              type={newQuestionType === "MULTIPLE_CHOICE" ? "checkbox" : "radio"}
+                              name="correctOption"
+                              checked={opt.isCorrect}
+                              onChange={() => handleToggleCorrectOption(idx)}
+                              title="Mark as correct answer"
+                              className={styles.optionRadio}
+                              style={{ cursor: "pointer" }}
+                            />
+                            <input
+                              type="text"
+                              placeholder={`Option ${idx + 1}`}
+                              value={opt.text}
+                              onChange={(e) => handleOptionTextChange(idx, e.target.value)}
+                              className={styles.optionInput}
+                              style={{ flex: 1 }}
+                              required={!opt.imageUrl}
+                            />
+                            {newOptions.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveOption(idx)}
+                                className={styles.removeBtn}
+                                title="Remove option"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className={styles.modalFooter}>
@@ -708,7 +1125,7 @@ export default function EditQuizPage({
                   className={styles.primaryBtn}
                   disabled={savingQuestion}
                 >
-                  {savingQuestion ? "Adding..." : "Add Question"}
+                  {savingQuestion ? "Adding Question..." : "Add Question"}
                 </button>
               </div>
             </form>

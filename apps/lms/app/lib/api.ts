@@ -711,6 +711,7 @@ export interface EnrolmentProgressionResponse {
 export interface QuizOption {
   id: string;
   text: string;
+  imageUrl?: string | null;
   order: number;
 }
 
@@ -718,6 +719,9 @@ export interface QuizQuestion {
   id: string;
   text: string;
   type: string;
+  imageUrl?: string | null;
+  gradingMode?: string | null;
+  minCharacters?: number | null;
   points: number;
   options: QuizOption[];
 }

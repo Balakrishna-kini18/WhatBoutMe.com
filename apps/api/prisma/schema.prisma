@@ -42,6 +42,8 @@ enum QuestionType {
   MULTIPLE_CHOICE
   MULTI_SELECT
   SHORT_ANSWER
+  SINGLE_CHOICE
+  TEXT_BOX
 }
 
 enum OralAssessmentStatus {
@@ -609,11 +611,14 @@ model QuestionBank {
 }
 
 model Question {
-  id          String       @id @default(uuid())
-  type        QuestionType @default(MULTIPLE_CHOICE)
-  text        String
-  explanation String?
-  points      Int          @default(1)
+  id            String       @id @default(uuid())
+  type          QuestionType @default(MULTIPLE_CHOICE)
+  text          String
+  imageUrl      String?
+  gradingMode   String?      @default("SELF_REFLECTION_AUTO_PASS")
+  minCharacters Int?         @default(10)
+  explanation   String?
+  points        Int          @default(1)
 
   questionBankId String?
   questionBank   QuestionBank? @relation(fields: [questionBankId], references: [id], onDelete: SetNull)
@@ -641,8 +646,9 @@ model Option {
   question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   text      String
-  isCorrect Boolean @default(false)
-  order     Int     @default(1)
+  imageUrl  String?
+  isCorrect Boolean  @default(false)
+  order     Int      @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

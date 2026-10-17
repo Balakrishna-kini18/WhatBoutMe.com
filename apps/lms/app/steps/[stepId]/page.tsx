@@ -248,13 +248,32 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setIsSubmittingQuiz(true);
 
     try {
-      // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId }] }
+      // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId, optionIds, textAnswer }] }
       const submissionDto = {
         attemptId: activeAttempt.attemptId,
-        answers: questions.map((q) => ({
-          questionId: q.id,
-          optionId: answers[q.id] || undefined,
-        })),
+        answers: questions.map((q) => {
+          const val = answers[q.id];
+          const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+          if (isText) {
+            return {
+              questionId: q.id,
+              textAnswer: typeof val === "string" ? val : "",
+            };
+          }
+          if (typeof val === "string" && val.includes(",")) {
+            const arr = val.split(",").filter(Boolean);
+            return {
+              questionId: q.id,
+              optionIds: arr,
+              selectedOptionIds: arr,
+            };
+          }
+          return {
+            questionId: q.id,
+            optionId: val || undefined,
+            selectedOptionId: val || undefined,
+          };
+        }),
       };
 
       const res = await fetch(`${API_URL}/quizzes/${step.quiz.id}/submit`, {
@@ -388,6 +407,20 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const handleOptionChange = (questionId: string, optionId: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
+  };
+
+  const handleMultiOptionToggle = (questionId: string, optionId: string) => {
+    setAnswers((prev) => {
+      const current = prev[questionId] ? prev[questionId].split(",").filter(Boolean) : [];
+      const next = current.includes(optionId)
+        ? current.filter((id) => id !== optionId)
+        : [...current, optionId];
+      return { ...prev, [questionId]: next.join(",") };
+    });
+  };
+
+  const handleTextChange = (questionId: string, text: string) => {
+    setAnswers((prev) => ({ ...prev, [questionId]: text }));
   };
 
   if (loading) {
@@ -580,7 +613,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const nextStep = (progression?.steps || []).find((s: any) => s.sequence === step.sequence + 1);
 
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = questions.filter((q) => {
+    const val = answers[q.id];
+    if (!val) return false;
+    const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+    if (isText) {
+      return val.trim().length >= (q.minCharacters ?? 10);
+    }
+    return val.trim().length > 0;
+  }).length;
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
 
   return (
@@ -1120,37 +1161,135 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       Attempt #{activeAttempt.attemptNumber} in progress. Answer all questions to submit.
                     </div>
 
-                    {questions.map((q, i) => (
-                      <div key={q.id} className={styles.question} style={{ marginBottom: "20px" }}>
-                        <p style={{ fontWeight: 600, marginBottom: "8px" }}>
-                          {i + 1}. {q.text}
-                        </p>
-                        <div className={styles.options}>
-                          {q.options?.map((opt) => {
-                            const isSelected = answers[q.id] === opt.id;
-                            return (
-                              <label
-                                key={opt.id}
-                                className={styles.option}
+                    {questions.map((q, i) => {
+                      const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+                      const isMulti = q.type === "MULTI_SELECT";
+                      const selectedIds = !isText && answers[q.id] ? (answers[q.id] ?? "").split(",").filter(Boolean) : [];
+                      const hasOptionImages = !isText && q.options?.some((opt) => Boolean(opt.imageUrl));
+
+                      return (
+                        <div key={q.id} className={styles.question} style={{ marginBottom: "24px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
+                            <p style={{ fontWeight: 600, margin: 0, fontSize: "0.98rem" }}>
+                              {i + 1}. {q.text}
+                            </p>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600, marginLeft: 8 }}>
+                              {isText ? "Written Reflection" : isMulti ? "Select all that apply" : "Single Choice"}
+                            </span>
+                          </div>
+
+                          {q.imageUrl && (
+                            <div style={{ marginBottom: "12px", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-light)", maxHeight: 220, background: "#f8fafc" }}>
+                              <img
+                                src={q.imageUrl}
+                                alt={`Question ${i + 1} illustration`}
+                                style={{ width: "100%", maxHeight: 220, objectFit: "contain", display: "block" }}
+                              />
+                            </div>
+                          )}
+
+                          {isText ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <textarea
+                                value={answers[q.id] || ""}
+                                onChange={(e) => handleTextChange(q.id, e.target.value)}
+                                placeholder="Write your written reflection or response here (minimum 10 characters)..."
+                                rows={4}
                                 style={{
-                                  background: isSelected ? "var(--accent-highlight)" : "var(--bg-soft)",
-                                  borderColor: isSelected ? "var(--accent-primary)" : "var(--border-light)",
+                                  width: "100%",
+                                  padding: "10px 12px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--border-light)",
+                                  fontSize: "0.9rem",
+                                  fontFamily: "inherit",
+                                  resize: "vertical",
+                                  outline: "none",
+                                  boxSizing: "border-box",
                                 }}
-                              >
-                                <input
-                                  type="radio"
-                                  name={`q_${q.id}`}
-                                  value={opt.id}
-                                  checked={isSelected}
-                                  onChange={() => handleOptionChange(q.id, opt.id)}
-                                />
-                                {opt.text}
-                              </label>
-                            );
-                          })}
+                              />
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
+                                <span style={{ color: (answers[q.id] || "").trim().length >= (q.minCharacters ?? 10) ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
+                                  {(answers[q.id] || "").trim().length} / {q.minCharacters ?? 10} characters minimum
+                                  {(answers[q.id] || "").trim().length >= (q.minCharacters ?? 10) ? " ✓" : ""}
+                                </span>
+                                <span style={{ color: "var(--text-secondary)" }}>
+                                  {q.gradingMode === "MANUAL_REVIEW" ? "Held for instructor grading" : "Self-reflection auto-pass"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              style={
+                                hasOptionImages
+                                  ? {
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                                      gap: "10px",
+                                    }
+                                  : {
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "8px",
+                                    }
+                              }
+                            >
+                              {q.options?.map((opt) => {
+                                const isChecked = isMulti
+                                  ? selectedIds.includes(opt.id)
+                                  : answers[q.id] === opt.id;
+
+                                return (
+                                  <label
+                                    key={opt.id}
+                                    style={{
+                                      display: "flex",
+                                      flexDirection: hasOptionImages ? "column" : "row",
+                                      alignItems: hasOptionImages ? "stretch" : "center",
+                                      gap: "8px",
+                                      padding: hasOptionImages ? "8px" : "10px 12px",
+                                      borderRadius: "8px",
+                                      border: isChecked ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #e2e8f0)",
+                                      background: isChecked ? "rgba(2, 132, 199, 0.05)" : "var(--bg-card, #ffffff)",
+                                      cursor: "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                  >
+                                    {opt.imageUrl && (
+                                      <div style={{ height: 110, borderRadius: 6, overflow: "hidden", marginBottom: 6, background: "#f1f5f9" }}>
+                                        <img
+                                          src={opt.imageUrl}
+                                          alt={opt.text || "Option visual"}
+                                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                        />
+                                      </div>
+                                    )}
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      <input
+                                        type={isMulti ? "checkbox" : "radio"}
+                                        name={`q_${q.id}`}
+                                        value={opt.id}
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          if (isMulti) {
+                                            handleMultiOptionToggle(q.id, opt.id);
+                                          } else {
+                                            handleOptionChange(q.id, opt.id);
+                                          }
+                                        }}
+                                        style={{ margin: 0, cursor: "pointer" }}
+                                      />
+                                      <span style={{ fontSize: "0.9rem", fontWeight: isChecked ? 600 : 400 }}>
+                                        {opt.text}
+                                      </span>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     <button
                       type="button"

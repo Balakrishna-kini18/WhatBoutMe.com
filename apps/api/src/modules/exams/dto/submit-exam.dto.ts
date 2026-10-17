@@ -34,6 +34,10 @@ export class ExamAnswerSubmissionDto {
   @IsOptional()
   @IsString()
   textAnswer?: string;
+
+  @IsOptional()
+  @IsString()
+  textResponse?: string;
 }
 
 export class SubmitExamDto {

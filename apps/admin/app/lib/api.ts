@@ -890,3 +890,4 @@ export function getInvoiceDownloadUrl(id: string): string {
   return `${API_URL}/invoices/${id}/download`;
 }
 
+

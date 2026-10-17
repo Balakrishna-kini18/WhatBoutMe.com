@@ -178,6 +178,28 @@ export default function UserDetailPage({
   // Expanded steps for content inspection
   const [expandedStepIds, setExpandedStepIds] = useState<Record<string, boolean>>({});
 
+  // Oral Assessment & Rubric state
+  const [oralAssessments, setOralAssessments] = useState<any[]>([]);
+  const [loadingOral, setLoadingOral] = useState(false);
+  const [showOralForm, setShowOralForm] = useState(false);
+  const [rubricScores, setRubricScores] = useState<Array<{
+    rubricCategory: string;
+    score: number;
+    maxScore: number;
+    feedback: string;
+  }>>([
+    { rubricCategory: "Emotional Resilience & Awareness", score: 8, maxScore: 10, feedback: "" },
+    { rubricCategory: "Core Curriculum Principles", score: 8, maxScore: 10, feedback: "" },
+    { rubricCategory: "Critical Reflection & Authenticity", score: 8, maxScore: 10, feedback: "" },
+    { rubricCategory: "Future Readiness & Action Plan", score: 8, maxScore: 10, feedback: "" },
+  ]);
+  const [oralPassed, setOralPassed] = useState(true);
+  const [oralTrainerNotes, setOralTrainerNotes] = useState("");
+  const [oralRetryGuidance, setOralRetryGuidance] = useState("");
+  const [submittingOral, setSubmittingOral] = useState(false);
+  const [oralError, setOralError] = useState<string | null>(null);
+  const [oralSuccess, setOralSuccess] = useState<string | null>(null);
+
   const toggleStepExpand = (stepId: string) => {
     setExpandedStepIds((prev) => ({
       ...prev,
@@ -229,16 +251,120 @@ export default function UserDetailPage({
     return () => controller.abort();
   }, [userId]);
 
-  // Load progression when selected enrolment changes
+  // Load progression & oral assessments when selected enrolment changes
   useEffect(() => {
     if (!selectedEnrolmentId) {
       setProgression(null);
+      setOralAssessments([]);
       return;
     }
     const controller = new AbortController();
     fetchProgression(selectedEnrolmentId, controller.signal);
+    fetchOralAssessments(selectedEnrolmentId, controller.signal);
     return () => controller.abort();
   }, [selectedEnrolmentId]);
+
+  async function fetchOralAssessments(enrolmentId: string, signal?: AbortSignal) {
+    setLoadingOral(true);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`${API_URL}/oral-assessments/enrolments/${enrolmentId}`, { headers, signal });
+      if (res.ok) {
+        const data = await res.json();
+        setOralAssessments(Array.isArray(data) ? data : []);
+      }
+    } catch (e: any) {
+      if (e.name !== "AbortError") {
+        console.warn("Failed to fetch oral assessments", e);
+      }
+    } finally {
+      setLoadingOral(false);
+    }
+  }
+
+  async function handleSubmitOralAssessment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedEnrolmentId) return;
+
+    if (!oralTrainerNotes.trim()) {
+      setOralError("Trainer notes are required as qualitative evaluation.");
+      return;
+    }
+
+    if (!oralPassed && !oralRetryGuidance.trim()) {
+      setOralError("Retry guidance is required for assessments marked as not passed.");
+      return;
+    }
+
+    setSubmittingOral(true);
+    setOralError(null);
+    setOralSuccess(null);
+
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
+      const currentEnrolment = user?.enrolments?.find((en) => en.id === selectedEnrolmentId);
+      const programId = currentEnrolment?.program?.id || currentEnrolment?.batch?.program?.id || progression?.programId;
+
+      if (!programId) {
+        throw new Error("Unable to identify program ID for this enrolment.");
+      }
+
+      let targetAssessmentId = oralAssessments.find((a) => a.status === "SCHEDULED")?.id;
+
+      if (!targetAssessmentId) {
+        const createRes = await fetch(`${API_URL}/oral-assessments`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            enrolmentId: selectedEnrolmentId,
+            programId,
+          }),
+        });
+
+        if (!createRes.ok) {
+          throw new Error(await errorMessage(createRes, "Failed to schedule oral assessment"));
+        }
+        const created = await createRes.json();
+        targetAssessmentId = created.id;
+      }
+
+      const gradeRes = await fetch(`${API_URL}/oral-assessments/${targetAssessmentId}/grade`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          scores: rubricScores.map((s) => ({
+            rubricCategory: s.rubricCategory,
+            score: Number(s.score),
+            maxScore: Number(s.maxScore) || 10,
+            feedback: s.feedback.trim() || undefined,
+          })),
+          passed: oralPassed,
+          trainerNotes: oralTrainerNotes.trim(),
+          retryGuidance: oralPassed ? undefined : (oralRetryGuidance.trim() || undefined),
+        }),
+      });
+
+      if (!gradeRes.ok) {
+        throw new Error(await errorMessage(gradeRes, "Failed to record oral assessment scores"));
+      }
+
+      setOralSuccess("Oral assessment rubric successfully evaluated and recorded!");
+      setShowOralForm(false);
+      setOralTrainerNotes("");
+      setOralRetryGuidance("");
+      await fetchOralAssessments(selectedEnrolmentId);
+    } catch (err: any) {
+      setOralError(err.message || "Failed to submit oral assessment");
+    } finally {
+      setSubmittingOral(false);
+    }
+  }
 
   async function fetchProgression(enrolmentId: string, signal?: AbortSignal) {
     setLoadingProgression(true);
@@ -1303,6 +1429,335 @@ export default function UserDetailPage({
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </section>
+
+      {/* 6. Oral Assessment & Viva Rubric Scoring */}
+      <section className={styles.progressionSection}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>Oral Assessment &amp; Viva Rubric</h2>
+            <p className={styles.sectionSubtitle}>
+              Evaluate 1-on-1 viva assessments across 4 rubric categories (0–10 scale) to qualify learners for final certificate issuance.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowOralForm(!showOralForm);
+                setOralError(null);
+                setOralSuccess(null);
+              }}
+              className={styles.recalculateBtn}
+              style={{
+                background: showOralForm ? "var(--bg-soft, #f5ece1)" : "var(--accent-primary, #c97a1e)",
+                color: showOralForm ? "var(--text-primary)" : "#ffffff",
+                border: "none",
+                fontWeight: 700,
+              }}
+            >
+              {showOralForm ? "Close Rubric Form" : "+ Record Oral Assessment"}
+            </button>
+          </div>
+        </div>
+
+        {oralError && (
+          <div className={styles.alertError} style={{ margin: "1rem 0" }}>
+            {oralError}
+          </div>
+        )}
+        {oralSuccess && (
+          <div className={styles.alertSuccess} style={{ margin: "1rem 0" }}>
+            {oralSuccess}
+          </div>
+        )}
+
+        {/* Interactive Rubric Scoring Form */}
+        {showOralForm && (
+          <form
+            onSubmit={handleSubmitOralAssessment}
+            style={{
+              padding: "1.5rem",
+              background: "#ffffff",
+              borderRadius: 16,
+              border: "2px solid var(--border-light, #e7decb)",
+              marginBottom: "1.5rem",
+              boxShadow: "0 4px 14px rgba(20, 17, 15, 0.04)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                Oral Assessment Rubric Form
+              </h3>
+              <div style={{
+                fontSize: "0.9rem",
+                fontWeight: 800,
+                color: "var(--accent-primary, #c97a1e)",
+                background: "#fef3c7",
+                padding: "4px 12px",
+                borderRadius: 8,
+              }}>
+                Total Score: {rubricScores.reduce((sum, s) => sum + Number(s.score), 0)} / {rubricScores.reduce((sum, s) => sum + (Number(s.maxScore) || 10), 0)} ({Math.round((rubricScores.reduce((sum, s) => sum + Number(s.score), 0) / (rubricScores.reduce((sum, s) => sum + (Number(s.maxScore) || 10), 0) || 1)) * 100)}%)
+              </div>
+            </div>
+
+            {/* 4 Rubric Category Cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginBottom: "1.25rem" }}>
+              {rubricScores.map((rubric, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: 12,
+                    background: "#fbfaf8",
+                    border: "1px solid #e7decb",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b", margin: 0 }}>
+                      {rubric.rubricCategory}
+                    </label>
+                    <span style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0284c7" }}>
+                      {rubric.score} / {rubric.maxScore}
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={rubric.maxScore}
+                    value={rubric.score}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setRubricScores((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, score: val } : r))
+                      );
+                    }}
+                    style={{ accentColor: "var(--accent-primary, #c97a1e)", cursor: "pointer" }}
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Specific qualitative feedback / notes"
+                    value={rubric.feedback}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setRubricScores((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, feedback: val } : r))
+                      );
+                    }}
+                    style={{
+                      fontSize: "0.82rem",
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Assessment Decision & Feedback */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginBottom: "1.25rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#1e293b" }}>
+                  Assessment Outcome Decision
+                </label>
+                <div style={{ display: "flex", gap: "1rem" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.88rem", fontWeight: 600, color: "#15803d", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="oral_pass_toggle"
+                      checked={oralPassed}
+                      onChange={() => setOralPassed(true)}
+                      style={{ accentColor: "#15803d" }}
+                    />
+                    Pass (Meets Rubric Threshold)
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.88rem", fontWeight: 600, color: "#b91c1c", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="oral_pass_toggle"
+                      checked={!oralPassed}
+                      onChange={() => setOralPassed(false)}
+                      style={{ accentColor: "#b91c1c" }}
+                    />
+                    Needs Remediation / Re-Attempt
+                  </label>
+                </div>
+              </div>
+
+              {!oralPassed && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#b91c1c" }}>
+                    Retry Guidance &amp; Areas of Focus *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Specific topics or competencies the learner must review before re-attempt"
+                    value={oralRetryGuidance}
+                    onChange={(e) => setOralRetryGuidance(e.target.value)}
+                    style={{
+                      width: "100%",
+                      fontSize: "0.85rem",
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid #ef4444",
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginBottom: "1.25rem" }}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#1e293b" }}>
+                Trainer Evaluation Notes &amp; Observations *
+              </label>
+              <textarea
+                rows={3}
+                required
+                placeholder="Comprehensive notes summarizing the learner's responses, domain depth, articulation, and personal reflection during the session..."
+                value={oralTrainerNotes}
+                onChange={(e) => setOralTrainerNotes(e.target.value)}
+                style={{
+                  width: "100%",
+                  fontSize: "0.88rem",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                type="button"
+                onClick={() => setShowOralForm(false)}
+                className={styles.recalculateBtn}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingOral}
+                className={styles.recalculateBtn}
+                style={{
+                  background: "var(--accent-primary, #c97a1e)",
+                  color: "#ffffff",
+                  border: "none",
+                  fontWeight: 700,
+                }}
+              >
+                {submittingOral ? "Recording Scores..." : "Submit Oral Assessment Rubric"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Existing Oral Assessments List */}
+        {loadingOral ? (
+          <div className="skeleton" style={{ height: 100, borderRadius: 12 }} />
+        ) : oralAssessments.length === 0 ? (
+          <div style={{ padding: "2rem", textAlign: "center", background: "#ffffff", borderRadius: 12, border: "1px solid var(--border-light, #e7decb)" }}>
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted, #78716a)" }}>
+              No oral assessments have been recorded yet for this enrollment. Click "+ Record Oral Assessment" above to record viva rubric scores.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {oralAssessments.map((oa) => {
+              const isPassed = oa.status === "PASSED";
+              const isFailed = oa.status === "FAILED";
+
+              return (
+                <div
+                  key={oa.id}
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: 14,
+                    border: "1px solid var(--border-light, #e7decb)",
+                    padding: "1.25rem 1.5rem",
+                    boxShadow: "0 2px 8px rgba(20, 17, 15, 0.03)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span
+                        style={{
+                          fontSize: "0.78rem",
+                          fontWeight: 800,
+                          padding: "3px 10px",
+                          borderRadius: 6,
+                          background: isPassed ? "#ecfdf5" : isFailed ? "#fef2f2" : "#fef3c7",
+                          color: isPassed ? "#065f46" : isFailed ? "#b91c1c" : "#b45309",
+                          border: `1px solid ${isPassed ? "#a7f3d0" : isFailed ? "#fecaca" : "#fde68a"}`,
+                        }}
+                      >
+                        {oa.status}
+                      </span>
+                      <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                        {oa.assessedAt
+                          ? `Assessed on ${new Date(oa.assessedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+                          : oa.scheduledDate
+                          ? `Scheduled for ${new Date(oa.scheduledDate).toLocaleDateString()}`
+                          : `Created ${new Date(oa.createdAt).toLocaleDateString()}`}
+                      </span>
+                      {oa.assessor && (
+                        <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                          &bull; Evaluator: <strong>{oa.assessor.name}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {oa.overallScore != null && (
+                      <div style={{ fontSize: "1rem", fontWeight: 800, color: isPassed ? "#15803d" : "#b91c1c" }}>
+                        Score: {oa.overallScore}%
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rubric Breakdown */}
+                  {oa.scores && oa.scores.length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem", margin: "0.75rem 0", padding: "0.75rem", background: "#fbfaf8", borderRadius: 8 }}>
+                      {oa.scores.map((sc: any, sIdx: number) => (
+                        <div key={sIdx} style={{ fontSize: "0.82rem" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "#334155" }}>
+                            <span>{sc.rubricCategory}</span>
+                            <span style={{ fontWeight: 800 }}>{sc.score} / {sc.maxScore || 10}</span>
+                          </div>
+                          {sc.feedback && (
+                            <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 2, fontStyle: "italic" }}>
+                              {sc.feedback}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Qualitative Notes */}
+                  {oa.trainerNotes && (
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-primary)", background: "var(--bg-soft, #f5ece1)", padding: "8px 12px", borderRadius: 8, marginTop: "0.5rem" }}>
+                      <strong>Trainer Feedback:</strong> {oa.trainerNotes}
+                    </div>
+                  )}
+
+                  {oa.retryGuidance && (
+                    <div style={{ fontSize: "0.85rem", color: "#b91c1c", background: "#fef2f2", padding: "8px 12px", borderRadius: 8, marginTop: "0.5rem" }}>
+                      <strong>Retry Guidance:</strong> {oa.retryGuidance}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

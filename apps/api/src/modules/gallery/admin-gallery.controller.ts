@@ -28,8 +28,9 @@ export class AdminGalleryController {
   constructor(private readonly galleryService: GalleryService) {}
 
   @Get()
-  list(@Query() query: ListGalleryQueryDto) {
-    return this.galleryService.listForAdmin(query);
+  async list(@Query() query: ListGalleryQueryDto) {
+    const items = await this.galleryService.listForAdmin(query);
+    return { items, total: items.length };
   }
 
   @Post('upload')

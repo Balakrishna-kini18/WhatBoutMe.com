@@ -98,6 +98,50 @@ describe('GalleryService', () => {
       expect(mockAudit.log).toHaveBeenCalled();
     });
 
+    it('respects sortOrder alias when creating an item', async () => {
+      mockPrisma.galleryItem.create.mockImplementation(({ data }: any) => ({
+        id: 'cuid_sort',
+        ...data,
+      }));
+
+      const res = await service.createForAdmin('admin_1', {
+        title: 'Conference in Paris',
+        imageUrl: 'https://example.com/paris.jpg',
+        sortOrder: 5,
+      });
+
+      expect(mockPrisma.galleryItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          displayOrder: 5,
+        }),
+      });
+      expect(res.displayOrder).toBe(5);
+    });
+
+    it('respects sortOrder alias when updating an item', async () => {
+      mockPrisma.galleryItem.findUnique.mockResolvedValue({
+        id: 'item_1',
+        title: 'Title',
+        imageUrl: 'https://example.com/test.jpg',
+      });
+      mockPrisma.galleryItem.update.mockResolvedValue({
+        id: 'item_1',
+        displayOrder: 8,
+      });
+
+      const updated = await service.updateForAdmin('admin_1', 'item_1', {
+        sortOrder: 8,
+      });
+
+      expect(mockPrisma.galleryItem.update).toHaveBeenCalledWith({
+        where: { id: 'item_1' },
+        data: expect.objectContaining({
+          displayOrder: 8,
+        }),
+      });
+      expect(updated.displayOrder).toBe(8);
+    });
+
     it('rejects creation if title or imageUrl is missing', async () => {
       await expect(
         service.createForAdmin('admin_1', {

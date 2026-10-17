@@ -287,7 +287,8 @@ export default function WebsiteAdminPage() {
     setIsGalleryLoading(true);
     try {
       const data = await getAdminGallery();
-      setGalleryItems(data.items || []);
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      setGalleryItems([...items].sort((a, b) => a.displayOrder - b.displayOrder));
     } catch (err) {
       console.error("Failed to load gallery items", err);
       toast.error("Failed to load gallery items");
@@ -302,20 +303,60 @@ export default function WebsiteAdminPage() {
 
   // Filtered gallery items
   const filteredGallery = useMemo(() => {
-    return galleryItems.filter((item) => {
-      const matchesSearch =
-        gallerySearch === "" ||
-        item.title.toLowerCase().includes(gallerySearch.toLowerCase()) ||
-        (item.description && item.description.toLowerCase().includes(gallerySearch.toLowerCase())) ||
-        (item.category && item.category.toLowerCase().includes(gallerySearch.toLowerCase()));
+    return [...galleryItems]
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .filter((item) => {
+        const matchesSearch =
+          gallerySearch === "" ||
+          item.title.toLowerCase().includes(gallerySearch.toLowerCase()) ||
+          (item.description && item.description.toLowerCase().includes(gallerySearch.toLowerCase())) ||
+          (item.category && item.category.toLowerCase().includes(gallerySearch.toLowerCase()));
 
-      const matchesCat =
-        galleryCategoryFilter === "ALL" ||
-        (item.category && item.category.toLowerCase() === galleryCategoryFilter.toLowerCase());
+        const matchesCat =
+          galleryCategoryFilter === "ALL" ||
+          (item.category && item.category.toLowerCase() === galleryCategoryFilter.toLowerCase());
 
-      return matchesSearch && matchesCat;
-    });
+        return matchesSearch && matchesCat;
+      });
   }, [galleryItems, gallerySearch, galleryCategoryFilter]);
+
+  // Reorder gallery cards
+  const handleMoveItem = async (item: GalleryItem, direction: "up" | "down") => {
+    const sorted = [...galleryItems].sort((a, b) => a.displayOrder - b.displayOrder);
+    const currentIndex = sorted.findIndex((i) => i.id === item.id);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    const targetItem = sorted[targetIndex];
+    if (!targetItem) return;
+
+    let currentOrder = targetItem.displayOrder;
+    let targetOrder = item.displayOrder;
+    if (currentOrder === targetOrder) {
+      currentOrder = direction === "up" ? targetIndex : targetIndex + 1;
+      targetOrder = direction === "up" ? targetIndex + 1 : targetIndex;
+    }
+
+    try {
+      const updatedList = sorted
+        .map((i) => {
+          if (i.id === item.id) return { ...i, displayOrder: currentOrder };
+          if (i.id === targetItem.id) return { ...i, displayOrder: targetOrder };
+          return i;
+        })
+        .sort((a, b) => a.displayOrder - b.displayOrder);
+      setGalleryItems(updatedList);
+
+      await Promise.all([
+        updateGalleryItem(item.id, { displayOrder: currentOrder }),
+        updateGalleryItem(targetItem.id, { displayOrder: targetOrder }),
+      ]);
+      toast.success("Card order updated");
+    } catch (err: any) {
+      toast.error("Failed to reorder photo");
+      loadGallery();
+    }
+  };
 
   // Gallery KPIs
   const galleryKpis = useMemo(() => {
@@ -643,7 +684,7 @@ export default function WebsiteAdminPage() {
             </div>
           ) : (
             <div className={styles.galleryGrid}>
-              {filteredGallery.map((item) => (
+              {filteredGallery.map((item, index) => (
                 <article key={item.id} className={styles.galleryCard}>
                   {/* Image Container with 4:3 Aspect Ratio and Zero CLS */}
                   <div className={styles.imageContainer}>
@@ -694,6 +735,30 @@ export default function WebsiteAdminPage() {
                     </button>
 
                     <div className={styles.cardActions}>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        title="Move Earlier in Gallery"
+                        disabled={index === 0}
+                        onClick={() => handleMoveItem(item, "up")}
+                        style={{ opacity: index === 0 ? 0.35 : 1, cursor: index === 0 ? "not-allowed" : "pointer" }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="18 15 12 9 6 15" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        title="Move Later in Gallery"
+                        disabled={index === filteredGallery.length - 1}
+                        onClick={() => handleMoveItem(item, "down")}
+                        style={{ opacity: index === filteredGallery.length - 1 ? 0.35 : 1, cursor: index === filteredGallery.length - 1 ? "not-allowed" : "pointer" }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </button>
                       <button
                         type="button"
                         className={styles.iconBtn}

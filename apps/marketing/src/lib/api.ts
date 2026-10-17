@@ -422,6 +422,7 @@ export interface PublicGalleryItem {
   altText?: string | null;
   category?: string | null;
   displayOrder: number;
+  sortOrder?: number;
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
@@ -440,7 +441,11 @@ export async function getPublicGallery(category?: string): Promise<{ items: Publ
     if (!res.ok) {
       return { items: [], total: 0 };
     }
-    return await res.json();
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      return { items: data, total: data.length };
+    }
+    return { items: data.items || [], total: data.total ?? (data.items?.length || 0) };
   } catch (error) {
     console.warn("Failed to fetch public gallery:", error);
     return { items: [], total: 0 };

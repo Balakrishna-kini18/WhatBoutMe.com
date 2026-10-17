@@ -156,7 +156,7 @@ export class GalleryService {
         imageUrl,
         altText: dto.altText?.trim() || title,
         category: dto.category?.trim() || null,
-        displayOrder: dto.displayOrder !== undefined ? dto.displayOrder : 0,
+        displayOrder: dto.displayOrder !== undefined ? dto.displayOrder : (dto.sortOrder !== undefined ? dto.sortOrder : 0),
         isPublished: dto.isPublished !== undefined ? dto.isPublished : true,
       },
     });
@@ -188,6 +188,8 @@ export class GalleryService {
       throw new BadRequestException('Image URL cannot be empty');
     }
 
+    const order = dto.displayOrder !== undefined ? dto.displayOrder : dto.sortOrder;
+
     const item = await this.prisma.galleryItem.update({
       where: { id },
       data: {
@@ -196,7 +198,7 @@ export class GalleryService {
         imageUrl,
         altText: dto.altText !== undefined ? dto.altText.trim() || title : undefined,
         category: dto.category !== undefined ? dto.category.trim() || null : undefined,
-        displayOrder: dto.displayOrder !== undefined ? dto.displayOrder : undefined,
+        displayOrder: order !== undefined ? order : undefined,
         isPublished: dto.isPublished !== undefined ? dto.isPublished : undefined,
       },
     });

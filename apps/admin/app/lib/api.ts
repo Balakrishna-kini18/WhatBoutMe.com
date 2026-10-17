@@ -745,6 +745,7 @@ export interface GalleryItem {
   altText?: string | null;
   category?: string | null;
   displayOrder: number;
+  sortOrder?: number;
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
@@ -757,6 +758,7 @@ export interface CreateGalleryItemPayload {
   altText?: string;
   category?: string;
   displayOrder?: number;
+  sortOrder?: number;
   isPublished?: boolean;
 }
 
@@ -767,6 +769,7 @@ export interface UpdateGalleryItemPayload {
   altText?: string;
   category?: string;
   displayOrder?: number;
+  sortOrder?: number;
   isPublished?: boolean;
 }
 
@@ -779,7 +782,11 @@ export async function getAdminGallery(params?: {
   if (params?.isPublished !== undefined) query.set("isPublished", String(params.isPublished));
   const queryString = query.toString();
   const endpoint = queryString ? `/admin/gallery?${queryString}` : "/admin/gallery";
-  return apiGet<{ items: GalleryItem[]; total: number }>(endpoint);
+  const data = await apiGet<{ items: GalleryItem[]; total: number } | GalleryItem[]>(endpoint);
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length };
+  }
+  return { items: data.items || [], total: data.total ?? (data.items?.length || 0) };
 }
 
 export async function uploadGalleryImage(file: File): Promise<{ imageUrl: string }> {

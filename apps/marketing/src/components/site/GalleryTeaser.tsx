@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowRight, Sparkles } from "lucide-react";
 import SectionHeading from "./SectionHeading";
 import Reveal from "./Reveal";
@@ -35,11 +36,14 @@ export default async function GalleryTeaser() {
               >
                 {/* 4:3 Aspect Ratio for Zero CLS */}
                 <div className="relative aspect-[4/3] w-full overflow-hidden bg-cream-soft">
-                  <img
+                  <Image
                     src={item.imageUrl}
                     alt={item.altText || item.title}
-                    loading="lazy"
+                    fill
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                     className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+                    loading="lazy"
+                    unoptimized={!item.imageUrl.startsWith("https://res.cloudinary.com") && !item.imageUrl.startsWith("/")}
                   />
                   {item.category && (
                     <div className="absolute left-3 top-3">

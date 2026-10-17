@@ -108,6 +108,13 @@ export default function SessionAttendancePage({
         throw new Error(err?.message || `Failed to sync meeting attendance (${res.status})`);
       }
       const json = await res.json();
+      if (json.success === false) {
+        setSyncNotice({
+          type: "error",
+          message: json.message || "No meeting attendance records were processed.",
+        });
+        return;
+      }
       setSyncNotice({
         type: "success",
         message: `Meeting attendance synchronized successfully (${json.participantCount || 0} participant records processed).`,

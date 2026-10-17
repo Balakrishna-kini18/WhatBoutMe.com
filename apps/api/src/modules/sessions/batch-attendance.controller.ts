@@ -307,11 +307,27 @@ export class BatchAttendanceController {
       throw new NotFoundException('Session not found for the specified batch');
     }
 
-    const meetingId = session.providerMeetingId || session.zoomMeetingId;
+    let meetingId = session.providerMeetingId || session.zoomMeetingId;
+    if (!meetingId) {
+      const link = session.joinUrl || session.meetingLink || '';
+      const zoomMatch = link.match(/zoom\.us\/(?:j|s|my)\/(\d+)/i);
+      if (zoomMatch) {
+        meetingId = zoomMatch[1];
+      }
+    }
+
+    if (!meetingId) {
+      return {
+        success: false,
+        sessionId,
+        participantCount: 0,
+        message: 'No meeting ID or Zoom link associated with this session. Please verify session meeting configuration.',
+      };
+    }
+
     let rawParticipants: any[] = [];
 
     if (
-      meetingId &&
       this.meetingProvider &&
       typeof this.meetingProvider.getParticipantReport === 'function'
     ) {
@@ -334,6 +350,15 @@ export class BatchAttendanceController {
           `[BatchAttendanceController] Could not fetch external participant report: ${err.message}`,
         );
       }
+    }
+
+    if (rawParticipants.length === 0) {
+      return {
+        success: false,
+        sessionId,
+        participantCount: 0,
+        message: 'No meeting participant records found yet from provider. If the session just concluded, cloud processing may take 1-2 minutes.',
+      };
     }
 
     const reconciliation = await this.reconciliationService.reconcileSession(

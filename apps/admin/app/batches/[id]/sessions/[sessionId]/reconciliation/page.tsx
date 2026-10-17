@@ -118,6 +118,10 @@ export default function ReconciliationPage({
         throw new Error(err?.message || `Failed to sync meeting attendance (${res.status})`);
       }
       const json = await res.json();
+      if (json.success === false) {
+        toastError(json.message || "No meeting attendance records were processed.", "Sync Notice");
+        return;
+      }
       toastSuccess(`Meeting synchronized (${json.participantCount || 0} participants processed).`, "Attendance Synced");
       await fetchData();
     } catch (err: any) {

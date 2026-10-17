@@ -148,8 +148,11 @@ export class CheckoutController {
 
   @Post(['mock', 'confirm'])
   async mockCheckout(@Body() body: any, @Request() req: any) {
-    const isBypass = body?.bypass === true || body?.simulate === true || body?.bypassPayment === true;
-    const isMockAllowed = process.env.ALLOW_MOCK_CHECKOUT === 'true' || isBypass;
+    // SECURITY: only server configuration may enable mock checkout in production.
+    // Client-supplied flags (bypass/simulate/bypassPayment) are accepted for
+    // dev/staging compatibility but must never relax this guard, otherwise any
+    // authenticated user could unlock a paid course for free.
+    const isMockAllowed = process.env.ALLOW_MOCK_CHECKOUT === 'true';
 
     if (process.env.NODE_ENV === 'production' && !isMockAllowed) {
       throw new ForbiddenException(

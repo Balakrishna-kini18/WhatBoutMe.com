@@ -83,6 +83,11 @@ enum StepOverrideState {
   MANUAL_LOCKED
 }
 
+enum QuizPlacement {
+  BEFORE_VIDEO
+  AFTER_VIDEO
+}
+
 enum ResourceType {
   VIEW_ONLY_PDF
   DOWNLOADABLE_WORKSHEET
@@ -451,6 +456,7 @@ model Step {
 
   releaseSchedule ReleaseSchedule @default(IMMEDIATE)
   unlockDelayDays Int?
+  quizPlacement   QuizPlacement   @default(AFTER_VIDEO)
 
   lessons       Lesson[]
   resources                Resource[]
@@ -656,6 +662,7 @@ model Quiz {
   questionCount Int     @default(10) // 10-question step quiz requirement
   timeLimitMin  Int?
   retryGuidance String?
+  quizPlacement QuizPlacement @default(AFTER_VIDEO)
 
   questions Question[]
   attempts  Attempt[]

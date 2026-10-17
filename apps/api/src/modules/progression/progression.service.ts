@@ -81,6 +81,7 @@ export interface QuizProgressItem {
   isPassed: boolean;
   bestScore: number | null;
   attemptsCount: number;
+  quizPlacement?: string;
 }
 
 export interface StepProgressionItem {
@@ -104,6 +105,7 @@ export interface StepProgressionItem {
   progressPercent?: number;
   completedItems?: number;
   totalItems?: number;
+  quizPlacement?: string;
 }
 
 export interface StepOverrideResult {
@@ -796,6 +798,7 @@ export class ProgressionService {
             id: true,
             passMark: true,
             questionCount: true,
+            quizPlacement: true,
           },
         },
       },
@@ -946,6 +949,7 @@ export class ProgressionService {
           isPassed: passedQuizIds.has(step.quiz.id),
           bestScore: stats?.bestScore ?? null,
           attemptsCount: stats?.count ?? 0,
+          quizPlacement: step.quiz.quizPlacement ?? (step as any).quizPlacement ?? 'AFTER_VIDEO',
         };
       }
 
@@ -1096,6 +1100,7 @@ export class ProgressionService {
         progressPercent: stepProgressPercent,
         completedItems: stepCompletedItems,
         totalItems: stepTotalItems,
+        quizPlacement: step.quiz?.quizPlacement ?? (step as any).quizPlacement ?? 'AFTER_VIDEO',
       });
 
       // Update cascading prerequisites for the next step in the loop
@@ -1296,6 +1301,13 @@ export class ProgressionService {
             programId: true,
             sequence: true,
             status: true,
+            quizPlacement: true,
+            quiz: {
+              select: {
+                id: true,
+                quizPlacement: true,
+              },
+            },
           },
         },
       },
@@ -1344,6 +1356,34 @@ export class ProgressionService {
 
     // Call D1-033/D1-034 step access gate
     await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
+
+    // Configurable Quiz Placement Gate: When BEFORE_VIDEO, pre-video assessment must be passed
+    const stepQuiz = lesson.step.quiz;
+    const effectivePlacement = stepQuiz?.quizPlacement ?? (lesson.step as any)?.quizPlacement ?? 'AFTER_VIDEO';
+    if (effectivePlacement === 'BEFORE_VIDEO' && stepQuiz?.id) {
+      const sp = await this.prisma.stepProgress.findUnique({
+        where: {
+          enrolmentId_stepId: {
+            enrolmentId: enrolment.id,
+            stepId: lesson.stepId,
+          },
+        },
+      });
+      if (sp?.overrideState !== StepOverrideState.MANUAL_UNLOCKED) {
+        const passedAttempt = await this.prisma.attempt.findFirst({
+          where: {
+            enrolmentId: enrolment.id,
+            quizId: stepQuiz.id,
+            status: AttemptStatus.PASSED,
+          },
+        });
+        if (!passedAttempt) {
+          throw new ForbiddenException(
+            'Complete the pre-video assessment to unlock this video lesson.',
+          );
+        }
+      }
+    }
 
     // Determine effective duration
     let effectiveDuration = lesson.durationSec;

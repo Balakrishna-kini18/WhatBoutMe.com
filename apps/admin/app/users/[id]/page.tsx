@@ -4,7 +4,7 @@ import { useEffect, useState, use, Fragment } from "react";
 import styles from "./UserDetail.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../../lib/api";
-import { CustomSelect, StatusBadge } from "../../components";
+import { CustomSelect, StatusBadge, InputDialog } from "../../components";
 
 interface EnrolmentOption {
   id: string;
@@ -309,11 +309,10 @@ export default function UserDetailPage({
     setModalError(null);
   }
 
-  async function handleOverrideSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleOverrideWithReason(reason: string) {
     if (!targetStep || !selectedEnrolmentId || !activeModal) return;
 
-    if ((activeModal === "unlock" || activeModal === "relock") && !overrideReason.trim()) {
+    if ((activeModal === "unlock" || activeModal === "relock") && !reason.trim()) {
       setModalError("A detailed administrative reason is required for manual overrides.");
       return;
     }
@@ -340,20 +339,22 @@ export default function UserDetailPage({
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ reason: overrideReason.trim() }),
+        body: JSON.stringify({ reason: reason.trim() }),
       });
 
       if (!res.ok) {
         throw new Error(await errorMessage(res, "Failed to apply manual override"));
       }
 
+      const currentAction = activeModal;
+      const currentSequence = targetStep.sequence;
       closeOverrideModal();
       setActionSuccess(
-        activeModal === "unlock"
-          ? `Step ${targetStep.sequence} manually unlocked.`
-          : activeModal === "relock"
-          ? `Step ${targetStep.sequence} manually relocked.`
-          : `Step ${targetStep.sequence} manual override reset to automatic progression.`
+        currentAction === "unlock"
+          ? `Step ${currentSequence} manually unlocked.`
+          : currentAction === "relock"
+          ? `Step ${currentSequence} manually relocked.`
+          : `Step ${currentSequence} manual override reset to automatic progression.`
       );
       // Refresh progression
       await fetchProgression(selectedEnrolmentId);
@@ -1308,111 +1309,55 @@ export default function UserDetailPage({
 
       {/* 6. Manual Override Confirmation Modal */}
       {activeModal && targetStep && (
-        <div className={styles.modalOverlay} onClick={closeOverrideModal}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2 className={styles.modalTitle}>
-                {activeModal === "unlock" && `Manual Unlock — Step ${targetStep.sequence}`}
-                {activeModal === "relock" && `Manual Relock — Step ${targetStep.sequence}`}
-                {activeModal === "reset" && `Reset Override — Step ${targetStep.sequence}`}
-              </h2>
-              <button
-                type="button"
-                className={styles.modalCloseBtn}
-                onClick={closeOverrideModal}
-                disabled={submittingOverride}
-                title="Close dialog (Esc)"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={handleOverrideSubmit}>
-              <div className={styles.modalBody}>
-                {modalError && (
-                  <div className={styles.alertError} style={{ marginBottom: "1rem" }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="12" y1="8" x2="12" y2="12" />
-                      <line x1="12" y1="16" x2="12.01" y2="16" />
-                    </svg>
-                    <span>{modalError}</span>
-                  </div>
-                )}
-
-                <div className={styles.modalNotice}>
-                  {activeModal === "unlock" && (
-                    <>
-                      You are about to <strong>manually grant access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>, bypassing cohort release schedules and milestone prerequisite gates.
-                    </>
-                  )}
-                  {activeModal === "relock" && (
-                    <>
-                      You are about to <strong>manually revoke access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>. The step will remain locked until manually cleared or re-evaluated.
-                    </>
-                  )}
-                  {activeModal === "reset" && (
-                    <>
-                      This will remove the manual override and restore automated progression logic based on prerequisite completion and release schedules.
-                    </>
-                  )}
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label htmlFor="reason" className={styles.formLabel}>
-                    Reason for Override {activeModal !== "reset" && <span style={{ color: "#dc2626" }}>*</span>}
-                  </label>
-                  <textarea
-                    id="reason"
-                    rows={3}
-                    className={styles.formTextarea}
-                    placeholder={
-                      activeModal === "unlock"
-                        ? "e.g., Learner demonstrated exceptional readiness or has fast-track cohort approval."
-                        : activeModal === "relock"
-                        ? "e.g., Academic review required before proceeding; prerequisite remediations needed."
-                        : "Optional administrative notes for resetting to automatic progression."
-                    }
-                    value={overrideReason}
-                    onChange={(e) => setOverrideReason(e.target.value)}
-                    required={activeModal !== "reset"}
-                    disabled={submittingOverride}
-                  />
-                  <span className={styles.formHint}>
-                    This administrative reason is permanently logged to the system audit trail.
-                  </span>
-                </div>
-              </div>
-
-              <div className={styles.modalFooter}>
-                <button
-                  type="button"
-                  className={styles.modalCancelBtn}
-                  onClick={closeOverrideModal}
-                  disabled={submittingOverride}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className={`${styles.modalSubmitBtn} ${activeModal === "relock" ? styles.modalSubmitBtnDanger : ""}`}
-                  disabled={submittingOverride}
-                >
-                  {submittingOverride
-                    ? "Applying..."
-                    : activeModal === "unlock"
-                    ? "Confirm Unlock"
-                    : activeModal === "relock"
-                    ? "Confirm Relock"
-                    : "Confirm Reset"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <InputDialog
+          isOpen={Boolean(activeModal && targetStep)}
+          onClose={closeOverrideModal}
+          onSubmit={async (reason) => {
+            await handleOverrideWithReason(reason);
+          }}
+          title={
+            activeModal === "unlock"
+              ? `Manually Unlock Step ${targetStep.sequence}`
+              : activeModal === "relock"
+              ? `Manually Relock Step ${targetStep.sequence}`
+              : `Reset Step ${targetStep.sequence} to Automatic Progression`
+          }
+          subtitle={`Learner: ${user.name}`}
+          description={
+            activeModal === "unlock" ? (
+              <>
+                You are about to <strong>manually grant access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>, bypassing cohort release schedules and milestone prerequisite gates.
+              </>
+            ) : activeModal === "relock" ? (
+              <>
+                You are about to <strong>manually revoke access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>. The step will remain locked until manually cleared or re-evaluated.
+              </>
+            ) : (
+              <>
+                This will remove the manual override and restore automated progression logic based on prerequisite completion and release schedules.
+              </>
+            )
+          }
+          label="Administrative Reason"
+          placeholder={
+            activeModal === "unlock"
+              ? "e.g., Learner demonstrated exceptional readiness or has fast-track cohort approval."
+              : activeModal === "relock"
+              ? "e.g., Academic review required before proceeding; prerequisite remediations needed."
+              : "Optional administrative notes for resetting to automatic progression."
+          }
+          required={activeModal !== "reset"}
+          tone={activeModal === "relock" ? "danger" : activeModal === "unlock" ? "info" : "warning"}
+          confirmText={
+            activeModal === "unlock"
+              ? "Confirm Unlock"
+              : activeModal === "relock"
+              ? "Confirm Relock"
+              : "Confirm Reset"
+          }
+          isLoading={submittingOverride}
+          error={modalError}
+        />
       )}
     </div>
   );

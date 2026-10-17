@@ -653,6 +653,7 @@ export interface QuizProgressItem {
   isPassed: boolean;
   bestScore: number | null;
   attemptsCount: number;
+  quizPlacement?: 'BEFORE_VIDEO' | 'AFTER_VIDEO';
 }
 
 export interface StepProgressionItem {
@@ -676,6 +677,7 @@ export interface StepProgressionItem {
   progressPercent?: number;
   completedItems?: number;
   totalItems?: number;
+  quizPlacement?: 'BEFORE_VIDEO' | 'AFTER_VIDEO';
 }
 
 export interface EnrolmentProgressionResponse {

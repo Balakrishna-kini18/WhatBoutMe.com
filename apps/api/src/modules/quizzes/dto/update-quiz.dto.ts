@@ -1,4 +1,5 @@
-import { IsInt, IsOptional, IsString, Max, Min, IsObject } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min, IsObject, IsEnum } from 'class-validator';
+import { QuizPlacement } from '@prisma/client';
 
 export class UpdateQuizDto {
   @IsOptional()
@@ -8,6 +9,10 @@ export class UpdateQuizDto {
   @IsOptional()
   @IsString()
   title?: string;
+
+  @IsOptional()
+  @IsEnum(QuizPlacement)
+  quizPlacement?: QuizPlacement;
 
   @IsOptional()
   @IsInt()

@@ -45,6 +45,9 @@ export default function Step7QuizBuilder({
   const [passMark, setPassMark] = useState(existingQuiz?.passMark ?? 75);
   const [maxAttempts, setMaxAttempts] = useState(existingQuiz?.maxAttempts ?? 3);
   const [cooldownHours, setCooldownHours] = useState(existingQuiz?.cooldownHours ?? 24);
+  const [quizPlacement, setQuizPlacement] = useState<'BEFORE_VIDEO' | 'AFTER_VIDEO'>(
+    existingQuiz?.quizPlacement || 'AFTER_VIDEO'
+  );
   const [showExplanations, setShowExplanations] = useState(true);
   const toast = useToast();
 
@@ -104,6 +107,7 @@ export default function Step7QuizBuilder({
       if (existingQuiz.passMark != null) setPassMark(existingQuiz.passMark);
       if (existingQuiz.maxAttempts != null) setMaxAttempts(existingQuiz.maxAttempts);
       if (existingQuiz.cooldownHours != null) setCooldownHours(existingQuiz.cooldownHours);
+      if (existingQuiz.quizPlacement) setQuizPlacement(existingQuiz.quizPlacement);
       if (existingQuiz.questions && existingQuiz.questions.length > 0) {
         setQuestions(existingQuiz.questions);
         return;
@@ -127,11 +131,15 @@ export default function Step7QuizBuilder({
               if (stepData.quiz.passMark != null) setPassMark(stepData.quiz.passMark);
               if (stepData.quiz.maxAttempts != null) setMaxAttempts(stepData.quiz.maxAttempts);
               if (stepData.quiz.cooldownHours != null) setCooldownHours(stepData.quiz.cooldownHours);
+              if (stepData.quiz.quizPlacement) setQuizPlacement(stepData.quiz.quizPlacement);
+              else if (stepData.quizPlacement) setQuizPlacement(stepData.quizPlacement);
               if (stepData.quiz.questions && stepData.quiz.questions.length > 0) {
                 setQuestions(stepData.quiz.questions);
                 setIsLoadingQuestions(false);
                 return;
               }
+            } else if (stepData?.quizPlacement) {
+              setQuizPlacement(stepData.quizPlacement);
             }
           }
         }
@@ -170,6 +178,7 @@ export default function Step7QuizBuilder({
         passMark: Number(passMark) || 75,
         maxAttempts: Number(maxAttempts) || 3,
         cooldownHours: Number(cooldownHours) || 24,
+        quizPlacement,
       }),
     });
 
@@ -315,6 +324,7 @@ export default function Step7QuizBuilder({
           passMark: Number(passMark),
           maxAttempts: Number(maxAttempts),
           cooldownHours: Number(cooldownHours),
+          quizPlacement,
         }),
       });
 
@@ -388,6 +398,105 @@ export default function Step7QuizBuilder({
             onChange={(e) => setCooldownHours(Number(e.target.value))}
             className={styles.formInput}
           />
+        </div>
+      </div>
+
+      {/* Quiz Placement Selector (First/Before Video vs. Last/After Video) */}
+      <div style={{
+        marginTop: "1.25rem",
+        marginBottom: "1.75rem",
+        padding: "1.25rem",
+        borderRadius: "12px",
+        background: "var(--bg-soft, #f8fafc)",
+        border: "1px solid var(--border-light, #e2e8f0)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+          <label className={styles.formLabel} style={{ margin: 0, fontWeight: 700, fontSize: "0.95rem" }}>
+            Quiz Execution Placement &amp; Unlock Rule
+          </label>
+          <span style={{
+            fontSize: "0.75rem",
+            fontWeight: 700,
+            padding: "3px 10px",
+            borderRadius: "6px",
+            background: quizPlacement === "BEFORE_VIDEO" ? "#fef3c7" : "#eff6ff",
+            color: quizPlacement === "BEFORE_VIDEO" ? "#b45309" : "#1d4ed8",
+            border: `1px solid ${quizPlacement === "BEFORE_VIDEO" ? "#fde68a" : "#bfdbfe"}`,
+          }}>
+            {quizPlacement === "BEFORE_VIDEO" ? "Pre-Video Diagnostic Gate" : "Post-Video Comprehension Gate"}
+          </span>
+        </div>
+        <p style={{ margin: "0 0 1rem", fontSize: "0.85rem", color: "var(--text-secondary, #64748b)" }}>
+          Determine whether learners take this quiz BEFORE watching the compulsory video or AFTER 100% video completion.
+        </p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
+          {/* AFTER_VIDEO (Default) */}
+          <div
+            onClick={() => setQuizPlacement("AFTER_VIDEO")}
+            style={{
+              padding: "1rem",
+              borderRadius: "10px",
+              border: quizPlacement === "AFTER_VIDEO" ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #cbd5e1)",
+              background: quizPlacement === "AFTER_VIDEO" ? "var(--accent-highlight, #f0f9ff)" : "var(--bg-card, #ffffff)",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              boxShadow: quizPlacement === "AFTER_VIDEO" ? "0 2px 8px rgba(2, 132, 199, 0.12)" : "none",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+              <input
+                type="radio"
+                id="placement_after"
+                name="quizPlacement"
+                value="AFTER_VIDEO"
+                checked={quizPlacement === "AFTER_VIDEO"}
+                onChange={() => setQuizPlacement("AFTER_VIDEO")}
+                style={{ accentColor: "var(--accent-primary, #0284c7)", width: 16, height: 16, cursor: "pointer" }}
+              />
+              <label htmlFor="placement_after" style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--text-primary)", cursor: "pointer" }}>
+                Last — After Video (Standard)
+              </label>
+              <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#ecfdf5", color: "#065f46" }}>
+                Default
+              </span>
+            </div>
+            <p style={{ margin: "0 0 0 26px", fontSize: "0.82rem", color: "var(--text-secondary, #64748b)", lineHeight: 1.45 }}>
+              Video player unlocks first. Students must watch 100% of the compulsory video without skipping before this quiz is unlocked.
+            </p>
+          </div>
+
+          {/* BEFORE_VIDEO */}
+          <div
+            onClick={() => setQuizPlacement("BEFORE_VIDEO")}
+            style={{
+              padding: "1rem",
+              borderRadius: "10px",
+              border: quizPlacement === "BEFORE_VIDEO" ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #cbd5e1)",
+              background: quizPlacement === "BEFORE_VIDEO" ? "var(--accent-highlight, #f0f9ff)" : "var(--bg-card, #ffffff)",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              boxShadow: quizPlacement === "BEFORE_VIDEO" ? "0 2px 8px rgba(2, 132, 199, 0.12)" : "none",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+              <input
+                type="radio"
+                id="placement_before"
+                name="quizPlacement"
+                value="BEFORE_VIDEO"
+                checked={quizPlacement === "BEFORE_VIDEO"}
+                onChange={() => setQuizPlacement("BEFORE_VIDEO")}
+                style={{ accentColor: "var(--accent-primary, #0284c7)", width: 16, height: 16, cursor: "pointer" }}
+              />
+              <label htmlFor="placement_before" style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--text-primary)", cursor: "pointer" }}>
+                First — Before Video (Pre-Assessment)
+              </label>
+            </div>
+            <p style={{ margin: "0 0 0 26px", fontSize: "0.82rem", color: "var(--text-secondary, #64748b)", lineHeight: 1.45 }}>
+              Quiz is presented first. Video lesson player is locked with a prerequisite banner until the learner completes this assessment.
+            </p>
+          </div>
         </div>
       </div>
 

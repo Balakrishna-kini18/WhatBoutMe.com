@@ -64,6 +64,7 @@ export class QuizzesService {
       maxAttempts: quiz.maxAttempts,
       cooldownHours: quiz.cooldownHours,
       questionCount: quiz.questionCount,
+      quizPlacement: quiz.quizPlacement,
       updated: new Date(quiz.updatedAt).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -111,6 +112,12 @@ export class QuizzesService {
           where: { id: existing.id },
           data: updateFields,
         });
+        if (data.quizPlacement) {
+          await this.prisma.step.update({
+            where: { id: data.stepId },
+            data: { quizPlacement: data.quizPlacement },
+          }).catch(() => {});
+        }
         await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
         return res;
       }
@@ -118,6 +125,12 @@ export class QuizzesService {
 
     const { questions, ...createFields } = data;
     const res = await this.prisma.quiz.create({ data: createFields as any });
+    if (data.quizPlacement && data.stepId) {
+      await this.prisma.step.update({
+        where: { id: data.stepId },
+        data: { quizPlacement: data.quizPlacement },
+      }).catch(() => {});
+    }
     await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
@@ -127,6 +140,12 @@ export class QuizzesService {
       where: { id },
       data,
     });
+    if (data.quizPlacement && res.stepId) {
+      await this.prisma.step.update({
+        where: { id: res.stepId },
+        data: { quizPlacement: data.quizPlacement },
+      }).catch(() => {});
+    }
     await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
@@ -161,6 +180,7 @@ export class QuizzesService {
             programId: true,
             sequence: true,
             status: true,
+            quizPlacement: true,
           },
         },
       },
@@ -231,6 +251,7 @@ export class QuizzesService {
     await this.progressionService.assertStepUnlocked(enrolment.id, quiz.stepId, actor);
 
     // Prerequisite Gate: All published lessons must be viewed unless manually unlocked (D1-034/D1-035)
+    // Only required when quiz is scheduled AFTER_VIDEO
     const stepProgress = await this.prisma.stepProgress.findUnique({
       where: {
         enrolmentId_stepId: {
@@ -240,8 +261,9 @@ export class QuizzesService {
       },
     });
     const isManuallyUnlocked = stepProgress?.overrideState === StepOverrideState.MANUAL_UNLOCKED;
+    const effectivePlacement = quiz.quizPlacement || (quiz.step as any)?.quizPlacement || 'AFTER_VIDEO';
 
-    if (!isManuallyUnlocked) {
+    if (!isManuallyUnlocked && effectivePlacement === 'AFTER_VIDEO') {
       const publishedLessons = await this.prisma.lesson.findMany({
         where: {
           stepId: quiz.stepId,

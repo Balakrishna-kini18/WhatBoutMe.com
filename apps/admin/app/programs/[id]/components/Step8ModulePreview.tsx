@@ -35,6 +35,10 @@ export default function Step8ModulePreview({
 }: Step8ModulePreviewProps) {
   const lessons = module.lessons || [];
   const hasQuiz = Boolean(module.quiz);
+  const isBeforeVideo = Boolean(
+    module.quiz?.quizPlacement === "BEFORE_VIDEO" ||
+    (module as any)?.quizPlacement === "BEFORE_VIDEO"
+  );
   const [activePreviewLesson, setActivePreviewLesson] = useState<Lesson | null>(lessons[0] || null);
 
   const resolveVideoUrl = (url: string) => {
@@ -45,6 +49,58 @@ export default function Step8ModulePreview({
     }
     return url;
   };
+
+  const renderQuizRow = () => (
+    <div key="module-quiz-row" className={styles.previewLessonRow} style={{ background: "var(--bg-card-muted)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: isBeforeVideo ? "#fef3c7" : "#fce7f3",
+            color: isBeforeVideo ? "#b45309" : "#c026d3",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "0.92rem", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>{isBeforeVideo ? "1. " : `${lessons.length + 1}. `}{module.quiz.title || "Module Knowledge Check Quiz"}</span>
+            <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: isBeforeVideo ? "#fef3c7" : "#f3e8ff", color: isBeforeVideo ? "#92400e" : "#7e22ce" }}>
+              {isBeforeVideo ? "Pre-Video Assessment (First)" : "Post-Video Assessment (Last)"}
+            </span>
+          </div>
+          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            Pass Requirement: {module.quiz.passMark}% &bull; {module.quiz.questions?.length ?? 0} Questions
+          </span>
+        </div>
+      </div>
+
+      {isBeforeVideo ? (
+        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "4px 10px", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a" }} />
+          <span>Unlocked First (Pre-Assessment)</span>
+        </span>
+      ) : (
+        <span className={styles.lockedBadge}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span>Gated by Video Completion</span>
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <section className={styles.cardSurface}>
@@ -62,9 +118,24 @@ export default function Step8ModulePreview({
             <span>Back to Module Editor</span>
           </button>
           <div className={styles.stepEyebrow}>STEP 8: MODULE PREVIEW (STUDENT VIEW)</div>
-          <h2 className={styles.stepTitle}>
-            Module {module.sequence}: {module.title}
-          </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginTop: "4px" }}>
+            <h2 className={styles.stepTitle} style={{ margin: 0 }}>
+              Module {module.sequence}: {module.title}
+            </h2>
+            {hasQuiz && (
+              <span style={{
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                padding: "3px 10px",
+                borderRadius: "6px",
+                background: isBeforeVideo ? "#fef3c7" : "#eff6ff",
+                color: isBeforeVideo ? "#b45309" : "#1d4ed8",
+                border: `1px solid ${isBeforeVideo ? "#fde68a" : "#bfdbfe"}`,
+              }}>
+                {isBeforeVideo ? "Rule: Quiz First (Before Video)" : "Rule: Video First (After Video)"}
+              </span>
+            )}
+          </div>
           <p className={styles.stepSubtitle}>
             See exactly how this module, lesson sequencing, and locked access feel for enrolled students.
           </p>
@@ -85,6 +156,32 @@ export default function Step8ModulePreview({
 
       {/* Realistic Student Stage Card */}
       <div className={styles.previewStageCard}>
+        {/* Placement Banner */}
+        {hasQuiz && isBeforeVideo && (
+          <div style={{
+            marginBottom: "1.5rem",
+            padding: "1rem 1.25rem",
+            borderRadius: "10px",
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            color: "#92400e",
+            fontSize: "0.88rem",
+            lineHeight: 1.45,
+          }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <div>
+              <strong>Pre-Video Assessment Gate:</strong> In student mode, learners must pass the Knowledge Check Quiz first. The video player remains locked with a banner until the quiz is completed.
+            </div>
+          </div>
+        )}
+
         {/* Active Video Player Preview (if video selected) */}
         {activePreviewLesson && activePreviewLesson.type === "VIDEO" && (
           <div style={{ marginBottom: "2rem" }}>
@@ -123,10 +220,14 @@ export default function Step8ModulePreview({
         </div>
 
         <div className={styles.previewLessonsList}>
+          {/* If BEFORE_VIDEO, Quiz appears first */}
+          {hasQuiz && isBeforeVideo && renderQuizRow()}
+
           {lessons.map((lesson, idx) => {
             const isVideo = lesson.type === "VIDEO";
             const isPdf = lesson.type === "PDF";
             const isFirst = idx === 0;
+            const displaySequence = isBeforeVideo ? idx + 2 : idx + 1;
 
             return (
               <div key={lesson.id} className={styles.previewLessonRow}>
@@ -169,7 +270,7 @@ export default function Step8ModulePreview({
 
                   <div>
                     <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "0.92rem" }}>
-                      {idx + 1}. {lesson.title}
+                      {displaySequence}. {lesson.title}
                     </div>
                     <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
                       {isVideo
@@ -182,7 +283,25 @@ export default function Step8ModulePreview({
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  {isFirst && isVideo ? (
+                  {isBeforeVideo ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setActivePreviewLesson(lesson)}
+                        className={styles.secondaryActionBtn}
+                        style={{ padding: "0.4rem 0.85rem", fontSize: "0.78rem" }}
+                      >
+                        Preview Video
+                      </button>
+                      <span className={styles.lockedBadge} style={{ background: "#fffbeb", borderColor: "#fde68a", color: "#b45309" }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                        <span>Gated by Pre-Quiz</span>
+                      </span>
+                    </div>
+                  ) : isFirst && isVideo ? (
                     <button
                       type="button"
                       onClick={() => setActivePreviewLesson(lesson)}
@@ -212,47 +331,8 @@ export default function Step8ModulePreview({
             );
           })}
 
-          {hasQuiz && (
-            <div className={styles.previewLessonRow} style={{ background: "var(--bg-card-muted)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    background: "#fce7f3",
-                    color: "#c026d3",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "0.92rem" }}>
-                    {module.quiz.title || "Module Knowledge Check Quiz"}
-                  </div>
-                  <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                    Pass Requirement: {module.quiz.passMark}% &bull; {module.quiz.questions?.length ?? 0} Questions
-                  </span>
-                </div>
-              </div>
-
-              <span className={styles.lockedBadge}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-                <span>Gated by Video Completion</span>
-              </span>
-            </div>
-          )}
+          {/* If AFTER_VIDEO (default), Quiz appears last */}
+          {hasQuiz && !isBeforeVideo && renderQuizRow()}
         </div>
       </div>
 

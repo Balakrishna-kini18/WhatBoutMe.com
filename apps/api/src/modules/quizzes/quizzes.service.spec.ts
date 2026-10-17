@@ -279,12 +279,37 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('rejects if lessons in step are incomplete under AUTOMATIC progression', async () => {
+    it('rejects if lessons in step are incomplete under AUTOMATIC progression when AFTER_VIDEO', async () => {
       prismaMock.userLessonProgress.count.mockResolvedValueOnce(1); // 1 of 2 viewed
 
       await expect(
         service.startQuiz('quiz-step-1', mockUser),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows quiz start if quizPlacement is BEFORE_VIDEO even if lessons in step are unviewed', async () => {
+      prismaMock.quiz.findUnique.mockResolvedValueOnce({
+        ...mockQuiz,
+        quizPlacement: 'BEFORE_VIDEO',
+      });
+      prismaMock.userLessonProgress.count.mockResolvedValueOnce(0); // 0 viewed
+
+      const mockCreatedAttempt = {
+        id: 'attempt-before-video',
+        enrolmentId: 'enrolment-1',
+        quizId: 'quiz-step-1',
+        attemptNumber: 1,
+        status: AttemptStatus.IN_PROGRESS,
+        startedAt: new Date(),
+      };
+      prismaMock.attempt.create.mockResolvedValue(mockCreatedAttempt);
+      prismaMock.attempt.findUniqueOrThrow.mockResolvedValue({
+        ...mockCreatedAttempt,
+        answers: [],
+      });
+
+      const result = await service.startQuiz('quiz-step-1', mockUser);
+      expect(result.attemptId).toBe('attempt-before-video');
     });
 
     it('allows quiz start if step is MANUAL_UNLOCKED even if lessons are unviewed', async () => {

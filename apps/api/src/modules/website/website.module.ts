@@ -1,4 +1,8 @@
 import { Module } from '@nestjs/common';
+import { PrismaModule } from '../../prisma/prisma.module.js';
+import { EmailModule } from '../email/email.module.js';
+import { AuditModule } from '../../common/audit/audit.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 import { ContactController } from './contact.controller.js';
 import { LeadsController } from './leads.controller.js';
 import { MessagesController } from './messages.controller.js';
@@ -8,6 +12,7 @@ import { UploadsController } from './uploads.controller.js';
 
 /** Website content, file uploads, enquiries (CRM), messages and in-app notifications. */
 @Module({
+  imports: [PrismaModule, EmailModule, AuditModule, AuthModule],
   controllers: [
     ContactController,
     SiteContentController,
@@ -18,3 +23,4 @@ import { UploadsController } from './uploads.controller.js';
   ],
 })
 export class WebsiteModule {}
+

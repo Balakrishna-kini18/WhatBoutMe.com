@@ -16,6 +16,7 @@ import {
   QuizQuestion,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
+import LessonNotesPanel from "./components/LessonNotesPanel";
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
   const router = useRouter();
@@ -31,6 +32,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [resumedFrom, setResumedFrom] = useState<{ lessonId: string; timeSec: number } | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
+  const [targetSeekTime, setTargetSeekTime] = useState<number | null>(null);
   const lastHeartbeatTimeRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -68,6 +71,22 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (payload.name) setUserName(payload.name);
         }
       } catch(e) {}
+    }
+
+    // Handle optional jump links from "My Notes" (?lessonId=...&t=...)
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const paramLessonId = sp.get("lessonId");
+      const paramTime = sp.get("t");
+      if (paramLessonId) {
+        setSelectedMediaId(paramLessonId);
+      }
+      if (paramTime) {
+        const parsedTime = parseFloat(paramTime);
+        if (!isNaN(parsedTime) && parsedTime >= 0) {
+          setTargetSeekTime(parsedTime);
+        }
+      }
     }
   }, []);
 
@@ -818,6 +837,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       userName={userName}
                       userEmail={userEmail}
                       durationSec={currentMedia.durationSec}
+                      onTimeUpdate={(sec) => setCurrentVideoTime(sec)}
+                      seekToTime={targetSeekTime}
                       onHeartbeat={(posSec, isEnded, videoDur, delta) => {
                         sendMediaHeartbeat(currentMedia.id, posSec, isEnded, videoDur, delta);
                       }}
@@ -1056,6 +1077,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </ul>
             </div>
           )}
+
+          {/* STUDENT IN-LESSON NOTES & HIGHLIGHTS */}
+          <div style={{ marginTop: "24px" }}>
+            <LessonNotesPanel
+              programId={step.programId}
+              stepId={step.id || stepId}
+              lessonId={currentMedia?.id || textLessons[0]?.id || documents[0]?.id || step.lessons?.[0]?.id || null}
+              lessonTitle={currentMedia?.title || textLessons[0]?.title || documents[0]?.title || step.title}
+              getCurrentVideoTime={() => currentVideoTime}
+              onSeekToVideoTime={(sec) => setTargetSeekTime(sec)}
+            />
+          </div>
 
           <div className={styles.descriptionCard} style={{ marginTop: "20px" }}>
             <h3>About this step</h3>

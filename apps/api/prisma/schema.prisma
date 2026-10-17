@@ -312,6 +312,7 @@ model User {
   createdEvents                Event[]                    @relation("CreatedEvents")
   eventRegistrations           EventRegistration[]        @relation("UserEventRegistrations")
   rejectedEventRegistrations   EventRegistration[]        @relation("RejectedEventRegistrations")
+  studentNotes                 StudentNote[]
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -436,6 +437,7 @@ model Program {
   signedAgreements   SignedAgreement[]
   certificates       Certificate[]
   coupons            Coupon[]                   @relation("CouponPrograms")
+  studentNotes       StudentNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -468,6 +470,7 @@ model Step {
   questions     Question[]
   overrides     BatchStepOverride[]
   progress      StepProgress[]
+  studentNotes  StudentNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -491,12 +494,44 @@ model Lesson {
   status      ContentStatus @default(DRAFT)
 
   progress UserLessonProgress[]
+  studentNotes StudentNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([stepId, order])
   @@index([stepId, status])
+}
+
+// -----------------------------------------------------------------------------
+// STUDENT NOTES & HIGHLIGHTS (TASK 6)
+// -----------------------------------------------------------------------------
+
+model StudentNote {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  programId             String?
+  program               Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  stepId                String?
+  step                  Step?    @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  lessonId              String?
+  lesson                Lesson?  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  noteText              String   @db.Text
+  highlightSnippet      String?  @db.Text
+  videoTimestampSeconds Int?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, lessonId])
+  @@index([userId, stepId])
+  @@index([userId, programId])
 }
 
 model Resource {

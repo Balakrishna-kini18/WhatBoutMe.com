@@ -783,3 +783,130 @@ export interface QuizSubmissionResult {
     title: string;
   } | null;
 }
+
+// -----------------------------------------------------------------------------
+// STUDENT NOTES & HIGHLIGHTS (TASK 6)
+// -----------------------------------------------------------------------------
+
+export interface StudentNote {
+  id: string;
+  userId: string;
+  programId?: string | null;
+  stepId?: string | null;
+  lessonId?: string | null;
+  noteText: string;
+  highlightSnippet?: string | null;
+  videoTimestampSeconds?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  createdAtUtc?: string;
+  updatedAtUtc?: string;
+  step?: {
+    id: string;
+    sequence: number;
+    title: string;
+  } | null;
+  lesson?: {
+    id: string;
+    title: string;
+    type: string;
+  } | null;
+  program?: {
+    id: string;
+    title: string;
+    slug?: string;
+  } | null;
+}
+
+export interface CreateStudentNotePayload {
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  noteText: string;
+  highlightSnippet?: string;
+  videoTimestampSeconds?: number;
+}
+
+export interface UpdateStudentNotePayload {
+  noteText?: string;
+  highlightSnippet?: string;
+  videoTimestampSeconds?: number;
+}
+
+export interface QueryNotesParams {
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  search?: string;
+  sort?: "asc" | "desc";
+}
+
+export async function fetchStudentNotes(params?: QueryNotesParams): Promise<StudentNote[]> {
+  const query = new URLSearchParams();
+  if (params?.programId) query.set("programId", params.programId);
+  if (params?.stepId) query.set("stepId", params.stepId);
+  if (params?.lessonId) query.set("lessonId", params.lessonId);
+  if (params?.search) query.set("search", params.search);
+  if (params?.sort) query.set("sort", params.sort);
+
+  const qs = query.toString();
+  const url = `${API_URL}/notes${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to load student notes");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function fetchLessonNotes(lessonId: string): Promise<StudentNote[]> {
+  const res = await fetch(`${API_URL}/notes/lessons/${lessonId}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to load lesson notes");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function createStudentNote(payload: CreateStudentNotePayload): Promise<StudentNote> {
+  const res = await fetch(`${API_URL}/notes`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to save note");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function updateStudentNote(
+  id: string,
+  payload: UpdateStudentNotePayload
+): Promise<StudentNote> {
+  const res = await fetch(`${API_URL}/notes/${id}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to update note");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function deleteStudentNote(id: string): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${API_URL}/notes/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to delete note");
+    throw new Error(err.message);
+  }
+  return res.json();
+}

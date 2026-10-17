@@ -13,6 +13,8 @@ export interface CompulsoryVideoPlayerProps {
   onHeartbeat: (positionSec: number, isEnded?: boolean, videoDurationSec?: number, deltaSec?: number) => void;
   onComplete: () => void;
   onRestart?: () => void;
+  onTimeUpdate?: (currentSec: number) => void;
+  seekToTime?: number | null;
 }
 
 function formatTime(seconds: number): string {
@@ -39,6 +41,8 @@ export default function CompulsoryVideoPlayer({
   onHeartbeat,
   onComplete,
   onRestart,
+  onTimeUpdate,
+  seekToTime,
 }: CompulsoryVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -122,6 +126,17 @@ export default function CompulsoryVideoPlayer({
     }
   }, [volume]);
 
+  // Synchronize external seekToTime from notes jump
+  useEffect(() => {
+    if (seekToTime != null && videoRef.current && Number.isFinite(seekToTime)) {
+      const allowedMax = Math.max(maxWatchedSecRef.current, initialPositionSec || 0);
+      if (seekToTime <= allowedMax || hasCompletedRef.current) {
+        videoRef.current.currentTime = seekToTime;
+        setCurrentTime(seekToTime);
+      }
+    }
+  }, [seekToTime, initialPositionSec]);
+
   // Handle Fullscreen toggle
   const handleToggleFullscreen = () => {
     if (!containerRef.current) return;
@@ -193,6 +208,9 @@ export default function CompulsoryVideoPlayer({
     const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
 
     setCurrentTime(current);
+    if (onTimeUpdate) {
+      onTimeUpdate(current);
+    }
 
     // Maintain monotonic maxWatchedSec
     if (current > maxWatchedSecRef.current) {

@@ -220,7 +220,7 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
         data: expect.objectContaining({
           userId: 'user-uk',
           type: 'SESSION_REMINDER_24H:sess-24h',
-          channel: NotificationChannel.EMAIL,
+          channel: NotificationChannel.BOTH,
           deliveryStatus: DeliveryStatus.SENT,
         }),
       });

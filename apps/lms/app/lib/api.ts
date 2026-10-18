@@ -653,6 +653,7 @@ export interface QuizProgressItem {
   isPassed: boolean;
   bestScore: number | null;
   attemptsCount: number;
+  quizPlacement?: 'BEFORE_VIDEO' | 'AFTER_VIDEO';
 }
 
 export interface StepProgressionItem {
@@ -676,6 +677,7 @@ export interface StepProgressionItem {
   progressPercent?: number;
   completedItems?: number;
   totalItems?: number;
+  quizPlacement?: 'BEFORE_VIDEO' | 'AFTER_VIDEO';
 }
 
 export interface EnrolmentProgressionResponse {
@@ -709,6 +711,7 @@ export interface EnrolmentProgressionResponse {
 export interface QuizOption {
   id: string;
   text: string;
+  imageUrl?: string | null;
   order: number;
 }
 
@@ -716,6 +719,9 @@ export interface QuizQuestion {
   id: string;
   text: string;
   type: string;
+  imageUrl?: string | null;
+  gradingMode?: string | null;
+  minCharacters?: number | null;
   points: number;
   options: QuizOption[];
 }
@@ -777,3 +783,249 @@ export interface QuizSubmissionResult {
     title: string;
   } | null;
 }
+
+// -----------------------------------------------------------------------------
+// STUDENT NOTES & HIGHLIGHTS (TASK 6)
+// -----------------------------------------------------------------------------
+
+export interface StudentNote {
+  id: string;
+  userId: string;
+  programId?: string | null;
+  stepId?: string | null;
+  lessonId?: string | null;
+  noteText: string;
+  highlightSnippet?: string | null;
+  videoTimestampSeconds?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  createdAtUtc?: string;
+  updatedAtUtc?: string;
+  step?: {
+    id: string;
+    sequence: number;
+    title: string;
+  } | null;
+  lesson?: {
+    id: string;
+    title: string;
+    type: string;
+  } | null;
+  program?: {
+    id: string;
+    title: string;
+    slug?: string;
+  } | null;
+}
+
+export interface CreateStudentNotePayload {
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  noteText: string;
+  highlightSnippet?: string;
+  videoTimestampSeconds?: number;
+}
+
+export interface UpdateStudentNotePayload {
+  noteText?: string;
+  highlightSnippet?: string;
+  videoTimestampSeconds?: number;
+}
+
+export interface QueryNotesParams {
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  search?: string;
+  sort?: "asc" | "desc";
+}
+
+export async function fetchStudentNotes(params?: QueryNotesParams): Promise<StudentNote[]> {
+  const query = new URLSearchParams();
+  if (params?.programId) query.set("programId", params.programId);
+  if (params?.stepId) query.set("stepId", params.stepId);
+  if (params?.lessonId) query.set("lessonId", params.lessonId);
+  if (params?.search) query.set("search", params.search);
+  if (params?.sort) query.set("sort", params.sort);
+
+  const qs = query.toString();
+  const url = `${API_URL}/notes${qs ? `?${qs}` : ""}`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to load student notes");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function fetchLessonNotes(lessonId: string): Promise<StudentNote[]> {
+  const res = await fetch(`${API_URL}/notes/lessons/${lessonId}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to load lesson notes");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function createStudentNote(payload: CreateStudentNotePayload): Promise<StudentNote> {
+  const res = await fetch(`${API_URL}/notes`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to save note");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function updateStudentNote(
+  id: string,
+  payload: UpdateStudentNotePayload
+): Promise<StudentNote> {
+  const res = await fetch(`${API_URL}/notes/${id}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to update note");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function deleteStudentNote(id: string): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${API_URL}/notes/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to delete note");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+// -----------------------------------------------------------------------------
+// WEB PUSH & IN-APP NOTIFICATIONS (TASK 13)
+// -----------------------------------------------------------------------------
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string | null;
+  message: string | null;
+  link: string | null;
+  type: string;
+  template: string;
+  channel: string;
+  deliveryStatus: string;
+  sentAt: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  marketingPush: boolean;
+  courseUpdates: boolean;
+  sessionReminders: boolean;
+}
+
+export function urlBase64ToUint8Array(base64String: string): BufferSource {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const buffer = new ArrayBuffer(rawData.length);
+  const outputArray = new Uint8Array(buffer);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export async function fetchVapidPublicKey(): Promise<string> {
+  const res = await fetch(`${API_URL}/notifications/vapid-public-key`);
+  if (!res.ok) return '';
+  const data = await res.json();
+  return data.publicKey || '';
+}
+
+export async function registerPushSubscription(sub: PushSubscription): Promise<boolean> {
+  const subJson = sub.toJSON();
+  if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return false;
+
+  const res = await fetch(`${API_URL}/notifications/push-subscribe`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      endpoint: subJson.endpoint,
+      keys: {
+        p256dh: subJson.keys.p256dh,
+        auth: subJson.keys.auth,
+      },
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+    }),
+  });
+  return res.ok;
+}
+
+export async function fetchNotifications(limit = 50): Promise<AppNotification[]> {
+  const res = await fetch(`${API_URL}/notifications/mine?limit=${limit}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchUnreadNotificationCount(): Promise<number> {
+  const res = await fetch(`${API_URL}/notifications/unread-count`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return 0;
+  const data = await res.json();
+  return data.unreadCount || 0;
+}
+
+export async function markNotificationAsRead(id: string): Promise<boolean> {
+  const res = await fetch(`${API_URL}/notifications/${id}/read`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+  });
+  return res.ok;
+}
+
+export async function markAllNotificationsAsRead(): Promise<boolean> {
+  const res = await fetch(`${API_URL}/notifications/mark-all-read`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  return res.ok;
+}
+
+export async function fetchNotificationPreferences(): Promise<NotificationPreferences> {
+  const res = await fetch(`${API_URL}/notifications/preferences`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    return { marketingPush: true, courseUpdates: true, sessionReminders: true };
+  }
+  return res.json();
+}
+
+export async function updateNotificationPreferences(prefs: Partial<NotificationPreferences>): Promise<NotificationPreferences> {
+  const res = await fetch(`${API_URL}/notifications/preferences`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(prefs),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to update notification preferences');
+  }
+  return res.json();
+}
+

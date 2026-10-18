@@ -15,6 +15,8 @@ import {
   QuizSubmissionResult,
   QuizQuestion,
 } from "../../lib/api";
+import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
+import LessonNotesPanel from "./components/LessonNotesPanel";
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
   const router = useRouter();
@@ -30,6 +32,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [resumedFrom, setResumedFrom] = useState<{ lessonId: string; timeSec: number } | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
+  const [targetSeekTime, setTargetSeekTime] = useState<number | null>(null);
   const lastHeartbeatTimeRef = useRef<number>(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -44,10 +48,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [videoError, setVideoError] = useState<string | null>(null);
   const [viewingPdf, setViewingPdf] = useState<{ id: string; title: string; url: string } | null>(null);
 
+  const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("Learner");
   const isFetchingRef = useRef<boolean>(false);
 
   useEffect(() => {
+    const rawUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+    if (rawUser) {
+      try {
+        const parsed = JSON.parse(rawUser);
+        if (parsed.name) setUserName(parsed.name);
+        if (parsed.email) setUserEmail(parsed.email);
+      } catch (e) {}
+    }
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
@@ -55,8 +68,25 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         if (parts[1]) {
           const payload = JSON.parse(atob(parts[1]));
           if (payload.email) setUserEmail(payload.email);
+          if (payload.name) setUserName(payload.name);
         }
       } catch(e) {}
+    }
+
+    // Handle optional jump links from "My Notes" (?lessonId=...&t=...)
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const paramLessonId = sp.get("lessonId");
+      const paramTime = sp.get("t");
+      if (paramLessonId) {
+        setSelectedMediaId(paramLessonId);
+      }
+      if (paramTime) {
+        const parsedTime = parseFloat(paramTime);
+        if (!isNaN(parsedTime) && parsedTime >= 0) {
+          setTargetSeekTime(parsedTime);
+        }
+      }
     }
   }, []);
 
@@ -237,13 +267,32 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setIsSubmittingQuiz(true);
 
     try {
-      // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId }] }
+      // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId, optionIds, textAnswer }] }
       const submissionDto = {
         attemptId: activeAttempt.attemptId,
-        answers: questions.map((q) => ({
-          questionId: q.id,
-          optionId: answers[q.id] || undefined,
-        })),
+        answers: questions.map((q) => {
+          const val = answers[q.id];
+          const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+          if (isText) {
+            return {
+              questionId: q.id,
+              textAnswer: typeof val === "string" ? val : "",
+            };
+          }
+          if (typeof val === "string" && val.includes(",")) {
+            const arr = val.split(",").filter(Boolean);
+            return {
+              questionId: q.id,
+              optionIds: arr,
+              selectedOptionIds: arr,
+            };
+          }
+          return {
+            questionId: q.id,
+            optionId: val || undefined,
+            selectedOptionId: val || undefined,
+          };
+        }),
       };
 
       const res = await fetch(`${API_URL}/quizzes/${step.quiz.id}/submit`, {
@@ -275,7 +324,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // D1-035: Video/Audio media playback heartbeat
   const sendMediaHeartbeat = useCallback(
-    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number) => {
+    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number, deltaWatchedSec?: number) => {
       try {
         const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
         const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
@@ -285,6 +334,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             positionSec,
             videoDurationSec: dur > 0 ? dur : undefined,
             isEnded,
+            deltaWatchedSec,
+            timestamp: Date.now(),
           }),
         });
         if (res.ok) {
@@ -375,6 +426,20 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const handleOptionChange = (questionId: string, optionId: string) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
+  };
+
+  const handleMultiOptionToggle = (questionId: string, optionId: string) => {
+    setAnswers((prev) => {
+      const current = prev[questionId] ? prev[questionId].split(",").filter(Boolean) : [];
+      const next = current.includes(optionId)
+        ? current.filter((id) => id !== optionId)
+        : [...current, optionId];
+      return { ...prev, [questionId]: next.join(",") };
+    });
+  };
+
+  const handleTextChange = (questionId: string, text: string) => {
+    setAnswers((prev) => ({ ...prev, [questionId]: text }));
   };
 
   if (loading) {
@@ -545,9 +610,37 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     ? (isStepCompleted && stepCompletedItems >= stepTotalItems ? 100 : Math.min(100, Math.floor((stepCompletedItems / stepTotalItems) * 100)))
     : 100;
 
+  // Placement state machine & unlock rules
+  const effectivePlacement: "BEFORE_VIDEO" | "AFTER_VIDEO" =
+    step.quiz?.quizPlacement ||
+    currentStepProg?.quiz?.quizPlacement ||
+    currentStepProg?.quizPlacement ||
+    step.quizPlacement ||
+    "AFTER_VIDEO";
+
+  const isStaffOverride = currentStepProg?.overrideState === "MANUAL_UNLOCKED";
+
+  const allMediaLessonsCompleted = mediaLessons.length > 0
+    ? mediaLessons.every((m: any) => lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed)
+    : true;
+
+  // When BEFORE_VIDEO: video player is locked until pre-video assessment is passed
+  const isVideoLockedByPreQuiz = effectivePlacement === "BEFORE_VIDEO" && Boolean(quiz) && !isQuizPassed && !isStaffOverride;
+
+  // When AFTER_VIDEO: quiz is locked until compulsory video playback is completed
+  const isQuizLockedByVideo = effectivePlacement === "AFTER_VIDEO" && mediaLessons.length > 0 && !allMediaLessonsCompleted && !isStaffOverride;
+
   const nextStep = (progression?.steps || []).find((s: any) => s.sequence === step.sequence + 1);
 
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = questions.filter((q) => {
+    const val = answers[q.id];
+    if (!val) return false;
+    const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+    if (isText) {
+      return val.trim().length >= (q.minCharacters ?? 10);
+    }
+    return val.trim().length > 0;
+  }).length;
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
 
   return (
@@ -682,204 +775,89 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
           {currentMedia ? (
             <div>
-              {(() => {
-                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
-                let videoSrc = currentMedia.mediaUrl || "";
-                if (isUpload) {
-                  const publicId = currentMedia.mediaUrl.replace("upload:", "");
-                  const streamingKey = publicId.includes(".") ? publicId : `${publicId}.mp4`;
-                  videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                } else if (videoSrc && !videoSrc.startsWith("http") && !videoSrc.startsWith("/")) {
-                  const streamingKey = videoSrc.includes(".") ? videoSrc : `${videoSrc}.mp4`;
-                  videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                }
-
-                return (
-                  <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                    {videoError ? (
-                      <div
-                        style={{
-                          width: "100%",
-                          aspectRatio: "16/9",
-                          backgroundColor: "#0f172a",
-                          borderRadius: "12px",
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "#f8fafc",
-                          padding: "24px",
-                          textAlign: "center",
-                        }}
-                      >
-                        <p style={{ margin: "0 0 12px", fontSize: "1rem", color: "#fca5a5" }}>
-                          ⚠️ Video stream unavailable or loading failed.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVideoError(null);
-                            if (videoRef.current) {
-                              videoRef.current.load();
-                              videoRef.current.play().catch(() => {});
-                            }
-                          }}
-                          className={styles.secondaryBtn}
-                          style={{
-                            padding: "8px 18px",
-                            backgroundColor: "var(--accent-primary, #c97a1e)",
-                            color: "#ffffff",
-                            border: "none",
-                            borderRadius: "8px",
-                            cursor: "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          Retry Playback
-                        </button>
-                      </div>
-                    ) : (
-                      <video
-                        ref={videoRef}
-                        key={`${currentMedia.id}-${videoSrc}`}
-                        controls
-                        playsInline
-                        preload="metadata"
-                        controlsList="nodownload"
-                        onError={() => {
-                          setVideoError("Video stream could not be loaded. Please click Retry Playback.");
-                        }}
-                        onLoadedMetadata={(e) => {
-                          setVideoError(null);
-                          const dur = Math.floor(e.currentTarget.duration || 0);
-                          if (dur > 0 && dur !== currentMedia.durationSec) {
-                            currentMedia.durationSec = dur;
-                          }
-                          const resumeSec = lessonProgress[currentMedia.id]?.lastPositionSec;
-                          if (resumeSec && resumeSec > 5 && dur > 0 && resumeSec < dur - 5) {
-                            e.currentTarget.currentTime = resumeSec;
-                            setResumedFrom({ lessonId: currentMedia.id, timeSec: Math.floor(resumeSec) });
-                          }
-                        }}
-                        onTimeUpdate={(e) => {
-                          const currentSec = Math.floor(e.currentTarget.currentTime);
-                          const duration = Math.floor(e.currentTarget.duration || 0);
-                          const isFinished = duration > 0 && (currentSec >= duration - 2 || (currentSec / duration) >= 0.85);
-
-                          if (isFinished && !lessonProgress[currentMedia.id]?.isCompleted) {
-                            setLessonProgress((prev) => ({
-                              ...prev,
-                              [currentMedia.id]: {
-                                ...(prev[currentMedia.id] || {}),
-                                isCompleted: true,
-                                viewed: true,
-                                progressPercent: 100,
-                                lastPositionSec: duration,
-                              },
-                            }));
-                            sendMediaHeartbeat(currentMedia.id, duration, true, duration);
-                            fetchStepAndProgression();
-                            return;
-                          }
-
-                          const now = Date.now();
-                          if (now - lastHeartbeatTimeRef.current > 10000) {
-                            lastHeartbeatTimeRef.current = now;
-                            sendMediaHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
-                          }
-                        }}
-                        onPause={(e) => {
-                          const currentSec = Math.floor(e.currentTarget.currentTime);
-                          const duration = Math.floor(e.currentTarget.duration || 0);
-                          if (duration > 0 && (currentSec >= duration - 2 || currentSec / duration >= 0.85)) {
-                            sendMediaHeartbeat(currentMedia.id, duration, true, duration);
-                          } else {
-                            sendMediaHeartbeat(currentMedia.id, currentSec, false, duration > 0 ? duration : undefined);
-                          }
-                        }}
-                        onEnded={(e) => {
-                          const duration = Math.floor(e.currentTarget.duration || 0);
-                          setLessonProgress((prev) => ({
-                            ...prev,
-                            [currentMedia.id]: {
-                              ...(prev[currentMedia.id] || {}),
-                              isCompleted: true,
-                              viewed: true,
-                              progressPercent: 100,
-                              lastPositionSec: duration,
-                            },
-                          }));
-                          sendMediaHeartbeat(currentMedia.id, duration, true, duration);
-                          fetchStepAndProgression();
-                        }}
-                        style={{ width: "100%", aspectRatio: "16/9", backgroundColor: "#000", borderRadius: "12px", display: "block" }}
-                        src={videoSrc}
-                      >
-                        Your browser does not support the video tag.
-                      </video>
-                    )}
-                    <img 
-                      src="/brand/logo-dark.png" 
-                      alt="WhatBoutMe"
-                      style={{
-                        position: "absolute",
-                        top: "20px",
-                        right: "20px",
-                        height: "24px",
-                        opacity: 0.7,
-                        pointerEvents: "none",
-                        zIndex: 40,
-                      }}
-                    />
-                    <div className={styles.movingWatermark}>
-                      {userEmail}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Resume Notice with option to start over */}
-              {resumedFrom && resumedFrom.lessonId === currentMedia.id && (
+              {isVideoLockedByPreQuiz ? (
                 <div
                   style={{
-                    marginTop: "8px",
-                    padding: "8px 14px",
-                    backgroundColor: "#f0f9ff",
-                    border: "1px solid #bae6fd",
-                    borderRadius: "8px",
-                    fontSize: "0.85rem",
-                    color: "#0369a1",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
+                    background: "#fffbeb",
+                    border: "2px dashed #fde68a",
+                    borderRadius: "16px",
+                    padding: "48px 24px",
+                    textAlign: "center",
+                    color: "#92400e",
+                    boxShadow: "0 4px 12px rgba(217, 119, 6, 0.08)",
                   }}
                 >
-                  <span>
-                    Resumed playback from <strong>{Math.floor(resumedFrom.timeSec / 60)}:{(resumedFrom.timeSec % 60).toString().padStart(2, "0")}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (videoRef.current) {
-                        videoRef.current.currentTime = 0;
-                      }
-                      setResumedFrom(null);
-                    }}
+                  <div
                     style={{
-                      background: "none",
-                      border: "none",
-                      color: "#0284c7",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                      fontSize: "0.85rem",
-                      padding: 0,
+                      width: 56,
+                      height: 56,
+                      borderRadius: "50%",
+                      background: "#fef3c7",
+                      color: "#b45309",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      margin: "0 auto 16px",
                     }}
                   >
-                    Start from beginning
-                  </button>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                  </div>
+                  <h3 style={{ fontSize: "1.25rem", fontWeight: 800, margin: "0 0 8px", color: "#78350f" }}>
+                    Video Lesson Locked
+                  </h3>
+                  <p style={{ fontSize: "0.98rem", maxWidth: "480px", margin: "0 auto 14px", color: "#92400e", fontWeight: 600 }}>
+                    Complete the pre-video assessment to unlock this video lesson.
+                  </p>
+                  <p style={{ fontSize: "0.85rem", color: "#b45309", margin: 0 }}>
+                    Please answer and pass the questions in the Knowledge Check on the right to start watching.
+                  </p>
                 </div>
+              ) : (
+                (() => {
+                  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                  const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
+                  let videoSrc = currentMedia.mediaUrl || "";
+                  if (isUpload) {
+                    const publicId = currentMedia.mediaUrl.replace("upload:", "");
+                    const streamingKey = publicId.includes(".") ? publicId : `${publicId}.mp4`;
+                    videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+                  } else if (videoSrc && !videoSrc.startsWith("http") && !videoSrc.startsWith("/")) {
+                    const streamingKey = videoSrc.includes(".") ? videoSrc : `${videoSrc}.mp4`;
+                    videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+                  }
+
+                  return (
+                    <CompulsoryVideoPlayer
+                      lessonId={currentMedia.id}
+                      videoSrc={videoSrc}
+                      initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
+                      userName={userName}
+                      userEmail={userEmail}
+                      durationSec={currentMedia.durationSec}
+                      onTimeUpdate={(sec) => setCurrentVideoTime(sec)}
+                      seekToTime={targetSeekTime}
+                      onHeartbeat={(posSec, isEnded, videoDur, delta) => {
+                        sendMediaHeartbeat(currentMedia.id, posSec, isEnded, videoDur, delta);
+                      }}
+                      onComplete={() => {
+                        setLessonProgress((prev) => ({
+                          ...prev,
+                          [currentMedia.id]: {
+                            ...(prev[currentMedia.id] || {}),
+                            isCompleted: true,
+                            viewed: true,
+                            progressPercent: 100,
+                            lastPositionSec: currentMedia.durationSec,
+                          },
+                        }));
+                        fetchStepAndProgression();
+                      }}
+                    />
+                  );
+                })()
               )}
 
               <div style={{ marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
@@ -892,7 +870,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  {lessonProgress[currentMedia.id]?.isCompleted || lessonProgress[currentMedia.id]?.viewed ? (
+                  {isVideoLockedByPreQuiz ? (
+                    <span style={{ color: "#b45309", fontSize: "0.82rem", fontWeight: 700, backgroundColor: "#fef3c7", padding: "4px 10px", borderRadius: "12px", border: "1px solid #fde68a" }}>
+                      Locked by Pre-Assessment
+                    </span>
+                  ) : lessonProgress[currentMedia.id]?.isCompleted || lessonProgress[currentMedia.id]?.viewed ? (
                     <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "6px 14px", borderRadius: "16px", border: "1px solid #bbf7d0" }}>
                       ✓ Watched
                     </span>
@@ -1096,6 +1078,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </div>
           )}
 
+          {/* STUDENT IN-LESSON NOTES & HIGHLIGHTS */}
+          <div style={{ marginTop: "24px" }}>
+            <LessonNotesPanel
+              programId={step.programId}
+              stepId={step.id || stepId}
+              lessonId={currentMedia?.id || textLessons[0]?.id || documents[0]?.id || step.lessons?.[0]?.id || null}
+              lessonTitle={currentMedia?.title || textLessons[0]?.title || documents[0]?.title || step.title}
+              getCurrentVideoTime={() => currentVideoTime}
+              onSeekToVideoTime={(sec) => setTargetSeekTime(sec)}
+            />
+          </div>
+
           <div className={styles.descriptionCard} style={{ marginTop: "20px" }}>
             <h3>About this step</h3>
             <p>{step.description || "No detailed description available."}</p>
@@ -1129,7 +1123,22 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         {/* QUIZ SECTION */}
         <div className={styles.sideColumn}>
           <div className={styles.quizCard}>
-            <h3>Knowledge Check</h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "6px" }}>
+              <h3 style={{ margin: 0 }}>Knowledge Check</h3>
+              {quiz && (
+                <span style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: "6px",
+                  background: effectivePlacement === "BEFORE_VIDEO" ? "#fef3c7" : "#eff6ff",
+                  color: effectivePlacement === "BEFORE_VIDEO" ? "#b45309" : "#1d4ed8",
+                  border: `1px solid ${effectivePlacement === "BEFORE_VIDEO" ? "#fde68a" : "#bfdbfe"}`,
+                }}>
+                  {effectivePlacement === "BEFORE_VIDEO" ? "Pre-Video Assessment" : "Post-Video Assessment"}
+                </span>
+              )}
+            </div>
 
             {quiz ? (
               <>
@@ -1138,11 +1147,45 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   <span>Pool: <strong>{quiz.questionCount ?? 10} questions</strong></span>
                 </div>
 
-                {quizError && (
-                  <div className={styles.errorBanner}>
-                    <strong>Notice:</strong> {quizError}
+                {isQuizLockedByVideo ? (
+                  <div style={{
+                    marginTop: "16px",
+                    padding: "28px 16px",
+                    borderRadius: "12px",
+                    background: "#f8fafc",
+                    border: "2px dashed #cbd5e1",
+                    textAlign: "center",
+                  }}>
+                    <div style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: "50%",
+                      background: "#e2e8f0",
+                      color: "#64748b",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      margin: "0 auto 12px",
+                    }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                    </div>
+                    <h4 style={{ margin: "0 0 6px", fontSize: "1rem", color: "var(--text-primary)" }}>
+                      Quiz Locked
+                    </h4>
+                    <p style={{ margin: 0, fontSize: "0.88rem", fontWeight: 600, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                      Watch the complete video lesson to unlock the quiz.
+                    </p>
                   </div>
-                )}
+                ) : (
+                  <>
+                    {quizError && (
+                      <div className={styles.errorBanner}>
+                        <strong>Notice:</strong> {quizError}
+                      </div>
+                    )}
 
                 {/* 1. QUIZ IN PROGRESS (ACTIVE ATTEMPT) */}
                 {activeAttempt ? (
@@ -1151,37 +1194,135 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       Attempt #{activeAttempt.attemptNumber} in progress. Answer all questions to submit.
                     </div>
 
-                    {questions.map((q, i) => (
-                      <div key={q.id} className={styles.question} style={{ marginBottom: "20px" }}>
-                        <p style={{ fontWeight: 600, marginBottom: "8px" }}>
-                          {i + 1}. {q.text}
-                        </p>
-                        <div className={styles.options}>
-                          {q.options?.map((opt) => {
-                            const isSelected = answers[q.id] === opt.id;
-                            return (
-                              <label
-                                key={opt.id}
-                                className={styles.option}
+                    {questions.map((q, i) => {
+                      const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+                      const isMulti = q.type === "MULTI_SELECT";
+                      const selectedIds = !isText && answers[q.id] ? (answers[q.id] ?? "").split(",").filter(Boolean) : [];
+                      const hasOptionImages = !isText && q.options?.some((opt) => Boolean(opt.imageUrl));
+
+                      return (
+                        <div key={q.id} className={styles.question} style={{ marginBottom: "24px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
+                            <p style={{ fontWeight: 600, margin: 0, fontSize: "0.98rem" }}>
+                              {i + 1}. {q.text}
+                            </p>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600, marginLeft: 8 }}>
+                              {isText ? "Written Reflection" : isMulti ? "Select all that apply" : "Single Choice"}
+                            </span>
+                          </div>
+
+                          {q.imageUrl && (
+                            <div style={{ marginBottom: "12px", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-light)", maxHeight: 220, background: "#f8fafc" }}>
+                              <img
+                                src={q.imageUrl}
+                                alt={`Question ${i + 1} illustration`}
+                                style={{ width: "100%", maxHeight: 220, objectFit: "contain", display: "block" }}
+                              />
+                            </div>
+                          )}
+
+                          {isText ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <textarea
+                                value={answers[q.id] || ""}
+                                onChange={(e) => handleTextChange(q.id, e.target.value)}
+                                placeholder="Write your written reflection or response here (minimum 10 characters)..."
+                                rows={4}
                                 style={{
-                                  background: isSelected ? "var(--accent-highlight)" : "var(--bg-soft)",
-                                  borderColor: isSelected ? "var(--accent-primary)" : "var(--border-light)",
+                                  width: "100%",
+                                  padding: "10px 12px",
+                                  borderRadius: 8,
+                                  border: "1px solid var(--border-light)",
+                                  fontSize: "0.9rem",
+                                  fontFamily: "inherit",
+                                  resize: "vertical",
+                                  outline: "none",
+                                  boxSizing: "border-box",
                                 }}
-                              >
-                                <input
-                                  type="radio"
-                                  name={`q_${q.id}`}
-                                  value={opt.id}
-                                  checked={isSelected}
-                                  onChange={() => handleOptionChange(q.id, opt.id)}
-                                />
-                                {opt.text}
-                              </label>
-                            );
-                          })}
+                              />
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
+                                <span style={{ color: (answers[q.id] || "").trim().length >= (q.minCharacters ?? 10) ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
+                                  {(answers[q.id] || "").trim().length} / {q.minCharacters ?? 10} characters minimum
+                                  {(answers[q.id] || "").trim().length >= (q.minCharacters ?? 10) ? " ✓" : ""}
+                                </span>
+                                <span style={{ color: "var(--text-secondary)" }}>
+                                  {q.gradingMode === "MANUAL_REVIEW" ? "Held for instructor grading" : "Self-reflection auto-pass"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              style={
+                                hasOptionImages
+                                  ? {
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                                      gap: "10px",
+                                    }
+                                  : {
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "8px",
+                                    }
+                              }
+                            >
+                              {q.options?.map((opt) => {
+                                const isChecked = isMulti
+                                  ? selectedIds.includes(opt.id)
+                                  : answers[q.id] === opt.id;
+
+                                return (
+                                  <label
+                                    key={opt.id}
+                                    style={{
+                                      display: "flex",
+                                      flexDirection: hasOptionImages ? "column" : "row",
+                                      alignItems: hasOptionImages ? "stretch" : "center",
+                                      gap: "8px",
+                                      padding: hasOptionImages ? "8px" : "10px 12px",
+                                      borderRadius: "8px",
+                                      border: isChecked ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #e2e8f0)",
+                                      background: isChecked ? "rgba(2, 132, 199, 0.05)" : "var(--bg-card, #ffffff)",
+                                      cursor: "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                  >
+                                    {opt.imageUrl && (
+                                      <div style={{ height: 110, borderRadius: 6, overflow: "hidden", marginBottom: 6, background: "#f1f5f9" }}>
+                                        <img
+                                          src={opt.imageUrl}
+                                          alt={opt.text || "Option visual"}
+                                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                        />
+                                      </div>
+                                    )}
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      <input
+                                        type={isMulti ? "checkbox" : "radio"}
+                                        name={`q_${q.id}`}
+                                        value={opt.id}
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          if (isMulti) {
+                                            handleMultiOptionToggle(q.id, opt.id);
+                                          } else {
+                                            handleOptionChange(q.id, opt.id);
+                                          }
+                                        }}
+                                        style={{ margin: 0, cursor: "pointer" }}
+                                      />
+                                      <span style={{ fontSize: "0.9rem", fontWeight: isChecked ? 600 : 400 }}>
+                                        {opt.text}
+                                      </span>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     <button
                       type="button"
@@ -1336,6 +1477,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       {isStartingQuiz ? "Starting Quiz..." : "Start Quiz"}
                     </button>
                   </div>
+                )}
+                  </>
                 )}
               </>
             ) : (

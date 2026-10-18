@@ -7,30 +7,71 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./layout.module.css";
 import { SITE_URL, signOutEverywhere } from "./lib/site";
 import { API_URL } from "./lib/api";
+import PushNotificationOptIn from "./components/PushNotificationOptIn";
+import {
+  fetchNotifications,
+  fetchUnreadNotificationCount,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  fetchNotificationPreferences,
+  updateNotificationPreferences,
+  type AppNotification,
+  type NotificationPreferences,
+} from "./lib/api";
+
 const VISIT_KEY = "attendance_visit";
 
-type Notice = { id: string; template: string; schedule: string | null; createdAt: string };
+function formatRelativeTime(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (diffSec < 60) return "Just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-
-/** Bell with the learner's reminders (for example, newly scheduled live sessions). */
+/** Real-time Bell with Learner Notifications, unread badge, and delivery preferences. */
 function Notifications() {
-  const [notices, setNotices] = useState<Notice[]>([]);
+  const router = useRouter();
+  const [notices, setNotices] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
+  const [showPrefs, setShowPrefs] = useState(false);
+  const [prefs, setPrefs] = useState<NotificationPreferences>({
+    marketingPush: true,
+    courseUpdates: true,
+    sessionReminders: true,
+  });
+  const [savingPrefs, setSavingPrefs] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  const loadNotifications = async () => {
+    try {
+      const [list, count] = await Promise.all([
+        fetchNotifications(30),
+        fetchUnreadNotificationCount(),
+      ]);
+      setNotices(list);
+      setUnreadCount(count);
+    } catch {
+      // Fallback silently
+    }
+  };
+
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-    fetch(`${API_URL}/notifications/mine`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setNotices(Array.isArray(data) ? data : []))
-      .catch(() => setNotices([]));
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (!open) return;
+    loadNotifications();
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -38,33 +79,403 @@ function Notifications() {
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
+  const handleOpenPrefs = async () => {
+    try {
+      const p = await fetchNotificationPreferences();
+      setPrefs(p);
+      setShowPrefs(true);
+    } catch {
+      setShowPrefs(true);
+    }
+  };
+
+  const handleSavePrefs = async () => {
+    setSavingPrefs(true);
+    try {
+      await updateNotificationPreferences(prefs);
+      setShowPrefs(false);
+    } catch {
+      // Silent error handling
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
+
+  const handleNotificationClick = async (n: AppNotification) => {
+    if (!n.readAt) {
+      markNotificationAsRead(n.id).catch(() => {});
+      setNotices((prev) =>
+        prev.map((item) => (item.id === n.id ? { ...item, readAt: new Date().toISOString() } : item))
+      );
+      setUnreadCount((c) => Math.max(0, c - 1));
+    }
+    setOpen(false);
+    if (n.link) {
+      router.push(n.link);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    await markAllNotificationsAsRead().catch(() => {});
+    setNotices((prev) => prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })));
+    setUnreadCount(0);
+  };
+
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label={`Notifications (${notices.length})`}
+        aria-label={`Notifications (${unreadCount} unread)`}
         aria-expanded={open}
         className={styles.notificationIcon}
-        style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+        style={{
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          padding: "6px",
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: "8px",
+        }}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-        {notices.length > 0 && <div className={styles.notificationDot}></div>}
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+        </svg>
+        {unreadCount > 0 && (
+          <span
+            style={{
+              position: "absolute",
+              top: "2px",
+              right: "2px",
+              background: "#e06d28",
+              color: "#ffffff",
+              fontSize: "0.6875rem",
+              fontWeight: 700,
+              minWidth: "18px",
+              height: "18px",
+              borderRadius: "9px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "0 4px",
+              boxShadow: "0 0 0 2px var(--bg-card)",
+            }}
+          >
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
       </button>
 
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "calc(100% + 12px)", width: "320px", maxHeight: "380px", overflowY: "auto", background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "14px", boxShadow: "0 20px 40px -20px rgba(0,0,0,0.25)", padding: "8px", zIndex: 50 }}>
-          <p style={{ margin: 0, padding: "8px 10px", fontWeight: 700 }}>Notifications</p>
-          {notices.length === 0 ? (
-            <p style={{ margin: 0, padding: "8px 10px 12px", color: "var(--text-secondary)", fontSize: "0.9rem" }}>Nothing new right now.</p>
-          ) : (
-            notices.map((n) => (
-              <div key={n.id} style={{ padding: "10px", borderTop: "1px solid var(--border-light)" }}>
-                <p style={{ margin: 0, fontSize: "0.9rem", fontWeight: 600 }}>{n.template}</p>
-                <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-secondary)" }}>{when(n.schedule || n.createdAt)}</p>
+        <div
+          role="region"
+          aria-label="Notification Center"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "calc(100% + 12px)",
+            width: "360px",
+            maxHeight: "480px",
+            background: "var(--bg-card, #ffffff)",
+            border: "1px solid var(--border-light, #e2e8f0)",
+            borderRadius: "16px",
+            boxShadow: "0 20px 40px -15px rgba(0,0,0,0.2)",
+            display: "flex",
+            flexDirection: "column",
+            zIndex: 100,
+            animation: "fadeIn 0.15s ease-out forwards",
+            overflow: "hidden",
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              padding: "14px 16px",
+              borderBottom: "1px solid var(--border-light, #edf2f7)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "var(--bg-secondary, #fafaf9)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontWeight: 700, fontSize: "0.9375rem" }}>Notifications</span>
+              {unreadCount > 0 && (
+                <span
+                  style={{
+                    background: "#fdf5ea",
+                    color: "#e06d28",
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    border: "1px solid #fae8ce",
+                  }}
+                >
+                  {unreadCount} new
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMarkAllRead}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#e06d28",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                  }}
+                >
+                  Mark all read
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenPrefs}
+                title="Notification Preferences"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-secondary, #718096)",
+                  cursor: "pointer",
+                  padding: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* List */}
+          <div style={{ overflowY: "auto", maxHeight: "380px" }}>
+            {notices.length === 0 ? (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: "var(--text-secondary, #718096)" }}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#cbd5e0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 10px" }}>
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: "0.875rem" }}>No notifications yet</p>
+                <p style={{ margin: "4px 0 0", fontSize: "0.75rem" }}>You are completely caught up!</p>
               </div>
-            ))
-          )}
+            ) : (
+              notices.map((n) => {
+                const isUnread = !n.readAt;
+                return (
+                  <div
+                    key={n.id}
+                    onClick={() => handleNotificationClick(n)}
+                    style={{
+                      padding: "12px 16px",
+                      borderBottom: "1px solid var(--border-light, #edf2f7)",
+                      cursor: n.link ? "pointer" : "default",
+                      background: isUnread ? "rgba(224, 109, 40, 0.04)" : "transparent",
+                      transition: "background 0.15s ease",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "10px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius: "50%",
+                        background: isUnread ? "#e06d28" : "transparent",
+                        marginTop: "6px",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "0.875rem",
+                          fontWeight: isUnread ? 700 : 600,
+                          color: "var(--text-primary, #1a202c)",
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {n.title || n.template}
+                      </p>
+                      {n.message && (
+                        <p
+                          style={{
+                            margin: "4px 0 0",
+                            fontSize: "0.8125rem",
+                            color: "var(--text-secondary, #4a5568)",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {n.message}
+                        </p>
+                      )}
+                      <p
+                        style={{
+                          margin: "6px 0 0",
+                          fontSize: "0.75rem",
+                          color: "var(--text-muted, #a0aec0)",
+                        }}
+                      >
+                        {formatRelativeTime(n.sentAt || n.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Notification Preferences Modal */}
+      {showPrefs && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Notification Preferences"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.45)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              background: "#ffffff",
+              borderRadius: "16px",
+              padding: "24px",
+              maxWidth: "420px",
+              width: "100%",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h3 style={{ margin: 0, fontSize: "1.125rem", fontWeight: 700, color: "#1a202c" }}>
+                Notification Preferences
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPrefs(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#a0aec0", fontSize: "1.25rem", padding: "4px" }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: "0.8125rem", color: "#718096", lineHeight: 1.5, margin: "0 0 20px" }}>
+              Control your push alert and in-app updates. Mandatory transactional emails (payment confirmation, agreement copies, and session access links) are always sent.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={prefs.sessionReminders}
+                  onChange={(e) => setPrefs({ ...prefs, sessionReminders: e.target.checked })}
+                  style={{ marginTop: "3px", accentColor: "#e06d28", width: "16px", height: "16px" }}
+                />
+                <div>
+                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#2d3748", display: "block" }}>
+                    Live Session Reminders
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "#718096" }}>
+                    Receive alerts 24 hours and 1 hour before scheduled cohort workshops.
+                  </span>
+                </div>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={prefs.courseUpdates}
+                  onChange={(e) => setPrefs({ ...prefs, courseUpdates: e.target.checked })}
+                  style={{ marginTop: "3px", accentColor: "#e06d28", width: "16px", height: "16px" }}
+                />
+                <div>
+                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#2d3748", display: "block" }}>
+                    Course &amp; Step Unlocks
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "#718096" }}>
+                    Get notified immediately when a new curriculum step or module becomes available.
+                  </span>
+                </div>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={prefs.marketingPush}
+                  onChange={(e) => setPrefs({ ...prefs, marketingPush: e.target.checked })}
+                  style={{ marginTop: "3px", accentColor: "#e06d28", width: "16px", height: "16px" }}
+                />
+                <div>
+                  <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#2d3748", display: "block" }}>
+                    Public Events &amp; Workshops
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "#718096" }}>
+                    Receive invitations to new live events, guest speaker sessions, and masterclasses.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "24px" }}>
+              <button
+                type="button"
+                onClick={() => setShowPrefs(false)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                  padding: "8px 16px",
+                  fontSize: "0.8125rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePrefs}
+                disabled={savingPrefs}
+                style={{
+                  background: "#e06d28",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "8px 18px",
+                  fontSize: "0.8125rem",
+                  fontWeight: 700,
+                  cursor: savingPrefs ? "not-allowed" : "pointer",
+                  opacity: savingPrefs ? 0.7 : 1,
+                }}
+              >
+                {savingPrefs ? "Saving..." : "Save Preferences"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -317,6 +728,7 @@ export default function LmsMain({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       {children}
+      <PushNotificationOptIn />
     </main>
   );
 }

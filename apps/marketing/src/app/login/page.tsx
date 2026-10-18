@@ -150,10 +150,10 @@ export default function LoginPage() {
               autoComplete="tel"
               required
               pattern="[+0-9][0-9 ()\-]{6,}"
-              title="Enter your mobile number with country code, for example +971 56 546 4014"
+              title="Enter your mobile number with country code, for example +971 50 123 4567"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
-              placeholder="+971 56 546 4014"
+              placeholder="+971 50 123 4567"
               className={FIELD}
             />
           </div>

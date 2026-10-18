@@ -64,6 +64,7 @@ export class QuizzesService {
       maxAttempts: quiz.maxAttempts,
       cooldownHours: quiz.cooldownHours,
       questionCount: quiz.questionCount,
+      quizPlacement: quiz.quizPlacement,
       updated: new Date(quiz.updatedAt).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -111,6 +112,12 @@ export class QuizzesService {
           where: { id: existing.id },
           data: updateFields,
         });
+        if (data.quizPlacement) {
+          await this.prisma.step.update({
+            where: { id: data.stepId },
+            data: { quizPlacement: data.quizPlacement },
+          }).catch(() => {});
+        }
         await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
         return res;
       }
@@ -118,6 +125,12 @@ export class QuizzesService {
 
     const { questions, ...createFields } = data;
     const res = await this.prisma.quiz.create({ data: createFields as any });
+    if (data.quizPlacement && data.stepId) {
+      await this.prisma.step.update({
+        where: { id: data.stepId },
+        data: { quizPlacement: data.quizPlacement },
+      }).catch(() => {});
+    }
     await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
@@ -127,6 +140,12 @@ export class QuizzesService {
       where: { id },
       data,
     });
+    if (data.quizPlacement && res.stepId) {
+      await this.prisma.step.update({
+        where: { id: res.stepId },
+        data: { quizPlacement: data.quizPlacement },
+      }).catch(() => {});
+    }
     await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
@@ -161,6 +180,7 @@ export class QuizzesService {
             programId: true,
             sequence: true,
             status: true,
+            quizPlacement: true,
           },
         },
       },
@@ -231,6 +251,7 @@ export class QuizzesService {
     await this.progressionService.assertStepUnlocked(enrolment.id, quiz.stepId, actor);
 
     // Prerequisite Gate: All published lessons must be viewed unless manually unlocked (D1-034/D1-035)
+    // Only required when quiz is scheduled AFTER_VIDEO
     const stepProgress = await this.prisma.stepProgress.findUnique({
       where: {
         enrolmentId_stepId: {
@@ -240,8 +261,9 @@ export class QuizzesService {
       },
     });
     const isManuallyUnlocked = stepProgress?.overrideState === StepOverrideState.MANUAL_UNLOCKED;
+    const effectivePlacement = quiz.quizPlacement || (quiz.step as any)?.quizPlacement || 'AFTER_VIDEO';
 
-    if (!isManuallyUnlocked) {
+    if (!isManuallyUnlocked && effectivePlacement === 'AFTER_VIDEO') {
       const publishedLessons = await this.prisma.lesson.findMany({
         where: {
           stepId: quiz.stepId,
@@ -280,7 +302,7 @@ export class QuizzesService {
             question: {
               include: {
                 options: {
-                  select: { id: true, text: true, order: true },
+                  select: { id: true, text: true, imageUrl: true, order: true },
                   orderBy: { order: 'asc' },
                 },
               },
@@ -355,7 +377,7 @@ export class QuizzesService {
       },
       include: {
         options: {
-          select: { id: true, text: true, order: true },
+          select: { id: true, text: true, imageUrl: true, order: true },
         },
       },
     });
@@ -368,7 +390,10 @@ export class QuizzesService {
     }
 
     const eligibleQuestions = Array.from(uniqueMap.values()).filter(
-      (q) => Array.isArray(q.options) && q.options.length >= 2,
+      (q) =>
+        q.type === QuestionType.SHORT_ANSWER ||
+        q.type === QuestionType.TEXT_BOX ||
+        (Array.isArray(q.options) && q.options.length >= 2),
     );
 
     const requiredCount = quiz.questionCount ?? 10;
@@ -416,7 +441,7 @@ export class QuizzesService {
             question: {
               include: {
                 options: {
-                  select: { id: true, text: true, order: true },
+                  select: { id: true, text: true, imageUrl: true, order: true },
                   orderBy: { order: 'asc' },
                 },
               },
@@ -518,6 +543,8 @@ export class QuizzesService {
     const answerUpdates: Array<{
       id: string;
       selectedOptionId: string | null;
+      selectedOptionIds: string[];
+      textAnswer: string | null;
       isCorrect: boolean;
       pointsAwarded: number;
     }> = [];
@@ -531,23 +558,82 @@ export class QuizzesService {
       let isCorrect = false;
       let pointsAwarded = 0;
       let selectedOptionId: string | null = null;
+      let selectedOptionIds: string[] = [];
+      let textAnswer: string | null = null;
 
-      if (userSubmission && userSubmission.optionId) {
-        selectedOptionId = userSubmission.optionId;
-        const matchingOption = question.options.find(
-          (o) => o.id === userSubmission.optionId,
-        );
+      const isTextQuestion =
+        question.type === QuestionType.SHORT_ANSWER ||
+        question.type === QuestionType.TEXT_BOX;
 
-        if (!matchingOption) {
-          throw new BadRequestException(
-            `Option ${userSubmission.optionId} does not belong to question ${question.id}`,
-          );
+      const isMultiSelect =
+        question.type === QuestionType.MULTI_SELECT ||
+        (question.type === QuestionType.MULTIPLE_CHOICE &&
+          question.options.filter((o) => o.isCorrect).length > 1);
+
+      if (isTextQuestion) {
+        const text = (
+          userSubmission?.textAnswer ||
+          userSubmission?.textResponse ||
+          ''
+        ).trim();
+        textAnswer = text;
+        const mode = question.gradingMode || 'SELF_REFLECTION_AUTO_PASS';
+        const minChars = question.minCharacters ?? 10;
+
+        if (mode === 'SELF_REFLECTION_AUTO_PASS') {
+          if (text.length >= minChars) {
+            isCorrect = true;
+            pointsAwarded = questionPoints;
+            correctCount += 1;
+          }
+        } else {
+          // MANUAL_REVIEW: hold points for staff review
+          isCorrect = false;
+          pointsAwarded = 0;
         }
+      } else if (isMultiSelect) {
+        const submittedIds: string[] = (
+          userSubmission?.selectedOptionIds ||
+          userSubmission?.optionIds ||
+          (userSubmission?.selectedOptionId ? [userSubmission.selectedOptionId] : []) ||
+          (userSubmission?.optionId ? [userSubmission.optionId] : [])
+        ).filter(Boolean);
+        selectedOptionIds = submittedIds;
 
-        if (matchingOption.isCorrect) {
+        const correctIds = question.options
+          .filter((o) => o.isCorrect)
+          .map((o) => o.id)
+          .sort();
+        const sortedSubmitted = [...submittedIds].sort();
+
+        if (
+          correctIds.length > 0 &&
+          correctIds.length === sortedSubmitted.length &&
+          correctIds.every((id, idx) => id === sortedSubmitted[idx])
+        ) {
           isCorrect = true;
           pointsAwarded = questionPoints;
           correctCount += 1;
+        }
+      } else {
+        // SINGLE_CHOICE or single-correct choice
+        const subOptId =
+          userSubmission?.selectedOptionId || userSubmission?.optionId;
+        if (subOptId) {
+          selectedOptionId = subOptId;
+          const matchingOption = question.options.find((o) => o.id === subOptId);
+
+          if (!matchingOption) {
+            throw new BadRequestException(
+              `Option ${subOptId} does not belong to question ${question.id}`,
+            );
+          }
+
+          if (matchingOption.isCorrect) {
+            isCorrect = true;
+            pointsAwarded = questionPoints;
+            correctCount += 1;
+          }
         }
       }
 
@@ -555,6 +641,8 @@ export class QuizzesService {
       answerUpdates.push({
         id: boundAnswer.id,
         selectedOptionId,
+        selectedOptionIds,
+        textAnswer,
         isCorrect,
         pointsAwarded,
       });
@@ -586,6 +674,8 @@ export class QuizzesService {
           where: { id: update.id },
           data: {
             selectedOptionId: update.selectedOptionId,
+            selectedOptionIds: update.selectedOptionIds,
+            textAnswer: update.textAnswer,
             isCorrect: update.isCorrect,
             pointsAwarded: update.pointsAwarded,
           },
@@ -716,7 +806,7 @@ export class QuizzesService {
             question: {
               include: {
                 options: {
-                  select: { id: true, text: true, order: true },
+                  select: { id: true, text: true, imageUrl: true, order: true },
                   orderBy: { order: 'asc' },
                 },
               },
@@ -952,11 +1042,15 @@ export class QuizzesService {
       stepId: q.stepId,
       type: q.type,
       text: q.text,
+      imageUrl: q.imageUrl,
+      gradingMode: q.gradingMode,
+      minCharacters: q.minCharacters,
       explanation: q.explanation,
       points: q.points,
       options: q.options.map((opt) => ({
         id: opt.id,
         text: opt.text,
+        imageUrl: opt.imageUrl,
         isCorrect: opt.isCorrect,
         order: opt.order,
       })),
@@ -975,13 +1069,20 @@ export class QuizzesService {
       throw new NotFoundException('Quiz not found');
     }
 
-    if (!Array.isArray(dto.options) || dto.options.length < 2) {
-      throw new BadRequestException('A question must have at least 2 options');
-    }
+    const questionType = dto.type ?? QuestionType.MULTIPLE_CHOICE;
+    const isTextQuestion =
+      questionType === QuestionType.SHORT_ANSWER ||
+      questionType === QuestionType.TEXT_BOX;
 
-    const hasCorrect = dto.options.some((o) => o.isCorrect === true);
-    if (!hasCorrect) {
-      throw new BadRequestException('At least one option must be marked as correct');
+    if (!isTextQuestion) {
+      if (!Array.isArray(dto.options) || dto.options.length < 2) {
+        throw new BadRequestException('A choice question must have at least 2 options');
+      }
+
+      const hasCorrect = dto.options.some((o) => o.isCorrect === true);
+      if (!hasCorrect) {
+        throw new BadRequestException('At least one option must be marked as correct');
+      }
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -989,23 +1090,29 @@ export class QuizzesService {
         data: {
           quizId: quiz.id,
           stepId: quiz.stepId,
-          type: dto.type ?? QuestionType.MULTIPLE_CHOICE,
+          type: questionType,
           text: dto.text.trim(),
+          imageUrl: dto.imageUrl?.trim() || null,
+          gradingMode: dto.gradingMode?.trim() || 'SELF_REFLECTION_AUTO_PASS',
+          minCharacters: dto.minCharacters ?? 10,
           explanation: dto.explanation?.trim() || null,
           points: dto.points ?? 1,
         },
       });
 
-      const optionsData = dto.options.map((opt, idx) => ({
-        questionId: question.id,
-        text: opt.text.trim(),
-        isCorrect: Boolean(opt.isCorrect),
-        order: opt.order ?? idx + 1,
-      }));
+      if (!isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0) {
+        const optionsData = dto.options.map((opt, idx) => ({
+          questionId: question.id,
+          text: opt.text.trim(),
+          imageUrl: opt.imageUrl?.trim() || null,
+          isCorrect: Boolean(opt.isCorrect),
+          order: opt.order ?? idx + 1,
+        }));
 
-      await tx.option.createMany({
-        data: optionsData,
-      });
+        await tx.option.createMany({
+          data: optionsData,
+        });
+      }
 
       return tx.question.findUniqueOrThrow({
         where: { id: question.id },
@@ -1031,9 +1138,14 @@ export class QuizzesService {
       throw new NotFoundException('Question not found');
     }
 
-    if (dto.options) {
+    const targetType = dto.type !== undefined ? dto.type : existing.type;
+    const isTextQuestion =
+      targetType === QuestionType.SHORT_ANSWER ||
+      targetType === QuestionType.TEXT_BOX;
+
+    if (!isTextQuestion && dto.options) {
       if (dto.options.length < 2) {
-        throw new BadRequestException('A question must have at least 2 options');
+        throw new BadRequestException('A choice question must have at least 2 options');
       }
       const hasCorrect = dto.options.some((o) => o.isCorrect === true);
       if (!hasCorrect) {
@@ -1045,6 +1157,9 @@ export class QuizzesService {
       const questionUpdateData: any = {};
       if (dto.text !== undefined) questionUpdateData.text = dto.text.trim();
       if (dto.type !== undefined) questionUpdateData.type = dto.type;
+      if (dto.imageUrl !== undefined) questionUpdateData.imageUrl = dto.imageUrl?.trim() || null;
+      if (dto.gradingMode !== undefined) questionUpdateData.gradingMode = dto.gradingMode?.trim() || 'SELF_REFLECTION_AUTO_PASS';
+      if (dto.minCharacters !== undefined) questionUpdateData.minCharacters = dto.minCharacters;
       if (dto.explanation !== undefined) questionUpdateData.explanation = dto.explanation?.trim() || null;
       if (dto.points !== undefined) questionUpdateData.points = dto.points;
 
@@ -1053,19 +1168,22 @@ export class QuizzesService {
         data: questionUpdateData,
       });
 
-      if (dto.options) {
+      if (dto.options !== undefined) {
         await tx.option.deleteMany({
           where: { questionId },
         });
 
-        await tx.option.createMany({
-          data: dto.options.map((opt, idx) => ({
-            questionId,
-            text: opt.text.trim(),
-            isCorrect: Boolean(opt.isCorrect),
-            order: opt.order ?? idx + 1,
-          })),
-        });
+        if (!isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0) {
+          await tx.option.createMany({
+            data: dto.options.map((opt, idx) => ({
+              questionId,
+              text: opt.text.trim(),
+              imageUrl: opt.imageUrl?.trim() || null,
+              isCorrect: Boolean(opt.isCorrect),
+              order: opt.order ?? idx + 1,
+            })),
+          });
+        }
       }
 
       return tx.question.findUniqueOrThrow({
@@ -1240,11 +1358,15 @@ export class QuizzesService {
         text: ans.question.text,
         type: ans.question.type,
         points: ans.question.points,
+        imageUrl: ans.question.imageUrl || null,
+        gradingMode: ans.question.gradingMode || 'SELF_REFLECTION_AUTO_PASS',
+        minCharacters: ans.question.minCharacters ?? 10,
         // Deterministically shuffled options based on attemptId + questionId, stripping isCorrect
         options: this.deterministicShuffle(
           (ans.question.options || []).map((opt: any) => ({
             id: opt.id,
             text: opt.text,
+            imageUrl: opt.imageUrl || null,
             order: opt.order,
           })),
           `${attempt.id}_${ans.question.id}`,

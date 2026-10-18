@@ -195,6 +195,14 @@ export function autoInvalidateOnMutation(url: string): void {
     return;
   }
 
+  const isCrmOrMessages = /\/(leads|messages|conversations|contact)/.test(url);
+  if (isCrmOrMessages) {
+    invalidateCache("/leads");
+    invalidateCache("/messages");
+    invalidateCache("/messages/conversations");
+    return;
+  }
+
   // Fallback: clear the entire cache to guarantee immediate UI updates
   clearApiCache();
 }
@@ -657,11 +665,15 @@ export interface EventItem {
   timezone: string;
   locationType: EventLocationType;
   meetingLink?: string | null;
+  onlineMeetingLink?: string | null;
   venueName?: string | null;
   venueAddress?: string | null;
+  physicalAddress?: string | null;
   price: number;
+  amount?: number;
   currency: CurrencyCode;
   seatLimit?: number | null;
+  capacity?: number | null;
   seatsBooked: number;
   seatsRemaining?: number | null;
   isSoldOut?: boolean;
@@ -670,6 +682,8 @@ export interface EventItem {
   updatedAt: string;
 
   // Backward compatibility aliases
+  startDateTimeUtc?: string;
+  endDateTimeUtc?: string | null;
   startAt?: string;
   endAt?: string;
   location?: string | null;
@@ -682,15 +696,44 @@ export interface CreateEventPayload {
   title: string;
   description: string;
   startDateTime: string;
+  startDateTimeUtc?: string;
   endDateTime?: string;
+  endDateTimeUtc?: string;
   timezone?: string;
   locationType: EventLocationType;
   meetingLink?: string;
+  onlineMeetingLink?: string;
   venueName?: string;
   venueAddress?: string;
+  physicalAddress?: string;
   price: number;
+  amount?: number;
   currency: CurrencyCode;
   seatLimit?: number | null;
+  capacity?: number | null;
+  isPublished?: boolean;
+  bannerUrl?: string;
+}
+
+export interface UpdateEventPayload {
+  title?: string;
+  description?: string;
+  startDateTime?: string;
+  startDateTimeUtc?: string;
+  endDateTime?: string;
+  endDateTimeUtc?: string;
+  timezone?: string;
+  locationType?: EventLocationType;
+  meetingLink?: string;
+  onlineMeetingLink?: string;
+  venueName?: string;
+  venueAddress?: string;
+  physicalAddress?: string;
+  price?: number;
+  amount?: number;
+  currency?: CurrencyCode;
+  seatLimit?: number | null;
+  capacity?: number | null;
   isPublished?: boolean;
   bannerUrl?: string;
 }
@@ -745,6 +788,7 @@ export interface GalleryItem {
   altText?: string | null;
   category?: string | null;
   displayOrder: number;
+  sortOrder?: number;
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
@@ -757,6 +801,7 @@ export interface CreateGalleryItemPayload {
   altText?: string;
   category?: string;
   displayOrder?: number;
+  sortOrder?: number;
   isPublished?: boolean;
 }
 
@@ -767,6 +812,7 @@ export interface UpdateGalleryItemPayload {
   altText?: string;
   category?: string;
   displayOrder?: number;
+  sortOrder?: number;
   isPublished?: boolean;
 }
 
@@ -779,7 +825,11 @@ export async function getAdminGallery(params?: {
   if (params?.isPublished !== undefined) query.set("isPublished", String(params.isPublished));
   const queryString = query.toString();
   const endpoint = queryString ? `/admin/gallery?${queryString}` : "/admin/gallery";
-  return apiGet<{ items: GalleryItem[]; total: number }>(endpoint);
+  const data = await apiGet<{ items: GalleryItem[]; total: number } | GalleryItem[]>(endpoint);
+  if (Array.isArray(data)) {
+    return { items: data, total: data.length };
+  }
+  return { items: data.items || [], total: data.total ?? (data.items?.length || 0) };
 }
 
 export async function uploadGalleryImage(file: File): Promise<{ imageUrl: string }> {
@@ -828,4 +878,137 @@ export async function updateGalleryItem(
 export async function deleteGalleryItem(id: string): Promise<{ success: boolean; id: string }> {
   return apiDelete<{ success: boolean; id: string }>(`/admin/gallery/${id}`);
 }
+
+// -----------------------------------------------------------------------------
+// PAYMENTS & INVOICES INTERFACES & HELPERS
+// -----------------------------------------------------------------------------
+
+export interface InvoiceItem {
+  id: string;
+  invoiceNumber: string;
+  client: string;
+  clientEmail?: string | null;
+  amount: string;
+  numericAmount?: number;
+  currency?: string;
+  status: string;
+  pdfUrl?: string | null;
+  creditNoteId?: string | null;
+  date: string;
+}
+
+export interface SimulateTestPaymentPayload {
+  targetType: "ENROLMENT" | "EVENT";
+  targetId?: string;
+  enrolmentId?: string;
+  eventRegistrationId?: string;
+  userId?: string;
+  amount?: number;
+  currency?: "USD" | "AED" | "INR";
+  status?: "PAID" | "FAILED";
+  failureReason?: string;
+  idempotencyKey?: string;
+  couponCode?: string;
+}
+
+export interface SimulateTestPaymentResponse {
+  success: boolean;
+  status: "PAID" | "FAILED";
+  enrolmentId?: string;
+  paymentId?: string;
+  invoiceNumber?: string | null;
+  invoiceUrl?: string | null;
+  idempotent?: boolean;
+  message?: string;
+}
+
+export async function simulateTestPayment(
+  payload: SimulateTestPaymentPayload
+): Promise<SimulateTestPaymentResponse> {
+  return apiPost<SimulateTestPaymentResponse>("/payments/webhook/test-simulate", payload);
+}
+
+export async function resendInvoice(id: string): Promise<{ success: boolean; message: string }> {
+  return apiPost<{ success: boolean; message: string }>(`/invoices/${id}/resend`, {});
+}
+
+export function getInvoicePdfUrl(id: string): string {
+  return `${API_URL}/invoices/${id}/pdf`;
+}
+
+export function getInvoiceDownloadUrl(id: string): string {
+  return `${API_URL}/invoices/${id}/download`;
+}
+
+export interface CourseFaq {
+  id: string;
+  question: string;
+  answer: string;
+  sortOrder: number;
+}
+
+export async function duplicateProgram(id: string): Promise<any> {
+  return apiPost<any>(`/programs/${id}/duplicate`, {});
+}
+
+// -----------------------------------------------------------------------------
+// NOTIFICATION BROADCAST & DELIVERY LOGS (TASK 13)
+// -----------------------------------------------------------------------------
+
+export interface BroadcastNotificationPayload {
+  target: 'ALL' | 'BATCH' | 'USER';
+  targetId?: string;
+  title: string;
+  message: string;
+  link?: string;
+  channels: ('IN_APP' | 'PUSH' | 'EMAIL')[];
+}
+
+export interface BroadcastResult {
+  success: boolean;
+  recipientsCount: number;
+  inAppSent: number;
+  pushSent: number;
+  emailSent: number;
+}
+
+export interface NotificationLogItem {
+  id: string;
+  title: string;
+  message: string | null;
+  recipient: string;
+  recipientName: string | null;
+  userTimezone: string;
+  channel: string;
+  deliveryStatus: string;
+  createdAtUtc: string;
+  sentAtUtc: string | null;
+  readAtUtc: string | null;
+}
+
+export interface EmailLogItem {
+  id: string;
+  to: string;
+  subject: string;
+  template: string | null;
+  status: string;
+  providerId: string | null;
+  error: string | null;
+  createdAtUtc: string;
+}
+
+export interface DeliveryLogsResponse {
+  notifications: NotificationLogItem[];
+  emails: EmailLogItem[];
+}
+
+export async function broadcastNotification(payload: BroadcastNotificationPayload): Promise<BroadcastResult> {
+  return apiPost<BroadcastResult>('/notifications/broadcast', payload);
+}
+
+export async function fetchDeliveryLogs(limit = 50): Promise<DeliveryLogsResponse> {
+  return apiGet<DeliveryLogsResponse>(`/notifications/logs?limit=${limit}`);
+}
+
+
 

@@ -387,6 +387,45 @@ export default function Step6AddVideoLesson({
                 </span>
               </label>
             </div>
+
+            {/* Compulsory Video Player & Anti-Skip Policy */}
+            <div
+              style={{
+                marginTop: "1.25rem",
+                padding: "14px 16px",
+                background: "linear-gradient(135deg, #f8fafc, #f1f5f9)",
+                border: "1px solid #e2e8f0",
+                borderRadius: "10px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                <span style={{ fontSize: "1rem" }}>🔒</span>
+                <strong style={{ fontSize: "0.88rem", color: "#0f172a" }}>
+                  Compulsory Playback &amp; Anti-Skip Security
+                </strong>
+              </div>
+              <p style={{ margin: "0 0 10px", fontSize: "0.78rem", color: "#64748b", lineHeight: 1.45 }}>
+                Enforced server-side for LMS compliance and course completion accreditation:
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem", color: "#334155" }}>
+                  <span style={{ color: "#16a34a", fontWeight: "bold" }}>✓</span>
+                  <span><strong>Anti-Skip Lock:</strong> 10s skip buttons removed; timeline scrub bar is locked.</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem", color: "#334155" }}>
+                  <span style={{ color: "#16a34a", fontWeight: "bold" }}>✓</span>
+                  <span><strong>Speed Lock:</strong> Playback rate strictly locked to 1.0x (no acceleration).</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem", color: "#334155" }}>
+                  <span style={{ color: "#16a34a", fontWeight: "bold" }}>✓</span>
+                  <span><strong>Dynamic Watermark:</strong> Learner name &amp; email overlay deters screen recording.</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem", color: "#334155" }}>
+                  <span style={{ color: "#16a34a", fontWeight: "bold" }}>✓</span>
+                  <span><strong>Server Validation:</strong> Step progression unlocks only upon &ge; 95% watch threshold.</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

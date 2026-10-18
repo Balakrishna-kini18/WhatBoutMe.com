@@ -1,7 +1,6 @@
 /**
- * Course details parser for LMS
- *
- * Course details are stored inside a program's plain-text description:
+ * Course details are stored inside a program's plain-text description, so the
+ * admin portal can manage them without any change to the API or database.
  *
  *   Summary paragraph.
  *
@@ -10,12 +9,24 @@
  *   For: Individuals · Teams
  *   In person: 2 hours · Speaker 60 min
  *   Online: 12 live classes · 2 hours each
- *   Image: https://res.cloudinary.com/...
+ *   Image: https://...
  *
  *   What it covers:
  *   - First point
  *   - Second point
+ *
+ *   Course FAQs:
+ *   Q: First question?
+ *   A: First answer.
+ *
+ * Keep this file identical in the marketing site and the admin app.
  */
+export type CourseFaq = {
+  id?: string;
+  question: string;
+  answer: string;
+  sortOrder?: number;
+};
 
 export type CourseInfo = {
   summary: string;
@@ -26,7 +37,21 @@ export type CourseInfo = {
   online: string;
   image: string;
   points: string[];
+  faqs?: CourseFaq[];
 };
+
+const FIELDS: [label: string, key: Exclude<keyof CourseInfo, "summary" | "points" | "faqs">][] = [
+  ["Type", "type"],
+  ["Duration", "duration"],
+  ["For", "audience"],
+  ["In person", "inPerson"],
+  ["Online", "online"],
+  ["Image", "image"],
+];
+
+const POINTS_HEADING = "What it covers:";
+const FAQS_HEADING = "Course FAQs:";
+const ALT_FAQS_HEADING = "FAQs:";
 
 export function parseCourseInfo(description?: string | null): CourseInfo {
   const info: CourseInfo = {
@@ -38,86 +63,97 @@ export function parseCourseInfo(description?: string | null): CourseInfo {
     online: "",
     image: "",
     points: [],
+    faqs: [],
   };
+  const summary: string[] = [];
+  let inFaqSection = false;
+  let currentFaq: CourseFaq | null = null;
 
-  if (!description) return info;
+  for (const raw of (description ?? "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
 
-  const text = description.trim();
+    if (
+      line.toLowerCase() === FAQS_HEADING.toLowerCase() ||
+      line.toLowerCase() === ALT_FAQS_HEADING.toLowerCase()
+    ) {
+      inFaqSection = true;
+      continue;
+    }
 
-  // Extract Image URL if present (URLs don't contain whitespace or newlines)
-  const imageMatch = text.match(/\bImage:\s*([^\s\n\r]+)/i);
-  if (imageMatch && imageMatch[1]) {
-    info.image = imageMatch[1].replace(/[.,;)]+$/, "").trim();
-  }
+    if (line.toLowerCase() === POINTS_HEADING.toLowerCase()) {
+      inFaqSection = false;
+      continue;
+    }
 
-  // Next field or newline lookahead pattern
-  const nextFieldOrEnd = "(?=\\s*(?:Duration:|For:|In person:|Online:|Image:|What it covers:|$|\\r?\\n))";
-
-  // Extract Type if present
-  const typeMatch = text.match(new RegExp(`\\bType:\\s*([^:\\n\\r]+?)${nextFieldOrEnd}`, "i"));
-  if (typeMatch && typeMatch[1]) {
-    info.type = typeMatch[1].trim();
-  }
-
-  // Extract Duration if present
-  const nextFieldForDuration = "(?=\\s*(?:Type:|For:|In person:|Online:|Image:|What it covers:|$|\\r?\\n))";
-  const durationMatch = text.match(new RegExp(`\\bDuration:\\s*([^:\\n\\r]+?)${nextFieldForDuration}`, "i"));
-  if (durationMatch && durationMatch[1]) {
-    info.duration = durationMatch[1].trim();
-  }
-
-  // Extract Audience (For:)
-  const nextFieldForAudience = "(?=\\s*(?:Type:|Duration:|In person:|Online:|Image:|What it covers:|$|\\r?\\n))";
-  const audienceMatch = text.match(new RegExp(`\\bFor:\\s*([^:\\n\\r]+?)${nextFieldForAudience}`, "i"));
-  if (audienceMatch && audienceMatch[1]) {
-    info.audience = audienceMatch[1].trim();
-  }
-
-  // Extract In person
-  const nextFieldForInPerson = "(?=\\s*(?:Type:|Duration:|For:|Online:|Image:|What it covers:|$|\\r?\\n))";
-  const inPersonMatch = text.match(new RegExp(`\\bIn person:\\s*([^:\\n\\r]+?)${nextFieldForInPerson}`, "i"));
-  if (inPersonMatch && inPersonMatch[1]) {
-    info.inPerson = inPersonMatch[1].trim();
-  }
-
-  // Extract Online
-  const nextFieldForOnline = "(?=\\s*(?:Type:|Duration:|For:|In person:|Image:|What it covers:|$|\\r?\\n))";
-  const onlineMatch = text.match(new RegExp(`\\bOnline:\\s*([^:\\n\\r]+?)${nextFieldForOnline}`, "i"));
-  if (onlineMatch && onlineMatch[1]) {
-    info.online = onlineMatch[1].trim();
-  }
-
-  // Extract What it covers points
-  const pointsMatch = text.match(/What it covers:\s*([\s\S]*)/i);
-  if (pointsMatch && pointsMatch[1]) {
-    const rawPoints = pointsMatch[1];
-    // Split by newlines or bullet markers
-    const items = rawPoints.split(/(?:\r?\n|[-•])+/);
-    for (const item of items) {
-      const clean = item.replace(/^[-•]\s*/, "").trim();
-      if (clean && clean.length > 1) {
-        info.points.push(clean);
+    if (inFaqSection) {
+      if (/^q(?:uestion)?[:.]\s*/i.test(line)) {
+        if (currentFaq && currentFaq.question.trim() && currentFaq.answer.trim()) {
+          info.faqs!.push(currentFaq);
+        }
+        currentFaq = {
+          question: line.replace(/^q(?:uestion)?[:.]\s*/i, "").trim(),
+          answer: "",
+          sortOrder: info.faqs!.length,
+        };
+        continue;
       }
+      if (/^a(?:nswer)?[:.]\s*/i.test(line)) {
+        if (currentFaq) {
+          currentFaq.answer = line.replace(/^a(?:nswer)?[:.]\s*/i, "").trim();
+        }
+        continue;
+      }
+      if (currentFaq) {
+        currentFaq.answer = currentFaq.answer
+          ? `${currentFaq.answer}\n${line}`
+          : line;
+        continue;
+      }
+    }
+
+    if (/^[-•]\s+/.test(line)) {
+      info.points.push(line.replace(/^[-•]\s+/, ""));
+      continue;
+    }
+
+    const field = FIELDS.find(([label]) =>
+      line.toLowerCase().startsWith(`${label.toLowerCase()}:`),
+    );
+    if (field) {
+      info[field[1]] = line.slice(field[0].length + 1).trim();
+      continue;
+    }
+
+    if (!inFaqSection) {
+      summary.push(line);
     }
   }
 
-  // Clean summary: everything before the first metadata field
-  const firstFieldMatch = text.search(
-    /\b(?:Type:|Duration:|For:|In person:|Online:|Image:|What it covers:)/i
-  );
-  if (firstFieldMatch !== -1) {
-    info.summary = text.slice(0, firstFieldMatch).trim();
-  } else {
-    info.summary = text;
+  if (currentFaq && currentFaq.question.trim() && currentFaq.answer.trim()) {
+    info.faqs!.push(currentFaq);
   }
 
-  // If summary ended up empty (e.g. metadata started first), fall back to text without fields
-  if (!info.summary) {
-    info.summary = text
-      .replace(/\b(?:Type|Duration|For|In person|Online|Image):\s*[^\n\r]+/gi, "")
-      .replace(/What it covers:[\s\S]*/gi, "")
-      .trim();
-  }
-
+  info.summary = summary.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   return info;
+}
+
+export function formatCourseInfo(info: CourseInfo): string {
+  const fields = FIELDS.filter(([, key]) => info[key].trim()).map(
+    ([label, key]) => `${label}: ${info[key].trim()}`,
+  );
+  const points = info.points.map((p) => p.trim()).filter(Boolean);
+  const validFaqs = (info.faqs || [])
+    .filter((f) => f && f.question?.trim() && f.answer?.trim())
+    .map((f, i) => `Q: ${f.question.trim()}\nA: ${f.answer.trim()}`)
+    .join("\n\n");
+
+  return [
+    info.summary.trim(),
+    fields.join("\n"),
+    points.length ? [POINTS_HEADING, ...points.map((p) => `- ${p}`)].join("\n") : "",
+    validFaqs ? [FAQS_HEADING, validFaqs].join("\n") : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

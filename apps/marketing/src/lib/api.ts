@@ -37,6 +37,7 @@ export interface Program {
   isActive: boolean;
   hasCertificate: boolean;
   certificateTemplate?: string | null;
+  faqs?: any;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,6 +75,20 @@ export async function getPrograms(): Promise<Program[]> {
   } catch (error) {
     console.error("Error fetching programs from backend:", error);
     return [];
+  }
+}
+
+export async function getPublicPrograms(): Promise<Program[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/programs/public`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return getPrograms();
+    }
+    return await res.json();
+  } catch {
+    return getPrograms();
   }
 }
 
@@ -201,11 +216,15 @@ export interface EventItem {
   timezone: string;
   locationType: EventLocationType;
   meetingLink?: string | null;
+  onlineMeetingLink?: string | null;
   venueName?: string | null;
   venueAddress?: string | null;
+  physicalAddress?: string | null;
   price: number;
+  amount?: number;
   currency: CurrencyCode;
   seatLimit?: number | null;
+  capacity?: number | null;
   seatsBooked: number;
   seatsRemaining?: number | null;
   isSoldOut?: boolean;
@@ -216,6 +235,8 @@ export interface EventItem {
   // Backward compatibility aliases
   type?: "EVENT" | "WEBINAR";
   status?: "SCHEDULED" | "REGISTRATION_OPEN" | "ONGOING" | "ENDED" | "CANCELLED";
+  startDateTimeUtc?: string;
+  endDateTimeUtc?: string | null;
   startAt?: string;
   endAt?: string;
   location?: string | null;
@@ -421,6 +442,7 @@ export interface PublicGalleryItem {
   altText?: string | null;
   category?: string | null;
   displayOrder: number;
+  sortOrder?: number;
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
@@ -439,11 +461,66 @@ export async function getPublicGallery(category?: string): Promise<{ items: Publ
     if (!res.ok) {
       return { items: [], total: 0 };
     }
-    return await res.json();
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      return { items: data, total: data.length };
+    }
+    return { items: data.items || [], total: data.total ?? (data.items?.length || 0) };
   } catch (error) {
     console.warn("Failed to fetch public gallery:", error);
     return { items: [], total: 0 };
   }
 }
+
+// -----------------------------------------------------------------------------
+// WEB PUSH HELPERS (TASK 13)
+// -----------------------------------------------------------------------------
+
+export function urlBase64ToUint8Array(base64String: string): BufferSource {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const buffer = new ArrayBuffer(rawData.length);
+  const outputArray = new Uint8Array(buffer);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export async function fetchVapidPublicKey(): Promise<string> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/notifications/vapid-public-key`);
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data.publicKey || '';
+  } catch {
+    return '';
+  }
+}
+
+export async function registerPushSubscription(sub: PushSubscription): Promise<boolean> {
+  const subJson = sub.toJSON();
+  if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) return false;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/notifications/push-subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: subJson.endpoint,
+        keys: {
+          p256dh: subJson.keys.p256dh,
+          auth: subJson.keys.auth,
+        },
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 
 

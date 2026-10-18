@@ -18,13 +18,26 @@ export class QuizAnswerSubmissionDto {
   optionId?: string;
 
   @IsOptional()
+  @IsUUID('4', { message: 'selectedOptionId must be a valid UUID' })
+  selectedOptionId?: string;
+
+  @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true, message: 'Each optionId must be a valid UUID' })
   optionIds?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true, message: 'Each selectedOptionId must be a valid UUID' })
+  selectedOptionIds?: string[];
+
+  @IsOptional()
   @IsString()
   textAnswer?: string;
+
+  @IsOptional()
+  @IsString()
+  textResponse?: string;
 }
 
 export class SubmitQuizDto {

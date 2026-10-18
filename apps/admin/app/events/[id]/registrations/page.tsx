@@ -15,6 +15,7 @@ import type { StatusTone } from "../../../components";
 
 const paymentStatusToneMap: Record<string, StatusTone> = {
   PAID: "completed",
+  REGISTERED: "completed",
   PENDING: "pending",
   FAILED: "error",
   REFUNDED: "neutral",
@@ -373,8 +374,8 @@ export default function EventRegistrationsPage({
                     </td>
                     <td className={styles.td}>
                       <StatusBadge
-                        status={reg.paymentStatus}
-                        tone={paymentStatusToneMap[reg.paymentStatus] || "neutral"}
+                        status={reg.paymentStatus === "PAID" ? "REGISTERED" : reg.paymentStatus}
+                        tone={paymentStatusToneMap[reg.paymentStatus === "PAID" ? "REGISTERED" : reg.paymentStatus] || "neutral"}
                       />
                     </td>
                     <td className={styles.td}>

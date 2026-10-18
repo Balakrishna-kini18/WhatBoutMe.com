@@ -33,6 +33,7 @@ describe('Phase 5: BatchAttendanceController Integration & Endpoint Tests', () =
 
     reconciliationServiceMock = {
       linkUnmatchedParticipant: vi.fn(),
+      reconcileSession: vi.fn(),
     };
 
     certificatesServiceMock = {
@@ -233,6 +234,82 @@ describe('Phase 5: BatchAttendanceController Integration & Endpoint Tests', () =
         'Confirmed Bob joined via phone hotspot',
       );
       expect(result.status).toBe('LINKED');
+    });
+  });
+
+  describe('POST /api/batches/:batchId/sessions/:sessionId/sync-attendance', () => {
+    it('returns success: false with message if session has no meeting ID or valid link', async () => {
+      prismaMock.session.findUnique.mockResolvedValue({
+        id: 'sess-100',
+        batchId: 'batch-200',
+        providerMeetingId: null,
+        zoomMeetingId: null,
+        meetingLink: null,
+        joinUrl: null,
+      });
+
+      const result = await controller.syncSessionAttendance('batch-200', 'sess-100');
+
+      expect(result.success).toBe(false);
+      expect(result.participantCount).toBe(0);
+      expect(result.message).toContain('No meeting ID');
+      expect(reconciliationServiceMock.reconcileSession).not.toHaveBeenCalled();
+    });
+
+    it('guards against empty participant reports and prevents accidental no-show marking', async () => {
+      prismaMock.session.findUnique.mockResolvedValue({
+        id: 'sess-100',
+        batchId: 'batch-200',
+        providerMeetingId: '987654321',
+        meetingProvider: 'ZOOM',
+      });
+
+      const meetingProviderMock = {
+        getParticipantReport: vi.fn().mockResolvedValue([]),
+      };
+      (controller as any).meetingProvider = meetingProviderMock;
+
+      const result = await controller.syncSessionAttendance('batch-200', 'sess-100');
+
+      expect(result.success).toBe(false);
+      expect(result.participantCount).toBe(0);
+      expect(result.message).toContain('No meeting participant records found yet');
+      expect(reconciliationServiceMock.reconcileSession).not.toHaveBeenCalled();
+    });
+
+    it('extracts meetingId from joinUrl regex and reconciles participants successfully', async () => {
+      prismaMock.session.findUnique.mockResolvedValue({
+        id: 'sess-100',
+        batchId: 'batch-200',
+        providerMeetingId: null,
+        zoomMeetingId: null,
+        joinUrl: 'https://zoom.us/j/987654321?pwd=abc',
+        meetingProvider: 'ZOOM',
+        startTime: new Date('2026-10-15T10:00:00Z'),
+        endTime: new Date('2026-10-15T11:00:00Z'),
+      });
+
+      const mockParticipants = [
+        {
+          userEmail: 'alice@example.com',
+          name: 'Alice Smith',
+          joinTime: '2026-10-15T10:00:00Z',
+          leaveTime: '2026-10-15T11:00:00Z',
+        },
+      ];
+
+      const meetingProviderMock = {
+        getParticipantReport: vi.fn().mockResolvedValue(mockParticipants),
+      };
+      (controller as any).meetingProvider = meetingProviderMock;
+      reconciliationServiceMock.reconcileSession = vi.fn().mockResolvedValue({ success: true });
+
+      const result = await controller.syncSessionAttendance('batch-200', 'sess-100');
+
+      expect(meetingProviderMock.getParticipantReport).toHaveBeenCalledWith('987654321');
+      expect(reconciliationServiceMock.reconcileSession).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+      expect(result.participantCount).toBe(1);
     });
   });
 });

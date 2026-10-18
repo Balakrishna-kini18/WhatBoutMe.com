@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AttendanceComplianceService } from './attendance-compliance.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';

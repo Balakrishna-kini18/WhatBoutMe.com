@@ -23,6 +23,7 @@ import { Permission } from '../../config/permissions.config.js';
 import { ManualAttendanceOverrideDto } from './dto/manual-attendance-override.dto.js';
 import { LinkUnmatchedDto } from './dto/link-unmatched.dto.js';
 import { CertificatesService } from '../certificates/certificates.service.js';
+import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.interface.js';
 import { AttendanceStatus, AttendanceSource } from '@prisma/client';
 
 @Controller('batches/:batchId/sessions/:sessionId')
@@ -35,6 +36,9 @@ export class BatchAttendanceController {
     @Optional()
     @Inject(forwardRef(() => CertificatesService))
     private readonly certificatesService?: CertificatesService,
+    @Optional()
+    @Inject(MEETING_PROVIDER)
+    private readonly meetingProvider?: any,
   ) {}
 
   /**
@@ -280,5 +284,93 @@ export class BatchAttendanceController {
       actor,
       body.reason,
     );
+  }
+
+  /**
+   * Pulls Zoom/Meet participant reports (join time, leave time, minutes present),
+   * matches enrolled learners by email, enforces attendance threshold (75%),
+   * and routes unmatched participants to the reconciliation queue.
+   * POST /api/batches/:batchId/sessions/:sessionId/sync-attendance
+   * Roles: SUPER_ADMIN, ADMIN, MANAGER (assigned to batch).
+   */
+  @RequirePermission(Permission.ATTENDANCE_RECONCILE)
+  @Post('sync-attendance')
+  async syncSessionAttendance(
+    @Param('batchId') batchId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.batchId !== batchId) {
+      throw new NotFoundException('Session not found for the specified batch');
+    }
+
+    let meetingId = session.providerMeetingId || session.zoomMeetingId;
+    if (!meetingId) {
+      const link = session.joinUrl || session.meetingLink || '';
+      const zoomMatch = link.match(/zoom\.us\/(?:j|s|my)\/(\d+)/i);
+      if (zoomMatch) {
+        meetingId = zoomMatch[1];
+      }
+    }
+
+    if (!meetingId) {
+      return {
+        success: false,
+        sessionId,
+        participantCount: 0,
+        message: 'No meeting ID or Zoom link associated with this session. Please verify session meeting configuration.',
+      };
+    }
+
+    let rawParticipants: any[] = [];
+
+    if (
+      this.meetingProvider &&
+      typeof this.meetingProvider.getParticipantReport === 'function'
+    ) {
+      try {
+        const report = await this.meetingProvider.getParticipantReport(meetingId);
+        if (Array.isArray(report)) {
+          rawParticipants = report.map((p) => ({
+            provider: session.meetingProvider || 'ZOOM',
+            providerId: p.providerId || meetingId,
+            participantEmail: p.participantEmail || p.userEmail,
+            participantName: p.participantName || p.name,
+            joinTime: new Date(p.joinTimeUtc || p.joinTime || session.startTime),
+            leaveTime: new Date(p.leaveTimeUtc || p.leaveTime || session.endTime),
+            rawPayload: p.rawPayload || p,
+          }));
+        }
+      } catch (err: any) {
+        // Log warning without failing reconciliation
+        console.warn(
+          `[BatchAttendanceController] Could not fetch external participant report: ${err.message}`,
+        );
+      }
+    }
+
+    if (rawParticipants.length === 0) {
+      return {
+        success: false,
+        sessionId,
+        participantCount: 0,
+        message: 'No meeting participant records found yet from provider. If the session just concluded, cloud processing may take 1-2 minutes.',
+      };
+    }
+
+    const reconciliation = await this.reconciliationService.reconcileSession(
+      sessionId,
+      rawParticipants,
+    );
+
+    return {
+      success: true,
+      sessionId,
+      participantCount: rawParticipants.length,
+      reconciliation,
+    };
   }
 }

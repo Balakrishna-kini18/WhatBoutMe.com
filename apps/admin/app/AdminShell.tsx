@@ -7,8 +7,27 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth, type UserData } from "./AuthProvider";
 
+import {
+  broadcastNotification,
+  fetchDeliveryLogs,
+  apiGet,
+  type BroadcastNotificationPayload,
+  type NotificationLogItem,
+  type EmailLogItem,
+  type DeliveryLogsResponse,
+} from "./lib/api";
+import { formatWhenInTz } from "./lib/timezone";
+import Modal from "./components/Modal";
+import StatusBadge from "./components/StatusBadge";
+
 // Crisp, uniform 1.75px stroke icons matching the WhatBoutMe brand identity
 const Icons = {
+  Megaphone: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11l18-5v12L3 13v-2z" />
+      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+    </svg>
+  ),
   Dashboard: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -260,6 +279,15 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     keywords: ["credentials", "awards", "graduation", "diploma"],
   },
   {
+    id: "approvals",
+    title: "Approvals & Certification Gates",
+    description: "Audit eligibility criteria, approve completion certificates, and grade oral assessments",
+    href: "/approvals",
+    category: "Curriculum",
+    iconName: "Certificates",
+    keywords: ["approvals", "certificates", "oral", "exam", "rubric", "gates", "verify"],
+  },
+  {
     id: "resources",
     title: "Resource Library",
     description: "Worksheets, readings, guided audios, and learning materials",
@@ -340,6 +368,57 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Notification Center & Broadcast state (Task 13)
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
+  const [activeNotifTab, setActiveNotifTab] = useState<'notifications' | 'emails'>('notifications');
+  const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLogsResponse>({ notifications: [], emails: [] });
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Broadcast Modal State
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+  const [broadcastTarget, setBroadcastTarget] = useState<'ALL' | 'BATCH' | 'USER'>('ALL');
+  const [broadcastTargetId, setBroadcastTargetId] = useState('');
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastLink, setBroadcastLink] = useState('');
+  const [broadcastChannels, setBroadcastChannels] = useState<('IN_APP' | 'PUSH' | 'EMAIL')[]>(['IN_APP', 'PUSH', 'EMAIL']);
+  const [batchesList, setBatchesList] = useState<{ id: string; name: string }[]>([]);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [broadcastSuccess, setBroadcastSuccess] = useState<string | null>(null);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
+
+  const loadDeliveryLogs = async () => {
+    setIsLoadingLogs(true);
+    try {
+      const logs = await fetchDeliveryLogs(20);
+      setDeliveryLogs(logs);
+    } catch {
+      // Fallback gracefully
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  useEffect(() => {
+    if (notifDropdownOpen) {
+      loadDeliveryLogs();
+    }
+  }, [notifDropdownOpen]);
+
+  useEffect(() => {
+    if (broadcastModalOpen) {
+      setBroadcastSuccess(null);
+      setBroadcastError(null);
+      apiGet<any>('/batches?limit=100')
+        .then((data) => {
+          const list = Array.isArray(data) ? data : (data?.batches || data?.items || []);
+          setBatchesList(list.map((b: any) => ({ id: b.id, name: b.name })));
+        })
+        .catch(() => {});
+    }
+  }, [broadcastModalOpen]);
+
   // Set up sidebar preference, theme, and keyboard shortcuts once on mount
   useEffect(() => {
     setMounted(true);
@@ -373,6 +452,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       if (e.key === "Escape") {
         setSearchModalOpen(false);
         setUserDropdownOpen(false);
+        setNotifDropdownOpen(false);
         if (!isLoggingOut) {
           setShowSignOutConfirm(false);
           setLogoutError(null);
@@ -389,19 +469,73 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setUserDropdownOpen(false);
       }
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifDropdownOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Close mobile drawer and reset transient modal states on route change
   useEffect(() => {
     setMobileMenuOpen(false);
     setUserDropdownOpen(false);
+    setNotifDropdownOpen(false);
     setShowSignOutConfirm(false);
     setIsLoggingOut(false);
     setLogoutError(null);
   }, [pathname]);
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastTitle.trim() || !broadcastMessage.trim()) {
+      setBroadcastError("Title and message are required.");
+      return;
+    }
+    if (broadcastChannels.length === 0) {
+      setBroadcastError("Select at least one delivery channel.");
+      return;
+    }
+    if (broadcastTarget === "BATCH" && !broadcastTargetId) {
+      setBroadcastError("Please select a target batch.");
+      return;
+    }
+    if (broadcastTarget === "USER" && !broadcastTargetId.trim()) {
+      setBroadcastError("Please enter a learner User ID or Email.");
+      return;
+    }
+
+    setIsBroadcasting(true);
+    setBroadcastError(null);
+    setBroadcastSuccess(null);
+
+    try {
+      const res = await broadcastNotification({
+        target: broadcastTarget,
+        targetId: broadcastTargetId || undefined,
+        title: broadcastTitle.trim(),
+        message: broadcastMessage.trim(),
+        link: broadcastLink.trim() || undefined,
+        channels: broadcastChannels,
+      });
+
+      setBroadcastSuccess(
+        `Broadcast sent successfully to ${res.recipientsCount} recipient(s)! (${res.inAppSent} in-app, ${res.pushSent} push, ${res.emailSent} emails)`
+      );
+      loadDeliveryLogs();
+      setTimeout(() => {
+        setBroadcastModalOpen(false);
+        setBroadcastTitle("");
+        setBroadcastMessage("");
+        setBroadcastLink("");
+        setBroadcastSuccess(null);
+      }, 2500);
+    } catch (err: any) {
+      setBroadcastError(err.message || "Failed to broadcast notification");
+    } finally {
+      setIsBroadcasting(false);
+    }
+  };
 
   const toggleCollapsed = () => {
     setIsCollapsed((prev) => {
@@ -532,6 +666,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
         { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
         { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
+        { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Certificates />, perm: "manage_operations" },
         { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
       ],
     },
@@ -695,15 +830,110 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
           {/* Topbar Actions */}
           <div className={styles.topbarActions}>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              title="Notifications"
-              aria-label="Notifications"
-            >
-              <Icons.Bell />
-              <span className={styles.notificationDot} />
-            </button>
+            <div style={{ position: "relative" }} ref={notifRef}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                title="Notifications & Broadcast"
+                aria-label="Notifications & Broadcast"
+                onClick={() => {
+                  setNotifDropdownOpen(!notifDropdownOpen);
+                  setUserDropdownOpen(false);
+                }}
+              >
+                <Icons.Bell />
+                <span className={styles.notificationDot} />
+              </button>
+
+              {/* Notification Center Flyout */}
+              {notifDropdownOpen && (
+                <div className={styles.notifDropdown} role="dialog" aria-label="Notifications Center">
+                  <div className={styles.notifHeader}>
+                    <h4 className={styles.notifTitle}>Notifications &amp; Logs</h4>
+                    <button
+                      type="button"
+                      className={styles.broadcastActionBtn}
+                      onClick={() => {
+                        setNotifDropdownOpen(false);
+                        setBroadcastModalOpen(true);
+                      }}
+                    >
+                      <Icons.Megaphone />
+                      <span>Broadcast</span>
+                    </button>
+                  </div>
+
+                  {/* Tabs */}
+                  <div className={styles.notifTabs}>
+                    <button
+                      type="button"
+                      className={`${styles.notifTabBtn} ${activeNotifTab === "notifications" ? styles.notifTabBtnActive : ""}`}
+                      onClick={() => setActiveNotifTab("notifications")}
+                    >
+                      In-App / Push ({deliveryLogs.notifications.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.notifTabBtn} ${activeNotifTab === "emails" ? styles.notifTabBtnActive : ""}`}
+                      onClick={() => setActiveNotifTab("emails")}
+                    >
+                      Emails ({deliveryLogs.emails.length})
+                    </button>
+                  </div>
+
+                  {/* Content List */}
+                  <div className={styles.notifList}>
+                    {isLoadingLogs ? (
+                      <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                        Loading delivery logs...
+                      </div>
+                    ) : activeNotifTab === "notifications" ? (
+                      deliveryLogs.notifications.length === 0 ? (
+                        <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                          No notifications logged yet.
+                        </div>
+                      ) : (
+                        deliveryLogs.notifications.map((n) => (
+                          <div key={n.id} className={styles.notifItem}>
+                            <div className={styles.notifItemHeader}>
+                              <h5 className={styles.notifItemTitle}>{n.title}</h5>
+                              <StatusBadge status={n.deliveryStatus} />
+                            </div>
+                            <p className={styles.notifItemRecipient}>
+                              To: {n.recipientName ? `${n.recipientName} (${n.recipient})` : n.recipient}
+                            </p>
+                            <div className={styles.notifItemMeta}>
+                              <span className={styles.channelTag}>{n.channel}</span>
+                              <span>{formatWhenInTz(n.createdAtUtc, n.createdAtUtc, n.userTimezone || "UTC")}</span>
+                            </div>
+                          </div>
+                        ))
+                      )
+                    ) : (
+                      deliveryLogs.emails.length === 0 ? (
+                        <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                          No email dispatch logs found.
+                        </div>
+                      ) : (
+                        deliveryLogs.emails.map((e) => (
+                          <div key={e.id} className={styles.notifItem}>
+                            <div className={styles.notifItemHeader}>
+                              <h5 className={styles.notifItemTitle}>{e.subject}</h5>
+                              <StatusBadge status={e.status} />
+                            </div>
+                            <p className={styles.notifItemRecipient}>To: {e.to}</p>
+                            <div className={styles.notifItemMeta}>
+                              <span className={styles.channelTag}>{e.template || "EMAIL"}</span>
+                              <span>{new Date(e.createdAtUtc).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                            </div>
+                          </div>
+                        ))
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className={styles.headerDivider} aria-hidden="true" />
 
@@ -912,6 +1142,194 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Broadcast Announcement Modal */}
+      {broadcastModalOpen && (
+        <Modal
+          isOpen={broadcastModalOpen}
+          onClose={() => setBroadcastModalOpen(false)}
+          title="Broadcast Announcement"
+          subtitle="Send push, in-app, or email notifications to learners across WhatBoutMe."
+          maxWidth="560px"
+        >
+          <form onSubmit={handleSendBroadcast}>
+            {broadcastSuccess && (
+              <div style={{ padding: "12px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", color: "#166534", fontSize: "0.8125rem", marginBottom: "16px" }}>
+                {broadcastSuccess}
+              </div>
+            )}
+            {broadcastError && (
+              <div style={{ padding: "12px 16px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", color: "#991b1b", fontSize: "0.8125rem", marginBottom: "16px" }}>
+                {broadcastError}
+              </div>
+            )}
+
+            <div className={styles.broadcastFormGroup}>
+              <label className={styles.broadcastLabel}>Target Audience</label>
+              <select
+                className={styles.broadcastSelect}
+                value={broadcastTarget}
+                onChange={(e) => {
+                  setBroadcastTarget(e.target.value as any);
+                  setBroadcastTargetId("");
+                }}
+              >
+                {!isManager && <option value="ALL">All Learners (Global Broadcast)</option>}
+                <option value="BATCH">Specific Cohort Batch</option>
+                <option value="USER">Specific Individual Learner</option>
+              </select>
+            </div>
+
+            {broadcastTarget === "BATCH" && (
+              <div className={styles.broadcastFormGroup}>
+                <label className={styles.broadcastLabel}>Select Batch</label>
+                <select
+                  className={styles.broadcastSelect}
+                  value={broadcastTargetId}
+                  onChange={(e) => setBroadcastTargetId(e.target.value)}
+                  required
+                >
+                  <option value="">-- Choose an active batch --</option>
+                  {batchesList.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {broadcastTarget === "USER" && (
+              <div className={styles.broadcastFormGroup}>
+                <label className={styles.broadcastLabel}>Learner User ID</label>
+                <input
+                  type="text"
+                  className={styles.broadcastInput}
+                  placeholder="Enter learner UUID (e.g. 1a2b3c...)"
+                  value={broadcastTargetId}
+                  onChange={(e) => setBroadcastTargetId(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
+            <div className={styles.broadcastFormGroup}>
+              <label className={styles.broadcastLabel}>Notification Channels</label>
+              <div className={styles.channelsGrid}>
+                <label className={styles.channelCheckboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={broadcastChannels.includes("IN_APP")}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setBroadcastChannels([...broadcastChannels, "IN_APP"]);
+                      } else {
+                        setBroadcastChannels(broadcastChannels.filter((c) => c !== "IN_APP"));
+                      }
+                    }}
+                    style={{ accentColor: "#e06d28" }}
+                  />
+                  <span>In-App Alert (Learner Portal Dashboard &amp; Bell)</span>
+                </label>
+                <label className={styles.channelCheckboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={broadcastChannels.includes("PUSH")}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setBroadcastChannels([...broadcastChannels, "PUSH"]);
+                      } else {
+                        setBroadcastChannels(broadcastChannels.filter((c) => c !== "PUSH"));
+                      }
+                    }}
+                    style={{ accentColor: "#e06d28" }}
+                  />
+                  <span>Browser &amp; Mobile Web Push Notification</span>
+                </label>
+                <label className={styles.channelCheckboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={broadcastChannels.includes("EMAIL")}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setBroadcastChannels([...broadcastChannels, "EMAIL"]);
+                      } else {
+                        setBroadcastChannels(broadcastChannels.filter((c) => c !== "EMAIL"));
+                      }
+                    }}
+                    style={{ accentColor: "#e06d28" }}
+                  />
+                  <span>Branded Email Announcement Dispatch</span>
+                </label>
+              </div>
+            </div>
+
+            <div className={styles.broadcastFormGroup}>
+              <label className={styles.broadcastLabel}>Announcement Title</label>
+              <input
+                type="text"
+                className={styles.broadcastInput}
+                placeholder="e.g. Schedule Update: Live Session Rescheduled to 3 PM UTC"
+                value={broadcastTitle}
+                onChange={(e) => setBroadcastTitle(e.target.value)}
+                maxLength={140}
+                required
+              />
+            </div>
+
+            <div className={styles.broadcastFormGroup}>
+              <label className={styles.broadcastLabel}>Message Content</label>
+              <textarea
+                className={styles.broadcastTextarea}
+                rows={4}
+                placeholder="Enter the announcement message to broadcast to selected learners..."
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className={styles.broadcastFormGroup}>
+              <label className={styles.broadcastLabel}>Destination Link (Optional)</label>
+              <input
+                type="text"
+                className={styles.broadcastInput}
+                placeholder="e.g. /live or /events or /steps/step-2"
+                value={broadcastLink}
+                onChange={(e) => setBroadcastLink(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" }}>
+              <button
+                type="button"
+                onClick={() => setBroadcastModalOpen(false)}
+                className={styles.confirmCancelBtn}
+                disabled={isBroadcasting}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isBroadcasting}
+                style={{
+                  background: "var(--accent-primary)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "0.5rem 1.25rem",
+                  fontSize: "0.8125rem",
+                  fontWeight: 700,
+                  cursor: isBroadcasting ? "not-allowed" : "pointer",
+                  opacity: isBroadcasting ? 0.7 : 1,
+                }}
+              >
+                {isBroadcasting ? "Broadcasting..." : "Send Broadcast"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

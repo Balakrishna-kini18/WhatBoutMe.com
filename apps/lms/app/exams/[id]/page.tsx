@@ -9,6 +9,7 @@ import dash from "../../layout.module.css";
 interface ExamQuestionOption {
   id: string;
   text: string;
+  imageUrl?: string;
   order: number;
 }
 
@@ -16,6 +17,9 @@ interface ExamQuestion {
   id: string;
   text: string;
   type: string;
+  imageUrl?: string;
+  gradingMode?: string;
+  minCharacters?: number;
   points: number;
   stepId: string | null;
   stepSequence: number | null;
@@ -223,11 +227,19 @@ export default function ExamPage({
     setSubmitWarning(null);
 
     try {
-      const answersPayload = (activeAttempt.questions || []).map((q) => ({
-        questionId: q.id,
-        optionId: selectedAnswers[q.id] || undefined,
-        selectedOptionId: selectedAnswers[q.id] || undefined,
-      }));
+      const answersPayload = (activeAttempt.questions || []).map((q) => {
+        const ans = selectedAnswers[q.id];
+        const isMulti = q.type === "MULTI_SELECT";
+        const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+        return {
+          questionId: q.id,
+          optionId: !isMulti && !isText ? ans : undefined,
+          selectedOptionId: !isMulti && !isText ? ans : undefined,
+          selectedOptionIds: isMulti && ans ? ans.split(",").filter(Boolean) : undefined,
+          textResponse: isText ? ans : undefined,
+          textAnswer: isText ? ans : undefined,
+        };
+      });
 
       const res = await fetch(`${API_URL}/exams/${examId}/submit`, {
         method: "POST",
@@ -258,6 +270,26 @@ export default function ExamPage({
     setSelectedAnswers((prev) => ({
       ...prev,
       [questionId]: optionId,
+    }));
+  }
+
+  function handleOptionToggle(questionId: string, optionId: string) {
+    setSelectedAnswers((prev) => {
+      const current = prev[questionId] ? (prev[questionId] ?? "").split(",").filter(Boolean) : [];
+      const next = current.includes(optionId)
+        ? current.filter((id) => id !== optionId)
+        : [...current, optionId];
+      return {
+        ...prev,
+        [questionId]: next.join(","),
+      };
+    });
+  }
+
+  function handleTextChange(questionId: string, text: string) {
+    setSelectedAnswers((prev) => ({
+      ...prev,
+      [questionId]: text,
     }));
   }
 
@@ -378,44 +410,154 @@ export default function ExamPage({
               </span>
             </div>
 
+            {currentQ.imageUrl && (
+              <div style={{ marginBottom: "1.25rem", borderRadius: "10px", overflow: "hidden", border: "1px solid #e2e8f0", maxWidth: "480px" }}>
+                <img
+                  src={currentQ.imageUrl}
+                  alt={`Question ${currentQuestionIndex + 1} Visual`}
+                  style={{ width: "100%", maxHeight: "260px", objectFit: "cover", display: "block" }}
+                />
+              </div>
+            )}
+
             <h2 style={{ fontSize: "1.15rem", fontWeight: 600, color: "#1e293b", marginBottom: "1.5rem", lineHeight: 1.5 }}>
               Q{currentQuestionIndex + 1}. {currentQ.text}
             </h2>
 
-            {/* Options List */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "2rem" }}>
-              {(currentQ.options || []).map((opt) => {
-                const isSelected = selectedAnswers[currentQ.id] === opt.id;
+            {/* Answer Options or Reflection Field */}
+            {(() => {
+              const isText = currentQ.type === "SHORT_ANSWER" || currentQ.type === "TEXT_BOX";
+              const isMulti = currentQ.type === "MULTI_SELECT";
+              const hasOptionImages = (currentQ.options || []).some((opt) => Boolean(opt.imageUrl));
+              const selectedList = isMulti && selectedAnswers[currentQ.id]
+                ? (selectedAnswers[currentQ.id] ?? "").split(",").filter(Boolean)
+                : [];
+
+              if (isText) {
                 return (
-                  <label
-                    key={opt.id}
-                    onClick={() => handleOptionSelect(currentQ.id, opt.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "12px 16px",
-                      borderRadius: "8px",
-                      border: isSelected ? "2px solid #2563eb" : "1px solid #cbd5e1",
-                      backgroundColor: isSelected ? "#eff6ff" : "white",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name={`question_${currentQ.id}`}
-                      checked={isSelected}
-                      onChange={() => handleOptionSelect(currentQ.id, opt.id)}
-                      style={{ accentColor: "#2563eb", width: "16px", height: "16px" }}
+                  <div style={{ marginBottom: "2rem" }}>
+                    <textarea
+                      rows={4}
+                      placeholder="Type your written answer or reflection here..."
+                      value={selectedAnswers[currentQ.id] || ""}
+                      onChange={(e) => handleTextChange(currentQ.id, e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "12px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontFamily: "inherit",
+                        fontSize: "0.95rem",
+                        boxSizing: "border-box",
+                      }}
                     />
-                    <span style={{ fontSize: "0.95rem", color: isSelected ? "#1e40af" : "#334155" }}>
-                      {opt.text}
-                    </span>
-                  </label>
+                    <div style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "4px" }}>
+                      Characters: {(selectedAnswers[currentQ.id] || "").trim().length} / {currentQ.minCharacters ?? 10} minimum
+                    </div>
+                  </div>
                 );
-              })}
-            </div>
+              }
+
+              if (hasOptionImages) {
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "2rem" }}>
+                    {(currentQ.options || []).map((opt) => {
+                      const isSelected = isMulti
+                        ? selectedList.includes(opt.id)
+                        : selectedAnswers[currentQ.id] === opt.id;
+
+                      return (
+                        <div
+                          key={opt.id}
+                          onClick={() =>
+                            isMulti
+                              ? handleOptionToggle(currentQ.id, opt.id)
+                              : handleOptionSelect(currentQ.id, opt.id)
+                          }
+                          style={{
+                            borderRadius: "10px",
+                            border: isSelected ? "2px solid #2563eb" : "1px solid #cbd5e1",
+                            backgroundColor: isSelected ? "#eff6ff" : "white",
+                            padding: "10px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "8px",
+                            cursor: "pointer",
+                            boxShadow: isSelected ? "0 2px 8px rgba(37, 99, 235, 0.15)" : "none",
+                          }}
+                        >
+                          {opt.imageUrl && (
+                            <img
+                              src={opt.imageUrl}
+                              alt={opt.text}
+                              style={{ width: "100%", height: "130px", objectFit: "cover", borderRadius: "6px" }}
+                            />
+                          )}
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                            <input
+                              type={isMulti ? "checkbox" : "radio"}
+                              checked={isSelected}
+                              readOnly
+                              style={{ accentColor: "#2563eb", width: "16px", height: "16px" }}
+                            />
+                            <span style={{ fontSize: "0.9rem", color: isSelected ? "#1e40af" : "#334155", fontWeight: isSelected ? 600 : 400 }}>
+                              {opt.text}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "2rem" }}>
+                  {(currentQ.options || []).map((opt) => {
+                    const isSelected = isMulti
+                      ? selectedList.includes(opt.id)
+                      : selectedAnswers[currentQ.id] === opt.id;
+
+                    return (
+                      <label
+                        key={opt.id}
+                        onClick={() =>
+                          isMulti
+                            ? handleOptionToggle(currentQ.id, opt.id)
+                            : handleOptionSelect(currentQ.id, opt.id)
+                        }
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          padding: "12px 16px",
+                          borderRadius: "8px",
+                          border: isSelected ? "2px solid #2563eb" : "1px solid #cbd5e1",
+                          backgroundColor: isSelected ? "#eff6ff" : "white",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <input
+                          type={isMulti ? "checkbox" : "radio"}
+                          name={`question_${currentQ.id}`}
+                          checked={isSelected}
+                          onChange={() =>
+                            isMulti
+                              ? handleOptionToggle(currentQ.id, opt.id)
+                              : handleOptionSelect(currentQ.id, opt.id)
+                          }
+                          style={{ accentColor: "#2563eb", width: "16px", height: "16px" }}
+                        />
+                        <span style={{ fontSize: "0.95rem", color: isSelected ? "#1e40af" : "#334155" }}>
+                          {opt.text}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* Pagination Controls */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: "1.25rem" }}>

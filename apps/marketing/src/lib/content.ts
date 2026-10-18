@@ -4,9 +4,7 @@ export const CONTACT = {
   website: "www.whatboutme.com",
   websiteHref: "https://www.whatboutme.com",
   email: "share@whatboutme.com",
-  phones: [
-    { number: "+971 56 546 4014", place: "Dubai", href: "tel:+971565464014" },
-  ],
+  phones: [] as { number: string; place: string; href: string }[],
   social: "@whatboutme11",
 };
 
@@ -26,7 +24,6 @@ export const SOCIALS = [
   { label: "Instagram", href: "https://www.instagram.com/whatboutme11/" },
   { label: "LinkedIn", href: "https://www.linkedin.com/in/whatboutme-%F0%9F%92%9B-71991162" },
   { label: "YouTube", href: "https://www.youtube.com/channel/UCVBNr7Okri3BOUMMzxN6cyQ" },
-  { label: "WhatsApp", href: "https://wa.me/971565464014" },
 ];
 
 export const DISCLAIMER =

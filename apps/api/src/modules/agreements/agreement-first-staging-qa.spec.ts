@@ -664,5 +664,31 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         }
       }
     });
+
+    it('11.2: Client-supplied bypass/simulate flags can NOT unlock mock checkout in production', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      const originalAllow = process.env.ALLOW_MOCK_CHECKOUT;
+
+      try {
+        process.env.NODE_ENV = 'production';
+        delete process.env.ALLOW_MOCK_CHECKOUT;
+
+        for (const flags of [{ bypass: true }, { simulate: true }, { bypassPayment: true }]) {
+          await expect(
+            checkoutController.mockCheckout(
+              { programId: programLeadership.id, ...flags },
+              { user: learnerA },
+            ),
+          ).rejects.toThrow(ForbiddenException);
+        }
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+        if (originalAllow !== undefined) {
+          process.env.ALLOW_MOCK_CHECKOUT = originalAllow;
+        } else {
+          delete process.env.ALLOW_MOCK_CHECKOUT;
+        }
+      }
+    });
   });
 });

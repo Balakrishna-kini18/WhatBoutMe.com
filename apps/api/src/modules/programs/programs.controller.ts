@@ -43,6 +43,13 @@ export class ProgramsController {
     return this.programsService.findAll(req?.user?.role);
   }
 
+  @Public()
+  @PublicCache(60, 300)
+  @Get('public')
+  findPublic() {
+    return this.programsService.findAll('USER');
+  }
+
   @RequirePermission(Permission.PROGRAMS_CREATE)
   @Post()
   create(@Body() createDto: CreateProgramDto) {
@@ -206,6 +213,12 @@ export class ProgramsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateDto: UpdateProgramDto) {
     return this.programsService.update(id, updateDto);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_CREATE)
+  @Post(':id/duplicate')
+  duplicate(@Param('id') id: string) {
+    return this.programsService.duplicate(id);
   }
 
   @RequirePermission(Permission.PROGRAMS_DELETE)

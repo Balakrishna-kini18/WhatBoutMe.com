@@ -145,17 +145,26 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         online: parsed.online || "",
         image: updatedData.thumbnailUrl || parsed.image || "",
         points: parsed.points || [],
+        faqs: updatedData.faqs || parsed.faqs || [],
       });
 
       const payload: Record<string, any> = {
         title: updatedData.title,
         description: combinedDescription || updatedData.description,
         price: Number(updatedData.price) || 0,
+        currency: updatedData.currency || "USD",
+        priceUSD: updatedData.priceUSD !== undefined ? Number(updatedData.priceUSD) : undefined,
+        priceAED: updatedData.priceAED !== undefined ? Number(updatedData.priceAED) : undefined,
+        priceINR: updatedData.priceINR !== undefined ? Number(updatedData.priceINR) : undefined,
+        earlyBirdPrice: updatedData.earlyBirdPrice !== undefined ? Number(updatedData.earlyBirdPrice) : null,
+        earlyBirdCurrency: updatedData.earlyBirdCurrency || null,
+        earlyBirdDeadline: updatedData.earlyBirdDeadline ? new Date(updatedData.earlyBirdDeadline).toISOString() : null,
         hasCertificate: Boolean(updatedData.hasCertificate),
         shortDescription: updatedData.shortDescription || "",
         thumbnailUrl: updatedData.thumbnailUrl || "",
         category: updatedData.category || "",
         level: updatedData.level || "",
+        faqs: updatedData.faqs || parsed.faqs || [],
       };
 
       const res = await fetch(`${API_URL}/programs/${programId}`, {

@@ -1,5 +1,23 @@
-import { IsString, IsNotEmpty, IsNumber, IsBoolean, IsOptional, IsEnum, Min } from 'class-validator';
-import { ContentStatus } from '@prisma/client';
+import { IsString, IsNotEmpty, IsNumber, IsBoolean, IsOptional, IsEnum, IsDateString, Min, IsArray } from 'class-validator';
+import { ContentStatus, CurrencyCode } from '@prisma/client';
+
+export class CourseFaqItemDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  question: string;
+
+  @IsString()
+  @IsNotEmpty()
+  answer: string;
+
+  @IsOptional()
+  @IsNumber()
+  sortOrder?: number;
+}
 
 export class CreateProgramDto {
   @IsString()
@@ -18,6 +36,38 @@ export class CreateProgramDto {
   @IsNumber()
   @Min(0)
   price: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceUSD?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceAED?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceINR?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  earlyBirdPrice?: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  earlyBirdCurrency?: CurrencyCode;
+
+  @IsOptional()
+  @IsDateString()
+  earlyBirdDeadline?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -50,6 +100,10 @@ export class CreateProgramDto {
   @IsOptional()
   @IsString()
   level?: string;
+
+  @IsOptional()
+  @IsArray()
+  faqs?: CourseFaqItemDto[];
 }
 
 export class UpdateProgramDto {
@@ -73,6 +127,38 @@ export class UpdateProgramDto {
   price?: number;
 
   @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceUSD?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceAED?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceINR?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  earlyBirdPrice?: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  earlyBirdCurrency?: CurrencyCode;
+
+  @IsOptional()
+  @IsDateString()
+  earlyBirdDeadline?: string;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -103,6 +189,10 @@ export class UpdateProgramDto {
   @IsOptional()
   @IsString()
   level?: string;
+
+  @IsOptional()
+  @IsArray()
+  faqs?: CourseFaqItemDto[];
 }
 
 export class PublishProgramDto {

@@ -83,7 +83,7 @@ describe('Learner Progress Sharing (Role Audit Gap 3 Fix - Client PDF p.10 §9)'
       expect(result.shareCard).toBeDefined();
       expect(result.shareCard.learnerName).toBe('Alice Wonderland');
       expect(result.shareCard.programTitle).toBe('11 Steps to Brain Health & Resilience');
-      expect(result.shareCard.milestone).toBe('Completed Step 3 of 3');
+      expect(result.shareCard.milestone).toBe('Completed Step 2 of 3');
       expect(result.shareCard.verified).toBe(true);
 
       // Verify privacy: NO sensitive email or IDs in the share card

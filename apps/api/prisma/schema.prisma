@@ -42,6 +42,8 @@ enum QuestionType {
   MULTIPLE_CHOICE
   MULTI_SELECT
   SHORT_ANSWER
+  SINGLE_CHOICE
+  TEXT_BOX
 }
 
 enum OralAssessmentStatus {
@@ -81,6 +83,11 @@ enum StepOverrideState {
   AUTOMATIC
   MANUAL_UNLOCKED
   MANUAL_LOCKED
+}
+
+enum QuizPlacement {
+  BEFORE_VIDEO
+  AFTER_VIDEO
 }
 
 enum ResourceType {
@@ -212,6 +219,8 @@ enum NotificationChannel {
   EMAIL
   IN_APP
   BOTH
+  PUSH
+  ALL
 }
 
 enum DeliveryStatus {
@@ -271,6 +280,9 @@ model User {
   savedSignatureType      String?   // "DRAWN" or "UPLOADED"
   savedSignatureUpdatedAt DateTime?
 
+  // Notification Preferences (Task 13)
+  notificationPreferences Json?
+
   // Relations
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id])
@@ -294,6 +306,7 @@ model User {
   messagesSent                 Message[]
   sessions                     UserSession[]
   notifications                Notification[]
+  pushSubscriptions            PushSubscription[]
   dailyAttendance              DailyAttendance[]
   emailVerificationTokens      EmailVerificationToken[]
   passwordResetTokens          PasswordResetToken[]
@@ -305,6 +318,7 @@ model User {
   createdEvents                Event[]                    @relation("CreatedEvents")
   eventRegistrations           EventRegistration[]        @relation("UserEventRegistrations")
   rejectedEventRegistrations   EventRegistration[]        @relation("RejectedEventRegistrations")
+  studentNotes                 StudentNote[]
 
   // Soft Delete for GDPR
   deletedAt DateTime?
@@ -400,6 +414,13 @@ model Program {
   slug        String        @unique
   description String?
   price       Float
+  currency    CurrencyCode  @default(USD)
+  priceUSD    Float?
+  priceAED    Float?
+  priceINR    Float?
+  earlyBirdPrice    Float?
+  earlyBirdCurrency CurrencyCode?
+  earlyBirdDeadline DateTime?
   isActive    Boolean       @default(true)
   status      ContentStatus @default(DRAFT)
 
@@ -409,6 +430,8 @@ model Program {
   attendanceRequired      Boolean       @default(true)
   minAttendancePercentage Int           @default(75)
   deliveryMode            DeliveryMode  @default(ONLINE)
+
+  faqs                    Json?         @default("[]")
 
   steps              Step[]
   batches            Batch[]
@@ -422,6 +445,7 @@ model Program {
   signedAgreements   SignedAgreement[]
   certificates       Certificate[]
   coupons            Coupon[]                   @relation("CouponPrograms")
+  studentNotes       StudentNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -444,6 +468,7 @@ model Step {
 
   releaseSchedule ReleaseSchedule @default(IMMEDIATE)
   unlockDelayDays Int?
+  quizPlacement   QuizPlacement   @default(AFTER_VIDEO)
 
   lessons       Lesson[]
   resources                Resource[]
@@ -453,6 +478,7 @@ model Step {
   questions     Question[]
   overrides     BatchStepOverride[]
   progress      StepProgress[]
+  studentNotes  StudentNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -476,12 +502,44 @@ model Lesson {
   status      ContentStatus @default(DRAFT)
 
   progress UserLessonProgress[]
+  studentNotes StudentNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([stepId, order])
   @@index([stepId, status])
+}
+
+// -----------------------------------------------------------------------------
+// STUDENT NOTES & HIGHLIGHTS (TASK 6)
+// -----------------------------------------------------------------------------
+
+model StudentNote {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  programId             String?
+  program               Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  stepId                String?
+  step                  Step?    @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  lessonId              String?
+  lesson                Lesson?  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  noteText              String   @db.Text
+  highlightSnippet      String?  @db.Text
+  videoTimestampSeconds Int?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, lessonId])
+  @@index([userId, stepId])
+  @@index([userId, programId])
 }
 
 model Resource {
@@ -596,11 +654,14 @@ model QuestionBank {
 }
 
 model Question {
-  id          String       @id @default(uuid())
-  type        QuestionType @default(MULTIPLE_CHOICE)
-  text        String
-  explanation String?
-  points      Int          @default(1)
+  id            String       @id @default(uuid())
+  type          QuestionType @default(MULTIPLE_CHOICE)
+  text          String
+  imageUrl      String?
+  gradingMode   String?      @default("SELF_REFLECTION_AUTO_PASS")
+  minCharacters Int?         @default(10)
+  explanation   String?
+  points        Int          @default(1)
 
   questionBankId String?
   questionBank   QuestionBank? @relation(fields: [questionBankId], references: [id], onDelete: SetNull)
@@ -628,8 +689,9 @@ model Option {
   question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   text      String
-  isCorrect Boolean @default(false)
-  order     Int     @default(1)
+  imageUrl  String?
+  isCorrect Boolean  @default(false)
+  order     Int      @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -649,6 +711,7 @@ model Quiz {
   questionCount Int     @default(10) // 10-question step quiz requirement
   timeLimitMin  Int?
   retryGuidance String?
+  quizPlacement QuizPlacement @default(AFTER_VIDEO)
 
   questions Question[]
   attempts  Attempt[]
@@ -765,6 +828,14 @@ model Batch {
   capacity            Int
   status              BatchStatus @default(UPCOMING)
   attendanceThreshold Int?
+
+  price               Float?
+  currency            CurrencyCode?
+  priceUSD            Float?
+  priceAED            Float?
+  priceINR            Float?
+  earlyBirdPrice      Float?
+  earlyBirdDeadline   DateTime?
 
   enrolments    Enrolment[]
   sessions      Session[]
@@ -1206,15 +1277,17 @@ model DailyAttendance {
 }
 
 model Payment {
-  id          String    @id @default(uuid())
-  enrolmentId String
-  enrolment   Enrolment @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  id          String     @id @default(uuid())
+  enrolmentId String?
+  enrolment   Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
+  eventRegistrationId String?
+  idempotencyKey String? @unique
   invoice     Invoice?
 
   stripeSessionId String @unique
   amount          Float
   currency        String @default("USD")
-  status          String // e.g., 'succeeded', 'failed'
+  status          String // e.g., 'succeeded', 'failed', 'pending'
 
   couponId        String?
   couponCode      String?
@@ -1224,6 +1297,7 @@ model Payment {
   createdAt DateTime @default(now())
 
   @@index([enrolmentId])
+  @@index([eventRegistrationId])
   @@index([status, createdAt(sort: Desc)])
   @@index([couponId])
 }
@@ -1312,9 +1386,11 @@ model Message {
 // -----------------------------------------------------------------------------
 
 model Invoice {
-  id        String  @id @default(uuid())
-  paymentId String  @unique
-  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  enrolmentId String?
+  eventRegistrationId String?
 
   invoiceNumber String        @unique
   amount        Float
@@ -1332,6 +1408,8 @@ model Invoice {
   @@index([status, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@index([creditNoteId])
+  @@index([enrolmentId])
+  @@index([eventRegistrationId])
 }
 
 model Coupon {
@@ -1487,6 +1565,12 @@ model Notification {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  title          String?
+  message        String?
+  link           String?
+  readAt         DateTime?
+  metadata       Json?
+
   type           String
   template       String
   channel        NotificationChannel @default(EMAIL)
@@ -1498,6 +1582,23 @@ model Notification {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([deliveryStatus, schedule])
+  @@index([userId, readAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model AuditLog {

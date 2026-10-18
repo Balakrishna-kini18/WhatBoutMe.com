@@ -45,6 +45,14 @@ export class CreateEventDto {
   endAt?: string;
 
   @IsOptional()
+  @IsDateString()
+  startDateTimeUtc?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDateTimeUtc?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   timezone?: string;
@@ -57,6 +65,10 @@ export class CreateEventDto {
   meetingLink?: string;
 
   @IsOptional()
+  @IsUrl()
+  onlineMeetingLink?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(300)
   venueName?: string;
@@ -67,10 +79,21 @@ export class CreateEventDto {
   venueAddress?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  physicalAddress?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   price?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount?: number;
 
   @IsOptional()
   @IsEnum(CurrencyCode)
@@ -82,6 +105,13 @@ export class CreateEventDto {
   @Min(1)
   @Max(1000000)
   seatLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000000)
+  capacity?: number;
 
   // Backwards compatibility alias for seatLimit
   @IsOptional()
@@ -132,6 +162,14 @@ export class UpdateEventDto {
   endAt?: string;
 
   @IsOptional()
+  @IsDateString()
+  startDateTimeUtc?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDateTimeUtc?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   timezone?: string;
@@ -145,6 +183,10 @@ export class UpdateEventDto {
   meetingLink?: string;
 
   @IsOptional()
+  @IsUrl()
+  onlineMeetingLink?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(300)
   venueName?: string;
@@ -155,10 +197,21 @@ export class UpdateEventDto {
   venueAddress?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  physicalAddress?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   price?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount?: number;
 
   @IsOptional()
   @IsEnum(CurrencyCode)
@@ -170,6 +223,13 @@ export class UpdateEventDto {
   @Min(1)
   @Max(1000000)
   seatLimit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000000)
+  capacity?: number;
 
   @IsOptional()
   @Type(() => Number)

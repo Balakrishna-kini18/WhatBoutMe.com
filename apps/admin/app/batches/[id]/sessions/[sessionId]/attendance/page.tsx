@@ -87,9 +87,47 @@ export default function SessionAttendancePage({
     error: "",
   });
 
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   const getAuthHeaders = (): Record<string, string> => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const handleSyncMeeting = async () => {
+    setIsSyncing(true);
+    setSyncNotice(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/sync-attendance`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.message || `Failed to sync meeting attendance (${res.status})`);
+      }
+      const json = await res.json();
+      if (json.success === false) {
+        setSyncNotice({
+          type: "error",
+          message: json.message || "No meeting attendance records were processed.",
+        });
+        return;
+      }
+      setSyncNotice({
+        type: "success",
+        message: `Meeting attendance synchronized successfully (${json.participantCount || 0} participant records processed).`,
+      });
+      await fetchAttendanceData();
+    } catch (err: any) {
+      setSyncNotice({
+        type: "error",
+        message: err.message || "Failed to synchronize meeting attendance report.",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const fetchAttendanceData = async (signal?: AbortSignal) => {
@@ -279,7 +317,32 @@ export default function SessionAttendancePage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className={styles.secondaryBtn}
+            onClick={handleSyncMeeting}
+            disabled={isSyncing}
+            title="Pull attendance participant report from Zoom or Google Meet"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ animation: isSyncing ? "spin 1s linear infinite" : undefined }}
+            >
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            <span>{isSyncing ? "Syncing..." : "🔄 Sync Meeting Report"}</span>
+          </button>
           <button className={styles.secondaryBtn} onClick={handleShowQrModal}>
             📱 Show Check-In QR
           </button>
@@ -288,6 +351,27 @@ export default function SessionAttendancePage({
           </button>
         </div>
       </header>
+
+      {syncNotice && (
+        <div
+          role="status"
+          style={{
+            margin: "0 0 1.5rem",
+            padding: "0.85rem 1.15rem",
+            borderRadius: "8px",
+            fontSize: "0.88rem",
+            fontWeight: 500,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            backgroundColor: syncNotice.type === "success" ? "#f0fdf4" : "#fef2f2",
+            color: syncNotice.type === "success" ? "#166534" : "#991b1b",
+            border: syncNotice.type === "success" ? "1px solid #bbf7d0" : "1px solid #fecaca",
+          }}
+        >
+          <span>{syncNotice.message}</span>
+        </div>
+      )}
 
       {/* Metrics Row */}
       {data && (

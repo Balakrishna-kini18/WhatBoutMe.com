@@ -21,6 +21,22 @@ function CheckoutContent() {
   const [processing, setProcessing] = useState(false);
   const [user, setUser] = useState<any>(null);
 
+  // Multi-Currency State
+  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">("USD");
+
+  // Coupon State
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+
+  // Idempotency & Simulation State
+  const [idempotencyKey] = useState(
+    () => `chk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  );
+  const [simulatedResult, setSimulatedResult] = useState<any>(null);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
+
   const [enrolmentId, setEnrolmentId] = useState<string | null>(queryEnrolmentId);
   const [signedVersion, setSignedVersion] = useState<string>("v1.0");
   const [agreementStatus, setAgreementStatus] = useState<"CHECKING" | "SIGNED" | "REQUIRED">("CHECKING");
@@ -46,6 +62,9 @@ function CheckoutContent() {
         .then((data) => {
           const p = Array.isArray(data) ? data.find((x: any) => x.id === programId) : null;
           setProgram(p);
+          if (p?.currency && (p.currency === "USD" || p.currency === "AED" || p.currency === "INR")) {
+            setCurrency(p.currency);
+          }
           setLoading(false);
         })
         .catch(() => setLoading(false));
@@ -93,7 +112,62 @@ function CheckoutContent() {
     }
   }, [programId]);
 
-  const handleSimulatePayment = async () => {
+  const getBasePrice = () => {
+    if (!program) return 0;
+    if (currency === "INR" && program.priceINR !== undefined && program.priceINR !== null) {
+      return Number(program.priceINR);
+    }
+    if (currency === "AED" && program.priceAED !== undefined && program.priceAED !== null) {
+      return Number(program.priceAED);
+    }
+    if (currency === "USD" && program.priceUSD !== undefined && program.priceUSD !== null) {
+      return Number(program.priceUSD);
+    }
+    return Number(program.price) || 0;
+  };
+
+  const basePrice = getBasePrice();
+  const discountAmount = appliedCoupon?.discountAmount ?? 0;
+  const finalAmount = Math.max(0, basePrice - discountAmount);
+  const currencySymbol = currency === "INR" ? "₹" : currency === "AED" ? "AED " : "$";
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setIsApplyingCoupon(true);
+    setCouponError(null);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/coupons/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          code: couponCode.trim(),
+          programId,
+          currency,
+          userId: user?.id || user?.sub,
+          paymentPlanType: "FULL",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        setAppliedCoupon(data);
+        setCouponError(null);
+      } else {
+        setAppliedCoupon(null);
+        setCouponError(data?.reason || data?.message || "Invalid coupon code.");
+      }
+    } catch {
+      setCouponError("Could not validate coupon.");
+    } finally {
+      setIsApplyingCoupon(false);
+    }
+  };
+
+  const handleSimulatePayment = async (status: "PAID" | "FAILED") => {
     if (!user) {
       const returnUrl = encodeURIComponent(
         `/checkout?programId=${programId || ""}${targetEnrolmentId ? `&enrolmentId=${targetEnrolmentId}` : ""}`
@@ -103,56 +177,52 @@ function CheckoutContent() {
     }
 
     setProcessing(true);
+    setSimulationError(null);
 
-    // Simulate 1.2 second payment gateway delay
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Realistic simulation transition
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/checkout/mock`, {
+      const res = await fetch(`${API_URL}/payments/webhook/test-simulate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          programId,
-          enrolmentId: targetEnrolmentId,
-          bypass: true,
-          simulate: true,
+          targetType: "ENROLMENT",
+          targetId: programId,
+          enrolmentId: targetEnrolmentId || undefined,
+          amount: finalAmount,
+          currency,
+          status,
+          failureReason: status === "FAILED" ? "Simulated test bank transaction declined." : undefined,
+          idempotencyKey,
+          couponCode: appliedCoupon?.code || couponCode || undefined,
         }),
       });
 
-      if (!res.ok) {
-        const errorText = await res.text();
-        let parsedData: any = null;
-        try {
-          parsedData = JSON.parse(errorText);
-        } catch {}
+      const result = await res.json().catch(() => null);
 
-        if (parsedData?.error === "AGREEMENT_REQUIRED" || parsedData?.message?.includes?.("agreement")) {
+      if (!res.ok) {
+        if (result?.error === "AGREEMENT_REQUIRED" || result?.message?.includes?.("agreement")) {
           alert("Please review and sign the program agreement before completing payment.");
           router.push(agreementUrl);
           return;
         }
-
-        if (errorText.includes("already enrolled")) {
-          router.push(`/programs/${programId}/steps`);
-          return;
-        }
-        throw new Error(parsedData?.message || errorText);
+        throw new Error(result?.message || `Checkout failed with status ${res.status}`);
       }
 
-      router.push(`/programs/${programId}/steps`);
+      if (status === "PAID") {
+        setSimulatedResult(result);
+      } else {
+        setSimulationError(result?.message || "Simulated payment response: Transaction was declined as requested.");
+      }
     } catch (e: any) {
-      console.error("Payment failed", e);
-      let errorMessage = e.message;
-      try {
-        const parsed = JSON.parse(e.message);
-        errorMessage = parsed.error?.message || parsed.message || e.message;
-      } catch {}
-
-      alert("Checkout failed: " + errorMessage);
+      console.error("Test payment simulation error", e);
+      setSimulationError(e.message || "Failed to execute simulated checkout.");
+    } finally {
       setProcessing(false);
     }
   };
@@ -217,6 +287,36 @@ function CheckoutContent() {
           Review your order and finalize enrollment
         </h2>
 
+        {/* Currency Switcher */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1C1917" }}>Select Currency:</span>
+          <div style={{ display: "inline-flex", gap: "0.35rem", background: "#F7F3EC", padding: "4px", borderRadius: "10px", border: "1px solid #E7E0D6" }}>
+            {(["USD", "AED", "INR"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => {
+                  setCurrency(c);
+                  setAppliedCoupon(null);
+                }}
+                style={{
+                  border: "none",
+                  background: currency === c ? "#B86B11" : "transparent",
+                  color: currency === c ? "#FFFFFF" : "#78716A",
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {c === "USD" ? "$ USD" : c === "AED" ? "AED" : "₹ INR"}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Order Summary Card */}
         <div
           style={{
@@ -224,7 +324,7 @@ function CheckoutContent() {
             padding: "1.5rem",
             borderRadius: "16px",
             textAlign: "left",
-            marginBottom: "1.5rem",
+            marginBottom: "1.25rem",
             border: "1px solid #E7E0D6",
           }}
         >
@@ -282,21 +382,123 @@ function CheckoutContent() {
             {courseInfo?.summary || "A comprehensive personal and professional learning journey."}
           </p>
 
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              borderTop: "1px dashed #E7E0D6",
-              paddingTop: "1rem",
-              marginTop: "0.5rem",
-            }}
-          >
-            <span style={{ color: "#1C1917", fontWeight: 600 }}>Total Due:</span>
-            <div style={{ textAlign: "right" }}>
-              <span style={{ color: "#B86B11", fontSize: "1.6rem", fontWeight: 700 }}>${program.price}</span>
+          {/* Pricing Breakdown */}
+          <div style={{ borderTop: "1px dashed #E7E0D6", paddingTop: "0.85rem", marginTop: "0.5rem", fontSize: "0.9rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#78716A" }}>
+              <span>Base Tuition ({currency}):</span>
+              <span>{currencySymbol}{basePrice.toLocaleString()}</span>
+            </div>
+
+            {appliedCoupon && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#16A34A", fontWeight: 600 }}>
+                <span>Coupon ({appliedCoupon.code}):</span>
+                <span>-{currencySymbol}{discountAmount.toLocaleString()}</span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#78716A", fontSize: "0.8rem" }}>
+              <span>Taxes:</span>
+              <span>
+                {currency === "AED"
+                  ? "Includes 5% UAE VAT"
+                  : currency === "INR"
+                  ? "Includes 18% India GST"
+                  : "0% Export / Int'l Tax"}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderTop: "1px solid #E7E0D6",
+                paddingTop: "0.75rem",
+                marginTop: "0.35rem",
+              }}
+            >
+              <span style={{ color: "#1C1917", fontWeight: 700, fontSize: "1.05rem" }}>Total Due:</span>
+              <div style={{ textAlign: "right" }}>
+                <span style={{ color: "#B86B11", fontSize: "1.6rem", fontWeight: 700 }}>
+                  {currencySymbol}{finalAmount.toLocaleString()}
+                </span>
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Promo / Coupon Box */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "12px", padding: "1rem", marginBottom: "1.25rem", textAlign: "left" }}>
+          <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "#1C1917", marginBottom: "0.5rem" }}>
+            Have a Promo Code?
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <input
+              type="text"
+              placeholder="Enter coupon code (e.g. WELCOME10)"
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              disabled={isApplyingCoupon || !!appliedCoupon}
+              style={{
+                flex: 1,
+                border: "1px solid #E7E0D6",
+                borderRadius: "8px",
+                padding: "0.55rem 0.85rem",
+                fontSize: "0.9rem",
+                textTransform: "uppercase",
+              }}
+            />
+            {appliedCoupon ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setAppliedCoupon(null);
+                  setCouponCode("");
+                }}
+                style={{
+                  background: "#EF4444",
+                  color: "#FFFFFF",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.55rem 1rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Remove
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleApplyCoupon}
+                disabled={isApplyingCoupon || !couponCode.trim()}
+                style={{
+                  background: "#1C1917",
+                  color: "#FFFFFF",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "0.55rem 1.15rem",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: isApplyingCoupon || !couponCode.trim() ? "not-allowed" : "pointer",
+                  opacity: isApplyingCoupon || !couponCode.trim() ? 0.6 : 1,
+                }}
+              >
+                {isApplyingCoupon ? "Checking..." : "Apply"}
+              </button>
+            )}
+          </div>
+          {couponError && (
+            <p style={{ margin: "0.4rem 0 0 0", color: "#DC2626", fontSize: "0.8rem" }}>
+              {couponError}
+            </p>
+          )}
+          {appliedCoupon && (
+            <p style={{ margin: "0.4rem 0 0 0", color: "#16A34A", fontSize: "0.8rem", fontWeight: 600 }}>
+              ✓ Coupon applied! Saved {currencySymbol}{discountAmount.toLocaleString()}.
+            </p>
+          )}
         </div>
 
         {/* User & Agreement Verification Status Section */}
@@ -465,62 +667,180 @@ function CheckoutContent() {
           </div>
         )}
 
-        {/* Primary Checkout CTA (Only shown when not unsigned, preventing duplicate stacked buttons) */}
-        {agreementStatus !== "REQUIRED" && (
-          <div>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.35rem",
-                fontSize: "0.75rem",
-                color: "#78716A",
-                background: "#F7F3EC",
-                padding: "3px 10px",
-                borderRadius: "9999px",
-                marginBottom: "0.75rem",
-                border: "1px solid #E7E0D6",
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-              <span>Development Mode: Simulated Checkout</span>
-            </div>
-
-            <button
-              className={styles.submitBtn}
-              onClick={handleSimulatePayment}
-              disabled={processing || !user || agreementStatus !== "SIGNED"}
-              style={{
-                width: "100%",
-                background: "#B86B11",
-                color: "#FFFFFF",
-                borderRadius: "12px",
-                padding: "1rem",
-                fontSize: "1rem",
-                fontWeight: 600,
-                border: "none",
-                cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                gap: "0.5rem",
-                transition: "opacity 0.2s ease",
-              }}
-            >
-              {processing ? (
-                "Processing Confirmation..."
-              ) : !user ? (
-                "Log In to Finalize Enrollment"
-              ) : (
-                "Complete Payment & Unlock Step 1 →"
-              )}
-            </button>
+        {/* Simulation Error Alert */}
+        {simulationError && (
+          <div
+            style={{
+              background: "#FEF2F2",
+              border: "1px solid #FECACA",
+              borderRadius: "12px",
+              padding: "1rem",
+              marginBottom: "1.25rem",
+              color: "#991B1B",
+              fontSize: "0.9rem",
+              textAlign: "left",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>Simulated Failure:</div>
+            <div>{simulationError}</div>
           </div>
+        )}
+
+        {/* Simulation Success Confirmation Card */}
+        {simulatedResult ? (
+          <div
+            style={{
+              background: "#F0FDF4",
+              border: "1px solid #86EFAC",
+              borderRadius: "16px",
+              padding: "1.5rem",
+              textAlign: "center",
+              marginBottom: "1rem",
+            }}
+          >
+            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#DCFCE7", color: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h3 style={{ margin: "0 0 0.5rem 0", color: "#166534", fontSize: "1.3rem", fontWeight: 700 }}>
+              Payment Confirmed &amp; Verified!
+            </h3>
+            <p style={{ margin: "0 0 1rem 0", color: "#15803D", fontSize: "0.92rem", lineHeight: 1.5 }}>
+              Your test transaction was securely recognized. An official WhatBoutMe FZE Tax invoice has been generated.
+            </p>
+
+            {simulatedResult.invoiceNumber && (
+              <div style={{ background: "#FFFFFF", border: "1px solid #BBF7D0", borderRadius: "8px", padding: "0.6rem 1rem", display: "inline-block", marginBottom: "1.25rem", fontSize: "0.88rem", fontWeight: 600, color: "#166534" }}>
+                Invoice No: {simulatedResult.invoiceNumber}
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {simulatedResult.invoiceUrl && (
+                <a
+                  href={`${API_URL}${simulatedResult.invoiceUrl}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "block",
+                    padding: "0.75rem",
+                    borderRadius: "10px",
+                    background: "#FFFFFF",
+                    border: "1px solid #16A34A",
+                    color: "#166534",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  Download WhatBoutMe FZE Tax Invoice (PDF)
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => router.push(`/programs/${programId}/steps`)}
+                style={{
+                  padding: "0.9rem",
+                  borderRadius: "10px",
+                  background: "#16A34A",
+                  color: "#FFFFFF",
+                  border: "none",
+                  fontWeight: 700,
+                  fontSize: "1rem",
+                  cursor: "pointer",
+                }}
+              >
+                Proceed to Course Dashboard &amp; Step 1 &rarr;
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Primary Simulation Checkout CTAs */
+          agreementStatus !== "REQUIRED" && (
+            <div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  fontSize: "0.75rem",
+                  color: "#78716A",
+                  background: "#F7F3EC",
+                  padding: "3px 10px",
+                  borderRadius: "9999px",
+                  marginBottom: "0.85rem",
+                  border: "1px solid #E7E0D6",
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                <span>TEST_BYPASS Mode: Server-Side Webhook Emulation Active</span>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                {/* 1. Simulate Success Button */}
+                <button
+                  className={styles.submitBtn}
+                  onClick={() => handleSimulatePayment("PAID")}
+                  disabled={processing || !user || agreementStatus !== "SIGNED"}
+                  style={{
+                    width: "100%",
+                    background: "#B86B11",
+                    color: "#FFFFFF",
+                    borderRadius: "12px",
+                    padding: "1rem",
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    border: "none",
+                    cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    transition: "opacity 0.2s ease",
+                  }}
+                >
+                  {processing ? (
+                    "Processing Simulated Payment..."
+                  ) : !user ? (
+                    "Log In to Finalize Enrollment"
+                  ) : (
+                    <>
+                      <span>⚡ Simulate Test Payment (Instant Paid)</span>
+                      <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
+                    </>
+                  )}
+                </button>
+
+                {/* 2. Simulate Failure Button */}
+                <button
+                  type="button"
+                  onClick={() => handleSimulatePayment("FAILED")}
+                  disabled={processing || !user || agreementStatus !== "SIGNED"}
+                  style={{
+                    width: "100%",
+                    background: "transparent",
+                    color: "#DC2626",
+                    borderRadius: "12px",
+                    padding: "0.75rem",
+                    fontSize: "0.88rem",
+                    fontWeight: 600,
+                    border: "1px dashed #FECACA",
+                    cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 1,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  Simulate Failed Payment (Test Decline Path)
+                </button>
+              </div>
+            </div>
+          )
         )}
       </div>
     </div>

@@ -38,20 +38,26 @@ export function mapEvent(
     timezone: event.timezone || 'UTC',
 
     // Location Toggle
+    // CRITICAL SECURITY RULE: meetingLink and onlineMeetingLink are strictly stripped for unauthenticated/public endpoints
     locationType: event.locationType,
-    // CRITICAL SECURITY RULE: meetingLink is strictly stripped for public endpoints
     meetingLink: isPrivileged && event.locationType === EventLocationType.ONLINE ? event.meetingLink : null,
+    onlineMeetingLink: isPrivileged && event.locationType === EventLocationType.ONLINE ? event.meetingLink : null,
     venueName: event.locationType === EventLocationType.PHYSICAL ? event.venueName : null,
     venueAddress: event.locationType === EventLocationType.PHYSICAL ? event.venueAddress : null,
+    physicalAddress: event.locationType === EventLocationType.PHYSICAL ? event.venueAddress : null,
 
     // Dynamic Pricing & Multi-Currency
     price: Number(event.price),
+    amount: Number(event.price),
     currency: event.currency,
     seatLimit: event.seatLimit,
+    capacity: event.seatLimit,
     seatsBooked: event.seatsBooked,
     seatsRemaining,
     isSoldOut,
     isPublished: event.isPublished,
+    startDateTimeUtc: event.startDateTime,
+    endDateTimeUtc: event.endDateTime,
 
     // Status & Type computation for LMS portal & public clients
     type: event.locationType === EventLocationType.ONLINE ? ('WEBINAR' as const) : ('EVENT' as const),

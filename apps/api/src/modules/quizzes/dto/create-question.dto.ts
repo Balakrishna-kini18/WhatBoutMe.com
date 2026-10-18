@@ -19,6 +19,10 @@ export class CreateOptionDto {
   @IsNotEmpty({ message: 'Option text is required' })
   text: string;
 
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
   @IsBoolean()
   isCorrect: boolean;
 
@@ -35,8 +39,21 @@ export class CreateQuestionDto {
   text: string;
 
   @IsOptional()
-  @IsEnum(QuestionType, { message: 'Type must be a valid QuestionType (MULTIPLE_CHOICE, MULTI_SELECT, SHORT_ANSWER)' })
+  @IsEnum(QuestionType, { message: 'Type must be a valid QuestionType' })
   type?: QuestionType;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  gradingMode?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  minCharacters?: number;
 
   @IsOptional()
   @IsString()
@@ -47,9 +64,9 @@ export class CreateQuestionDto {
   @Min(1)
   points?: number;
 
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(2, { message: 'A question must have at least 2 options' })
   @ValidateNested({ each: true })
   @Type(() => CreateOptionDto)
-  options: CreateOptionDto[];
+  options?: CreateOptionDto[];
 }

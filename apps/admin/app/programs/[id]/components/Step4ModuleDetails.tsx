@@ -271,9 +271,24 @@ export default function Step4ModuleDetails({
                         color: "#7e22ce",
                         border: "1px solid #e9d5ff",
                         display: "inline-block",
+                        marginRight: "6px",
                       }}
                     >
                       QUIZ
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 6,
+                        background: (module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "#fef3c7" : "#eff6ff",
+                        color: (module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "#b45309" : "#1d4ed8",
+                        border: `1px solid ${(module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "#fde68a" : "#bfdbfe"}`,
+                        display: "inline-block",
+                      }}
+                    >
+                      {(module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "Before Video (First)" : "After Video (Last)"}
                     </span>
                   </td>
 

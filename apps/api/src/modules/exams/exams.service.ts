@@ -7,6 +7,7 @@ import {
 import {
   AttemptStatus,
   EnrolmentStatus,
+  QuestionType,
   Role,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -210,7 +211,7 @@ export class ExamsService {
       },
       include: {
         options: {
-          select: { id: true, text: true, order: true },
+          select: { id: true, text: true, imageUrl: true, order: true },
           orderBy: { order: 'asc' },
         },
         step: { select: { id: true, sequence: true, title: true } },
@@ -256,6 +257,9 @@ export class ExamsService {
         id: q.id,
         text: q.text,
         type: q.type,
+        imageUrl: q.imageUrl || null,
+        gradingMode: q.gradingMode || 'SELF_REFLECTION_AUTO_PASS',
+        minCharacters: q.minCharacters ?? 10,
         points: q.points || 1,
         stepId: resolvedStep?.id ?? null,
         stepSequence: resolvedStep?.sequence ?? null,
@@ -264,6 +268,7 @@ export class ExamsService {
           (q.options || []).map((opt: any) => ({
             id: opt.id,
             text: opt.text,
+            imageUrl: opt.imageUrl || null,
             order: opt.order,
           })),
           `${newAttemptId}_${q.id}`,
@@ -412,13 +417,59 @@ export class ExamsService {
       totalPossible += points;
 
       const submission = submittedMap.get(boundQ.id);
-      const selectedOptId = submission?.selectedOptionId || submission?.optionId;
-
       let isCorrect = false;
-      if (selectedOptId) {
-        const correctOpt = dbQ.options.find((o) => o.isCorrect);
-        if (correctOpt && correctOpt.id === selectedOptId) {
+
+      const isTextQuestion =
+        dbQ.type === QuestionType.SHORT_ANSWER ||
+        dbQ.type === QuestionType.TEXT_BOX;
+
+      const isMultiSelect =
+        dbQ.type === QuestionType.MULTI_SELECT ||
+        (dbQ.type === QuestionType.MULTIPLE_CHOICE &&
+          dbQ.options.filter((o) => o.isCorrect).length > 1);
+
+      if (isTextQuestion) {
+        const text = (
+          submission?.textAnswer ||
+          submission?.textResponse ||
+          ''
+        ).trim();
+        const mode = dbQ.gradingMode || 'SELF_REFLECTION_AUTO_PASS';
+        const minChars = dbQ.minCharacters ?? 10;
+        if (mode === 'SELF_REFLECTION_AUTO_PASS') {
+          isCorrect = text.length >= minChars;
+        } else {
+          isCorrect = false;
+        }
+      } else if (isMultiSelect) {
+        const submittedIds: string[] = (
+          submission?.selectedOptionIds ||
+          submission?.optionIds ||
+          (submission?.selectedOptionId ? [submission.selectedOptionId] : []) ||
+          (submission?.optionId ? [submission.optionId] : [])
+        ).filter(Boolean);
+
+        const correctIds = dbQ.options
+          .filter((o) => o.isCorrect)
+          .map((o) => o.id)
+          .sort();
+        const sortedSubmitted = [...submittedIds].sort();
+
+        if (
+          correctIds.length > 0 &&
+          correctIds.length === sortedSubmitted.length &&
+          correctIds.every((id, idx) => id === sortedSubmitted[idx])
+        ) {
           isCorrect = true;
+        }
+      } else {
+        const selectedOptId =
+          submission?.selectedOptionId || submission?.optionId;
+        if (selectedOptId) {
+          const correctOpt = dbQ.options.find((o) => o.isCorrect);
+          if (correctOpt && correctOpt.id === selectedOptId) {
+            isCorrect = true;
+          }
         }
       }
 

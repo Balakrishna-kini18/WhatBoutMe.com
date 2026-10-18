@@ -17,4 +17,12 @@ export class RecordMediaProgressDto {
   @IsOptional()
   @IsBoolean()
   isEnded?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  deltaWatchedSec?: number;
+
+  @IsOptional()
+  @IsNumber()
+  timestamp?: number;
 }

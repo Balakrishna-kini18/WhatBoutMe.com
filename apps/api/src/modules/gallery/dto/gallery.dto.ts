@@ -30,6 +30,11 @@ export class CreateGalleryItemDto {
   @Type(() => Number)
   displayOrder?: number;
 
+  @IsInt()
+  @IsOptional()
+  @Type(() => Number)
+  sortOrder?: number;
+
   @IsBoolean()
   @IsOptional()
   isPublished?: boolean;
@@ -63,6 +68,11 @@ export class UpdateGalleryItemDto {
   @IsOptional()
   @Type(() => Number)
   displayOrder?: number;
+
+  @IsInt()
+  @IsOptional()
+  @Type(() => Number)
+  sortOrder?: number;
 
   @IsBoolean()
   @IsOptional()

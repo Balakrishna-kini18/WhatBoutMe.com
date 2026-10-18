@@ -25,6 +25,19 @@ export class UpdateQuestionDto {
 
   @IsOptional()
   @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  gradingMode?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  minCharacters?: number;
+
+  @IsOptional()
+  @IsString()
   explanation?: string;
 
   @IsOptional()
@@ -34,7 +47,6 @@ export class UpdateQuestionDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(2, { message: 'A question must have at least 2 options' })
   @ValidateNested({ each: true })
   @Type(() => CreateOptionDto)
   options?: CreateOptionDto[];

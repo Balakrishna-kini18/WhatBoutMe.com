@@ -23,6 +23,9 @@ import { AuditModule } from '../../common/audit/audit.module.js';
 
 import { MicrosoftGraphCalendarProvider } from './providers/microsoft-graph.provider.js';
 
+import { DiscoveryController, SessionsDiscoveryController } from './discovery.controller.js';
+import { DiscoveryService } from './discovery.service.js';
+
 const isWorkerMode = process.env.WORKER_MODE === 'true';
 
 @Module({
@@ -35,6 +38,8 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
   ],
   controllers: [
     SessionsController,
+    DiscoveryController,
+    SessionsDiscoveryController,
     AttendanceController,
     BatchAttendanceController,
     SessionCheckinController,
@@ -42,6 +47,7 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
   ],
   providers: [
     SessionsService,
+    DiscoveryService,
     AttendanceService,
     AttendanceReconciliationService,
     AttendanceComplianceService,
@@ -60,6 +66,7 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
     },
   ],
   exports: [
+    DiscoveryService,
     SessionsService,
     SessionLifecycleService,
     AttendanceService,

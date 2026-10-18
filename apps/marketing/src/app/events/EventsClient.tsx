@@ -634,9 +634,10 @@ export default function EventsClient() {
                     onClick={(e) => handleShare(e, ev)}
                     className="flex items-center justify-center gap-1.5 rounded-xl border border-sand bg-cream-deep/50 px-3 py-2.5 text-xs font-semibold text-ink transition hover:bg-cream-deep hover:text-gold-deep"
                     title="Share Event Link"
+                    aria-label="Share Event Link"
                   >
                     <Share2 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Share</span>
+                    <span className="hidden sm:inline">Share Event Link</span>
                   </button>
 
                   {ev.registeredByMe || registeredEventIds.has(ev.id) ? (
@@ -807,7 +808,7 @@ export default function EventsClient() {
                         )}
                       </div>
                     ) : (
-                      <div className="space-y-1 text-ink">
+                      <div className="space-y-3 text-ink">
                         <span className="font-bold text-xs flex items-center gap-1.5 text-ink">
                           <MapPin className="h-4 w-4 text-gold-deep" />
                           <span>Venue Admission Pass</span>
@@ -816,6 +817,17 @@ export default function EventsClient() {
                           {selectedEvent.venueName ? `${selectedEvent.venueName} — ` : ""}
                           {selectedEvent.venueAddress || selectedEvent.location}
                         </p>
+                        <div className="flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-sand">
+                          <span className="text-[11px] font-bold text-ink uppercase tracking-wider mb-2">Express Check-in QR Pass</span>
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`whatboutme://checkin/event/${selectedEvent.id}/reg/${confirmedRegistration.id}`)}`}
+                            alt="Check-in QR Code"
+                            width={140}
+                            height={140}
+                            className="rounded-lg shadow-sm"
+                          />
+                          <span className="text-[10px] text-ink-soft mt-1.5">Present at door for instant attendance check-in</span>
+                        </div>
                       </div>
                     )}
                   </div>

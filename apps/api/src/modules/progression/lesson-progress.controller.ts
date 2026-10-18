@@ -11,7 +11,7 @@ import {
 import { ProgressionService } from './progression.service.js';
 import { RecordMediaProgressDto } from './dto/index.js';
 
-@Controller('progress')
+@Controller(['progress', 'lessons'])
 export class LessonProgressController {
   constructor(private readonly progressionService: ProgressionService) {}
 
@@ -20,7 +20,14 @@ export class LessonProgressController {
    * Authoritative duration is read from Lesson.durationSec.
    * Monotonic progress percent calculation.
    */
-  @Post(['lessons/:lessonId/heartbeat', 'lessons/:lessonId'])
+  @Post([
+    'lessons/:lessonId/heartbeat',
+    'lessons/:lessonId',
+    'lessons/:lessonId/progress',
+    ':lessonId/progress',
+    ':lessonId/heartbeat',
+    ':lessonId',
+  ])
   @HttpCode(HttpStatus.OK)
   async recordMediaProgress(
     @Param('lessonId') lessonId: string,
@@ -40,7 +47,7 @@ export class LessonProgressController {
    * Records completion for PDF or TEXT lessons.
    * Rejects VIDEO and AUDIO.
    */
-  @Post('lessons/:lessonId/complete')
+  @Post(['lessons/:lessonId/complete', ':lessonId/complete'])
   @HttpCode(HttpStatus.OK)
   async completeDocumentOrTextLesson(
     @Param('lessonId') lessonId: string,
@@ -56,7 +63,7 @@ export class LessonProgressController {
    * Retrieves learner progress for a specific lesson.
    * Derives enrolment from authenticated user to prevent IDOR.
    */
-  @Get('lessons/:lessonId')
+  @Get(['lessons/:lessonId', ':lessonId'])
   async getLearnerLessonProgress(
     @Param('lessonId') lessonId: string,
     @Request() req: any,

@@ -1,0 +1,250 @@
+/* =========================================================================
+   WhatBoutMe Admin - Funnel & Learner Test Simulator Styles
+   Design Language: Warm Ivory (#faf6f0), Sand (#f5ece1), Deep Ink (#14110f),
+   Golden Amber (#c97a1e), Elevated White Cards (#ffffff).
+   ========================================================================= */
+
+.simulatorContainer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: var(--bg-main, #faf6f0);
+  color: var(--text-primary, #14110f);
+  padding: 1.5rem 2rem 5rem;
+  max-width: 1360px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  gap: 1.5rem;
+}
+
+.headerCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 16px;
+  padding: 1.75rem 2rem;
+  box-shadow: 0 2px 10px rgba(20, 17, 15, 0.03);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.headerTitle {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-primary, #14110f);
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.02em;
+}
+
+.headerSubtitle {
+  font-size: 0.88rem;
+  color: var(--text-muted, #78716a);
+  margin: 0;
+  max-width: 780px;
+  line-height: 1.45;
+}
+
+.badgeTester {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fdf4e8;
+  color: var(--accent-primary, #c97a1e);
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #fae2c8;
+}
+
+.tabNavigation {
+  display: flex;
+  border-bottom: 2px solid var(--border-light, #e7decb);
+  gap: 1.5rem;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  padding: 0.75rem 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-muted, #78716a);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.tabBtn:hover {
+  color: var(--text-primary, #14110f);
+}
+
+.tabBtnActive {
+  color: var(--accent-primary, #c97a1e);
+  border-bottom-color: var(--accent-primary, #c97a1e);
+}
+
+.stageCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 16px rgba(20, 17, 15, 0.04);
+}
+
+.sectionHeader {
+  margin-bottom: 1.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary, #14110f);
+  margin: 0 0 0.35rem;
+}
+
+.sectionSubtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted, #78716a);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.inputGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: 1.5px solid var(--border-light, #e7decb);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: var(--text-primary, #14110f);
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.1);
+}
+
+.textarea {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: 1.5px solid var(--border-light, #e7decb);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: var(--text-primary, #14110f);
+  background: #ffffff;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.1);
+}
+
+.btnPrimary {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btnPrimary:hover {
+  opacity: 0.92;
+}
+
+.btnSecondary {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btnSecondary:hover {
+  background: #ebe0d3;
+}
+
+.canvasWrapper {
+  border: 2px dashed var(--accent-primary, #c97a1e);
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+}
+
+.signatureCanvas {
+  width: 100%;
+  height: 200px;
+  display: block;
+  cursor: crosshair;
+}
+
+.verifiedCard {
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  color: #166534;
+  margin-bottom: 1.5rem;
+}
+
+.verifiedHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}

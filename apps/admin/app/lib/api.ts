@@ -1384,5 +1384,72 @@ export interface CertificateItem {
   updatedAt: string;
 }
 
+// -----------------------------------------------------------------------------
+// STUDENT NOTES & HIGHLIGHTS (TASK 4 - ITEM #7)
+// -----------------------------------------------------------------------------
 
+export interface StudentNote {
+  id: string;
+  userId: string;
+  programId?: string | null;
+  stepId?: string | null;
+  lessonId?: string | null;
+  noteText: string;
+  highlightSnippet?: string | null;
+  videoTimestampSeconds?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  step?: {
+    id: string;
+    sequence: number;
+    title: string;
+  } | null;
+  lesson?: {
+    id: string;
+    title: string;
+    type: string;
+  } | null;
+  program?: {
+    id: string;
+    title: string;
+    slug?: string;
+  } | null;
+}
 
+export interface QueryNotesParams {
+  userId?: string;
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  search?: string;
+  sort?: "asc" | "desc";
+}
+
+export async function fetchStudentNotes(params?: QueryNotesParams): Promise<StudentNote[]> {
+  const query = new URLSearchParams();
+  if (params?.userId) query.set("userId", params.userId);
+  if (params?.programId) query.set("programId", params.programId);
+  if (params?.stepId) query.set("stepId", params.stepId);
+  if (params?.lessonId) query.set("lessonId", params.lessonId);
+  if (params?.search) query.set("search", params.search);
+  if (params?.sort) query.set("sort", params.sort);
+
+  const qs = query.toString();
+  return apiGet<StudentNote[]>(`/notes${qs ? `?${qs}` : ""}`);
+}
+
+export async function createStudentNote(payload: {
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  noteText: string;
+  highlightSnippet?: string;
+  videoTimestampSeconds?: number;
+}): Promise<StudentNote> {
+  return apiPost<StudentNote>("/notes", payload);
+}
+
+export async function deleteStudentNote(id: string): Promise<boolean> {
+  await apiDelete(`/notes/${id}`);
+  return true;
+}

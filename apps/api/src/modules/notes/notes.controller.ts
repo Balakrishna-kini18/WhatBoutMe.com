@@ -27,8 +27,13 @@ export class NotesController {
 
   @Get()
   findAll(@Request() req: any, @Query() query: QueryNotesDto) {
-    const userId = req.user?.sub || req.user?.id;
-    return this.notesService.findAll(userId, query);
+    const callerId = req.user?.sub || req.user?.id;
+    const role = req.user?.role;
+    const targetUserId =
+      (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'MANAGER') && query.userId
+        ? query.userId
+        : callerId;
+    return this.notesService.findAll(targetUserId, query);
   }
 
   @Get('lessons/:lessonId')

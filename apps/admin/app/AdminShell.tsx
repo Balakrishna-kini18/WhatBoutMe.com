@@ -210,6 +210,15 @@ interface SearchablePageItem {
 
 const SEARCH_ITEMS: SearchablePageItem[] = [
   {
+    id: "simulator",
+    title: "Learner & Funnel Simulator",
+    description: "Interactive test runner for video lock, e-signature, discovery call, and test-bypass checkout",
+    href: "/simulator",
+    category: "Overview",
+    iconName: "Dashboard",
+    keywords: ["simulator", "funnel", "checkout", "signature", "discovery", "contact", "notes", "player", "preview"],
+  },
+  {
     id: "dashboard",
     title: "Dashboard Overview",
     description: "Key metrics, active enrolments, and platform health",
@@ -694,6 +703,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       permission: true,
       items: [
         { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
+        { label: "Funnel Simulator", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
         { label: "Analytics", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },

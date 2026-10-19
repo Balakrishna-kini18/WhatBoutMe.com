@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useMemo, use } from "react";
 import styles from "../../../page.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../../../lib/api";
+import { API_URL, errorMessage, detectCalendarConflict } from "../../../lib/api";
+import {
+  getTimezoneOptions,
+  getSystemTimezone,
+  localWallTimeToUtc,
+  formatWhenInTz,
+  formatShortTimeInTz,
+} from "../../../lib/timezone";
 import { CustomSelect, ConfirmDialog, InputDialog, useToast } from "../../../components";
 
 interface Session {
@@ -28,6 +35,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
   const { success: toastSuccess, error: toastError } = useToast();
 
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [allSessions, setAllSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
@@ -39,11 +47,22 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
+  // Timezone state
+  const [displayTimezone, setDisplayTimezone] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("wbm_display_tz");
+      if (saved) return saved;
+    }
+    return getSystemTimezone();
+  });
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
+
   // Form state
   const [sessionType, setSessionType] = useState<"GROUP_COHORT" | "ONE_ON_ONE">("GROUP_COHORT");
   const [title, setTitle] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
+  const [sessionDate, setSessionDate] = useState("");
+  const [sessionStartTime, setSessionStartTime] = useState("10:00");
+  const [sessionEndTime, setSessionEndTime] = useState("11:00");
   const [capacity, setCapacity] = useState<number>(50);
   const [joinUrl, setJoinUrl] = useState("");
   const [recordingUrl, setRecordingUrl] = useState("");
@@ -57,6 +76,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     setIsLoading(true);
     Promise.all([
       fetchSessions(controller.signal),
+      fetchAllSessions(controller.signal),
       fetchQuizzes(controller.signal),
       fetchTrainers(controller.signal),
     ]).finally(() => {
@@ -64,6 +84,18 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     });
     return () => controller.abort();
   }, [batchId]);
+
+  const fetchAllSessions = async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`${API_URL}/sessions/all`, { signal });
+      if (res.ok) {
+        const data = await res.json();
+        setAllSessions(Array.isArray(data) ? data : []);
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") console.error("Failed to fetch all sessions", e);
+    }
+  };
 
   const fetchQuizzes = async (signal?: AbortSignal) => {
     try {
@@ -197,8 +229,13 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     e.preventDefault();
     setFormError("");
 
-    const start = new Date(startTime);
-    const end = new Date(endTime);
+    if (!sessionDate) {
+      setFormError("Please select a session date.");
+      return;
+    }
+
+    const start = localWallTimeToUtc(sessionDate, sessionStartTime, displayTimezone);
+    const end = localWallTimeToUtc(sessionDate, sessionEndTime, displayTimezone);
 
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       setFormError("Please provide valid start and end times.");
@@ -213,6 +250,23 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     const durationMin = (end.getTime() - start.getTime()) / (1000 * 60);
     if (durationMin < 5) {
       setFormError("Session duration must be at least 5 minutes.");
+      return;
+    }
+
+    // Roweena's Unified Calendar Double-Booking Conflict Detection
+    const conflictCheck = detectCalendarConflict(
+      allSessions,
+      start,
+      end,
+      hostTrainerId || null,
+      null,
+    );
+
+    if (conflictCheck.hasConflict && conflictCheck.conflictingSession) {
+      const c = conflictCheck.conflictingSession;
+      setFormError(
+        `⚠️ Scheduling Conflict Detected: Coach/Trainer already has commitment "${c.title}" scheduled from ${formatShortTimeInTz(c.startTime, displayTimezone)} to ${formatShortTimeInTz(c.endTime, displayTimezone)} (${displayTimezone}). Please select another time slot.`
+      );
       return;
     }
 
@@ -239,16 +293,19 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
       });
 
       if (res.ok) {
+        toastSuccess("Session scheduled and synchronized with unified calendar.");
         setIsModalOpen(false);
         setTitle("");
-        setStartTime("");
-        setEndTime("");
+        setSessionDate("");
+        setSessionStartTime("10:00");
+        setSessionEndTime("11:00");
         setCapacity(50);
         setJoinUrl("");
         setRecordingUrl("");
         setQuizId("");
         setHostTrainerId("");
         fetchSessions();
+        fetchAllSessions();
       } else {
         setFormError(await errorMessage(res, "Failed to schedule session"));
       }
@@ -277,11 +334,63 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             Schedule live cohort sessions or 1-on-1 coaching, track attendance, and link recordings.
           </p>
         </div>
-        <div className={styles.headerActions} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <div className={styles.headerActions} style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          {/* Timezone Selector */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              fontSize: "0.8125rem",
+              color: "var(--text-secondary, #4a443d)",
+              background: "var(--bg-card-muted, #fdfbf7)",
+              padding: "0.4rem 0.75rem",
+              borderRadius: "8px",
+              border: "1px solid var(--border-light, #ece4d7)",
+            }}
+            title="Display timezone · Preserves underlying UTC instant"
+          >
+            <span style={{ width: "7px", height: "7px", background: "#16a34a", borderRadius: "50%", display: "inline-block" }} />
+            <select
+              aria-label="Display timezone"
+              value={displayTimezone}
+              onChange={(e) => {
+                setDisplayTimezone(e.target.value);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("wbm_display_tz", e.target.value);
+                }
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: "0.8125rem",
+                fontWeight: 600,
+                color: "var(--text-primary, #14110f)",
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              {timezoneOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <Link href="/meetings" className={styles.secondaryBtn} style={{ textDecoration: "none" }}>
             View Full Calendar
           </Link>
-          <button className={styles.primaryBtn} onClick={() => { setFormError(""); setIsModalOpen(true); }}>
+          <button
+            className={styles.primaryBtn}
+            onClick={() => {
+              setFormError("");
+              setSessionDate(new Date().toISOString().split("T")[0] || "");
+              setSessionStartTime("10:00");
+              setSessionEndTime("11:00");
+              setIsModalOpen(true);
+            }}
+          >
             + Schedule Session
           </button>
         </div>
@@ -297,8 +406,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                 <th>Host Trainer</th>
                 <th>Capacity</th>
                 <th>Attendance</th>
-                <th>Start Time (UTC saved)</th>
-                <th>End Time</th>
+                <th>When ({displayTimezone.split("/").pop() || displayTimezone})</th>
                 <th>Meeting Link</th>
                 <th>Status</th>
                 <th>Recording / Quiz</th>
@@ -308,13 +416,13 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={11} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
                     Loading sessions...
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={{ textAlign: "center", padding: "20px" }}>
+                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
                     No sessions scheduled yet for this batch.
                   </td>
                 </tr>
@@ -361,14 +469,12 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                       </span>
                     </td>
                     <td>
-                      <span className={styles.cellTextMuted}>
-                        {new Date(s.startTime).toLocaleString()}
+                      <span className={styles.cellText} style={{ whiteSpace: "nowrap", fontSize: "0.82rem", fontWeight: 500 }}>
+                        {formatWhenInTz(s.startTime, s.endTime, displayTimezone)}
                       </span>
-                    </td>
-                    <td>
-                      <span className={styles.cellTextMuted}>
-                        {new Date(s.endTime).toLocaleString()}
-                      </span>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        {displayTimezone}
+                      </div>
                     </td>
                     <td>
                       {s.joinUrl ? (
@@ -596,23 +702,32 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                 />
               </div>
 
-              <div className={styles.formRow}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                 <div className={styles.formGroup}>
-                  <label>Start Time (Local)</label>
+                  <label>Session Date</label>
                   <input
-                    type="datetime-local"
+                    type="date"
                     required
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
+                    value={sessionDate}
+                    onChange={(e) => setSessionDate(e.target.value)}
                   />
                 </div>
                 <div className={styles.formGroup}>
-                  <label>End Time (Local)</label>
+                  <label>Start ({displayTimezone.split("/").pop()})</label>
                   <input
-                    type="datetime-local"
+                    type="time"
                     required
-                    value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
+                    value={sessionStartTime}
+                    onChange={(e) => setSessionStartTime(e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>End ({displayTimezone.split("/").pop()})</label>
+                  <input
+                    type="time"
+                    required
+                    value={sessionEndTime}
+                    onChange={(e) => setSessionEndTime(e.target.value)}
                   />
                 </div>
               </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import { API_URL, cachedFetch } from "../lib/api";
 import { CustomSelect, ActionMenu, ConfirmDialog, Modal, useToast } from "../components";
@@ -42,6 +43,15 @@ const STATUSES = [
 ];
 
 export default function LeadsPage() {
+  return (
+    <Suspense fallback={null}>
+      <LeadsContent />
+    </Suspense>
+  );
+}
+
+function LeadsContent() {
+  const searchParams = useSearchParams();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [batches, setBatches] = useState<BatchOption[]>([]);
@@ -87,6 +97,23 @@ export default function LeadsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Auto-open convert modal if navigated with ?action=convert or ?leadId= (e.g. from Meetings Page)
+  useEffect(() => {
+    const action = searchParams.get("action");
+    const leadId = searchParams.get("leadId") || searchParams.get("convertLeadId");
+    const email = searchParams.get("email");
+    if ((action === "convert" || leadId) && leads.length > 0) {
+      const match = leads.find(
+        (l) =>
+          (leadId && l.id === leadId) ||
+          (email && l.email?.toLowerCase() === email.toLowerCase()),
+      );
+      if (match && (!leadToConvert || leadToConvert.id !== match.id)) {
+        handleOpenConvertModal(match);
+      }
+    }
+  }, [searchParams, leads]);
 
   const handleOpenConvertModal = (lead: Lead) => {
     setLeadToConvert(lead);

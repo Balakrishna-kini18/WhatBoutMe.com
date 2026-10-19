@@ -1010,5 +1010,220 @@ export async function fetchDeliveryLogs(limit = 50): Promise<DeliveryLogsRespons
   return apiGet<DeliveryLogsResponse>(`/notifications/logs?limit=${limit}`);
 }
 
+// -----------------------------------------------------------------------------
+// BATCHES & SESSIONS UNIFIED SCHEDULING (TASK 1)
+// -----------------------------------------------------------------------------
+
+export interface CreateBatchInput {
+  name: string;
+  programId: string;
+  managerId?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  capacity: number;
+  status?: string;
+  price?: number | null;
+  currency?: 'USD' | 'AED' | 'INR' | null;
+  priceUSD?: number | null;
+  priceAED?: number | null;
+  priceINR?: number | null;
+  trainerIds?: string[];
+}
+
+export interface UpdateBatchInput extends Partial<CreateBatchInput> {}
+
+export async function getBatches(query?: { programId?: string; status?: string }): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (query?.programId) params.set('programId', query.programId);
+  if (query?.status) params.set('status', query.status);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return apiGet<any[]>(`/batches${qs}`);
+}
+
+export async function getBatchById(id: string): Promise<any> {
+  return apiGet<any>(`/batches/${id}`);
+}
+
+export async function createBatch(data: CreateBatchInput): Promise<any> {
+  return apiPost<any>('/batches', data);
+}
+
+export async function updateBatch(id: string, data: UpdateBatchInput): Promise<any> {
+  return apiPatch<any>(`/batches/${id}`, data);
+}
+
+export interface CreateSessionInput {
+  batchId?: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  sessionType: string;
+  capacity?: number;
+  meetingProvider?: string;
+  joinUrl?: string;
+  hostTrainerId?: string;
+  learnerId?: string;
+  recordingUrl?: string;
+  quizId?: string;
+  description?: string;
+  agenda?: string;
+}
+
+export async function getAllSessions(): Promise<any[]> {
+  return apiGet<any[]>('/sessions/all');
+}
+
+export async function createSession(data: CreateSessionInput): Promise<any> {
+  return apiPost<any>('/sessions', data);
+}
+
+export async function updateSession(id: string, data: Partial<CreateSessionInput>): Promise<any> {
+  return apiPatch<any>(`/sessions/${id}`, data);
+}
+
+export async function cancelSession(id: string, reason: string): Promise<any> {
+  return apiPost<any>(`/sessions/${id}/cancel`, { reason });
+}
+
+export async function deleteSession(id: string): Promise<any> {
+  return apiDelete<any>(`/sessions/${id}`);
+}
+
+/**
+ * Checks for time interval overlap against active commitments for a coach/trainer.
+ * Prevents double-booking Roweena or batch trainers.
+ */
+export function detectCalendarConflict(
+  existingSessions: Array<{
+    id?: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    status: string;
+    hostTrainer?: { id?: string; name?: string | null; email?: string | null } | null;
+  }>,
+  proposedStart: Date,
+  proposedEnd: Date,
+  targetTrainerId?: string | null,
+  excludeSessionId?: string | null,
+): { hasConflict: boolean; conflictingSession?: any } {
+  const pStartMs = proposedStart.getTime();
+  const pEndMs = proposedEnd.getTime();
+
+  for (const s of existingSessions) {
+    if (excludeSessionId && s.id === excludeSessionId) continue;
+    if (s.status === 'CANCELLED') continue;
+
+    const sStartMs = new Date(s.startTime).getTime();
+    const sEndMs = new Date(s.endTime).getTime();
+
+    // Overlap: interval A starts before interval B ends AND interval A ends after interval B starts
+    const overlaps = pStartMs < sEndMs && pEndMs > sStartMs;
+    if (!overlaps) continue;
+
+    // Determine if conflict involves the target trainer or Roweena (default)
+    const isRoweenaSession =
+      !s.hostTrainer?.id ||
+      s.hostTrainer?.name?.toLowerCase().includes('roweena') ||
+      s.hostTrainer?.email?.toLowerCase().includes('roweena');
+
+    const isTargetRoweena =
+      !targetTrainerId ||
+      targetTrainerId === '' ||
+      targetTrainerId === 'roweena';
+
+    if (isTargetRoweena && isRoweenaSession) {
+      return { hasConflict: true, conflictingSession: s };
+    }
+
+    if (targetTrainerId && s.hostTrainer?.id === targetTrainerId) {
+      return { hasConflict: true, conflictingSession: s };
+    }
+  }
+
+  return { hasConflict: false };
+}
+
+// -----------------------------------------------------------------------------
+// MULTI-CURRENCY COUPONS & PROMOTIONS (REMAINING TASK 2)
+// -----------------------------------------------------------------------------
+
+export interface AdminCoupon {
+  id: string;
+  code: string;
+  description: string | null;
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountValue: number;
+  currency: "INR" | "AED" | "USD" | "ALL";
+  scope: "ALL_COURSES" | "SPECIFIC_COURSES";
+  maxTotalUses: number | null;
+  currentUses: number;
+  maxUsesPerUser: number;
+  validFrom: string;
+  expiresAt: string | null;
+  isActive: boolean;
+  appliesToInstalments: boolean;
+  stripeCouponId?: string | null;
+  stripePromotionCodeId?: string | null;
+  programs: Array<{ id: string; title: string; slug: string }>;
+  _count?: { redemptions: number };
+  createdAt: string;
+  updatedAt: string;
+}
+
+// -----------------------------------------------------------------------------
+// VISUAL QUESTION BANK & QUIZZES METADATA (REMAINING TASK 2)
+// -----------------------------------------------------------------------------
+
+export interface AdminQuizListItem {
+  id: string;
+  stepId: string;
+  step: string;
+  stepSequence?: number;
+  stepTitle?: string;
+  programTitle?: string;
+  questions: number;
+  passMark: string;
+  maxAttempts?: number;
+  cooldownHours?: number;
+  questionCount?: number;
+  quizPlacement?: "BEFORE_VIDEO" | "AFTER_VIDEO";
+  questionTypes?: Array<"MULTIPLE_CHOICE" | "MULTI_SELECT" | "SHORT_ANSWER" | string>;
+  visualCount?: number;
+  feedsFinalExam?: boolean;
+  updated: string;
+}
+
+// -----------------------------------------------------------------------------
+// CERTIFICATE TEMPLATES & CREDENTIALS (REMAINING TASK 2)
+// -----------------------------------------------------------------------------
+
+export type CertificateTemplateType =
+  | "CPD_25_HOURS"
+  | "PARTICIPATION"
+  | "PROFESSIONAL"
+  | "CORPORATE_PARTICIPATION";
+
+export interface CertificateItem {
+  id: string;
+  enrolmentId: string;
+  userId?: string | null;
+  programId?: string | null;
+  certificateCode: string;
+  certificateNumber?: string | null;
+  verificationHash?: string | null;
+  issueDate?: string | null;
+  issuedAt?: string | null;
+  approvedById?: string | null;
+  cpdHours?: number | null;
+  certificateType: "PROFESSIONAL" | "CORPORATE_PARTICIPATION";
+  status: "PENDING" | "APPROVED" | "ISSUED" | "REJECTED" | "REVOKED";
+  pdfUrl?: string | null;
+  user?: { id: string; name: string | null; email: string };
+  program?: { id: string; title: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
 
 

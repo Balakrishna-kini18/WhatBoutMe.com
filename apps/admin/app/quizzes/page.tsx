@@ -10,11 +10,18 @@ interface QuizListItem {
   id: string;
   stepId: string;
   step: string;
+  stepSequence?: number;
+  stepTitle?: string;
+  programTitle?: string;
   questions: number;
   passMark: string;
   maxAttempts?: number;
   cooldownHours?: number;
   questionCount?: number;
+  quizPlacement?: "BEFORE_VIDEO" | "AFTER_VIDEO";
+  questionTypes?: Array<"MULTIPLE_CHOICE" | "MULTI_SELECT" | "SHORT_ANSWER" | string>;
+  visualCount?: number;
+  feedsFinalExam?: boolean;
   updated: string;
 }
 
@@ -104,16 +111,30 @@ export default function QuizzesPage() {
     }
   };
 
+  // Placement and visual filters
+  const [placementFilter, setPlacementFilter] = useState<string>("ALL");
+  const [visualOnly, setVisualOnly] = useState<boolean>(false);
+
   // Instant client-side search filtering
   const filteredQuizzes = useMemo(() => {
+    let list = quizzes;
+    if (placementFilter !== "ALL") {
+      list = list.filter((q) => (q.quizPlacement || "AFTER_VIDEO") === placementFilter);
+    }
+    if (visualOnly) {
+      list = list.filter((q) => (q.visualCount ?? 0) > 0);
+    }
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return quizzes;
-    return quizzes.filter(
-      (quiz) =>
-        quiz.step.toLowerCase().includes(q) ||
-        quiz.passMark.toLowerCase().includes(q)
-    );
-  }, [quizzes, searchQuery]);
+    if (q) {
+      list = list.filter(
+        (quiz) =>
+          quiz.step.toLowerCase().includes(q) ||
+          quiz.passMark.toLowerCase().includes(q) ||
+          (quiz.programTitle && quiz.programTitle.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [quizzes, searchQuery, placementFilter, visualOnly]);
 
   return (
     <div className={styles.dashboard}>
@@ -193,8 +214,48 @@ export default function QuizzesPage() {
                 : `Showing ${filteredQuizzes.length} of ${quizzes.length} quiz assessments`}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flex: "1", maxWidth: "340px", justifyContent: "flex-end" }}>
-            <div style={{ position: "relative", width: "100%" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {/* Placement filter */}
+            <select
+              value={placementFilter}
+              onChange={(e) => setPlacementFilter(e.target.value)}
+              style={{
+                padding: "7px 10px",
+                borderRadius: "6px",
+                border: "1px solid var(--border-light)",
+                fontSize: "0.825rem",
+                background: "#ffffff",
+                color: "var(--text-primary)",
+              }}
+              aria-label="Filter by quiz placement"
+            >
+              <option value="ALL">All Placements</option>
+              <option value="BEFORE_VIDEO">Before Video (Pre-Assessment)</option>
+              <option value="AFTER_VIDEO">After Video (Comprehension)</option>
+            </select>
+
+            {/* Visuals only checkbox */}
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                fontSize: "0.825rem",
+                color: "var(--text-primary)",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={visualOnly}
+                onChange={(e) => setVisualOnly(e.target.checked)}
+                style={{ cursor: "pointer" }}
+              />
+              <span>Has Visuals</span>
+            </label>
+
+            {/* Instant search */}
+            <div style={{ position: "relative", minWidth: "220px" }}>
               <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", display: "flex", pointerEvents: "none" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="11" cy="11" r="8" />
@@ -203,7 +264,7 @@ export default function QuizzesPage() {
               </span>
               <input
                 type="text"
-                placeholder="Search by step title..."
+                placeholder="Search step title..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
@@ -226,10 +287,11 @@ export default function QuizzesPage() {
             <thead>
               <tr>
                 <th>Linked Step</th>
-                <th>Pool / Bank</th>
+                <th>Placement</th>
+                <th>Question Types</th>
+                <th>Pool & Visuals</th>
                 <th>Pass Mark</th>
-                <th>Max Retries</th>
-                <th>Cooldown</th>
+                <th>Retries & Cooldown</th>
                 <th>Last Updated</th>
                 <th className={styles.alignRight}>Actions</th>
               </tr>
@@ -243,16 +305,19 @@ export default function QuizzesPage() {
                       <div className="skeleton" style={{ width: "80%", height: "18px", borderRadius: "4px" }} />
                     </td>
                     <td>
-                      <div className="skeleton" style={{ width: "55%", height: "16px", borderRadius: "4px" }} />
+                      <div className="skeleton" style={{ width: "65px", height: "18px", borderRadius: "12px" }} />
+                    </td>
+                    <td>
+                      <div className="skeleton" style={{ width: "80px", height: "18px", borderRadius: "4px" }} />
+                    </td>
+                    <td>
+                      <div className="skeleton" style={{ width: "70px", height: "18px", borderRadius: "4px" }} />
                     </td>
                     <td>
                       <div className="skeleton" style={{ width: "50px", height: "20px", borderRadius: "12px" }} />
                     </td>
                     <td>
                       <div className="skeleton" style={{ width: "70px", height: "16px", borderRadius: "4px" }} />
-                    </td>
-                    <td>
-                      <div className="skeleton" style={{ width: "60px", height: "16px", borderRadius: "4px" }} />
                     </td>
                     <td>
                       <div className="skeleton" style={{ width: "80px", height: "14px", borderRadius: "4px" }} />
@@ -264,11 +329,11 @@ export default function QuizzesPage() {
                 ))
               ) : filteredQuizzes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-secondary)" }}>
-                    {searchQuery ? (
+                  <td colSpan={8} style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-secondary)" }}>
+                    {searchQuery || placementFilter !== "ALL" || visualOnly ? (
                       <div>
-                        <p style={{ margin: 0, fontWeight: 600 }}>No quizzes matching &ldquo;{searchQuery}&rdquo;</p>
-                        <p style={{ margin: "4px 0 0", fontSize: "0.85rem" }}>Try adjusting your search query or clear the filter.</p>
+                        <p style={{ margin: 0, fontWeight: 600 }}>No quizzes matching current filters</p>
+                        <p style={{ margin: "4px 0 0", fontSize: "0.85rem" }}>Try adjusting your placement filter or search query.</p>
                       </div>
                     ) : (
                       <div>
@@ -290,22 +355,173 @@ export default function QuizzesPage() {
                     }}
                   >
                     <td>
-                      <span className={styles.cellUserName}>{quiz.step}</span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span className={styles.cellUserName}>{quiz.step}</span>
+                        {quiz.programTitle && (
+                          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                            {quiz.programTitle}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
-                      <span className={styles.cellText}>
-                        {quiz.questions} question{quiz.questions !== 1 ? "s" : ""}
-                        {quiz.questionCount ? ` (Pool size: ${quiz.questionCount})` : ""}
-                      </span>
+                      {(quiz.quizPlacement || "AFTER_VIDEO") === "BEFORE_VIDEO" ? (
+                        <div style={{ display: "inline-flex", flexDirection: "column", gap: "2px" }}>
+                          <StatusBadge status="Before Video" tone="pending" />
+                          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Pre-Assessment</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: "inline-flex", flexDirection: "column", gap: "2px" }}>
+                          <StatusBadge status="After Video" tone="active" />
+                          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Comprehension</span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                        {(quiz.questionTypes && quiz.questionTypes.length > 0
+                          ? quiz.questionTypes
+                          : ["MULTIPLE_CHOICE"]
+                        ).map((t) => {
+                          if (t === "MULTIPLE_CHOICE") {
+                            return (
+                              <span
+                                key={t}
+                                style={{
+                                  fontSize: "0.72rem",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: "#eff6ff",
+                                  color: "#1d4ed8",
+                                  fontWeight: 500,
+                                  border: "1px solid #bfdbfe",
+                                }}
+                              >
+                                Single Choice
+                              </span>
+                            );
+                          }
+                          if (t === "MULTI_SELECT") {
+                            return (
+                              <span
+                                key={t}
+                                style={{
+                                  fontSize: "0.72rem",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: "#f0fdf4",
+                                  color: "#15803d",
+                                  fontWeight: 500,
+                                  border: "1px solid #bbf7d0",
+                                }}
+                              >
+                                Multiple Choice
+                              </span>
+                            );
+                          }
+                          if (t === "SHORT_ANSWER") {
+                            return (
+                              <span
+                                key={t}
+                                style={{
+                                  fontSize: "0.72rem",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: "#faf5ff",
+                                  color: "#7e22ce",
+                                  fontWeight: 500,
+                                  border: "1px solid #e9d5ff",
+                                }}
+                              >
+                                Text Box
+                              </span>
+                            );
+                          }
+                          return (
+                            <span
+                              key={t}
+                              style={{
+                                fontSize: "0.72rem",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                background: "#f1f5f9",
+                                color: "#475569",
+                                fontWeight: 500,
+                              }}
+                            >
+                              {t}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <span className={styles.cellText} style={{ fontWeight: 600 }}>
+                          {quiz.questions} question{quiz.questions !== 1 ? "s" : ""}
+                          {quiz.questionCount ? ` (Pool: ${quiz.questionCount})` : ""}
+                        </span>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                          {(quiz.visualCount ?? 0) > 0 ? (
+                            <span
+                              style={{
+                                fontSize: "0.72rem",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                background: "#fffbeb",
+                                color: "#b45309",
+                                border: "1px solid #fde68a",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                              }}
+                            >
+                              🖼️ {quiz.visualCount} Visual
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: "0.72rem",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                background: "#f8fafc",
+                                color: "#64748b",
+                                border: "1px solid #e2e8f0",
+                              }}
+                            >
+                              Text Only
+                            </span>
+                          )}
+                          {quiz.feedsFinalExam !== false && (
+                            <span
+                              style={{
+                                fontSize: "0.72rem",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                background: "#fdf4ff",
+                                color: "#a21caf",
+                                border: "1px solid #f5d0fe",
+                                fontWeight: 500,
+                              }}
+                              title="Questions pool feeds into the 50-question shuffled Final Exam"
+                            >
+                              ✓ 50-Q Final Exam
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td>
                       <StatusBadge status={quiz.passMark} tone="completed" />
                     </td>
                     <td>
-                      <span className={styles.cellText}>{quiz.maxAttempts ?? 3} attempts</span>
-                    </td>
-                    <td>
-                      <span className={styles.cellText}>{quiz.cooldownHours ?? 24} hours</span>
+                      <span className={styles.cellText}>
+                        {quiz.maxAttempts ?? 3} attempts
+                        <br />
+                        <small style={{ color: "var(--text-muted)" }}>
+                          {quiz.cooldownHours ?? 24}h cooldown
+                        </small>
+                      </span>
                     </td>
                     <td>
                       <span className={styles.cellTextMuted}>{quiz.updated}</span>

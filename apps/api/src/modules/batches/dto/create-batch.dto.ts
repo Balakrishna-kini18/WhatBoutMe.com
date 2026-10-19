@@ -9,7 +9,7 @@ import {
   IsArray,
   ArrayUnique,
 } from 'class-validator';
-import { BatchStatus } from '@prisma/client';
+import { BatchStatus, CurrencyCode } from '@prisma/client';
 
 export class CreateBatchDto {
   @IsString()
@@ -46,4 +46,20 @@ export class CreateBatchDto {
   @IsString({ each: true })
   @IsNotEmpty({ each: true })
   trainerIds?: string[];
+
+  @IsOptional()
+  price?: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
+
+  @IsOptional()
+  priceUSD?: number;
+
+  @IsOptional()
+  priceAED?: number;
+
+  @IsOptional()
+  priceINR?: number;
 }

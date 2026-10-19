@@ -1,27 +1,42 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState } from "react";
 import styles from "../../page.module.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { API_URL, errorMessage } from "../../lib/api";
-import { CustomSelect } from "../../components";
+import { formatCourseInfo, parseCourseInfo } from "../courseInfo";
+import Step1CourseSetup from "../[id]/components/Step1CourseSetup";
 
 export default function CreateProgramPage() {
   const router = useRouter();
-
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState<number | "">(1999);
-  const [status, setStatus] = useState<"DRAFT" | "PUBLISHED">("PUBLISHED");
-  const [hasCertificate, setHasCertificate] = useState(true);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) {
+  async function handleCreateProgram(updatedData: {
+    title: string;
+    description: string;
+    shortDescription?: string;
+    thumbnailUrl?: string;
+    category?: string;
+    level?: string;
+    price?: number;
+    currency?: "USD" | "AED" | "INR";
+    priceUSD?: number;
+    priceAED?: number;
+    priceINR?: number;
+    earlyBirdPrice?: number | null;
+    earlyBirdCurrency?: "USD" | "AED" | "INR" | null;
+    earlyBirdDeadline?: string | null;
+    hasCertificate?: boolean;
+    faqs?: Array<{
+      id?: string;
+      question: string;
+      answer: string;
+      sortOrder?: number;
+    }>;
+  }) {
+    if (!updatedData.title.trim()) {
       setFormError("Program title is required.");
       return;
     }
@@ -30,13 +45,34 @@ export default function CreateProgramPage() {
     setFormError(null);
 
     try {
-      const token = localStorage.getItem("token");
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const parsed = parseCourseInfo(updatedData.description);
+      const combinedDescription = formatCourseInfo({
+        ...parsed,
+        summary: updatedData.shortDescription || parsed.summary || updatedData.description || "",
+        type: updatedData.category || parsed.type || "",
+        image: updatedData.thumbnailUrl || parsed.image || "",
+        faqs: updatedData.faqs || parsed.faqs || [],
+      });
+
       const payload = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        price: Number(price) || 0,
-        status,
-        hasCertificate,
+        title: updatedData.title.trim(),
+        description: combinedDescription || updatedData.description,
+        price: Number(updatedData.price) || 0,
+        currency: updatedData.currency || "USD",
+        priceUSD: updatedData.priceUSD !== undefined ? Number(updatedData.priceUSD) : undefined,
+        priceAED: updatedData.priceAED !== undefined ? Number(updatedData.priceAED) : undefined,
+        priceINR: updatedData.priceINR !== undefined ? Number(updatedData.priceINR) : undefined,
+        earlyBirdPrice: updatedData.earlyBirdPrice !== undefined ? Number(updatedData.earlyBirdPrice) : null,
+        earlyBirdCurrency: updatedData.earlyBirdCurrency || null,
+        earlyBirdDeadline: updatedData.earlyBirdDeadline ? new Date(updatedData.earlyBirdDeadline).toISOString() : null,
+        hasCertificate: Boolean(updatedData.hasCertificate),
+        shortDescription: updatedData.shortDescription || "",
+        thumbnailUrl: updatedData.thumbnailUrl || "",
+        category: updatedData.category || "",
+        level: updatedData.level || "",
+        faqs: updatedData.faqs || [],
+        status: "PUBLISHED",
       };
 
       const res = await fetch(`${API_URL}/programs`, {
@@ -52,9 +88,10 @@ export default function CreateProgramPage() {
         throw new Error(await errorMessage(res, "Failed to create program"));
       }
 
-      router.push("/programs");
+      const created = await res.json();
+      router.push(`/programs/${created.id}`);
     } catch (err: any) {
-      setFormError(err.message);
+      setFormError(err.message || "Failed to create program");
     } finally {
       setIsSubmitting(false);
     }
@@ -76,7 +113,9 @@ export default function CreateProgramPage() {
             <span>Back to Programs</span>
           </Link>
           <h1 className={styles.title}>Create New Program</h1>
-          <p className={styles.subtitle}>Define the core program attributes and pricing before configuring steps.</p>
+          <p className={styles.subtitle}>
+            Define core program attributes, multi-currency pricing (USD, AED, INR), early-bird discounts, and course FAQs.
+          </p>
         </div>
       </header>
 
@@ -102,94 +141,11 @@ export default function CreateProgramPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "2rem", alignItems: "start" }}>
-        {/* Main Details */}
-        <section className={styles.tableSection} style={{ padding: "2rem" }}>
-          <div className={styles.modalForm}>
-            <div className={styles.formGroup}>
-              <label>
-                Program Title <span style={{ color: "var(--status-error)" }}>*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 11 Steps to U Certification"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className={styles.formGroup}>
-              <label>
-                Program Description
-              </label>
-              <textarea
-                rows={5}
-                placeholder="A comprehensive overview of competencies and outcomes..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
-
-            <div className={styles.formGroup}>
-              <label>
-                Publication Status
-              </label>
-              <CustomSelect
-                value={status}
-                onChange={(val) => setStatus(val as any)}
-                fullWidth
-                ariaLabel="Publication Status"
-                options={[
-                  { value: "PUBLISHED", label: "Published (Available for batch enrolment)" },
-                  { value: "DRAFT", label: "Draft (Under authoring)" },
-                ]}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Pricing & Features Sidebar */}
-        <div>
-          <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
-            <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem", fontWeight: 700 }}>Pricing</h2>
-            <div className={styles.formGroup}>
-              <label>
-                Price (USD) <span style={{ color: "var(--status-error)" }}>*</span>
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={price}
-                onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))}
-                required
-              />
-            </div>
-          </section>
-
-          <section className={styles.tableSection} style={{ padding: "1.75rem", marginBottom: "1.5rem" }}>
-            <h2 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem", fontWeight: 700 }}>Certification</h2>
-            <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.88rem", fontWeight: 500, cursor: "pointer", color: "var(--text-primary)" }}>
-              <input
-                type="checkbox"
-                checked={hasCertificate}
-                onChange={(e) => setHasCertificate(e.target.checked)}
-                style={{ accentColor: "var(--accent-primary)", width: "16px", height: "16px", cursor: "pointer" }}
-              />
-              <span>Issue Official Certificate upon completion</span>
-            </label>
-          </section>
-
-          <button
-            type="submit"
-            className={styles.primaryBtn}
-            disabled={isSubmitting}
-            style={{ width: "100%", padding: "12px", fontSize: "0.95rem" }}
-          >
-            {isSubmitting ? "Creating Program..." : "Create Program"}
-          </button>
-        </div>
-      </form>
+      <Step1CourseSetup
+        programData={null}
+        onSaveAndContinue={handleCreateProgram}
+        isSaving={isSubmitting}
+      />
     </div>
   );
 }

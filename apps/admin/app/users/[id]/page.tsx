@@ -3,7 +3,15 @@
 import { useEffect, useState, use, Fragment } from "react";
 import styles from "./UserDetail.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../../lib/api";
+import {
+  API_URL,
+  errorMessage,
+  fetchStudentNotes,
+  createStudentNote,
+  deleteStudentNote,
+  type StudentNote,
+} from "../../lib/api";
+import { formatNoteDate } from "../../lib/timezone";
 import { CustomSelect, StatusBadge, InputDialog } from "../../components";
 
 interface EnrolmentOption {
@@ -200,6 +208,18 @@ export default function UserDetailPage({
   const [oralError, setOralError] = useState<string | null>(null);
   const [oralSuccess, setOralSuccess] = useState<string | null>(null);
 
+  // ---------------------------------------------------------------------------
+  // Student Notes & Highlights State (Task 4 - Item #7)
+  // ---------------------------------------------------------------------------
+  const [studentNotes, setStudentNotes] = useState<StudentNote[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [showAddNoteForm, setShowAddNoteForm] = useState(false);
+  const [newNoteText, setNewNoteText] = useState("");
+  const [newHighlight, setNewHighlight] = useState("");
+  const [submittingNote, setSubmittingNote] = useState(false);
+  const [selectedNoteStepId, setSelectedNoteStepId] = useState<string>("");
+
   const toggleStepExpand = (stepId: string) => {
     setExpandedStepIds((prev) => ({
       ...prev,
@@ -280,6 +300,77 @@ export default function UserDetailPage({
       }
     } finally {
       setLoadingOral(false);
+    }
+  }
+
+  // Fetch student notes on learner change or when enrolment changes
+  useEffect(() => {
+    if (!userId) return;
+    let isCancelled = false;
+
+    async function loadNotes() {
+      setLoadingNotes(true);
+      setNotesError(null);
+      try {
+        const notes = await fetchStudentNotes({ userId, sort: "desc" });
+        if (!isCancelled) {
+          setStudentNotes(Array.isArray(notes) ? notes : []);
+        }
+      } catch (e: any) {
+        if (!isCancelled) {
+          console.warn("Could not load student notes", e);
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoadingNotes(false);
+        }
+      }
+    }
+
+    loadNotes();
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, selectedEnrolmentId]);
+
+  async function handleAddStudentNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newNoteText.trim()) return;
+
+    setSubmittingNote(true);
+    setNotesError(null);
+    try {
+      const currentEnrolment = user?.enrolments?.find((en) => en.id === selectedEnrolmentId);
+      const programId = currentEnrolment?.program?.id || currentEnrolment?.batch?.program?.id || progression?.programId;
+      const stepId = selectedNoteStepId || progression?.steps?.[0]?.stepId;
+      const lessonId = progression?.steps?.find((s) => s.stepId === stepId)?.lessons?.[0]?.lessonId;
+
+      const created = await createStudentNote({
+        programId: programId || undefined,
+        stepId: stepId || undefined,
+        lessonId: lessonId || undefined,
+        noteText: newNoteText.trim(),
+        highlightSnippet: newHighlight.trim() || undefined,
+      });
+
+      setStudentNotes((prev) => [created, ...prev]);
+      setNewNoteText("");
+      setNewHighlight("");
+      setShowAddNoteForm(false);
+    } catch (err: any) {
+      setNotesError(err.message || "Failed to save note");
+    } finally {
+      setSubmittingNote(false);
+    }
+  }
+
+  async function handleDeleteStudentNote(noteId: string) {
+    if (!confirm("Are you sure you want to delete this study note?")) return;
+    try {
+      await deleteStudentNote(noteId);
+      setStudentNotes((prev) => prev.filter((n) => n.id !== noteId));
+    } catch (err: any) {
+      alert(err.message || "Failed to delete note");
     }
   }
 
@@ -1771,7 +1862,294 @@ export default function UserDetailPage({
         )}
       </section>
 
-      {/* 6. Manual Override Confirmation Modal */}
+      {/* 7. Student Notes & Highlights (Item #7) */}
+      <section className={styles.progressionSection}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <h2 className={styles.sectionTitle}>Student Notes &amp; Highlights (&ldquo;My Notes&rdquo;)</h2>
+              <span
+                style={{
+                  background: "#fdf4e8",
+                  color: "var(--accent-primary, #c97a1e)",
+                  fontWeight: 700,
+                  fontSize: "0.75rem",
+                  padding: "2px 8px",
+                  borderRadius: "12px",
+                  border: "1px solid #fae2c8",
+                }}
+              >
+                {studentNotes.length} Saved Note{studentNotes.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <p className={styles.sectionSubtitle}>
+              Chronological study notebook capturing in-lesson notes, quotes, and video bookmarks across modules.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddNoteForm(!showAddNoteForm);
+                setNotesError(null);
+              }}
+              className={styles.recalculateBtn}
+              style={{
+                background: showAddNoteForm ? "var(--bg-soft, #f5ece1)" : "var(--accent-primary, #c97a1e)",
+                color: showAddNoteForm ? "var(--text-primary)" : "#ffffff",
+                border: "none",
+                fontWeight: 700,
+              }}
+            >
+              {showAddNoteForm ? "Cancel Note" : "+ Add Study Note"}
+            </button>
+          </div>
+        </div>
+
+        {notesError && (
+          <div className={styles.alertError} style={{ margin: "1rem 0" }}>
+            {notesError}
+          </div>
+        )}
+
+        {/* In-Lesson / Administrative Note Input Form */}
+        {showAddNoteForm && (
+          <form
+            onSubmit={handleAddStudentNote}
+            style={{
+              background: "#ffffff",
+              border: "1.5px solid var(--accent-primary, #c97a1e)",
+              borderRadius: 14,
+              padding: "1.5rem",
+              marginBottom: "1.5rem",
+              boxShadow: "0 6px 20px rgba(201, 122, 30, 0.08)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>
+              Add Note for {user.name}
+            </h3>
+
+            {progression?.steps && progression.steps.length > 0 && (
+              <div style={{ marginBottom: "1rem" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#1e293b" }}>
+                  Associate with Module / Step
+                </label>
+                <select
+                  value={selectedNoteStepId}
+                  onChange={(e) => setSelectedNoteStepId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    fontSize: "0.88rem",
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                  }}
+                >
+                  <option value="">-- Choose Module / Step --</option>
+                  {progression.steps.map((st) => (
+                    <option key={st.stepId} value={st.stepId}>
+                      Step {st.sequence}: {st.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginBottom: "1rem" }}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#1e293b" }}>
+                Highlight Snippet (Optional Quoted Excerpt)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 'Mindfulness is the foundation of emotional self-regulation.'"
+                value={newHighlight}
+                onChange={(e) => setNewHighlight(e.target.value)}
+                style={{
+                  width: "100%",
+                  fontSize: "0.85rem",
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: "1.25rem" }}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#1e293b" }}>
+                Note / Observation Text *
+              </label>
+              <textarea
+                rows={3}
+                required
+                placeholder="Type the student note or key learning reflection..."
+                value={newNoteText}
+                onChange={(e) => setNewNoteText(e.target.value)}
+                style={{
+                  width: "100%",
+                  fontSize: "0.88rem",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                type="button"
+                onClick={() => setShowAddNoteForm(false)}
+                className={styles.recalculateBtn}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingNote}
+                className={styles.recalculateBtn}
+                style={{
+                  background: "var(--accent-primary, #c97a1e)",
+                  color: "#ffffff",
+                  border: "none",
+                  fontWeight: 700,
+                }}
+              >
+                {submittingNote ? "Saving Note..." : "Save Note"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Chronological Notes Column / List */}
+        {loadingNotes ? (
+          <div className="skeleton" style={{ height: 100, borderRadius: 12 }} />
+        ) : studentNotes.length === 0 ? (
+          <div
+            style={{
+              padding: "2.5rem 1.5rem",
+              textAlign: "center",
+              background: "#ffffff",
+              borderRadius: 14,
+              border: "1px solid var(--border-light, #e7decb)",
+            }}
+          >
+            <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted, #78716a)" }}>
+              No study notes or highlights recorded for this learner yet. Notes captured during video playback or lesson reading appear here chronologically.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {studentNotes.map((note) => {
+              const stepName = note.step ? `Step ${note.step.sequence}: ${note.step.title}` : "Module Content";
+              const lessonName = note.lesson ? note.lesson.title : "Lesson Notes";
+              const dateWritten = formatNoteDate(note.createdAt);
+
+              return (
+                <div
+                  key={note.id}
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: 14,
+                    border: "1px solid var(--border-light, #e7decb)",
+                    padding: "1.25rem 1.5rem",
+                    boxShadow: "0 2px 8px rgba(20, 17, 15, 0.03)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.6rem",
+                  }}
+                >
+                  {/* Mandatory Field 3: Associated Module (Step) Name and Lesson Name */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          background: "#fef3c7",
+                          color: "#92400e",
+                          border: "1px solid #fde68a",
+                        }}
+                      >
+                        {stepName}
+                      </span>
+                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                        &bull; {lessonName}
+                      </span>
+                      {note.videoTimestampSeconds != null && (
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: "#ede9fe",
+                            color: "#6d28d9",
+                          }}
+                        >
+                          ▶ {Math.floor(note.videoTimestampSeconds / 60)}:{(note.videoTimestampSeconds % 60).toString().padStart(2, "0")}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Mandatory Field 2: Date written (formatted via timezone.ts) */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{ fontSize: "0.8125rem", color: "var(--text-muted)" }}>
+                        {dateWritten}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteStudentNote(note.id)}
+                        title="Delete note"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#94a3b8",
+                          cursor: "pointer",
+                          padding: "2px",
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quoted Highlight Snippet (if present) */}
+                  {note.highlightSnippet && (
+                    <blockquote
+                      style={{
+                        margin: "0.25rem 0",
+                        padding: "6px 12px",
+                        borderLeft: "3px solid var(--accent-primary, #c97a1e)",
+                        background: "#fbfaf8",
+                        borderRadius: "0 6px 6px 0",
+                        fontSize: "0.84rem",
+                        fontStyle: "italic",
+                        color: "#475569",
+                      }}
+                    >
+                      &ldquo;{note.highlightSnippet}&rdquo;
+                    </blockquote>
+                  )}
+
+                  {/* Mandatory Field 1: Saved Note / Highlight text */}
+                  <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-primary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                    {note.noteText}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* 8. Manual Override Confirmation Modal */}
       {activeModal && targetStep && (
         <InputDialog
           isOpen={Boolean(activeModal && targetStep)}

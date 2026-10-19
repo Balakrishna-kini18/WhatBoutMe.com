@@ -1143,7 +1143,71 @@
   transition: opacity 0.15s ease;
 }
 
-.broadcastActionBtn:hover {
+.pushStatusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  background: #fbfbfa;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.75rem;
+}
+
+.pushStatusLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pushStatusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.pushStatusText {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.pushStatusActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.testPushBtn {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  border-radius: 4px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.testPushBtn:hover {
+  background: #e5e7eb;
+}
+
+.enablePushBtn {
+  background: var(--accent-primary);
+  border: none;
+  color: #ffffff;
+  border-radius: 4px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.enablePushBtn:hover {
   opacity: 0.9;
 }
 

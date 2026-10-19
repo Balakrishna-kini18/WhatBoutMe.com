@@ -457,13 +457,14 @@ export class LeadsController {
     const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
     const checkoutUrl = `${lmsUrl}/checkout/lead/${token}`;
 
-    // 8. Update Lead status to CONVERTED and append details
+    // 8. Update Lead status to CONVERTED and append details cleanly (avoid duplicate notices on resend)
     const conversionNotice = `\n[Converted to Enrolment: ${enrolment.id} | Course: ${program.title} | Link: ${checkoutUrl}]`;
+    const cleanBaseMessage = (lead.message || '').replace(/\n?\[Converted to Enrolment:[^\]]+\]/gi, '').trim();
     const updatedLead = await this.prisma.lead.update({
       where: { id: lead.id },
       data: {
         status: LeadStatus.CONVERTED,
-        message: lead.message ? `${lead.message}${conversionNotice}` : conversionNotice.trim(),
+        message: cleanBaseMessage ? `${cleanBaseMessage}${conversionNotice}` : conversionNotice.trim(),
       },
     });
 

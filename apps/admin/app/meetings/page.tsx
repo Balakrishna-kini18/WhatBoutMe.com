@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import calStyles from "./calendar.module.css";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, errorMessage, detectCalendarConflict } from "../lib/api";
 import {
   getTimezoneOptions,
   getSystemTimezone,
@@ -50,7 +51,13 @@ export type SessionTypeEnum =
   | "SPEAKER_DISCOVERY_CALL"
   | "BATCH_CLASS";
 
-interface Meeting {
+export type CommitmentCategory =
+  | "ALL"
+  | "DISCOVERY"
+  | "COACHING"
+  | "BATCH";
+
+export interface Meeting {
   id: string;
   title: string;
   sessionType: SessionTypeEnum;
@@ -66,7 +73,57 @@ interface Meeting {
   learner?: { id: string; name: string; email: string } | null;
   batch?: { id: string; name: string; program: { id: string; title: string } | null } | null;
   _count?: { attendances?: number; bookings?: number };
+  description?: string | null;
+  agenda?: string | null;
 }
+
+export const isDiscoveryCall = (m: Meeting) => m.sessionType === "SPEAKER_DISCOVERY_CALL";
+export const isCoachingCall = (m: Meeting) =>
+  m.sessionType === "ONE_ON_ONE" ||
+  m.sessionType === "ONE_ON_ONE_WITH_RO" ||
+  m.sessionType === "WELCOME_CALL_11_STEPS" ||
+  m.sessionType === "CLOSING_CALL_11_STEPS";
+export const isBatchSession = (m: Meeting) =>
+  m.sessionType === "GROUP_COHORT" ||
+  m.sessionType === "BATCH_CLASS" ||
+  m.sessionType === "VISION_BOARD_WORKSHOP" ||
+  m.sessionType === "VISION_BOARD_ONLINE";
+
+export const parseDiscoveryCallDetails = (m: Meeting) => {
+  const prospectName =
+    m.learner?.name ||
+    m.title.replace(/^1-to-1 Discovery Call:\s*Roweena\s*&\s*/i, "").trim() ||
+    "Discovery Prospect";
+  const prospectEmail = m.learner?.email || "";
+
+  let courseInquiry = m.batch?.program?.title || "";
+  if (!courseInquiry && m.description) {
+    const match = m.description.match(/Course:\s*([^\n\r|]+)/i);
+    if (match && match[1]) courseInquiry = match[1].trim();
+  }
+  if (!courseInquiry) courseInquiry = "11 Steps to U / General Course Inquiry";
+
+  let leadId = "";
+  if (m.agenda) {
+    const match = m.agenda.match(/LeadId:\s*([a-zA-Z0-9-]+)/i);
+    if (match && match[1] && match[1] !== "N/A") leadId = match[1].trim();
+  }
+  if (!leadId && m.description) {
+    const match = m.description.match(/lead\s+([a-zA-Z0-9-]+)/i);
+    if (match && match[1] && match[1] !== "Direct") leadId = match[1].trim();
+  }
+
+  const zoomLink =
+    m.joinUrl || `https://zoom.us/j/staging-${m.id.slice(0, 8)}?pwd=wbm123`;
+
+  return {
+    prospectName,
+    prospectEmail,
+    courseInquiry,
+    leadId,
+    zoomLink,
+  };
+};
 
 const ALL_COHORTS = "all";
 
@@ -190,6 +247,57 @@ export default function MeetingsPage() {
   const [editJoinUrl, setEditJoinUrl] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [editError, setEditError] = useState("");
+
+  const router = useRouter();
+  const [commitmentCategory, setCommitmentCategory] = useState<CommitmentCategory>("ALL");
+  const [isCompletingAndConverting, setIsCompletingAndConverting] = useState(false);
+
+  const commitmentCounts = useMemo(() => {
+    let discovery = 0;
+    let coaching = 0;
+    let batch = 0;
+    for (const m of meetings) {
+      if (isDiscoveryCall(m)) discovery++;
+      else if (isCoachingCall(m)) coaching++;
+      else batch++;
+    }
+    return { all: meetings.length, discovery, coaching, batch };
+  }, [meetings]);
+
+  const handleCompleteAndConvert = async (meeting: Meeting) => {
+    setIsCompletingAndConverting(true);
+    try {
+      if (meeting.status !== "COMPLETED") {
+        await fetch(`${API_URL}/sessions/${meeting.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "COMPLETED" }),
+        }).catch(() => null);
+
+        setMeetings((prev) =>
+          prev.map((m) => (m.id === meeting.id ? { ...m, status: "COMPLETED" as const } : m))
+        );
+      }
+
+      toastSuccess("Discovery Call marked Completed! Opening CRM Conversion...");
+
+      const details = parseDiscoveryCallDetails(meeting);
+      const queryParams = new URLSearchParams();
+      queryParams.set("action", "convert");
+      if (details.leadId) queryParams.set("leadId", details.leadId);
+      if (details.prospectEmail) queryParams.set("email", details.prospectEmail);
+      if (details.courseInquiry) queryParams.set("course", details.courseInquiry);
+
+      setSelectedMeeting(null);
+      router.push(`/leads?${queryParams.toString()}`);
+    } catch (e) {
+      console.error(e);
+      toastError("Could not complete call. Redirecting to CRM...");
+      router.push("/leads");
+    } finally {
+      setIsCompletingAndConverting(false);
+    }
+  };
 
   // Schedule Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -393,6 +501,23 @@ export default function MeetingsPage() {
       return;
     }
 
+    // Double-booking conflict detection against Roweena's unified schedule
+    const conflictCheck = detectCalendarConflict(
+      meetings,
+      start,
+      end,
+      editHostTrainerId || null,
+      editingMeeting.id,
+    );
+
+    if (conflictCheck.hasConflict && conflictCheck.conflictingSession) {
+      const c = conflictCheck.conflictingSession;
+      setEditError(
+        `⚠️ Double-booking conflict: Coach already has "${c.title}" scheduled from ${formatShortTime(c.startTime, displayTimezone)} to ${formatShortTime(c.endTime, displayTimezone)} (${displayTimezone}).`
+      );
+      return;
+    }
+
     setIsUpdating(true);
     try {
       const payload: Record<string, any> = {
@@ -454,6 +579,23 @@ export default function MeetingsPage() {
     const durationMin = (end.getTime() - start.getTime()) / (1000 * 60);
     if (durationMin < 5) {
       setFormError("Session duration must be at least 5 minutes.");
+      return;
+    }
+
+    // Double-booking conflict detection against Roweena's unified schedule
+    const conflictCheck = detectCalendarConflict(
+      meetings,
+      start,
+      end,
+      hostTrainerId || null,
+      null,
+    );
+
+    if (conflictCheck.hasConflict && conflictCheck.conflictingSession) {
+      const c = conflictCheck.conflictingSession;
+      setFormError(
+        `⚠️ Double-booking conflict: Roweena/Coach already has "${c.title}" scheduled from ${formatShortTime(c.startTime, displayTimezone)} to ${formatShortTime(c.endTime, displayTimezone)} (${displayTimezone}). Please select another time window to avoid clashes with Roweena's schedule.`
+      );
       return;
     }
 
@@ -613,12 +755,16 @@ export default function MeetingsPage() {
 
   const filteredMeetings = useMemo(() => {
     return meetings.filter((m) => {
+      if (commitmentCategory === "DISCOVERY" && !isDiscoveryCall(m)) return false;
+      if (commitmentCategory === "COACHING" && !isCoachingCall(m)) return false;
+      if (commitmentCategory === "BATCH" && !isBatchSession(m)) return false;
+
       if (filterType !== "ALL" && m.sessionType !== filterType) return false;
       if (filterStatus === "SCHEDULED" && m.status !== "SCHEDULED") return false;
       if (filterStatus === "CANCELLED" && m.status !== "CANCELLED") return false;
       return true;
     });
-  }, [meetings, filterType, filterStatus]);
+  }, [meetings, commitmentCategory, filterType, filterStatus]);
 
   // ── Month Calendar Grid Calculation ───────────────────────────────────────
   const calendarDays = useMemo(() => {
@@ -754,6 +900,53 @@ export default function MeetingsPage() {
             Schedule Session
           </button>
         </div>
+      </div>
+
+      {/* ── Roweena's Unified Commitment Switcher ── */}
+      <div className={calStyles.commitmentBar}>
+        <button
+          type="button"
+          className={`${calStyles.commitmentBtn} ${
+            commitmentCategory === "ALL" ? calStyles.commitmentBtnActive : ""
+          }`}
+          onClick={() => setCommitmentCategory("ALL")}
+        >
+          <span>All Commitments</span>
+          <span className={calStyles.commitmentBadge}>{commitmentCounts.all}</span>
+        </button>
+        <button
+          type="button"
+          className={`${calStyles.commitmentBtn} ${
+            commitmentCategory === "DISCOVERY" ? calStyles.commitmentBtnActiveDiscovery : ""
+          }`}
+          onClick={() => setCommitmentCategory("DISCOVERY")}
+        >
+          <span className={calStyles.commitmentDotDiscovery} />
+          <span>15-Min Discovery Calls</span>
+          <span className={calStyles.commitmentBadge}>{commitmentCounts.discovery}</span>
+        </button>
+        <button
+          type="button"
+          className={`${calStyles.commitmentBtn} ${
+            commitmentCategory === "COACHING" ? calStyles.commitmentBtnActiveCoaching : ""
+          }`}
+          onClick={() => setCommitmentCategory("COACHING")}
+        >
+          <span className={calStyles.commitmentDotCoaching} />
+          <span>1:1 Coaching Calls</span>
+          <span className={calStyles.commitmentBadge}>{commitmentCounts.coaching}</span>
+        </button>
+        <button
+          type="button"
+          className={`${calStyles.commitmentBtn} ${
+            commitmentCategory === "BATCH" ? calStyles.commitmentBtnActiveBatch : ""
+          }`}
+          onClick={() => setCommitmentCategory("BATCH")}
+        >
+          <span className={calStyles.commitmentDotBatch} />
+          <span>Batch Live Sessions</span>
+          <span className={calStyles.commitmentBadge}>{commitmentCounts.batch}</span>
+        </button>
       </div>
 
       {/* ── 2. Responsive Controls Toolbar ── */}
@@ -1121,6 +1314,23 @@ export default function MeetingsPage() {
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div className={calStyles.actionBtnGroup}>
+                          {isDiscoveryCall(m) && m.status !== "CANCELLED" && (
+                            <button
+                              type="button"
+                              className={calStyles.tableActionBtn}
+                              style={{
+                                color: "#be123c",
+                                borderColor: "#fecdd3",
+                                background: "#fff1f2",
+                                fontWeight: 700,
+                              }}
+                              disabled={isCompletingAndConverting}
+                              onClick={() => handleCompleteAndConvert(m)}
+                              title="Mark discovery call completed and send personalized checkout link"
+                            >
+                              Complete &amp; Convert &rarr;
+                            </button>
+                          )}
                           <button
                             type="button"
                             className={calStyles.tableActionBtn}
@@ -1498,9 +1708,23 @@ export default function MeetingsPage() {
         onClose={() => setSelectedMeeting(null)}
         title={selectedMeeting?.title || "Session Details"}
         subtitle={selectedMeeting?.sessionType.replace(/_/g, " ")}
-        maxWidth="540px"
+        maxWidth="580px"
         footer={
           <div className={calStyles.modalFooterActions}>
+            {selectedMeeting && isDiscoveryCall(selectedMeeting) && selectedMeeting.status !== "CANCELLED" && (
+              <button
+                type="button"
+                className={calStyles.primaryOrangeBtn}
+                style={{
+                  background: "#be123c",
+                  boxShadow: "0 2px 6px rgba(190, 18, 60, 0.3)",
+                }}
+                disabled={isCompletingAndConverting}
+                onClick={() => handleCompleteAndConvert(selectedMeeting)}
+              >
+                Mark Call Completed &amp; Convert Lead &rarr;
+              </button>
+            )}
             {selectedMeeting?.status === "SCHEDULED" && (
               <button
                 type="button"
@@ -1534,6 +1758,116 @@ export default function MeetingsPage() {
       >
         {selectedMeeting && (
           <div className={calStyles.detailSection}>
+            {/* Dedicated Discovery Call Prospect & Conversion Card */}
+            {isDiscoveryCall(selectedMeeting) && (
+              <div
+                style={{
+                  background: "linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)",
+                  border: "1px solid #fecdd3",
+                  borderRadius: "10px",
+                  padding: "1rem",
+                  marginBottom: "0.5rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.6rem",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      color: "#9f1239",
+                      background: "#ffe4e6",
+                      padding: "0.2rem 0.5rem",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    1-to-1 15-Minute Discovery Call
+                  </span>
+                  <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#be123c" }}>
+                    Roweena Britto Calendar
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.85rem" }}>
+                  <div>
+                    <span style={{ color: "#9f1239", fontSize: "0.75rem", fontWeight: 600, display: "block" }}>
+                      Prospect Name:
+                    </span>
+                    <strong style={{ color: "#881337" }}>
+                      {parseDiscoveryCallDetails(selectedMeeting).prospectName}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "#9f1239", fontSize: "0.75rem", fontWeight: 600, display: "block" }}>
+                      Email:
+                    </span>
+                    <span style={{ color: "#881337" }}>
+                      {parseDiscoveryCallDetails(selectedMeeting).prospectEmail || "—"}
+                    </span>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <span style={{ color: "#9f1239", fontSize: "0.75rem", fontWeight: 600, display: "block" }}>
+                      Inquired Curriculum Program:
+                    </span>
+                    <strong style={{ color: "#881337" }}>
+                      {parseDiscoveryCallDetails(selectedMeeting).courseInquiry}
+                    </strong>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingTop: "0.5rem",
+                    borderTop: "1px dashed #fca5a5",
+                    marginTop: "0.25rem",
+                    flexWrap: "wrap",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#9f1239" }}>Zoom Link:</span>
+                    <a
+                      href={parseDiscoveryCallDetails(selectedMeeting).zoomLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: "0.8rem", color: "#0284c7", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      Open Zoom Room &rarr;
+                    </a>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isCompletingAndConverting}
+                    onClick={() => handleCompleteAndConvert(selectedMeeting)}
+                    style={{
+                      background: "#be123c",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "0.45rem 0.9rem",
+                      fontSize: "0.8125rem",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                      boxShadow: "0 2px 4px rgba(190, 18, 60, 0.25)",
+                    }}
+                  >
+                    <span>Mark Completed &amp; Convert &rarr;</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className={calStyles.detailRow}>
               <span className={calStyles.detailLabel}>When:</span>
               <span className={calStyles.detailValue}>

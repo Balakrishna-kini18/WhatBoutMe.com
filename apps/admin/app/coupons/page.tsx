@@ -217,7 +217,7 @@ export default function CouponsPage() {
     setFormDescription(coupon.description || "");
     setFormDiscountType(coupon.discountType);
     setFormDiscountValue(coupon.discountValue);
-    setFormCurrency(coupon.currency);
+    setFormCurrency(coupon.currency === "ALL" ? "USD" : coupon.currency);
     setFormScope(coupon.scope);
     setFormProgramIds(coupon.programs.map((p) => p.id));
     setFormMaxTotalUses(coupon.maxTotalUses ? String(coupon.maxTotalUses) : "");
@@ -622,9 +622,23 @@ export default function CouponsPage() {
                       </td>
                       <td>
                         <div className={styles.discountBadge}>
-                          {coupon.discountType === "PERCENTAGE"
-                            ? `${coupon.discountValue}% OFF`
-                            : `${coupon.currency} ${coupon.discountValue} OFF`}
+                          {coupon.discountType === "PERCENTAGE" ? (
+                            <span>{coupon.discountValue}% OFF</span>
+                          ) : (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                              <strong style={{ color: "#fef08a" }}>
+                                {coupon.currency === "USD"
+                                  ? "$"
+                                  : coupon.currency === "INR"
+                                  ? "₹"
+                                  : "AED "}
+                              </strong>
+                              <span>{Number(coupon.discountValue).toLocaleString()} OFF</span>
+                              <span style={{ fontSize: "0.7rem", opacity: 0.8, marginLeft: "4px" }}>
+                                ({coupon.currency})
+                              </span>
+                            </span>
+                          )}
                         </div>
                         {coupon.appliesToInstalments && (
                           <div style={{ fontSize: "0.7rem", color: "#a5b4fc", marginTop: "0.15rem" }}>
@@ -744,7 +758,13 @@ export default function CouponsPage() {
               <select
                 className={styles.formSelect}
                 value={formDiscountType}
-                onChange={(e) => setFormDiscountType(e.target.value as any)}
+                onChange={(e) => {
+                  const nextType = e.target.value as any;
+                  setFormDiscountType(nextType);
+                  if (nextType === "FIXED_AMOUNT" && (formCurrency as string) === "ALL") {
+                    setFormCurrency("USD");
+                  }
+                }}
               >
                 <option value="PERCENTAGE">Percentage (%)</option>
                 <option value="FIXED_AMOUNT">Fixed Amount</option>

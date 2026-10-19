@@ -16,15 +16,22 @@ export type CertificateDetails = {
   issuerTitle?: string;
   issueDate?: string | null;
   certificateNo?: string | null;
+  certificateNumber?: string | null;
   brandName?: string;
   verificationUrl?: string | null;
   signatureImage?: string | null;
   logoImage?: string | null;
   qrCodeImage?: string | null;
 
+  /** Template Support: 25 CPD Hours Certification vs Corporate Participation */
+  templateType?: "CPD_25_HOURS" | "PARTICIPATION" | "PROFESSIONAL" | "CORPORATE_PARTICIPATION";
+  certificateType?: "CPD_25_HOURS" | "PARTICIPATION" | "PROFESSIONAL" | "CORPORATE_PARTICIPATION";
+  cpdHours?: number | null;
+
   /** Optional overrides */
   description?: string;
   facilitatorDescription?: string;
+  showLinkedInShare?: boolean;
 };
 
 /**
@@ -359,6 +366,7 @@ export default function Certificate({
   issuerTitle,
   issueDate,
   certificateNo,
+  certificateNumber,
   brandName,
   verificationUrl,
   signatureImage,
@@ -366,160 +374,235 @@ export default function Certificate({
   qrCodeImage,
   description,
   facilitatorDescription,
+  templateType,
+  certificateType,
+  cpdHours = 25,
+  showLinkedInShare = true,
 }: CertificateDetails) {
   // Safe Fallbacks matching strict validation rules
   const finalRecipient = recipientName || name || "Learner Name";
-  const finalCourse = courseName || course || "Course Name";
+  const finalCourse = courseName || course || "11 Steps to U Certification Programme";
   const finalDate = formatCertificateDate(issueDate || issuedAt);
-  const finalCertNo = certificateNo || number || "CERT-WBM-11S-2026-001";
+  const finalCertNo = certificateNumber || certificateNo || number || "CERT-WBM-11S-2026-001";
   const finalIssuer = issuerName || "Roweena Britto";
   const finalTitle = issuerTitle || "Founder & Lead Facilitator";
   const finalBrand = brandName || "whatboutme";
 
+  const isParticipation =
+    templateType === "PARTICIPATION" ||
+    templateType === "CORPORATE_PARTICIPATION" ||
+    certificateType === "PARTICIPATION" ||
+    certificateType === "CORPORATE_PARTICIPATION" ||
+    (!templateType &&
+      !certificateType &&
+      (finalCourse.toLowerCase().includes("participation") ||
+        finalCourse.toLowerCase().includes("workshop")));
+
+  const effectiveCpdHours = isParticipation ? null : (cpdHours ?? 25);
+
   const defaultDescription =
     description ||
     facilitatorDescription ||
-    `finishing every lesson and assessment in the programme, delivered by ${finalBrand} and facilitated by ${finalIssuer}, Brain Health Coach.`;
+    (isParticipation
+      ? `for active engagement, practical exercises, and collaborative participation in the executive workshop delivered by ${finalBrand} and facilitated by ${finalIssuer}.`
+      : `having fulfilled all curriculum milestones, video hours, self-reflections, and knowledge assessments for the ${finalCourse}, accredited for ${effectiveCpdHours} CPD Hours, delivered by ${finalBrand} and facilitated by ${finalIssuer}, Brain Health Coach.`);
+
+  const publicVerifyUrl =
+    verificationUrl || `https://whatboutme.com/verify/${finalCertNo}`;
+
+  // Parse issue year & month for LinkedIn certificate addition
+  const issueDateObj = issueDate || issuedAt ? new Date(issueDate || issuedAt!) : new Date();
+  const issueYear = isNaN(issueDateObj.getFullYear()) ? new Date().getFullYear() : issueDateObj.getFullYear();
+  const issueMonth = isNaN(issueDateObj.getMonth()) ? new Date().getMonth() + 1 : issueDateObj.getMonth() + 1;
+
+  const linkedInCertUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(
+    finalCourse
+  )}&organizationName=whatboutme&issueYear=${issueYear}&issueMonth=${issueMonth}&certUrl=${encodeURIComponent(
+    publicVerifyUrl
+  )}&certId=${encodeURIComponent(finalCertNo)}`;
 
   return (
-    <article
-      className={styles.sheet}
-      aria-label={`Official Certificate of Completion for ${finalRecipient}`}
-    >
-      <BanknoteGuilloche />
+    <div>
+      <article
+        className={styles.sheet}
+        aria-label={`Official Certificate of ${isParticipation ? "Participation" : "Completion"} for ${finalRecipient}`}
+      >
+        <BanknoteGuilloche />
 
-      <div className={styles.outerFrame} aria-hidden="true" />
-      <div className={styles.innerFrame} aria-hidden="true" />
+        <div className={styles.outerFrame} aria-hidden="true" />
+        <div className={styles.innerFrame} aria-hidden="true" />
 
-      <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerTL}`} />
-      <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerTR}`} />
-      <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerBL}`} />
-      <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerBR}`} />
+        <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerTL}`} />
+        <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerTR}`} />
+        <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerBL}`} />
+        <CornerFlourish className={`${styles.cornerFlourish} ${styles.cornerBR}`} />
 
-      <div className={styles.goldRibbon} aria-hidden="true">
-        <div className={styles.ribbonShimmer} />
-        <div className={styles.ribbonContent}>
-          <span className={styles.ribbonPrimary}>CERTIFICATE</span>
-          <span className={styles.ribbonSecondary}>OF COMPLETION</span>
+        <div className={styles.goldRibbon} aria-hidden="true">
+          <div className={styles.ribbonShimmer} />
+          <div className={styles.ribbonContent}>
+            <span className={styles.ribbonPrimary}>CERTIFICATE</span>
+            <span className={styles.ribbonSecondary}>
+              {isParticipation ? "OF PARTICIPATION" : "OF COMPLETION"}
+            </span>
+          </div>
         </div>
-      </div>
 
-      <div className={styles.contentBody}>
-        <header className={styles.headerRow}>
-          <div className={styles.brandGroup}>
-            {logoImage ? (
-              <Image
-                src={logoImage}
-                alt={finalBrand}
-                width={160}
-                height={40}
-                quality={80}
-                loading="lazy"
-                unoptimized={!logoImage.startsWith("/")}
-                className={styles.brandLogoImg}
-              />
-            ) : (
-              <div className={styles.brandWordmark}>
-                <span className={styles.brandNameText}>{finalBrand}</span>
-                <span className={styles.heartMark} aria-hidden="true">
-                  <svg width="20" height="18" viewBox="0 0 24 22" fill="none">
-                    <path
-                      d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                      fill="url(#brandHeartGoldAdmin)"
-                    />
-                    <defs>
-                      <linearGradient id="brandHeartGoldAdmin" x1="2" y1="3" x2="22" y2="21.35">
-                        <stop stopColor="#f59e0b" />
-                        <stop offset="1" stopColor="#d97706" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                </span>
-                <span className={styles.trademark} aria-hidden="true">®</span>
+        <div className={styles.contentBody}>
+          <header className={styles.headerRow}>
+            <div className={styles.brandGroup}>
+              {logoImage ? (
+                <Image
+                  src={logoImage}
+                  alt={finalBrand}
+                  width={160}
+                  height={40}
+                  quality={80}
+                  loading="lazy"
+                  unoptimized={!logoImage.startsWith("/")}
+                  className={styles.brandLogoImg}
+                />
+              ) : (
+                <div className={styles.brandWordmark}>
+                  <span className={styles.brandNameText}>{finalBrand}</span>
+                  <span className={styles.heartMark} aria-hidden="true">
+                    <svg width="20" height="18" viewBox="0 0 24 22" fill="none">
+                      <path
+                        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                        fill="url(#brandHeartGoldAdmin)"
+                      />
+                      <defs>
+                        <linearGradient id="brandHeartGoldAdmin" x1="2" y1="3" x2="22" y2="21.35">
+                          <stop stopColor="#f59e0b" />
+                          <stop offset="1" stopColor="#d97706" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                  </span>
+                  <span className={styles.trademark} aria-hidden="true">®</span>
+                </div>
+              )}
+              <p className={styles.brandSubtitle}>LEARN • GROW • BE A BETTER YOU</p>
+            </div>
+
+            <div className={styles.headerTaglineWrap}>
+              <p className={styles.taglineLine1}>PRACTICAL LEARNING</p>
+              <div className={styles.taglineDivider} />
+              <p className={styles.taglineLine2}>FOR A BRIGHTER YOU</p>
+            </div>
+          </header>
+
+          <AwardSeal className={styles.awardSeal} />
+
+          <main className={styles.certCenter}>
+            <p className={styles.certLead}>THIS IS TO CERTIFY THAT</p>
+
+            <h1 className={styles.recipientName}>{finalRecipient}</h1>
+
+            <SymmetricalDivider className={styles.dividerOrnament} />
+
+            <p className={styles.courseLead}>
+              {isParticipation
+                ? "HAS ACTIVELY PARTICIPATED IN THE EXECUTIVE WORKSHOP"
+                : "HAS SUCCESSFULLY COMPLETED AND MET ALL ASSESSMENTS FOR"}
+            </p>
+
+            <h2 className={styles.courseTitle}>{finalCourse}</h2>
+
+            {!isParticipation && (
+              <div className={styles.cpdBadge}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                <span>{effectiveCpdHours} CPD Accredited Hours &bull; Accreditation CPD UK</span>
               </div>
             )}
-            <p className={styles.brandSubtitle}>LEARN • GROW • BE A BETTER YOU</p>
-          </div>
 
-          <div className={styles.headerTaglineWrap}>
-            <p className={styles.taglineLine1}>PRACTICAL LEARNING</p>
-            <div className={styles.taglineDivider} />
-            <p className={styles.taglineLine2}>FOR A BRIGHTER YOU</p>
-          </div>
-        </header>
+            <p className={styles.courseDescription}>{defaultDescription}</p>
+          </main>
 
-        <AwardSeal className={styles.awardSeal} />
-
-        <main className={styles.certCenter}>
-          <p className={styles.certLead}>THIS IS TO CERTIFY THAT</p>
-
-          <h1 className={styles.recipientName}>{finalRecipient}</h1>
-
-          <SymmetricalDivider className={styles.dividerOrnament} />
-
-          <p className={styles.courseLead}>HAS SUCCESSFULLY COMPLETED THE COURSE</p>
-
-          <h2 className={styles.courseTitle}>{finalCourse}</h2>
-
-          <p className={styles.courseDescription}>{defaultDescription}</p>
-        </main>
-
-        <footer className={styles.footerRow}>
-          <div className={styles.signerCol}>
-            <div className={styles.signatureSlot}>
-              {signatureImage ? (
-                <Image
-                  src={signatureImage}
-                  alt={finalIssuer}
-                  width={180}
-                  height={50}
-                  quality={80}
-                  loading="lazy"
-                  unoptimized={!signatureImage.startsWith("/")}
-                  className={styles.signatureImg}
-                />
-              ) : (
-                <span className={styles.handwrittenSignature}>{finalIssuer}</span>
-              )}
-            </div>
-            <div className={styles.signerRule} />
-            <p className={styles.signerName}>{finalIssuer}</p>
-            <p className={styles.signerTitle}>{finalTitle}</p>
-            <p className={styles.signerOrg}>{finalBrand}</p>
-          </div>
-
-          <div className={styles.dateCol}>
-            <p className={styles.dateValue}>{finalDate}</p>
-            <div className={styles.dateRule} />
-            <p className={styles.dateLabel}>DATE OF ISSUE</p>
-          </div>
-
-          <div className={styles.verifyCol}>
-            <div className={styles.certNoGroup}>
-              <span className={styles.certNoLabel}>Certificate No.</span>
-              <span className={styles.certNoValue}>{finalCertNo}</span>
+          <footer className={styles.footerRow}>
+            <div className={styles.signerCol}>
+              <div className={styles.signatureSlot}>
+                {signatureImage ? (
+                  <Image
+                    src={signatureImage}
+                    alt={finalIssuer}
+                    width={180}
+                    height={50}
+                    quality={80}
+                    loading="lazy"
+                    unoptimized={!signatureImage.startsWith("/")}
+                    className={styles.signatureImg}
+                  />
+                ) : (
+                  <span className={styles.handwrittenSignature}>{finalIssuer}</span>
+                )}
+              </div>
+              <div className={styles.signerRule} />
+              <p className={styles.signerName}>{finalIssuer}</p>
+              <p className={styles.signerTitle}>{finalTitle}</p>
+              <p className={styles.signerOrg}>{finalBrand}</p>
             </div>
 
-            <div className={styles.qrGroup}>
-              {qrCodeImage ? (
-                <Image
-                  src={qrCodeImage}
-                  alt="Certificate QR"
-                  width={64}
-                  height={64}
-                  quality={80}
-                  loading="lazy"
-                  unoptimized={!qrCodeImage.startsWith("/")}
-                  className={styles.qrImg}
-                />
-              ) : (
-                <VectorQrCode className={styles.qrVector} />
-              )}
-              <span className={styles.qrLabel}>VERIFY CERTIFICATE</span>
+            <div className={styles.dateCol}>
+              <p className={styles.dateValue}>{finalDate}</p>
+              <div className={styles.dateRule} />
+              <p className={styles.dateLabel}>DATE OF ISSUE</p>
             </div>
-          </div>
-        </footer>
-      </div>
-    </article>
+
+            <div className={styles.verifyCol}>
+              <div className={styles.certNoGroup}>
+                <span className={styles.certNoLabel}>Certificate No.</span>
+                <span className={styles.certNoValue}>{finalCertNo}</span>
+                <a
+                  href={publicVerifyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.verifyLink}
+                  title={`Verify ${finalCertNo}`}
+                >
+                  /verify/{finalCertNo}
+                </a>
+              </div>
+
+              <div className={styles.qrGroup}>
+                {qrCodeImage ? (
+                  <Image
+                    src={qrCodeImage}
+                    alt="Certificate QR"
+                    width={64}
+                    height={64}
+                    quality={80}
+                    loading="lazy"
+                    unoptimized={!qrCodeImage.startsWith("/")}
+                    className={styles.qrImg}
+                  />
+                ) : (
+                  <VectorQrCode className={styles.qrVector} />
+                )}
+                <span className={styles.qrLabel}>VERIFY CERTIFICATE</span>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </article>
+
+      {showLinkedInShare && (
+        <div className={`${styles.linkedinShareWrap} ${styles.screenOnly}`}>
+          <a
+            href={linkedInCertUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.linkedinShareBtn}
+            title="Add this verified credential directly to your LinkedIn profile"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.64a1.64 1.64 0 1 0 0 3.28 1.64 1.64 0 0 0 0-3.28z" />
+            </svg>
+            <span>Add Credential to LinkedIn</span>
+          </a>
+        </div>
+      )}
+    </div>
   );
 }

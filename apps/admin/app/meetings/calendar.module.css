@@ -919,3 +919,106 @@
     justify-content: center;
   }
 }
+
+/* =========================================================================
+   8. Roweena's Unified Commitment Bar (Filter Toggle)
+   ========================================================================= */
+.commitmentBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  border-radius: 10px;
+  padding: 0.5rem;
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+  flex-wrap: wrap;
+}
+
+.commitmentBtn {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary, #4a443d);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.commitmentBtn:hover {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--text-primary, #14110f);
+}
+
+.commitmentBtnActive {
+  background: var(--text-primary, #14110f);
+  color: #ffffff;
+  border-color: var(--text-primary, #14110f);
+}
+
+.commitmentBtnActive:hover {
+  background: #2b2522;
+  color: #ffffff;
+}
+
+.commitmentBtnActiveDiscovery {
+  background: #ffe4e6;
+  color: #9f1239;
+  border-color: #fecdd3;
+}
+
+.commitmentBtnActiveCoaching {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+
+.commitmentBtnActiveBatch {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.commitmentBadge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+}
+
+.commitmentBtnActive .commitmentBadge {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.commitmentDotDiscovery {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e11d48;
+  display: inline-block;
+}
+
+.commitmentDotCoaching {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0284c7;
+  display: inline-block;
+}
+
+.commitmentDotBatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97706;
+  display: inline-block;
+}

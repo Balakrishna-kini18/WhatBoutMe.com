@@ -50,27 +50,57 @@ export class QuizzesService {
   async findAll() {
     const quizzes = await this.prisma.quiz.findMany({
       include: {
-        step: true,
-        questions: true,
+        step: {
+          include: {
+            program: {
+              include: {
+                exams: true,
+              },
+            },
+          },
+        },
+        questions: {
+          include: {
+            options: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
       },
     });
 
-    return quizzes.map((quiz) => ({
-      id: quiz.id,
-      stepId: quiz.stepId,
-      step: `Step ${quiz.step.sequence}: ${quiz.step.title}`,
-      questions: quiz.questions.length,
-      passMark: `${quiz.passMark}%`,
-      maxAttempts: quiz.maxAttempts,
-      cooldownHours: quiz.cooldownHours,
-      questionCount: quiz.questionCount,
-      quizPlacement: quiz.quizPlacement,
-      updated: new Date(quiz.updatedAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }),
-    }));
+    return quizzes.map((quiz) => {
+      const qTypes = Array.from(new Set(quiz.questions.map((q) => q.type)));
+      const visualCount = quiz.questions.filter(
+        (q) => Boolean(q.imageUrl) || q.options?.some((opt) => Boolean(opt.imageUrl)),
+      ).length;
+      const feedsFinalExam =
+        (quiz.step?.program?.exams && quiz.step.program.exams.length > 0) || true;
+
+      return {
+        id: quiz.id,
+        stepId: quiz.stepId,
+        step: `Step ${quiz.step.sequence}: ${quiz.step.title}`,
+        stepSequence: quiz.step.sequence,
+        stepTitle: quiz.step.title,
+        programTitle: quiz.step.program?.title || '11 Steps to U',
+        questions: quiz.questions.length,
+        passMark: `${quiz.passMark}%`,
+        maxAttempts: quiz.maxAttempts,
+        cooldownHours: quiz.cooldownHours,
+        questionCount: quiz.questionCount,
+        quizPlacement: quiz.quizPlacement || 'AFTER_VIDEO',
+        questionTypes: qTypes,
+        visualCount,
+        feedsFinalExam,
+        updated: new Date(quiz.updatedAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+      };
+    });
   }
 
   async findOne(id: string) {

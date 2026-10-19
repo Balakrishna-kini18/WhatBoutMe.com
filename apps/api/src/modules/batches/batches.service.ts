@@ -284,6 +284,11 @@ export class BatchesService {
           endDate: data.endDate ? new Date(data.endDate) : null,
           capacity: data.capacity,
           status: initialStatus,
+          price: data.price !== undefined ? data.price : undefined,
+          currency: data.currency !== undefined ? data.currency : undefined,
+          priceUSD: data.priceUSD !== undefined ? data.priceUSD : undefined,
+          priceAED: data.priceAED !== undefined ? data.priceAED : undefined,
+          priceINR: data.priceINR !== undefined ? data.priceINR : undefined,
         },
       });
 
@@ -391,6 +396,11 @@ export class BatchesService {
     if (data.endDate !== undefined)
       updateData.endDate = data.endDate ? new Date(data.endDate) : null;
     if (data.capacity !== undefined) updateData.capacity = data.capacity;
+    if (data.price !== undefined) updateData.price = data.price;
+    if (data.currency !== undefined) updateData.currency = data.currency;
+    if (data.priceUSD !== undefined) updateData.priceUSD = data.priceUSD;
+    if (data.priceAED !== undefined) updateData.priceAED = data.priceAED;
+    if (data.priceINR !== undefined) updateData.priceINR = data.priceINR;
     if (data.status !== undefined) {
       updateData.status = data.status;
     } else if (batch.status === BatchStatus.UPCOMING || batch.status === BatchStatus.ACTIVE) {
@@ -813,6 +823,11 @@ export class BatchesService {
       endDate: batch.endDate,
       capacity,
       status: computedStatus,
+      price: (batch as any).price ?? null,
+      currency: (batch as any).currency ?? null,
+      priceUSD: (batch as any).priceUSD ?? null,
+      priceAED: (batch as any).priceAED ?? null,
+      priceINR: (batch as any).priceINR ?? null,
       enrolledCount,
       remainingCapacity,
       isFull,

@@ -7,7 +7,7 @@ import {
   Min,
   IsEnum,
 } from 'class-validator';
-import { BatchStatus } from '@prisma/client';
+import { BatchStatus, CurrencyCode } from '@prisma/client';
 
 export class UpdateBatchDto {
   @IsOptional()
@@ -40,4 +40,20 @@ export class UpdateBatchDto {
   @IsOptional()
   @IsEnum(BatchStatus)
   status?: BatchStatus;
+
+  @IsOptional()
+  price?: number;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
+
+  @IsOptional()
+  priceUSD?: number;
+
+  @IsOptional()
+  priceAED?: number;
+
+  @IsOptional()
+  priceINR?: number;
 }

@@ -20,4 +20,8 @@ export class QueryNotesDto {
   @IsOptional()
   @IsIn(['asc', 'desc'], { message: 'sort must be asc or desc' })
   sort?: 'asc' | 'desc';
+
+  @IsOptional()
+  @IsUUID('4', { message: 'userId must be a valid UUID' })
+  userId?: string;
 }

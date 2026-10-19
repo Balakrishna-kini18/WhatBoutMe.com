@@ -181,12 +181,42 @@ export class QuizzesService {
   }
 
   async remove(id: string) {
-    // Delete all attempts (and cascading answers) first
+    // 1. Delete all answers associated with this quiz's questions or attempts
+    await this.prisma.quizAnswer.deleteMany({
+      where: {
+        OR: [
+          { attempt: { quizId: id } },
+          { question: { quizId: id } },
+        ],
+      },
+    });
+
+    // 2. Delete all attempts on this quiz
     await this.prisma.attempt.deleteMany({ where: { quizId: id } });
-    
+
+    // 3. Delete options for all questions in this quiz
+    await this.prisma.option.deleteMany({
+      where: { question: { quizId: id } },
+    });
+
+    // 4. Delete all questions in this quiz
+    await this.prisma.question.deleteMany({
+      where: { quizId: id },
+    });
+
+    // 5. Delete the quiz record
     const res = await this.prisma.quiz.delete({
       where: { id },
     });
+
+    // 6. Reset step quizPlacement to default
+    if (res.stepId) {
+      await this.prisma.step.update({
+        where: { id: res.stepId },
+        data: { quizPlacement: 'AFTER_VIDEO' },
+      }).catch(() => {});
+    }
+
     await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
     return res;
   }
@@ -1230,7 +1260,7 @@ export class QuizzesService {
     return updated;
   }
 
-  async deleteQuestion(questionId: string) {
+  async deleteQuestion(questionId: string, force = false) {
     const existing = await this.prisma.question.findUnique({
       where: { id: questionId },
     });
@@ -1244,10 +1274,21 @@ export class QuizzesService {
     });
 
     if (answersCount > 0) {
-      throw new BadRequestException(
-        'Cannot delete question because it is referenced in recorded quiz attempts',
-      );
+      if (!force) {
+        throw new BadRequestException(
+          'Cannot delete question because it is referenced in recorded quiz attempts',
+        );
+      }
+      // If forced by staff / curriculum editor, purge referenced answers so question can be safely removed
+      await this.prisma.quizAnswer.deleteMany({
+        where: { questionId },
+      });
     }
+
+    // Clean up options
+    await this.prisma.option.deleteMany({
+      where: { questionId },
+    });
 
     await this.prisma.question.delete({
       where: { id: questionId },

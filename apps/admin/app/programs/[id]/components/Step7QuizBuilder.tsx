@@ -32,7 +32,7 @@ interface Step7QuizBuilderProps {
   moduleTitle: string;
   existingQuiz?: any | null;
   onBackToModule: () => void;
-  onQuizSaved: () => void;
+  onQuizSaved: (updatedQuiz?: any) => void;
 }
 
 export default function Step7QuizBuilder({
@@ -370,12 +370,15 @@ export default function Step7QuizBuilder({
     setIsDeletingQuestion(true);
     try {
       const qId = questionToDelete.id;
-      setQuestions((prev) => prev.filter((q) => q.id !== qId));
-      setQuestionToDelete(null);
-
-      await cachedFetch(`${API_URL}/quizzes/questions/${qId}`, {
+      const res = await cachedFetch(`${API_URL}/quizzes/questions/${qId}?force=true`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to delete question"));
+      }
+
+      setQuestions((prev) => prev.filter((q) => q.id !== qId));
+      setQuestionToDelete(null);
       toast.success("Question removed.");
     } catch (err: any) {
       toast.error(err?.message || "Failed to delete question");
@@ -389,6 +392,10 @@ export default function Step7QuizBuilder({
     try {
       const activeQId = await ensureQuizEntity();
 
+      const sanitizedMaxAttempts = Math.max(1, Number(maxAttempts) || 3);
+      const sanitizedPassMark = Math.min(100, Math.max(1, Number(passMark) || 75));
+      const sanitizedCooldown = Math.max(0, Number(cooldownHours) || 0);
+
       // Update quiz parameters
       const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}`, {
         method: "PATCH",
@@ -396,10 +403,10 @@ export default function Step7QuizBuilder({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          title: quizTitle.trim(),
-          passMark: Number(passMark),
-          maxAttempts: Number(maxAttempts),
-          cooldownHours: Number(cooldownHours),
+          title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
+          passMark: sanitizedPassMark,
+          maxAttempts: sanitizedMaxAttempts,
+          cooldownHours: sanitizedCooldown,
           quizPlacement,
         }),
       });
@@ -408,8 +415,17 @@ export default function Step7QuizBuilder({
         throw new Error(await errorMessage(res, "Failed to update quiz settings"));
       }
 
+      const updatedQuiz = await res.json().catch(() => ({
+        id: activeQId,
+        title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
+        passMark: sanitizedPassMark,
+        maxAttempts: sanitizedMaxAttempts,
+        cooldownHours: sanitizedCooldown,
+        quizPlacement,
+      }));
+
       toast.success("Quiz settings updated.");
-      onQuizSaved();
+      onQuizSaved(updatedQuiz);
     } catch (err: any) {
       toast.error(err.message || "Failed to update quiz settings");
     } finally {

@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
 } from '@nestjs/common';
 import { QuizzesService } from './quizzes.service.js';
@@ -139,16 +140,26 @@ export class QuizzesController {
 
   @RequirePermission(Permission.QUIZZES_DELETE)
   @Delete('questions/:questionId')
-  deleteQuestion(@Param('questionId') questionId: string) {
-    return this.quizzesService.deleteQuestion(questionId);
+  deleteQuestion(
+    @Param('questionId') questionId: string,
+    @Query('force') force?: string,
+  ) {
+    const isForce = force === 'true' || force === '1';
+    return isForce
+      ? this.quizzesService.deleteQuestion(questionId, true)
+      : this.quizzesService.deleteQuestion(questionId);
   }
 
   @RequirePermission(Permission.QUIZZES_DELETE)
   @Delete(':quizId/questions/:questionId')
   deleteQuizQuestion(
     @Param('questionId') questionId: string,
+    @Query('force') force?: string,
   ) {
-    return this.quizzesService.deleteQuestion(questionId);
+    const isForce = force === 'true' || force === '1';
+    return isForce
+      ? this.quizzesService.deleteQuestion(questionId, true)
+      : this.quizzesService.deleteQuestion(questionId);
   }
 }
 

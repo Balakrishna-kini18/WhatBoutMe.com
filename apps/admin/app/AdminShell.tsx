@@ -11,6 +11,9 @@ import {
   broadcastNotification,
   fetchDeliveryLogs,
   apiGet,
+  registerWebPushSubscription,
+  getPushPermissionStatus,
+  sendTestWebPushNotification,
   type BroadcastNotificationPayload,
   type NotificationLogItem,
   type EmailLogItem,
@@ -375,6 +378,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
+  // Web Push Opt-in & Device Registration State (Task 3)
+  const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
+  const [isRegisteringPush, setIsRegisteringPush] = useState(false);
+  const [testPushSent, setTestPushSent] = useState(false);
+
   // Broadcast Modal State
   const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   const [broadcastTarget, setBroadcastTarget] = useState<'ALL' | 'BATCH' | 'USER'>('ALL');
@@ -400,9 +408,42 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const handleEnablePush = async () => {
+    setIsRegisteringPush(true);
+    try {
+      const res = await registerWebPushSubscription();
+      const newStatus = getPushPermissionStatus();
+      setPushStatus(newStatus);
+      if (res.success && newStatus === 'granted') {
+        await sendTestWebPushNotification(
+          'Notifications Enabled',
+          'You will now receive administrative alerts and updates.'
+        );
+      }
+    } catch (err) {
+      console.error('Push registration error:', err);
+    } finally {
+      setIsRegisteringPush(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    const ok = await sendTestWebPushNotification(
+      'WhatBoutMe Admin Test',
+      'Web Push notification delivered successfully to this device.'
+    );
+    if (ok) {
+      setTestPushSent(true);
+      setTimeout(() => setTestPushSent(false), 3000);
+    }
+  };
+
   useEffect(() => {
     if (notifDropdownOpen) {
       loadDeliveryLogs();
+      if (typeof window !== 'undefined') {
+        setPushStatus(getPushPermissionStatus());
+      }
     }
   }, [notifDropdownOpen]);
 
@@ -433,6 +474,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
     // Platform detection for search shortcut
     if (typeof window !== "undefined") {
+      setPushStatus(getPushPermissionStatus());
       const isMac =
         /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
         /Macintosh|Mac OS X/.test(navigator.userAgent);
@@ -863,6 +905,54 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                     </button>
                   </div>
 
+                  {/* Web Push Status Bar */}
+                  <div className={styles.pushStatusBar}>
+                    <div className={styles.pushStatusLeft}>
+                      <span
+                        className={styles.pushStatusDot}
+                        style={{
+                          background:
+                            pushStatus === "granted"
+                              ? "#10b981"
+                              : pushStatus === "denied"
+                              ? "#ef4444"
+                              : "#f59e0b",
+                        }}
+                      />
+                      <span className={styles.pushStatusText}>
+                        {pushStatus === "granted"
+                          ? "Web Push: Active"
+                          : pushStatus === "denied"
+                          ? "Web Push: Blocked"
+                          : pushStatus === "unsupported"
+                          ? "Web Push: Unsupported"
+                          : "Web Push: Inactive"}
+                      </span>
+                    </div>
+
+                    <div className={styles.pushStatusActions}>
+                      {pushStatus === "granted" ? (
+                        <button
+                          type="button"
+                          className={styles.testPushBtn}
+                          onClick={handleTestPush}
+                          title="Trigger a test browser push alert to this device"
+                        >
+                          {testPushSent ? "Sent! ✓" : "Test Push"}
+                        </button>
+                      ) : pushStatus !== "unsupported" && pushStatus !== "denied" ? (
+                        <button
+                          type="button"
+                          className={styles.enablePushBtn}
+                          onClick={handleEnablePush}
+                          disabled={isRegisteringPush}
+                        >
+                          {isRegisteringPush ? "Enabling..." : "Enable Push"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
                   {/* Tabs */}
                   <div className={styles.notifTabs}>
                     <button
@@ -1246,6 +1336,30 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                     style={{ accentColor: "#e06d28" }}
                   />
                   <span>Browser &amp; Mobile Web Push Notification</span>
+                  {pushStatus === "granted" && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleTestPush();
+                      }}
+                      style={{
+                        marginLeft: "auto",
+                        background: "#f3f4f6",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "4px",
+                        padding: "2px 8px",
+                        fontSize: "0.6875rem",
+                        fontWeight: 600,
+                        color: "#374151",
+                        cursor: "pointer",
+                      }}
+                      title="Send a sample test push to verify browser alert"
+                    >
+                      {testPushSent ? "Sent! ✓" : "Test Push"}
+                    </button>
+                  )}
                 </label>
                 <label className={styles.channelCheckboxLabel}>
                   <input

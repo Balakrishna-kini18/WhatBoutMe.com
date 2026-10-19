@@ -428,6 +428,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const handleDeleteQuiz = async () => {
     if (!activeModule?.quiz?.id) return;
     const qId = activeModule.quiz.id;
+    const targetModuleId = activeModule.id;
     setConfirmConfig({
       isOpen: true,
       title: "Delete Quiz",
@@ -438,10 +439,14 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         try {
           const res = await cachedFetch(`${API_URL}/quizzes/${qId}`, { method: "DELETE" });
           if (res.ok) {
+            setSteps((prev) =>
+              prev.map((s) => (s.id === targetModuleId ? { ...s, quiz: null } : s))
+            );
             toast.success("Quiz deleted successfully.");
             fetchProgramAndSteps();
           } else {
-            toast.error("Failed to delete quiz.");
+            const errData = await res.json().catch(() => ({}));
+            toast.error(errData.message || "Failed to delete quiz.");
           }
         } finally {
           setIsConfirming(false);
@@ -681,7 +686,23 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           moduleTitle={activeModule.title}
           existingQuiz={activeModule.quiz}
           onBackToModule={() => setWizardStep("MODULE_DETAILS")}
-          onQuizSaved={() => {
+          onQuizSaved={(updatedQuiz) => {
+            if (updatedQuiz) {
+              setSteps((prev) =>
+                prev.map((s) =>
+                  s.id === activeModule.id
+                    ? {
+                        ...s,
+                        quiz: {
+                          ...(s.quiz || {}),
+                          ...updatedQuiz,
+                          quizPlacement: updatedQuiz.quizPlacement || s.quiz?.quizPlacement,
+                        },
+                      }
+                    : s
+                )
+              );
+            }
             fetchProgramAndSteps();
             setWizardStep("MODULE_DETAILS");
           }}

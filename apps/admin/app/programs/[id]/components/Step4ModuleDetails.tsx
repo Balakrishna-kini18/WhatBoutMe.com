@@ -40,7 +40,7 @@ export default function Step4ModuleDetails({
   onDeleteQuiz,
 }: Step4ModuleDetailsProps) {
   const lessons = module.lessons || [];
-  const hasQuiz = Boolean(module.quiz);
+  const hasQuiz = Boolean(module.quiz && module.quiz.id);
 
   return (
     <section className={styles.cardSurface}>
@@ -293,7 +293,7 @@ export default function Step4ModuleDetails({
                   </td>
 
                   <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    Pass Mark: {module.quiz.passMark}% &bull; {module.quiz.questions?.length ?? 0} Questions
+                    Pass Mark: {module.quiz.passMark}% &bull; Max Attempts: {module.quiz.maxAttempts ?? 3} &bull; {module.quiz.questions?.length ?? 0} Questions
                   </td>
 
                   <td style={{ textAlign: "right" }}>

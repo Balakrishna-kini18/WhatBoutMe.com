@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import styles from "../../page.module.css";
+import styles from "../../../page.module.css";
 import { API_URL, errorMessage, cachedFetch } from "../../../lib/api";
 import { formatCourseInfo, parseCourseInfo } from "../../courseInfo";
 import Step1CourseSetup from "../components/Step1CourseSetup";

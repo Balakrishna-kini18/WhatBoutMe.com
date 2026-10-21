@@ -229,6 +229,11 @@ export class InvoicePdfService {
 
     y -= 30;
 
+    const hasDiscount = Boolean(data.discountAmount && data.discountAmount > 0);
+    const lineItemRate = hasDiscount
+      ? data.subtotal + (data.discountAmount || 0)
+      : data.subtotal;
+
     // Line Item Row
     page.drawText(data.itemDescription.slice(0, 48), {
       x: 55,
@@ -238,14 +243,14 @@ export class InvoicePdfService {
       color: darkColor,
     });
     page.drawText('1', { x: 345, y, size: 10, font: fontRegular, color: darkColor });
-    page.drawText(`${data.currencySymbol} ${data.subtotal.toFixed(2)}`, {
+    page.drawText(`${data.currencySymbol} ${lineItemRate.toFixed(2)}`, {
       x: 395,
       y,
       size: 10,
       font: fontRegular,
       color: darkColor,
     });
-    page.drawText(`${data.currencySymbol} ${data.subtotal.toFixed(2)}`, {
+    page.drawText(`${data.currencySymbol} ${lineItemRate.toFixed(2)}`, {
       x: 475,
       y,
       size: 10,
@@ -267,8 +272,8 @@ export class InvoicePdfService {
     const summaryX = 350;
     const valueX = 475;
 
-    page.drawText('Subtotal:', { x: summaryX, y, size: 10, font: fontRegular, color: mutedColor });
-    page.drawText(`${data.currencySymbol} ${data.subtotal.toFixed(2)}`, {
+    page.drawText(hasDiscount ? 'List Price:' : 'Subtotal:', { x: summaryX, y, size: 10, font: fontRegular, color: mutedColor });
+    page.drawText(`${data.currencySymbol} ${lineItemRate.toFixed(2)}`, {
       x: valueX,
       y,
       size: 10,
@@ -276,16 +281,26 @@ export class InvoicePdfService {
       color: darkColor,
     });
 
-    if (data.discountAmount && data.discountAmount > 0) {
+    if (hasDiscount) {
       y -= 18;
       const couponLabel = data.couponCode ? `Coupon (${data.couponCode}):` : 'Discount:';
       page.drawText(couponLabel, { x: summaryX, y, size: 9, font: fontRegular, color: primaryColor });
-      page.drawText(`-${data.currencySymbol} ${data.discountAmount.toFixed(2)}`, {
+      page.drawText(`-${data.currencySymbol} ${data.discountAmount!.toFixed(2)}`, {
         x: valueX,
         y,
         size: 9,
         font: fontBold,
         color: primaryColor,
+      });
+
+      y -= 18;
+      page.drawText('Net Subtotal:', { x: summaryX, y, size: 9, font: fontRegular, color: mutedColor });
+      page.drawText(`${data.currencySymbol} ${data.subtotal.toFixed(2)}`, {
+        x: valueX,
+        y,
+        size: 9,
+        font: fontRegular,
+        color: darkColor,
       });
     }
 

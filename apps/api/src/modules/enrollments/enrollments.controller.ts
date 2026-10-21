@@ -255,8 +255,26 @@ export class CheckoutController {
     });
 
     if (!existingPayment) {
-      const paymentAmount = couponValidation ? couponValidation.finalAmount : (existing.program?.price || 0);
-      const currency = couponValidation?.currency || 'USD';
+      const currency = body.currency || couponValidation?.currency || 'USD';
+      const expectedAmount = couponValidation
+        ? couponValidation.finalAmount
+        : (existing.batch?.price ?? existing.program?.price ?? 0);
+      let paymentAmount = expectedAmount;
+
+      if (body.amount !== undefined) {
+        const clientMinor = Math.round(Number(body.amount) * 100);
+        const expectedMinor = Math.round(Number(expectedAmount) * 100);
+        if (clientMinor < expectedMinor) {
+          throw new BadRequestException(
+            `Payment underpayment rejected: expected ${expectedAmount} ${currency}, received ${body.amount} ${currency}`,
+          );
+        }
+        if (Math.abs(clientMinor - expectedMinor) > 1) {
+          throw new BadRequestException(
+            `Payment amount tampering detected: expected ${expectedAmount} ${currency}, received ${body.amount} ${currency}`,
+          );
+        }
+      }
 
       const payment = await this.prisma.payment.create({
         data: {

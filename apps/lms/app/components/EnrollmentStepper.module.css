@@ -1,0 +1,152 @@
+/* Modern, responsive 4-step enrollment journey stepper
+   Never overflows, zero horizontal scrollbars, responsive down to mobile. */
+
+.stepperNav {
+  background: #ffffff;
+  border: 1px solid #e7e0d6;
+  border-radius: 16px;
+  padding: 1.15rem 1.25rem 1rem;
+  margin-bottom: 1.75rem;
+  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.stepperList {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  width: 100%;
+}
+
+/* Continuous background connecting line between step circle centers */
+.trackBackground {
+  position: absolute;
+  top: 15px;
+  left: 12.5%;
+  width: 75%;
+  height: 2px;
+  background: #eae3d9;
+  z-index: 1;
+  transform: translateY(-50%);
+}
+
+/* Completed progress fill bar */
+.trackFill {
+  position: absolute;
+  top: 15px;
+  left: 12.5%;
+  height: 2px;
+  background: #16a34a;
+  z-index: 1;
+  transform: translateY(-50%);
+  transition: width 0.35s ease;
+}
+
+.stepItem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  z-index: 2;
+  padding: 0 4px;
+}
+
+.stepCircle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  transition: all 0.25s ease;
+  box-sizing: border-box;
+}
+
+.circleCompleted {
+  background: #15803d;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(21, 128, 61, 0.25);
+}
+
+.circleActive {
+  background: #b86b11;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(184, 107, 17, 0.18), 0 2px 6px rgba(184, 107, 17, 0.3);
+}
+
+.circleUpcoming {
+  background: #faf7f2;
+  border: 1.5px solid #d6cebe;
+  color: #78716a;
+}
+
+.stepLabel {
+  font-size: 0.82rem;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  display: block;
+  max-width: 100%;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.labelCompleted {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.labelActive {
+  color: #1c1917;
+  font-weight: 700;
+}
+
+.labelUpcoming {
+  color: #78716a;
+  font-weight: 500;
+}
+
+.fullLabel {
+  display: block;
+}
+
+.shortLabel {
+  display: none;
+}
+
+/* Mobile & compact container responsiveness */
+@media (max-width: 560px) {
+  .stepperNav {
+    padding: 0.9rem 0.75rem 0.85rem;
+    border-radius: 14px;
+  }
+
+  .stepCircle {
+    width: 26px;
+    height: 26px;
+    font-size: 0.75rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .trackBackground,
+  .trackFill {
+    top: 13px;
+  }
+
+  .fullLabel {
+    display: none;
+  }
+
+  .shortLabel {
+    display: block;
+    font-size: 0.74rem;
+  }
+}

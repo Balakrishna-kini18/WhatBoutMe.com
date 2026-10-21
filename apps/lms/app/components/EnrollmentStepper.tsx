@@ -1,127 +1,102 @@
 "use client";
 
 import React from "react";
+import styles from "./EnrollmentStepper.module.css";
 
 export interface EnrollmentStepperProps {
-  /** Current position in the canonical journey: Select Program → Review & Sign Agreement → Payment Confirmation → Course Access. */
+  /** Current position in the canonical journey:
+   * 1 = Select Program
+   * 2 = Review & Sign Agreement
+   * 3 = Payment Confirmation
+   * 4 = Course Access
+   */
   currentStep: 1 | 2 | 3 | 4;
 }
 
-const JOURNEY_STEPS: readonly string[] = [
-  "Select Program",
-  "Review & Sign Agreement",
-  "Payment Confirmation",
-  "Course Access",
+interface StepItem {
+  number: number;
+  title: string;
+  shortTitle: string;
+}
+
+const STEPS: readonly StepItem[] = [
+  { number: 1, title: "Select Program", shortTitle: "Program" },
+  { number: 2, title: "Review & Sign Agreement", shortTitle: "Review & Sign" },
+  { number: 3, title: "Payment Confirmation", shortTitle: "Payment" },
+  { number: 4, title: "Course Access", shortTitle: "Course Access" },
 ];
 
 /**
- * The single progress indicator for the enrollment journey. A step is derived
- * purely from its position relative to `currentStep` — completed before it,
- * active at it, upcoming after it.
+ * Modern, responsive progress indicator for the 4-step enrollment journey.
+ * Never overflows or shows horizontal scrollbars. Adapts smoothly across
+ * compact cards and mobile viewports.
  */
 export default function EnrollmentStepper({ currentStep }: EnrollmentStepperProps) {
-  return (
-    <nav
-      aria-label="Enrollment progress"
-      style={{
-        background: "#FFFFFF",
-        border: "1px solid #E7E0D6",
-        borderRadius: "14px",
-        padding: "0.85rem 1.25rem",
-        marginBottom: "1.75rem",
-        boxShadow: "0 1px 3px rgba(20, 17, 15, 0.03)",
-      }}
-    >
-      <ol
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          listStyle: "none",
-          margin: 0,
-          padding: 0,
-          gap: "0.75rem",
-          overflowX: "auto",
-        }}
-      >
-        {JOURNEY_STEPS.map((label, idx) => {
-          const number = idx + 1;
-          const isCompleted = number < currentStep;
-          const isActive = number === currentStep;
+  // Track fill percentage between node 1 (12.5%) and node 4 (87.5%):
+  const progressRatio = Math.min(1, Math.max(0, (currentStep - 1) / 3));
+  const fillWidthPercent = progressRatio * 75;
 
-          const circleBg = isCompleted ? "#15803D" : isActive ? "#B86B11" : "#E7E0D6";
-          const circleColor = isCompleted || isActive ? "#FFFFFF" : "#78716A";
-          const labelColor = isCompleted ? "#15803D" : isActive ? "#1C1917" : "#78716A";
-          const labelWeight = isCompleted ? 600 : isActive ? 700 : 500;
+  return (
+    <nav aria-label="Enrollment progress" className={styles.stepperNav}>
+      <ol className={styles.stepperList}>
+        {/* Background track line */}
+        <div aria-hidden="true" className={styles.trackBackground} />
+        {/* Completed track fill bar */}
+        <div
+          aria-hidden="true"
+          className={styles.trackFill}
+          style={{ width: `${fillWidthPercent}%` }}
+        />
+
+        {STEPS.map((step) => {
+          const isCompleted = step.number < currentStep;
+          const isActive = step.number === currentStep;
+
+          const circleClass = isCompleted
+            ? styles.circleCompleted
+            : isActive
+            ? styles.circleActive
+            : styles.circleUpcoming;
+
+          const labelClass = isCompleted
+            ? styles.labelCompleted
+            : isActive
+            ? styles.labelActive
+            : styles.labelUpcoming;
 
           return (
-            <React.Fragment key={label}>
-              <li
-                aria-current={isActive ? "step" : undefined}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  flexShrink: 0,
-                }}
+            <li
+              key={step.number}
+              aria-current={isActive ? "step" : undefined}
+              className={styles.stepItem}
+            >
+              <span
+                aria-hidden="true"
+                className={`${styles.stepCircle} ${circleClass}`}
               >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: "22px",
-                    height: "22px",
-                    borderRadius: "50%",
-                    background: circleBg,
-                    color: circleColor,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "0.72rem",
-                    fontWeight: 700,
-                    flexShrink: 0,
-                  }}
-                >
-                  {isCompleted ? (
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : (
-                    number
-                  )}
-                </span>
-                <span
-                  style={{
-                    fontSize: "0.82rem",
-                    color: labelColor,
-                    fontWeight: labelWeight,
-                    letterSpacing: "-0.01em",
-                  }}
-                >
-                  {label}
-                </span>
-              </li>
-              {idx < JOURNEY_STEPS.length - 1 && (
-                <li
-                  aria-hidden="true"
-                  style={{
-                    flex: 1,
-                    height: "1px",
-                    background: isCompleted ? "#86EFAC" : "#E7E0D6",
-                    minWidth: "16px",
-                    maxWidth: "48px",
-                  }}
-                />
-              )}
-            </React.Fragment>
+                {isCompleted ? (
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  step.number
+                )}
+              </span>
+
+              <span className={`${styles.stepLabel} ${labelClass}`}>
+                <span className={styles.fullLabel}>{step.title}</span>
+                <span className={styles.shortLabel}>{step.shortTitle}</span>
+              </span>
+            </li>
           );
         })}
       </ol>

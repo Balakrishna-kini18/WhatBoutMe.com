@@ -201,7 +201,7 @@ export class AdminAgreementTemplatesController {
       'Content-Disposition': `attachment; filename="agreement-${signedId}.pdf"`,
       'Content-Length': String(bytes.length),
     });
-    res.end(Buffer.from(bytes));
+    res.send(Buffer.from(bytes));
   }
 }
 
@@ -322,6 +322,6 @@ export class LearnerAgreementsController {
       'Content-Disposition': `attachment; filename="agreement-${signedId}.pdf"`,
       'Content-Length': String(bytes.length),
     });
-    res.end(Buffer.from(bytes));
+    res.send(Buffer.from(bytes));
   }
 }

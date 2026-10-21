@@ -403,9 +403,9 @@ export default function RevenuePage() {
                     </td>
                   </tr>
                 ) : (
-                  data.byCourse.map((c: any) => (
-                    <tr key={c.courseId}>
-                      <td><span className={styles.cellUserName}>{c.courseTitle}</span></td>
+                  data.byCourse.map((c: any, idx: number) => (
+                    <tr key={c.courseId || c.programId || `course-${idx}`}>
+                      <td><span className={styles.cellUserName}>{c.courseTitle || c.title || "Course"}</span></td>
                       <td><span className={styles.cellText}>{c.USD > 0 ? `$${Math.round(c.USD).toLocaleString()}` : "—"}</span></td>
                       <td><span className={styles.cellText}>{c.AED > 0 ? `AED ${Math.round(c.AED).toLocaleString()}` : "—"}</span></td>
                       <td><span className={styles.cellText}>{c.INR > 0 ? `₹${Math.round(c.INR).toLocaleString("en-IN")}` : "—"}</span></td>
@@ -451,10 +451,10 @@ export default function RevenuePage() {
                     </td>
                   </tr>
                 ) : (
-                  data.byBatch.map((b: any) => (
-                    <tr key={b.batchId}>
-                      <td><span className={styles.cellUserName}>{b.batchName}</span></td>
-                      <td><span className={styles.cellTextMuted}>{b.courseTitle}</span></td>
+                  data.byBatch.map((b: any, idx: number) => (
+                    <tr key={b.batchId || `batch-${idx}`}>
+                      <td><span className={styles.cellUserName}>{b.batchName || b.name || "Batch"}</span></td>
+                      <td><span className={styles.cellTextMuted}>{b.courseTitle || "Course"}</span></td>
                       <td><span className={styles.cellText}>{b.USD > 0 ? `$${Math.round(b.USD).toLocaleString()}` : "—"}</span></td>
                       <td><span className={styles.cellText}>{b.AED > 0 ? `AED ${Math.round(b.AED).toLocaleString()}` : "—"}</span></td>
                       <td><span className={styles.cellText}>{b.INR > 0 ? `₹${Math.round(b.INR).toLocaleString("en-IN")}` : "—"}</span></td>
@@ -501,7 +501,7 @@ export default function RevenuePage() {
                 ) : (
                   data.byMonth.map((m: any) => (
                     <tr key={m.sortKey}>
-                      <td><span className={styles.cellUserName}>{m.month} {m.year}</span></td>
+                      <td><span className={styles.cellUserName}>{m.month}</span></td>
                       <td><span className={styles.cellText}>{m.USD > 0 ? `$${Math.round(m.USD).toLocaleString()}` : "—"}</span></td>
                       <td><span className={styles.cellText}>{m.AED > 0 ? `AED ${Math.round(m.AED).toLocaleString()}` : "—"}</span></td>
                       <td><span className={styles.cellText}>{m.INR > 0 ? `₹${Math.round(m.INR).toLocaleString("en-IN")}` : "—"}</span></td>

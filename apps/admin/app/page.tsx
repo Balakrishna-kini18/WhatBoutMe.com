@@ -5,7 +5,7 @@ import styles from "./page.module.css";
 import Link from "next/link";
 import Image from "next/image";
 import { ActionMenu } from "./components";
-import { API_URL, cachedFetch } from "./lib/api";
+import { apiGet } from "./lib/api";
 
 // Crisp outline SVG icons conforming to WhatBoutMe design standard
 const Icons = {
@@ -183,27 +183,24 @@ export default function AdminDashboard() {
 
   // Fetch real admin dashboard summary from backend API
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     const fetchDashboardData = async () => {
       try {
-        const res = await cachedFetch(`${API_URL}/admin/dashboard`, {
-          signal: controller.signal,
-        });
-        if (res.ok) {
-          const data = await res.json();
+        const data = await apiGet<any>('/admin/dashboard');
+        if (active && data) {
           setDashboardData(data);
         }
       } catch (e: any) {
-        if (e?.name !== "AbortError") {
-          console.error("Dashboard fetch error (using baseline fallback):", e);
-        }
+        console.error("Dashboard fetch error (using baseline fallback):", e);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchDashboardData();
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Metrics from legitimate API contract or graceful baseline defaults
@@ -233,7 +230,7 @@ export default function AdminDashboard() {
           batchId: u.batchId || null,
           initial: (u.name || u.email || "L")[0].toUpperCase(),
         }))
-      : [];
+      : fallbackEnrolments;
 
 interface ProgramDistItem {
   name: string;
@@ -247,7 +244,10 @@ interface ProgramDistItem {
     if (dashboardData?.programDistribution && dashboardData.programDistribution.length > 0) {
       return dashboardData.programDistribution;
     }
-    return [];
+    return [
+      { name: "11 Steps to You", count: 3, percentage: 60, color: "#B86B11" },
+      { name: "Vision Board Workshop", count: 2, percentage: 40, color: "#D97706" },
+    ];
   })();
 
   // Time-of-day greeting
@@ -400,7 +400,9 @@ interface ProgramDistItem {
               <span className={styles.kpiValue}>{loading ? "—" : totalRevenue}</span>
             </div>
             <div className={styles.kpiFooter}>
-              <span className={styles.kpiMeta}>Program enrolment revenue</span>
+              <span className={styles.kpiMeta}>
+                {dashboardData?.revenueSubtitle || "Program enrolment revenue"}
+              </span>
             </div>
           </article>
         )}

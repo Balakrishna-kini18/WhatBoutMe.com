@@ -4,7 +4,6 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./path.module.css";
-import EnrollmentStepper from "../../../components/EnrollmentStepper";
 import {
   API_URL,
   getAuthHeaders,
@@ -194,9 +193,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
             : "Complete each step to advance and unlock your certificate."}
         </p>
       </header>
-
-      {/* Canonical journey position: the learner has reached Course Access. */}
-      {!loading && progression && <EnrollmentStepper currentStep={4} />}
 
       {/* ENROLMENT STATUS ALERT (When Inactive / Pending) */}
       {!loading && progression && !isEnrolmentActive && (

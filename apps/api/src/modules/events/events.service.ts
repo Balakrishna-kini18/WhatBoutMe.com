@@ -424,26 +424,32 @@ export class EventsService {
         const curr = (updatedReg.currency || 'USD').toUpperCase();
         const isAED = curr === 'AED';
         const isINR = curr === 'INR';
-        const taxRate = isAED ? 0.05 : isINR ? 0.18 : 0;
-        const taxAmount = Number(updatedReg.amount) * taxRate;
+        const taxRate = isAED ? 5 : isINR ? 18 : 0;
+        const taxType = isAED ? 'UAE_VAT' : isINR ? 'INDIA_GST' : 'NONE';
+        const totalAmount = Number(updatedReg.amount);
+        const taxAmount = taxRate > 0 ? Math.round(((totalAmount * taxRate) / (100 + taxRate)) * 100) / 100 : 0;
+        const subtotal = Math.round((totalAmount - taxAmount) * 100) / 100;
 
         await this.prisma.invoice.create({
           data: {
             invoiceNumber,
-            amount: Number(updatedReg.amount) + taxAmount,
+            amount: totalAmount,
             currency: curr as any,
             status: InvoiceStatus.PAID,
             eventRegistrationId: updatedReg.id,
+            pdfUrl: `/api/invoices/${updatedReg.id}/pdf`,
             taxFields: {
-              subtotal: Number(updatedReg.amount),
+              subtotal,
               taxRate,
               taxAmount,
+              taxType,
               taxName: isAED ? 'UAE VAT (5%)' : isINR ? 'India GST (18%)' : 'Tax Exempt',
               trn: isAED ? '10049281900003' : null,
               companyName: 'WhatBoutMe FZE',
               companyAddress: 'Dubai Silicon Oasis, DDP, Building A2, Dubai, United Arab Emirates',
               clientName: updatedReg.attendeeName,
               clientEmail: updatedReg.attendeeEmail,
+              eventTitle: updatedReg.event?.title,
             },
           },
         });

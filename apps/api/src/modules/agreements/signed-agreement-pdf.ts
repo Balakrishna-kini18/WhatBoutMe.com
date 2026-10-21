@@ -329,10 +329,12 @@ export async function renderSignedAgreementPdf(
   if (resolvedSignature) {
     let image: PDFImage | null = null;
     try {
+      const base64Data = resolvedSignature.dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      const imageBytes = Buffer.from(base64Data, 'base64');
       image =
         resolvedSignature.kind === 'jpeg'
-          ? await pdf.embedJpg(resolvedSignature.dataUrl)
-          : await pdf.embedPng(resolvedSignature.dataUrl);
+          ? await pdf.embedJpg(imageBytes)
+          : await pdf.embedPng(imageBytes);
     } catch {
       image = null;
     }

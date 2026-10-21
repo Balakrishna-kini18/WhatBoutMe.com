@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -42,6 +43,8 @@ export function getInvoiceCurrencySymbol(currency: string = 'USD'): string {
 
 @Injectable()
 export class InvoicesService {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private prisma: PrismaService,
     @Optional() private invoicePdfService?: InvoicePdfService,
@@ -539,7 +542,14 @@ export class InvoicesService {
 
   async getInvoicePdf(id: string, user?: any): Promise<{ buffer: Buffer; filename: string }> {
     const invoice = await this.prisma.invoice.findFirst({
-      where: { OR: [{ id }, { invoiceNumber: id }, { paymentId: id }] },
+      where: {
+        OR: [
+          { id },
+          { invoiceNumber: id },
+          { paymentId: id },
+          { eventRegistrationId: id },
+        ],
+      },
       include: {
         payment: {
           include: {
@@ -555,10 +565,21 @@ export class InvoicesService {
       throw new NotFoundException(`Invoice '${id}' not found`);
     }
 
+    let eventReg: any = null;
+    if (invoice.eventRegistrationId) {
+      eventReg = await this.prisma.eventRegistration.findUnique({
+        where: { id: invoice.eventRegistrationId },
+        include: { event: true, user: true },
+      });
+    }
+
     if (user && user.role === Role.USER) {
       const userId = user.sub || user.userId || user.id;
       if (invoice.payment?.enrolment?.userId && invoice.payment.enrolment.userId !== userId) {
         throw new ForbiddenException('You do not have permission to download another learner\'s invoice');
+      }
+      if (eventReg?.userId && eventReg.userId !== userId) {
+        throw new ForbiddenException('You do not have permission to download another attendee\'s invoice');
       }
     }
 
@@ -566,11 +587,30 @@ export class InvoicesService {
       throw new BadRequestException('Invoice PDF service is unavailable');
     }
 
-    const clientName = invoice.payment?.enrolment?.user?.name || 'Learner / Attendee';
-    const clientEmail = invoice.payment?.enrolment?.user?.email || null;
-    const itemDescription = invoice.payment?.enrolment?.program?.title || 'WhatBoutMe Professional Program';
-    const currency = invoice.currency || 'USD';
     const taxFields = (invoice.taxFields as any) || {};
+
+    // Audit flag for legacy records where stored subtotal incorrectly equaled gross amount
+    if (taxFields.subtotal !== undefined && Number(taxFields.subtotal) === invoice.amount && Number(taxFields.taxAmount) > 0) {
+      this.logger.warn(
+        `[Invoice PDF] Ambiguous legacy invoice arithmetic detected for ${invoice.invoiceNumber} (ID: ${invoice.id}). Stored subtotal (${taxFields.subtotal}) equals gross total (${invoice.amount}) despite taxAmount (${taxFields.taxAmount}). Preserving original DB record and rendering reconciled line items for display; flagged for manual accounting review.`,
+      );
+    }
+
+    const clientName =
+      invoice.payment?.enrolment?.user?.name ||
+      eventReg?.attendeeName ||
+      taxFields.attendeeName ||
+      'Learner / Attendee';
+    const clientEmail =
+      invoice.payment?.enrolment?.user?.email ||
+      eventReg?.attendeeEmail ||
+      null;
+    const itemDescription =
+      invoice.payment?.enrolment?.program?.title ||
+      eventReg?.event?.title ||
+      taxFields.eventTitle ||
+      'WhatBoutMe Professional Program';
+    const currency = invoice.currency || 'USD';
 
     const pdfData: InvoicePdfData = {
       invoiceNumber: invoice.invoiceNumber,
@@ -590,7 +630,12 @@ export class InvoicesService {
       taxType: taxFields.taxType || (currency === 'AED' ? 'UAE_VAT' : currency === 'INR' ? 'INDIA_GST' : 'NONE'),
       taxRate: taxFields.taxRate || (currency === 'AED' ? 5 : currency === 'INR' ? 18 : 0),
       taxAmount: taxFields.taxAmount || 0,
-      subtotal: taxFields.subtotal || invoice.amount,
+      subtotal:
+        taxFields.subtotal !== undefined && Number(taxFields.subtotal) !== invoice.amount
+          ? Number(taxFields.subtotal)
+          : taxFields.taxAmount > 0
+            ? Math.round((invoice.amount - Number(taxFields.taxAmount)) * 100) / 100
+            : invoice.amount,
       total: invoice.amount,
       paymentMethod: 'Verified Payment / Test Bypass',
       paymentReference: invoice.payment?.stripeSessionId || invoice.id,

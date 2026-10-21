@@ -240,6 +240,28 @@ export class PaymentWebhookController {
         );
       }
 
+      // 5.5 INDEPENDENT AMOUNT AND CURRENCY VALIDATION AGAINST TRUSTED RECORDS
+      const expectedAmount = existingPayment?.amount ?? enrolment.batch?.price ?? enrolment.program?.price;
+      const expectedCurrency = existingPayment?.currency ?? enrolment.program?.currency ?? 'USD';
+
+      if (expectedAmount !== undefined && expectedAmount !== null && amount > 0) {
+        const receivedMinor = Math.round(amount * 100);
+        const expectedMinor = Math.round(Number(expectedAmount) * 100);
+        if (receivedMinor < expectedMinor) {
+          this.logger.error(
+            `Webhook underpayment detected for session ${stripeSessionId}: expected ${expectedAmount} ${expectedCurrency}, got ${amount} ${currency}`,
+          );
+          throw new HttpException('Webhook payment amount is less than expected order amount', HttpStatus.BAD_REQUEST);
+        }
+      }
+
+      if (existingPayment?.currency && currency && existingPayment.currency.toUpperCase() !== currency.toUpperCase()) {
+        this.logger.error(
+          `Webhook currency mismatch for session ${stripeSessionId}: expected ${existingPayment.currency}, got ${currency}`,
+        );
+        throw new HttpException('Webhook payment currency does not match order currency', HttpStatus.BAD_REQUEST);
+      }
+
       // 6. Update Enrolment and Record Succeeded Payment
       await this.prisma.$transaction(async (tx) => {
         await tx.enrolment.update({

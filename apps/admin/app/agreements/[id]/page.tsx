@@ -555,15 +555,18 @@ export default function AgreementTemplateDetailPage({
         throw new Error(await errorMessage(res, "Failed to generate signed agreement PDF"));
       }
 
-      const blob = await res.blob();
+      const arrayBuffer = await res.arrayBuffer();
+      const blob = new Blob([arrayBuffer], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = `agreement-${rec.id}.pdf`;
       document.body.appendChild(link);
       link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        link.remove();
+        URL.revokeObjectURL(url);
+      }, 10000);
     } catch (err: any) {
       console.error(err);
       setStatusMsg({

@@ -120,8 +120,8 @@ export class RevenueController {
       INR: { total: 0, count: 0, symbol: '₹' },
     };
 
-    const courseMap = new Map<string, { programId: string; title: string; USD: number; AED: number; INR: number; count: number }>();
-    const batchMap = new Map<string, { batchId: string; name: string; courseTitle: string; USD: number; AED: number; INR: number; count: number }>();
+    const courseMap = new Map<string, { programId: string; courseId: string; title: string; courseTitle: string; USD: number; AED: number; INR: number; count: number }>();
+    const batchMap = new Map<string, { batchId: string; name: string; batchName: string; courseTitle: string; USD: number; AED: number; INR: number; count: number }>();
     const monthMap = new Map<string, { month: string; sortKey: string; USD: number; AED: number; INR: number; count: number }>();
 
     const paidEnrolmentIds = new Set<string>();
@@ -152,7 +152,17 @@ export class RevenueController {
       // Course
       if (program?.id) {
         if (!courseMap.has(program.id)) {
-          courseMap.set(program.id, { programId: program.id, title: program.title || 'Course', USD: 0, AED: 0, INR: 0, count: 0 });
+          const cTitle = program.title || 'Course';
+          courseMap.set(program.id, {
+            programId: program.id,
+            courseId: program.id,
+            title: cTitle,
+            courseTitle: cTitle,
+            USD: 0,
+            AED: 0,
+            INR: 0,
+            count: 0,
+          });
         }
         const cEntry = courseMap.get(program.id)!;
         if (code === 'USD') cEntry.USD += amount;
@@ -164,9 +174,11 @@ export class RevenueController {
       // Batch
       if (batch?.id) {
         if (!batchMap.has(batch.id)) {
+          const bName = batch.name || 'Batch';
           batchMap.set(batch.id, {
             batchId: batch.id,
-            name: batch.name || 'Batch',
+            name: bName,
+            batchName: bName,
             courseTitle: program?.title || 'Course',
             USD: 0,
             AED: 0,
@@ -268,8 +280,8 @@ export class RevenueController {
 
     // Format monthly records sorted chronologically
     const byMonth = Array.from(monthMap.values()).sort((a, b) => b.sortKey.localeCompare(a.sortKey));
-    const byCourse = Array.from(courseMap.values()).sort((a, b) => (b.USD + b.AED / 3.67 + b.INR / 85) - (a.USD + a.AED / 3.67 + a.INR / 85));
-    const byBatch = Array.from(batchMap.values()).sort((a, b) => (b.USD + b.AED / 3.67 + b.INR / 85) - (a.USD + a.AED / 3.67 + a.INR / 85));
+    const byCourse = Array.from(courseMap.values()).sort((a, b) => (b.USD + b.AED / 3.67 + b.INR / 83) - (a.USD + a.AED / 3.67 + a.INR / 83));
+    const byBatch = Array.from(batchMap.values()).sort((a, b) => (b.USD + b.AED / 3.67 + b.INR / 83) - (a.USD + a.AED / 3.67 + a.INR / 83));
 
     // Multi-currency total summary string
     const numericTotalRevenue = Array.from(Object.values(byCurrency)).reduce((sum, v) => sum + v.total, 0);

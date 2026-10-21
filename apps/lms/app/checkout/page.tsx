@@ -71,7 +71,7 @@ function CheckoutContent() {
 
       if (token) {
         // Verify agreement status for this program
-        fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/agreements/initiate`, {
+        fetch(`${API_URL}/agreements/initiate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -114,16 +114,38 @@ function CheckoutContent() {
 
   const getBasePrice = () => {
     if (!program) return 0;
-    if (currency === "INR" && program.priceINR !== undefined && program.priceINR !== null) {
+
+    // 1. Explicit currency price configured on Program setup
+    if (currency === "INR" && program.priceINR !== undefined && program.priceINR !== null && Number(program.priceINR) > 0) {
       return Number(program.priceINR);
     }
-    if (currency === "AED" && program.priceAED !== undefined && program.priceAED !== null) {
+    if (currency === "AED" && program.priceAED !== undefined && program.priceAED !== null && Number(program.priceAED) > 0) {
       return Number(program.priceAED);
     }
-    if (currency === "USD" && program.priceUSD !== undefined && program.priceUSD !== null) {
+    if (currency === "USD" && program.priceUSD !== undefined && program.priceUSD !== null && Number(program.priceUSD) > 0) {
       return Number(program.priceUSD);
     }
-    return Number(program.price) || 0;
+
+    // 2. Base tuition with standard dynamic FX conversion (1 USD = 3.67 AED, 1 USD = 83 INR)
+    const baseAmount = Number(program.price) || 0;
+    const baseCurrency = (program.currency || "USD").toUpperCase();
+
+    // Normalize base to USD first
+    let inUSD = baseAmount;
+    if (baseCurrency === "INR") {
+      inUSD = baseAmount / 83;
+    } else if (baseCurrency === "AED") {
+      inUSD = baseAmount / 3.67;
+    }
+
+    // Convert from USD to selected currency
+    if (currency === "INR") {
+      return Math.round(inUSD * 83);
+    }
+    if (currency === "AED") {
+      return Math.round(inUSD * 3.67);
+    }
+    return Math.round(inUSD);
   };
 
   const basePrice = getBasePrice();
@@ -198,7 +220,7 @@ function CheckoutContent() {
           currency,
           status,
           failureReason: status === "FAILED" ? "Simulated test bank transaction declined." : undefined,
-          idempotencyKey,
+          idempotencyKey: `chk_${Date.now()}_${currency.toLowerCase()}_${Math.random().toString(36).substring(2, 7)}`,
           couponCode: appliedCoupon?.code || couponCode || undefined,
         }),
       });
@@ -229,9 +251,11 @@ function CheckoutContent() {
 
   if (loading) {
     return (
-      <div className={styles.authContainer} style={{ background: "#FAF7F2" }}>
-        <div className={styles.authCard} style={{ maxWidth: "540px", background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "20px", textAlign: "center" }}>
-          <h2 style={{ color: "#1C1917" }}>Loading checkout...</h2>
+      <div style={{ minHeight: "100vh", background: "#FAF7F2", padding: "2rem 1rem 4rem", display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "100%", maxWidth: "760px" }}>
+          <div style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "16px", padding: "2rem", textAlign: "center" }}>
+            <h2 style={{ color: "#1C1917", fontSize: "1.25rem", margin: 0 }}>Loading checkout…</h2>
+          </div>
         </div>
       </div>
     );
@@ -239,25 +263,27 @@ function CheckoutContent() {
 
   if (!program) {
     return (
-      <div className={styles.authContainer} style={{ background: "#FAF7F2" }}>
-        <div className={styles.authCard} style={{ maxWidth: "540px", background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "20px", textAlign: "center" }}>
-          <h2 style={{ color: "#1C1917" }}>Course Not Found</h2>
-          <p style={{ color: "#78716A", marginBottom: "1.5rem" }}>We could not find the program you are attempting to enroll in.</p>
-          <Link
-            href={`${SITE_URL}/courses`}
-            className={styles.submitBtn}
-            style={{
-              display: "inline-block",
-              textDecoration: "none",
-              background: "#B86B11",
-              color: "#FFFFFF",
-              borderRadius: "12px",
-              padding: "0.85rem 1.5rem",
-              fontWeight: 600,
-            }}
-          >
-            Explore Courses
-          </Link>
+      <div style={{ minHeight: "100vh", background: "#FAF7F2", padding: "2rem 1rem 4rem", display: "flex", justifyContent: "center" }}>
+        <div style={{ width: "100%", maxWidth: "760px" }}>
+          <div style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "16px", padding: "2.5rem 2rem", textAlign: "center" }}>
+            <h2 style={{ color: "#1C1917", fontSize: "1.5rem", margin: "0 0 0.5rem 0" }}>Course Not Found</h2>
+            <p style={{ color: "#78716A", marginBottom: "1.5rem" }}>We could not find the program you are attempting to enroll in.</p>
+            <Link
+              href={`${SITE_URL}/courses`}
+              className={styles.submitBtn}
+              style={{
+                display: "inline-block",
+                textDecoration: "none",
+                background: "#B86B11",
+                color: "#FFFFFF",
+                borderRadius: "12px",
+                padding: "0.85rem 1.5rem",
+                fontWeight: 600,
+              }}
+            >
+              Explore Courses
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -266,26 +292,25 @@ function CheckoutContent() {
   const courseInfo = parseCourseInfo(program.description);
 
   return (
-    <div className={styles.authContainer} style={{ background: "#FAF7F2", minHeight: "100vh", padding: "2.5rem 1.25rem" }}>
-      <div
-        className={styles.authCard}
-        style={{
-          maxWidth: "560px",
-          background: "#FFFFFF",
-          border: "1px solid #E7E0D6",
-          borderRadius: "24px",
-          padding: "2.5rem 2rem",
-          boxShadow: "0 8px 30px rgba(28, 25, 23, 0.04)",
-        }}
-      >
+    <div style={{ minHeight: "100vh", background: "#FAF7F2", padding: "2rem 1rem 4rem", display: "flex", justifyContent: "center" }}>
+      <div style={{ width: "100%", maxWidth: "760px" }}>
         <EnrollmentStepper currentStep={3} />
 
-        <h1 className={styles.logo} style={{ color: "#1C1917", fontSize: "1.75rem", marginBottom: "0.25rem" }}>
-          Checkout &amp; Confirmation
-        </h1>
-        <h2 style={{ fontSize: "1.1rem", color: "#78716A", fontWeight: 500, marginBottom: "1.75rem" }}>
-          Review your order and finalize enrollment
-        </h2>
+        <div
+          style={{
+            background: "#FFFFFF",
+            border: "1px solid #E7E0D6",
+            borderRadius: "16px",
+            padding: "2rem",
+            boxShadow: "0 1px 3px rgba(28, 25, 23, 0.04)",
+          }}
+        >
+          <h1 style={{ color: "#1C1917", fontSize: "1.5rem", fontWeight: 700, margin: "0 0 0.35rem 0", letterSpacing: "-0.01em" }}>
+            Checkout &amp; Confirmation
+          </h1>
+          <h2 style={{ fontSize: "1rem", color: "#78716A", fontWeight: 500, margin: "0 0 1.5rem 0" }}>
+            Review your order and finalize enrollment
+          </h2>
 
         {/* Currency Switcher */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
@@ -842,6 +867,7 @@ function CheckoutContent() {
             </div>
           )
         )}
+        </div>
       </div>
     </div>
   );
@@ -851,9 +877,11 @@ export default function CheckoutPage() {
   return (
     <Suspense
       fallback={
-        <div className={styles.authContainer} style={{ background: "#FAF7F2" }}>
-          <div className={styles.authCard} style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "20px", textAlign: "center" }}>
-            <h2 style={{ color: "#1C1917" }}>Loading checkout...</h2>
+        <div style={{ minHeight: "100vh", background: "#FAF7F2", padding: "2rem 1rem 4rem", display: "flex", justifyContent: "center" }}>
+          <div style={{ width: "100%", maxWidth: "760px" }}>
+            <div style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "16px", padding: "2rem", textAlign: "center" }}>
+              <h2 style={{ color: "#1C1917", fontSize: "1.25rem", margin: 0 }}>Loading checkout…</h2>
+            </div>
           </div>
         </div>
       }

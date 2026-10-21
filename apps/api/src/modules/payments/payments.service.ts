@@ -73,6 +73,28 @@ export class PaymentsService {
     };
   }
 
+  private convertCurrencyAmount(
+    targetCurrency: SupportedCurrency,
+    base: number,
+    pCurrency: string = 'USD',
+    pInr?: number | null,
+    pAed?: number | null,
+    pUsd?: number | null,
+  ): number {
+    if (targetCurrency === 'INR' && pInr && Number(pInr) > 0) return Number(pInr);
+    if (targetCurrency === 'AED' && pAed && Number(pAed) > 0) return Number(pAed);
+    if (targetCurrency === 'USD' && pUsd && Number(pUsd) > 0) return Number(pUsd);
+
+    const origCurrency = (pCurrency || 'USD').toUpperCase();
+    let inUSD = Number(base) || 0;
+    if (origCurrency === 'INR') inUSD = inUSD / 83;
+    else if (origCurrency === 'AED') inUSD = inUSD / 3.67;
+
+    if (targetCurrency === 'INR') return Math.round(inUSD * 83);
+    if (targetCurrency === 'AED') return Math.round(inUSD * 3.67);
+    return Math.round(inUSD);
+  }
+
   /**
    * Generates or validates price for course or event in the requested currency
    */
@@ -90,10 +112,7 @@ export class PaymentsService {
         const program = await this.prisma.program.findUnique({ where: { id: targetId } });
         if (!program) throw new NotFoundException('Program or Enrolment not found');
 
-        let amount = program.price;
-        if (currency === 'INR' && program.priceINR) amount = program.priceINR;
-        else if (currency === 'AED' && program.priceAED) amount = program.priceAED;
-        else if (currency === 'USD' && program.priceUSD) amount = program.priceUSD;
+        let amount = this.convertCurrencyAmount(currency, program.price, program.currency, program.priceINR, program.priceAED, program.priceUSD);
 
         // Early bird check
         if (program.earlyBirdPrice && program.earlyBirdDeadline && new Date() < new Date(program.earlyBirdDeadline)) {
@@ -104,16 +123,10 @@ export class PaymentsService {
       }
 
       const program = enrolment.program;
-      let amount = program.price;
-      if (currency === 'INR' && program.priceINR) amount = program.priceINR;
-      else if (currency === 'AED' && program.priceAED) amount = program.priceAED;
-      else if (currency === 'USD' && program.priceUSD) amount = program.priceUSD;
+      let amount = this.convertCurrencyAmount(currency, program.price, program.currency, program.priceINR, program.priceAED, program.priceUSD);
 
       if (enrolment.batch?.price) {
-        amount = enrolment.batch.price;
-        if (currency === 'INR' && enrolment.batch.priceINR) amount = enrolment.batch.priceINR;
-        else if (currency === 'AED' && enrolment.batch.priceAED) amount = enrolment.batch.priceAED;
-        else if (currency === 'USD' && enrolment.batch.priceUSD) amount = enrolment.batch.priceUSD;
+        amount = this.convertCurrencyAmount(currency, enrolment.batch.price, program.currency, enrolment.batch.priceINR, enrolment.batch.priceAED, enrolment.batch.priceUSD);
       }
 
       return { amount, currency, title: program.title, enrolmentId: enrolment.id, programId: program.id };
@@ -141,7 +154,6 @@ export class PaymentsService {
    */
   async createCheckoutSession(dto: CreateCheckoutSessionDto, user?: any) {
     const pricing = await this.resolvePricing(dto.targetType, dto.targetId, dto.currency);
-    let finalAmount = dto.amount !== undefined ? dto.amount : pricing.amount;
     let discountAmount = 0;
     let couponId: string | undefined = undefined;
 
@@ -154,14 +166,33 @@ export class PaymentsService {
           currency: pricing.currency,
           userId: user?.sub || user?.id,
           paymentPlanType: 'FULL',
+          amount: pricing.amount,
         });
         if (validated?.valid) {
-          finalAmount = validated.finalAmount;
           discountAmount = validated.discountAmount;
           couponId = validated.couponId;
         }
       } catch (err: any) {
         this.logger.warn(`Coupon validation skipped or failed: ${err?.message}`);
+      }
+    }
+
+    const finalAmount = Math.max(0, Math.round((pricing.amount - discountAmount) * 100) / 100);
+
+    // Minor-unit amount validation: reject underpayment and tampering
+    if (dto.amount !== undefined) {
+      const clientMinor = Math.round(Number(dto.amount) * 100);
+      const expectedMinor = Math.round(finalAmount * 100);
+
+      if (clientMinor < expectedMinor) {
+        throw new BadRequestException(
+          `Checkout amount underpayment rejected: expected ${finalAmount} ${pricing.currency}, received ${dto.amount} ${pricing.currency}`,
+        );
+      }
+      if (Math.abs(clientMinor - expectedMinor) > 1) {
+        throw new BadRequestException(
+          `Checkout amount tampering detected: expected ${finalAmount} ${pricing.currency}, received ${dto.amount} ${pricing.currency}`,
+        );
       }
     }
 
@@ -197,7 +228,7 @@ export class PaymentsService {
    * Core Test-Bypass Webhook Simulator
    * Critical Rule: Executes an atomic transaction on the backend simulating server-to-server webhook.
    */
-  async simulateTestWebhook(dto: TestSimulateWebhookDto, clientIp: string) {
+  async simulateTestWebhook(dto: TestSimulateWebhookDto, clientIp: string = '127.0.0.1') {
     const currency: SupportedCurrency = dto.currency || 'USD';
     const currencySymbol = getCurrencySymbol(currency);
     const idempotencyKey = dto.idempotencyKey || `idem_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
@@ -234,13 +265,15 @@ export class PaymentsService {
         throw new BadRequestException('Cannot simulate payment for a revoked enrolment');
       }
 
-      // Check Idempotency: has this enrolment or idempotencyKey already succeeded?
-      const existingSuccess = enrolment.payments.find(
-        (p) => p.status === 'succeeded' || (dto.idempotencyKey && p.idempotencyKey === dto.idempotencyKey)
-      );
+      // Check Idempotency: suppress duplicate processing if the EXACT same idempotencyKey was already recorded
+      const existingSuccess = dto.idempotencyKey
+        ? enrolment.payments.find(
+            (p) => p.status === 'succeeded' && p.idempotencyKey === dto.idempotencyKey
+          )
+        : null;
 
       if (existingSuccess && dto.status === 'PAID') {
-        this.logger.log(`[Idempotent Bypass] Enrolment ${enrolment.id} already has a succeeded payment.`);
+        this.logger.log(`[Idempotent Bypass] Enrolment ${enrolment.id} already has a succeeded payment for key ${dto.idempotencyKey}.`);
         return {
           success: true,
           idempotent: true,
@@ -282,9 +315,74 @@ export class PaymentsService {
       const isSigned = enrolment.signedAgreement && enrolment.signedAgreement.status === AgreementStatus.SIGNED;
       const targetEnrolmentStatus = isSigned ? EnrolmentStatus.ACTIVE : EnrolmentStatus.PENDING_AGREEMENT;
 
-      const baseAmount = dto.amount !== undefined ? dto.amount : enrolment.program.price;
-      const discount = dto.couponCode ? 0 : 0; // will reflect coupon if present
-      const finalAmount = Math.max(0, baseAmount - discount);
+      // 1. Authoritative Server-Side Program Price Resolution
+      const program = enrolment.program;
+      let authoritativePrice = this.convertCurrencyAmount(
+        currency,
+        program.price,
+        program.currency,
+        program.priceINR,
+        program.priceAED,
+        program.priceUSD,
+      );
+
+      if (enrolment.batch?.price) {
+        authoritativePrice = this.convertCurrencyAmount(
+          currency,
+          enrolment.batch.price,
+          program.currency,
+          enrolment.batch.priceINR,
+          enrolment.batch.priceAED,
+          enrolment.batch.priceUSD,
+        );
+      }
+
+      // Early-bird check
+      if (program.earlyBirdPrice && program.earlyBirdDeadline && new Date() < new Date(program.earlyBirdDeadline)) {
+        authoritativePrice = program.earlyBirdPrice;
+      }
+
+      // 2. Authoritative Coupon Discount Calculation
+      let discount = 0;
+      if (dto.couponCode && this.couponsService) {
+        try {
+          const couponValidation = await this.couponsService.validateCoupon({
+            code: dto.couponCode,
+            programId: program.id,
+            currency,
+            userId: enrolment.userId,
+            paymentPlanType: 'FULL',
+            amount: authoritativePrice,
+          });
+          if (couponValidation && typeof couponValidation.discountAmount === 'number') {
+            discount = couponValidation.discountAmount;
+          }
+        } catch (couponErr: any) {
+          this.logger.warn(`Coupon validation warning in simulation: ${couponErr?.message}`);
+        }
+      }
+
+      const expectedPayable = Math.max(0, Math.round((authoritativePrice - discount) * 100) / 100);
+
+      // 3. Amount Tampering & Underpayment Prevention Guard (Minor Units)
+      if (dto.amount !== undefined) {
+        const clientMinor = Math.round(Number(dto.amount) * 100);
+        const expectedMinor = Math.round(expectedPayable * 100);
+
+        if (clientMinor < expectedMinor) {
+          throw new BadRequestException(
+            `Payment underpayment rejected: expected ${expectedPayable} ${currency}, received ${dto.amount} ${currency}`,
+          );
+        }
+        if (Math.abs(clientMinor - expectedMinor) > 1) {
+          throw new BadRequestException(
+            `Payment amount tampering detected: expected ${expectedPayable} ${currency}, received ${dto.amount} ${currency}`,
+          );
+        }
+      }
+
+      const baseAmount = authoritativePrice;
+      const finalAmount = expectedPayable;
 
       // Calculate tax breakdown for WhatBoutMe FZE:
       // UAE VAT: 5% on AED; India GST: 18% on INR; International: 0%
@@ -297,8 +395,9 @@ export class PaymentsService {
         taxType = 'INDIA_GST';
         taxRate = 18;
       }
-      const taxAmount = taxRate > 0 ? (finalAmount * taxRate) / 100 : 0;
-      const totalInvoiceAmount = finalAmount + taxAmount;
+      const taxAmount = taxRate > 0 ? Math.round(((finalAmount * taxRate) / (100 + taxRate)) * 100) / 100 : 0;
+      const subtotal = Math.round((finalAmount - taxAmount) * 100) / 100;
+      const totalInvoiceAmount = finalAmount;
 
       const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 
@@ -342,7 +441,7 @@ export class PaymentsService {
               taxType,
               taxRate,
               taxAmount,
-              subtotal: baseAmount,
+              subtotal: subtotal,
               discount,
               total: totalInvoiceAmount,
               currencySymbol,
@@ -496,6 +595,27 @@ export class PaymentsService {
       }
 
       const eventPrice = Number(registration.amount);
+      if (dto.currency && registration.currency && dto.currency !== registration.currency) {
+        throw new BadRequestException(
+          `Currency mismatch: event registration is in ${registration.currency} but received ${dto.currency}`,
+        );
+      }
+
+      if (dto.amount !== undefined) {
+        const clientMinor = Math.round(Number(dto.amount) * 100);
+        const expectedMinor = Math.round(eventPrice * 100);
+
+        if (clientMinor < expectedMinor) {
+          throw new BadRequestException(
+            `Event payment underpayment rejected: expected ${eventPrice} ${registration.currency}, received ${dto.amount} ${registration.currency}`,
+          );
+        }
+        if (Math.abs(clientMinor - expectedMinor) > 1) {
+          throw new BadRequestException(
+            `Event payment amount tampering detected: expected ${eventPrice} ${registration.currency}, received ${dto.amount} ${registration.currency}`,
+          );
+        }
+      }
       const invoiceNumber = `INV-EVT-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
 
       // Atomic Confirmation
@@ -515,6 +635,19 @@ export class PaymentsService {
           data: { seatsBooked: { increment: 1 } },
         });
 
+        const eventCurr = (registration.currency || 'USD').toUpperCase();
+        let evtTaxType: 'UAE_VAT' | 'INDIA_GST' | 'NONE' = 'NONE';
+        let evtTaxRate = 0;
+        if (eventCurr === 'AED') {
+          evtTaxType = 'UAE_VAT';
+          evtTaxRate = 5;
+        } else if (eventCurr === 'INR') {
+          evtTaxType = 'INDIA_GST';
+          evtTaxRate = 18;
+        }
+        const evtTaxAmount = evtTaxRate > 0 ? Math.round(((eventPrice * evtTaxRate) / (100 + evtTaxRate)) * 100) / 100 : 0;
+        const evtSubtotal = Math.round((eventPrice - evtTaxAmount) * 100) / 100;
+
         // 3. Create WhatBoutMe FZE Invoice
         const invoice = await tx.invoice.create({
           data: {
@@ -529,8 +662,13 @@ export class PaymentsService {
               eventTitle: registration.event.title,
               attendeeName: registration.attendeeName,
               currencySymbol,
+              taxType: evtTaxType,
+              taxRate: evtTaxRate,
+              taxAmount: evtTaxAmount,
+              subtotal: evtSubtotal,
+              total: eventPrice,
             },
-            pdfUrl: `/api/invoices/event/${registration.id}/pdf`,
+            pdfUrl: `/api/invoices/${registration.id}/pdf`,
           },
         });
 

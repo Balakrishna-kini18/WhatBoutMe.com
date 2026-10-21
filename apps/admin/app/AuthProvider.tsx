@@ -223,8 +223,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           clearApiCache();
           setUser(null);
           setToken(null);
-          if (pathname !== "/login") {
-            router.push("/login");
+          if (pathname !== "/login" && typeof window !== "undefined") {
+            window.location.href = "/login";
           }
           return null;
         }
@@ -258,9 +258,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       setUser(null);
       setToken(null);
       lastVerifiedAtRef.current = 0;
-      router.push("/login");
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
     }
-  }, [router]);
+  }, []);
 
   // Non-blocking navigation check: verify session validity without blocking shell render
   useEffect(() => {
@@ -268,7 +270,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     const currentToken = localStorage.getItem("token");
     if (!currentToken) {
-      router.push("/login");
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
       return;
     }
 

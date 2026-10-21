@@ -170,9 +170,9 @@ function LeadsContent() {
   const load = async () => {
     try {
       const [leadsRes, progsRes, batchesRes] = await Promise.all([
-        fetch(`${API_URL}/leads`),
-        fetch(`${API_URL}/programs`).catch(() => null),
-        fetch(`${API_URL}/batches`).catch(() => null),
+        cachedFetch(`${API_URL}/leads`),
+        cachedFetch(`${API_URL}/programs`).catch(() => null),
+        cachedFetch(`${API_URL}/batches`).catch(() => null),
       ]);
       if (leadsRes.ok) setLeads(await leadsRes.json());
       if (progsRes && progsRes.ok) {
@@ -271,7 +271,7 @@ function LeadsContent() {
 
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/leads/${leadToConvert.id}/convert-and-send-link`, {
+      const res = await cachedFetch(`${API_URL}/leads/${leadToConvert.id}/convert-and-send-link`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -336,7 +336,7 @@ function LeadsContent() {
     const previous = leads;
     setLeads((all) => all.map((l) => (l.id === id ? { ...l, status: nextStatus } : l)));
     try {
-      const res = await fetch(`${API_URL}/leads/${id}`, {
+      const res = await cachedFetch(`${API_URL}/leads/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),

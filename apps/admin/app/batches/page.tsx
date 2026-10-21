@@ -129,7 +129,7 @@ function BatchesContent() {
 
   const fetchManagers = async () => {
     try {
-      const res = await fetch(`${API_URL}/users?limit=100`);
+      const res = await cachedFetch(`${API_URL}/users?limit=100`);
       if (res.ok) {
         const json = await res.json();
         const userList = Array.isArray(json) ? json : json?.data || [];
@@ -149,7 +149,7 @@ function BatchesContent() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
+      const res = await cachedFetch(`${API_URL}/programs`);
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -161,7 +161,7 @@ function BatchesContent() {
 
   const fetchBatches = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
+      const res = await cachedFetch(`${API_URL}/batches`);
       if (res.ok) {
         const data = await res.json();
         const now = new Date();

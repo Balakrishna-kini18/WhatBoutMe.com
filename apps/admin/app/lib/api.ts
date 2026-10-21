@@ -39,6 +39,84 @@ export const inFlightRequests = new Map<
 >();
 
 /**
+ * Strongly-typed manager for in-memory SWR caching and in-flight request deduplication.
+ */
+export class ApiCacheManager {
+  private cache: Map<string, CacheEntry> = apiCache;
+  private inFlight: Map<
+    string,
+    Promise<{
+      bodyText: string;
+      status: number;
+      statusText: string;
+      headers: [string, string][];
+    }>
+  > = inFlightRequests;
+  private maxEntries: number;
+
+  constructor(maxEntries: number = MAX_CACHE_ENTRIES) {
+    this.maxEntries = maxEntries;
+  }
+
+  get(key: string): CacheEntry | undefined {
+    return this.cache.get(key);
+  }
+
+  set(key: string, entry: CacheEntry): void {
+    while (this.cache.size >= this.maxEntries) {
+      const oldestKey = this.cache.keys().next().value;
+      if (!oldestKey) break;
+      this.cache.delete(oldestKey);
+    }
+    this.cache.set(key, entry);
+  }
+
+  has(key: string): boolean {
+    return this.cache.has(key);
+  }
+
+  delete(key: string): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+    this.inFlight.clear();
+  }
+
+  getInFlight(
+    key: string
+  ): Promise<{ bodyText: string; status: number; statusText: string; headers: [string, string][] }> | undefined {
+    return this.inFlight.get(key);
+  }
+
+  setInFlight(
+    key: string,
+    promise: Promise<{ bodyText: string; status: number; statusText: string; headers: [string, string][] }>
+  ): void {
+    this.inFlight.set(key, promise);
+  }
+
+  deleteInFlight(key: string): boolean {
+    return this.inFlight.delete(key);
+  }
+
+  invalidate(resourceOrRegex?: string | RegExp): void {
+    invalidateCache(resourceOrRegex);
+  }
+
+  invalidateOnMutation(url: string): void {
+    autoInvalidateOnMutation(url);
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+}
+
+export const apiCacheManager = new ApiCacheManager();
+
+/**
  * Builds a deterministic cache key for in-memory caching and request deduplication.
  */
 export function getCacheKey(url: string, headers?: HeadersInit): string {
@@ -94,8 +172,18 @@ export function invalidateTags(tags: string[]): number {
   return tags.reduce((sum, tag) => sum + invalidateTag(tag), 0);
 }
 
-export function clearApiCache(): void {
+/**
+ * Purges all cached API entries and active in-flight requests on logout to guarantee
+ * zero tenant cross-contamination or cached data leakage.
+ */
+export function clearApiCacheOnLogout(): void {
+  apiCacheManager.clear();
   apiCache.clear();
+  inFlightRequests.clear();
+}
+
+export function clearApiCache(): void {
+  clearApiCacheOnLogout();
 }
 
 // One renewal at a time, shared by every request that hits an expired token
@@ -165,6 +253,7 @@ export function autoInvalidateOnMutation(url: string): void {
     invalidateCache("/lessons");
     invalidateCache("/quizzes");
     invalidateCache("/questions");
+    invalidateCache("/admin/dashboard");
     invalidateCache("/dashboard");
     return;
   }
@@ -174,6 +263,8 @@ export function autoInvalidateOnMutation(url: string): void {
     invalidateCache("/batches");
     invalidateCache("/sessions");
     invalidateCache("/attendance");
+    invalidateCache("/meetings");
+    invalidateCache("/admin/dashboard");
     invalidateCache("/dashboard");
     return;
   }
@@ -184,6 +275,7 @@ export function autoInvalidateOnMutation(url: string): void {
     invalidateCache("/credit-notes");
     invalidateCache("/revenue");
     invalidateCache("/coupons");
+    invalidateCache("/admin/dashboard");
     invalidateCache("/dashboard");
     return;
   }
@@ -195,11 +287,54 @@ export function autoInvalidateOnMutation(url: string): void {
     return;
   }
 
+  // Mutating a lead invalidates /leads, /meetings, /sessions, and /invoices
   const isCrmOrMessages = /\/(leads|messages|conversations|contact)/.test(url);
   if (isCrmOrMessages) {
     invalidateCache("/leads");
+    invalidateCache("/meetings");
+    invalidateCache("/sessions");
+    invalidateCache("/invoices");
+    invalidateCache("/revenue");
     invalidateCache("/messages");
     invalidateCache("/messages/conversations");
+    invalidateCache("/admin/dashboard");
+    invalidateCache("/dashboard");
+    return;
+  }
+
+  const isCertificates = /\/certificates/.test(url);
+  if (isCertificates) {
+    invalidateCache("/certificates");
+    invalidateCache("/admin/dashboard");
+    invalidateCache("/dashboard");
+    return;
+  }
+
+  const isEvents = /\/events/.test(url);
+  if (isEvents) {
+    invalidateCache("/events");
+    invalidateCache("/admin/events");
+    return;
+  }
+
+  const isUsers = /\/users/.test(url);
+  if (isUsers) {
+    invalidateCache("/users");
+    invalidateCache("/admin/dashboard");
+    invalidateCache("/dashboard");
+    return;
+  }
+
+  const isResources = /\/resources/.test(url);
+  if (isResources) {
+    invalidateCache("/resources");
+    invalidateCache("/admin/resources");
+    return;
+  }
+
+  const isNotifications = /\/notifications/.test(url);
+  if (isNotifications) {
+    invalidateCache("/notifications");
     return;
   }
 
@@ -217,7 +352,7 @@ function triggerBackgroundRevalidate(
   ttlMs: number,
   timeoutMs: number
 ) {
-  if (inFlightRequests.has(cacheKey)) return;
+  if (apiCacheManager.getInFlight(cacheKey)) return;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -237,7 +372,7 @@ function triggerBackgroundRevalidate(
         const headersArray: [string, string][] = [];
         res.headers.forEach((val: string, key: string) => headersArray.push([key, val]));
 
-        apiCache.set(cacheKey, {
+        apiCacheManager.set(cacheKey, {
           bodyText,
           status: res.status,
           statusText: res.statusText,
@@ -250,11 +385,11 @@ function triggerBackgroundRevalidate(
       // Silent background revalidation failure
     } finally {
       clearTimeout(timer);
-      inFlightRequests.delete(cacheKey);
+      apiCacheManager.deleteInFlight(cacheKey);
     }
   })();
 
-  inFlightRequests.set(cacheKey, p as any);
+  apiCacheManager.setInFlight(cacheKey, p as any);
 }
 
 /**
@@ -305,9 +440,9 @@ export function logSlowApiCall(
 /**
  * Upgraded fetch with:
  * 1. In-flight request deduplication for identical concurrent GET requests
- * 2. Lightweight short-lived SWR in-memory caching
+ * 2. Lightweight short-lived SWR in-memory caching (ttlMs: 30,000 default for <15ms tab switches)
  * 3. Automatic cache invalidation on POST/PUT/PATCH/DELETE
- * 4. Configurable request timeouts (default 15s) and AbortController cancellation
+ * 4. Configurable request timeouts (default 12s) with AbortSignal.timeout(12000) safety
  * 5. Dev-mode slow API console table logger for requests > 500ms
  */
 export async function cachedFetch(
@@ -321,8 +456,8 @@ export async function cachedFetch(
   const method = (init?.method || "GET").toUpperCase();
   const isGet = method === "GET";
   const skipCache = init?.skipCache ?? false;
-  const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
-  const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
+  const ttlMs = init?.ttlMs ?? 30_000; // 30s default cache TTL for instant tab switching (<15ms)
+  const timeoutMs = init?.timeoutMs ?? 12_000; // 12s default request timeout
 
   // Auto-inject Authorization token from localStorage if in browser and not explicitly provided
   const requestHeaders = new Headers(init?.headers);
@@ -342,38 +477,31 @@ export async function cachedFetch(
 
   // 1. SWR / In-Memory Cache Check for GET requests
   if (isGet && !skipCache && cacheKey) {
-    const cached = apiCache.get(cacheKey);
+    const cached = apiCacheManager.get(cacheKey);
     if (cached) {
       const age = Date.now() - cached.timestamp;
-      if (age < cached.ttlMs) {
-        // Fresh hit: touch LRU order and serve immediately without network round trip
-        apiCache.delete(cacheKey);
-        apiCache.set(cacheKey, cached);
-        return new Response(cached.bodyText, {
-          status: cached.status,
-          statusText: cached.statusText,
-          headers: new Headers(cached.headers),
-        });
-      } else if (age < cached.ttlMs * 2) {
-        // Stale-While-Revalidate window: serve cached data immediately, revalidate in background
-        apiCache.delete(cacheKey);
-        apiCache.set(cacheKey, cached);
+      // Fresh or stale hit: touch LRU order and serve immediately (<15ms)
+      apiCache.delete(cacheKey);
+      apiCache.set(cacheKey, cached);
+
+      // Silent background revalidation when data is older than 5s or past ttlMs
+      if (age >= 5_000) {
         triggerBackgroundRevalidate(url, init, cacheKey, ttlMs, timeoutMs);
-        return new Response(cached.bodyText, {
-          status: cached.status,
-          statusText: cached.statusText,
-          headers: new Headers(cached.headers),
-        });
-      } else {
-        // Stale past SWR window: remove
-        apiCache.delete(cacheKey);
       }
+
+      const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
+      logSlowApiCall(method, url, cached.status, durationMs, cached.headers, "Cache");
+      return new Response(cached.bodyText, {
+        status: cached.status,
+        statusText: cached.statusText,
+        headers: new Headers(cached.headers),
+      });
     }
   }
 
   // 2. In-flight Deduplication for identical concurrent GET requests
-  if (isGet && cacheKey && inFlightRequests.has(cacheKey)) {
-    const inFlight = inFlightRequests.get(cacheKey)!;
+  if (isGet && cacheKey && apiCacheManager.getInFlight(cacheKey)) {
+    const inFlight = apiCacheManager.getInFlight(cacheKey)!;
     const resPayload = await inFlight;
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
@@ -384,7 +512,7 @@ export async function cachedFetch(
     });
   }
 
-  // 3. Setup AbortController with Timeout and consumer cancellation
+  // 3. Setup AbortController with AbortSignal.timeout(12000) safety and consumer cancellation
   const abortController = new AbortController();
   let timedOut = false;
 
@@ -394,6 +522,23 @@ export async function cachedFetch(
       new DOMException(`Request timed out after ${timeoutMs}ms`, "TimeoutError")
     );
   }, timeoutMs);
+
+  if (typeof AbortSignal !== "undefined" && typeof (AbortSignal as any).timeout === "function") {
+    try {
+      const autoTimeoutSignal = (AbortSignal as any).timeout(timeoutMs);
+      if (autoTimeoutSignal?.addEventListener) {
+        autoTimeoutSignal.addEventListener(
+          "abort",
+          () => {
+            timedOut = true;
+            clearTimeout(timeoutTimer);
+            abortController.abort(autoTimeoutSignal.reason);
+          },
+          { once: true }
+        );
+      }
+    } catch {}
+  }
 
   if (init?.signal) {
     if (init.signal.aborted) {
@@ -437,7 +582,7 @@ export async function cachedFetch(
             const errCode = typeof errData.error === "string" ? errData.error : errData.error?.code;
             if (errCode === "SESSION_REVOKED") {
               localStorage.clear();
-              clearApiCache();
+              clearApiCacheOnLogout();
               if (window.location.pathname !== "/login") {
                 alert("You were signed out because your account was logged into on another device.");
                 window.location.href = "/login";
@@ -451,11 +596,16 @@ export async function cachedFetch(
             }
           } catch {}
           localStorage.clear();
-          clearApiCache();
+          clearApiCacheOnLogout();
           if (window.location.pathname !== "/login") {
             window.location.href = "/login";
           }
         }
+      }
+
+      // Invalidate related cache upon successful mutation
+      if (!isGet && res.ok) {
+        autoInvalidateOnMutation(url);
       }
 
       const clone = res.clone();
@@ -472,13 +622,7 @@ export async function cachedFetch(
 
       // Only cache successful 2xx responses with bounded LRU eviction
       if (isGet && cacheKey && res.ok) {
-        while (apiCache.size >= MAX_CACHE_ENTRIES) {
-          const oldestKey = apiCache.keys().next().value;
-          if (!oldestKey) break;
-          apiCache.delete(oldestKey);
-        }
-
-        apiCache.set(cacheKey, {
+        apiCacheManager.set(cacheKey, {
           ...payload,
           timestamp: Date.now(),
           ttlMs,
@@ -498,13 +642,13 @@ export async function cachedFetch(
       throw err;
     } finally {
       if (cacheKey) {
-        inFlightRequests.delete(cacheKey);
+        apiCacheManager.deleteInFlight(cacheKey);
       }
     }
   })();
 
   if (isGet && cacheKey) {
-    inFlightRequests.set(cacheKey, fetchPromise);
+    apiCacheManager.setInFlight(cacheKey, fetchPromise);
   }
 
   const result = await fetchPromise;

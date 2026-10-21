@@ -5,6 +5,7 @@ import styles from "./page.module.css";
 import Link from "next/link";
 import Image from "next/image";
 import { ActionMenu } from "./components";
+import { API_URL, cachedFetch } from "./lib/api";
 
 // Crisp outline SVG icons conforming to WhatBoutMe design standard
 const Icons = {
@@ -185,13 +186,9 @@ export default function AdminDashboard() {
     const controller = new AbortController();
     const fetchDashboardData = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const headers = token ? { Authorization: `Bearer ${token}` } : ({} as any);
-
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/admin/dashboard`,
-          { headers, signal: controller.signal }
-        );
+        const res = await cachedFetch(`${API_URL}/admin/dashboard`, {
+          signal: controller.signal,
+        });
         if (res.ok) {
           const data = await res.json();
           setDashboardData(data);

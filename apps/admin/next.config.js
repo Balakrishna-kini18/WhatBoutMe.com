@@ -10,6 +10,8 @@ const lanAddresses = Object.values(networkInterfaces())
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
+  poweredByHeader: false,
   allowedDevOrigins: lanAddresses,
   compress: true,
   images: {

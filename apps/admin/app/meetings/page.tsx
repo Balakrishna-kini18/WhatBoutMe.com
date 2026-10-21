@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import calStyles from "./calendar.module.css";
-import { API_URL, errorMessage, detectCalendarConflict } from "../lib/api";
+import { API_URL, errorMessage, detectCalendarConflict, cachedFetch } from "../lib/api";
 import {
   getTimezoneOptions,
   getSystemTimezone,
@@ -268,7 +268,7 @@ export default function MeetingsPage() {
     setIsCompletingAndConverting(true);
     try {
       if (meeting.status !== "COMPLETED") {
-        await fetch(`${API_URL}/sessions/${meeting.id}`, {
+        await cachedFetch(`${API_URL}/sessions/${meeting.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "COMPLETED" }),
@@ -413,8 +413,8 @@ export default function MeetingsPage() {
   const load = async () => {
     try {
       const [meetingsRes, batchesRes] = await Promise.all([
-        fetch(`${API_URL}/sessions/all`),
-        fetch(`${API_URL}/batches`),
+        cachedFetch(`${API_URL}/sessions/all`),
+        cachedFetch(`${API_URL}/batches`),
       ]);
       if (meetingsRes.ok) setMeetings(await meetingsRes.json());
       if (batchesRes.ok) setBatches(await batchesRes.json());
@@ -532,7 +532,7 @@ export default function MeetingsPage() {
         payload.hostTrainerId = editHostTrainerId;
       }
 
-      const res = await fetch(`${API_URL}/sessions/${editingMeeting.id}`, {
+      const res = await cachedFetch(`${API_URL}/sessions/${editingMeeting.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -650,7 +650,7 @@ export default function MeetingsPage() {
           payload.learnerId = learnerId;
         }
 
-        const res = await fetch(`${API_URL}/sessions`, {
+        const res = await cachedFetch(`${API_URL}/sessions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -691,7 +691,7 @@ export default function MeetingsPage() {
     setCancellingSessionId(null);
     setIsCancelling(true);
     try {
-      const res = await fetch(`${API_URL}/sessions/${targetId}/cancel`, {
+      const res = await cachedFetch(`${API_URL}/sessions/${targetId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: reason.trim() || "Administrative cancellation" }),
@@ -730,7 +730,7 @@ export default function MeetingsPage() {
     setDeleteSessionError(null);
 
     try {
-      const res = await fetch(`${API_URL}/sessions/${targetId}`, { method: "DELETE" });
+      const res = await cachedFetch(`${API_URL}/sessions/${targetId}`, { method: "DELETE" });
       if (res.ok) {
         toastSuccess("Session record permanently deleted from database and calendar.");
         setDeletingSessionId(null);

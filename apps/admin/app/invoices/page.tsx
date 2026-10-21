@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
-import styles from "../page.module.css";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, errorMessage, cachedFetch } from "../lib/api";
 import { CustomSelect, useToast } from "../components";
+import styles from "../page.module.css";
 
 interface Invoice {
   id: string;
@@ -52,11 +52,7 @@ export default function InvoicesPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/invoices`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal,
-      });
+      const res = await cachedFetch(`${API_URL}/invoices`, { signal });
       if (res.ok) {
         const data = await res.json();
         setInvoices(data);
@@ -75,10 +71,7 @@ export default function InvoicesPage() {
 
   const fetchEnrolmentsForModal = async () => {
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/admin/enrolments?limit=100`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await cachedFetch(`${API_URL}/admin/enrolments?limit=100`);
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : data?.data || [];
@@ -126,12 +119,10 @@ export default function InvoicesPage() {
     setFormError("");
 
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/invoices`, {
+      const res = await cachedFetch(`${API_URL}/invoices`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           enrolmentId: selectedEnrolmentId,
@@ -170,12 +161,10 @@ export default function InvoicesPage() {
 
   const handleResendInvoice = async (inv: Invoice) => {
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/invoices/${inv.id}/resend`, {
+      const res = await cachedFetch(`${API_URL}/invoices/${inv.id}/resend`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
       if (res.ok) {

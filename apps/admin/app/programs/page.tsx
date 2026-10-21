@@ -134,7 +134,7 @@ export default function ProgramsPage() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
+      const res = await cachedFetch(`${API_URL}/programs`);
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -191,7 +191,7 @@ export default function ProgramsPage() {
     setIsDeletingProgram(true);
     setDeleteError(null);
     try {
-      const res = await fetch(`${API_URL}/programs/${programToDelete.id}?force=true`, {
+      const res = await cachedFetch(`${API_URL}/programs/${programToDelete.id}?force=true`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
@@ -221,7 +221,7 @@ export default function ProgramsPage() {
 
   const handleDuplicateProgram = async (prog: Program) => {
     try {
-      const res = await fetch(`${API_URL}/programs/${prog.id}/duplicate`, {
+      const res = await cachedFetch(`${API_URL}/programs/${prog.id}/duplicate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -266,7 +266,7 @@ export default function ProgramsPage() {
     };
 
     try {
-      const res = await fetch(
+      const res = await cachedFetch(
         editingProgramId ? `${API_URL}/programs/${editingProgramId}` : `${API_URL}/programs`,
         {
           method: editingProgramId ? "PATCH" : "POST",

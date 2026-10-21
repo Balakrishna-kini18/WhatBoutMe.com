@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
-import { API_URL } from "../lib/api";
+import { API_URL, cachedFetch } from "../lib/api";
 
 const Icons = {
   Export: () => (
@@ -51,11 +51,7 @@ export default function RevenuePage() {
     setIsLoading(true);
     setError(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/revenue`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal,
-      });
+      const res = await cachedFetch(`${API_URL}/revenue`, { signal });
       if (res.ok) {
         const json = await res.json();
         setData(json);

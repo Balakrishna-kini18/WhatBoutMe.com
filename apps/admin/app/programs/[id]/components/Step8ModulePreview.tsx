@@ -391,7 +391,7 @@ export default function Step8ModulePreview({
             )}
             {isQuizLockedByVideo && (
               <span style={{ fontSize: "0.6875rem", background: "#fef3c7", color: "#92400e", padding: "1px 6px", borderRadius: 4 }}>
-                Locked 🔒
+                Locked
               </span>
             )}
           </button>
@@ -531,7 +531,7 @@ export default function Step8ModulePreview({
                       textAlign: "center",
                     }}
                   >
-                    🔒 {scrubBlockedNotice}
+                    {scrubBlockedNotice}
                   </div>
                 )}
 
@@ -638,7 +638,7 @@ export default function Step8ModulePreview({
                         }}
                         title="Bookmark current timestamp into your note"
                       >
-                        🔖 Note at {formatVideoTime(currentTime)}
+                        Note at {formatVideoTime(currentTime)}
                       </button>
 
                       <span
@@ -690,7 +690,7 @@ export default function Step8ModulePreview({
                       </button>
                     ) : (
                       <span className={styles.lockedBadge} style={{ background: "#fef3c7", borderColor: "#fde68a", color: "#92400e" }}>
-                        🔒 Post-Quiz Locked until 100% Watched
+                        Post-Quiz Locked until 100% Watched
                       </span>
                     )}
                   </div>
@@ -800,7 +800,7 @@ export default function Step8ModulePreview({
                     }}
                   >
                     <div>
-                      <strong>{isQuizPassed ? "Assessment Passed! 🎉" : "Score Below Pass Threshold"}</strong>
+                      <strong>{isQuizPassed ? "Assessment Passed!" : "Score Below Pass Threshold"}</strong>
                       <div style={{ fontSize: "0.85rem", marginTop: 2 }}>
                         You scored {quizScore}% (Pass mark is {module.quiz?.passMark || 75}%).
                         {isQuizPassed && isBeforeVideo && " The video lecture has been unlocked!"}
@@ -840,10 +840,10 @@ export default function Step8ModulePreview({
                     {/* 4 Google Forms Style Option Cards */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
                       {[
-                        { id: 0, text: "Top-down directive delegation", icon: "📋" },
-                        { id: 1, text: "Transparent vulnerability and active listening", icon: "🤝" },
-                        { id: 2, text: "Delaying communication until resolution", icon: "⏳" },
-                        { id: 3, text: "Competitive peer performance rankings", icon: "📊" },
+                        { id: 0, text: "Top-down directive delegation" },
+                        { id: 1, text: "Transparent vulnerability and active listening" },
+                        { id: 2, text: "Delaying communication until resolution" },
+                        { id: 3, text: "Competitive peer performance rankings" },
                       ].map((opt) => (
                         <label
                           key={opt.id}
@@ -866,7 +866,6 @@ export default function Step8ModulePreview({
                             onChange={() => setSelectedSingleChoice(opt.id)}
                             style={{ accentColor: "var(--accent-primary, #c97a1e)" }}
                           />
-                          <span style={{ fontSize: "1.2rem" }}>{opt.icon}</span>
                           <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1e293b" }}>{opt.text}</span>
                         </label>
                       ))}
@@ -887,10 +886,10 @@ export default function Step8ModulePreview({
 
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
                       {[
-                        { id: 0, text: "Self-Awareness & Trigger Mapping", icon: "🧠" },
-                        { id: 1, text: "Suppressing Negative Reactions", icon: "🤐" },
-                        { id: 2, text: "Social Empathy & Perspective Taking", icon: "👁️" },
-                        { id: 3, text: "Aggressive Boundary Enforcement", icon: "⚡" },
+                        { id: 0, text: "Self-Awareness & Trigger Mapping" },
+                        { id: 1, text: "Suppressing Negative Reactions" },
+                        { id: 2, text: "Social Empathy & Perspective Taking" },
+                        { id: 3, text: "Aggressive Boundary Enforcement" },
                       ].map((opt) => (
                         <label
                           key={opt.id}
@@ -918,7 +917,6 @@ export default function Step8ModulePreview({
                             }}
                             style={{ accentColor: "var(--accent-primary, #c97a1e)" }}
                           />
-                          <span style={{ fontSize: "1.2rem" }}>{opt.icon}</span>
                           <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1e293b" }}>{opt.text}</span>
                         </label>
                       ))}

@@ -171,7 +171,7 @@ export default function LessonNotesPanel({
               fontSize: "0.9rem",
             }}
           >
-            ✎
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)" }}>
@@ -287,7 +287,7 @@ export default function LessonNotesPanel({
                       }}
                       title="Attach current video playback timestamp to this note"
                     >
-                      <span>⏱</span>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                       <span>
                         {capturedTimestamp != null
                           ? `At ${formatVideoTime(capturedTimestamp)}`
@@ -406,7 +406,7 @@ export default function LessonNotesPanel({
                             }}
                             title={onSeekToVideoTime ? "Jump to this video timestamp" : undefined}
                           >
-                            <span>▶</span>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4" /></svg>
                             <span>{formatVideoTime(note.videoTimestampSeconds)}</span>
                           </button>
                         )}

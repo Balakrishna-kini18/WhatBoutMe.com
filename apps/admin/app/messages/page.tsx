@@ -412,7 +412,7 @@ export default function MessagesPage() {
                         <span className={styles.typingItemBadge}>typing...</span>
                       ) : (
                         <span>
-                          {c.lastMessage?.attachmentUrl && !c.lastMessage.content ? "📎 Attachment" : c.lastMessage?.content ?? "No messages yet"}
+                          {c.lastMessage?.attachmentUrl && !c.lastMessage.content ? "Attachment" : c.lastMessage?.content ?? "No messages yet"}
                         </span>
                       )}
                     </span>
@@ -447,7 +447,11 @@ export default function MessagesPage() {
                   onClick={() => setSoundEnabled((v) => !v)}
                   title={soundEnabled ? "Mute chimes" : "Enable chimes"}
                 >
-                  {soundEnabled ? "🔔" : "🔕"}
+                  {soundEnabled ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /><line x1="2" y1="2" x2="22" y2="22" /></svg>
+                  )}
                 </button>
               </div>
 
@@ -481,7 +485,7 @@ export default function MessagesPage() {
                                   title="Delete message"
                                   onClick={() => setMessageToDelete(m)}
                                 >
-                                  🗑️
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
                                 </button>
                               </div>
                             )}
@@ -574,7 +578,7 @@ export default function MessagesPage() {
               {/* Pending upload banner */}
               {(uploading || pendingFile) && (
                 <div className={styles.uploadBar}>
-                  <span>{uploading ? "Uploading attachment..." : `📎 Attached: ${pendingFile?.name}`}</span>
+                  <span>{uploading ? "Uploading attachment..." : `Attached: ${pendingFile?.name}`}</span>
                   {pendingFile && (
                     <button
                       type="button"
@@ -595,7 +599,7 @@ export default function MessagesPage() {
                   onClick={() => setEmojiOpen((v) => !v)}
                   title="Emoji"
                 >
-                  😊
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" /></svg>
                 </button>
 
                 <input
@@ -613,7 +617,7 @@ export default function MessagesPage() {
                   title="Attach file"
                   disabled={uploading}
                 >
-                  📎
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
                 </button>
 
                 <textarea

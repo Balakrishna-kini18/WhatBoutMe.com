@@ -476,7 +476,7 @@ export default function QuizzesPage() {
                                 gap: "3px",
                               }}
                             >
-                              🖼️ {quiz.visualCount} Visual
+                              {quiz.visualCount} Visual
                             </span>
                           ) : (
                             <span

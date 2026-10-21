@@ -512,7 +512,7 @@ function LeadsContent() {
                 <tr>
                   <td colSpan={6}>
                     <div className={leadStyles.emptyContainer}>
-                      <div className={leadStyles.emptyIcon}>✉</div>
+                      <div className={leadStyles.emptyIcon}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M22 6l-10 7L2 6" /></svg></div>
                       <h3 className={leadStyles.emptyTitle}>No enquiries found</h3>
                       <p className={leadStyles.emptySubtitle}>
                         {searchQuery
@@ -583,7 +583,6 @@ function LeadsContent() {
                             <div className={leadStyles.badgesRow}>
                               {parsed.isCourseInquiry && (
                                 <span className={leadStyles.badgeHighIntent}>
-                                  <span>🎓</span>
                                   <span>
                                     {parsed.courseInquiry?.title
                                       ? `Course: ${parsed.courseInquiry.title}`
@@ -593,7 +592,6 @@ function LeadsContent() {
                               )}
                               {parsed.discovery && (
                                 <span className={leadStyles.badgeDiscovery}>
-                                  <span>📅</span>
                                   <span>1-on-1 Discovery Confirmed</span>
                                 </span>
                               )}
@@ -605,7 +603,6 @@ function LeadsContent() {
                                   className={leadStyles.zoomLinkPill}
                                   title="Join Scheduled Zoom Call"
                                 >
-                                  <span>📹</span>
                                   <span>Join Zoom ↗</span>
                                 </a>
                               )}
@@ -723,7 +720,6 @@ function LeadsContent() {
                               </>
                             ) : (
                               <>
-                                <span>⚡</span>
                                 <span>Convert &amp; Send</span>
                               </>
                             )}

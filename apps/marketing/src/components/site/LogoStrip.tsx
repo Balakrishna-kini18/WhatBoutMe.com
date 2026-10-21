@@ -32,8 +32,8 @@ export default function LogoStrip() {
   return (
     <section className="border-b border-line bg-white py-5 sm:py-12 md:py-16">
       {/* phones: a slim strip, small caption and small logos */}
-      <p className="eyebrow mb-3 px-5 text-center text-ink-soft max-sm:text-[10px] max-sm:tracking-[0.14em] sm:mb-7">
-        Organisations that have made room for this conversation
+      <p className="mb-3 px-5 text-center text-sm text-ink-soft sm:mb-7">
+        Organisations That Have Made Room for This Conversation
       </p>
       <div className="marquee overflow-hidden">
         <div className="marquee-track flex w-max">

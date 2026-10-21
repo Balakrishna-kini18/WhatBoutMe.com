@@ -477,7 +477,9 @@ export default function ChatPage() {
   }, [conversations, me, contactQuery]);
 
   return (
-    <div className={`${styles.container} ${infoOpen ? styles.withInfo : ""} ${threadOpen ? styles.threadOpen : ""}`}>
+    // data-keep-tabbar: the phone tab bar stays visible while typing here
+    // (see the :focus rules at the end of the phone block in layout.module.css)
+    <div data-keep-tabbar className={`${styles.container} ${infoOpen ? styles.withInfo : ""} ${threadOpen ? styles.threadOpen : ""}`}>
       {/* Conversations sidebar */}
       <aside className={styles.chatSidebar}>
         <h1 className={styles.heading}>Messages</h1>
@@ -508,11 +510,21 @@ export default function ChatPage() {
                     <span className={styles.typingBadgeList}>typing...</span>
                   ) : (
                     <span>
-                      {c.lastMessage?.attachmentUrl && !c.lastMessage.content ? "📎 Attachment" : c.lastMessage ? c.lastMessage.content : "No messages yet"}
+                      {c.lastMessage?.attachmentUrl && !c.lastMessage.content ? "Attachment" : c.lastMessage ? c.lastMessage.content : "No messages yet"}
                     </span>
                   )}
                 </span>
-                {c.unread > 0 && <span className={styles.badge}>{c.unread}</span>}
+                {/* when the last message came, and how many are unread */}
+                <span className={styles.contactMeta}>
+                  {c.lastMessage?.createdAt && (
+                    <time dateTime={c.lastMessage.createdAt}>
+                      {new Date(c.lastMessage.createdAt).toDateString() === new Date().toDateString()
+                        ? new Date(c.lastMessage.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+                        : new Date(c.lastMessage.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                    </time>
+                  )}
+                  {c.unread > 0 && <span className={styles.badge}>{c.unread}</span>}
+                </span>
               </button>
             );
           })}

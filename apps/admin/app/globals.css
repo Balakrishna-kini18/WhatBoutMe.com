@@ -81,6 +81,12 @@
 }
 
 body {
+  /* next/font sets --font-dm-sans etc. on body, so the font tokens must be
+     declared here too; on :root those variables do not exist yet and the
+     tokens resolve to nothing (the page falls back to Times) */
+  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-playfair), 'Playfair Display', Georgia, Cambria, serif;
+  --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
   margin: 0;
   padding: 0;
   background-color: var(--bg-main);
@@ -91,6 +97,15 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* never leave one word alone on the last line; headings break into even lines */
+p, li, dd, dt, label, blockquote, figcaption, small {
+  text-wrap: pretty;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  text-wrap: balance;
 }
 
 * {

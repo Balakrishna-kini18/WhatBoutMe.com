@@ -4,7 +4,11 @@ import { ArrowRight } from "lucide-react";
 import EnrolLink from "./EnrolLink";
 import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
 
-/** Banner at the top of the courses page. */
+/**
+ * The first course at the top of the courses page: a plain white card in the
+ * same family as the course cards below it. Phones: picture on top, then the
+ * text. Desktop: text left, picture right.
+ */
 export default function FeaturedCourse({ course }: { course?: Course }) {
   if (!course || !course.slug) return null;
   const facts = [
@@ -16,50 +20,8 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
   ].filter(Boolean);
 
   return (
-    <div className="grid overflow-hidden rounded-[2rem] bg-ink text-cream lg:grid-cols-2">
-      <div className="p-8 md:p-12">
-        <h2 className="text-2xl font-bold sm:text-3xl leading-[1.1] tracking-tight md:text-[2.75rem]">
-          {course.title}
-        </h2>
-        {course.body && (
-          <p className="mt-4 line-clamp-3 max-w-xl leading-relaxed text-cream/70 md:text-lg">
-            {course.body}
-          </p>
-        )}
-
-        {facts.length > 0 && (
-          <ul className="mt-6 flex flex-wrap gap-2">
-            {facts.map((fact) => (
-              <li
-                key={fact}
-                className="rounded-full border border-cream/20 px-4 py-1.5 text-sm text-cream/85"
-              >
-                {fact}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link
-            href={`/courses/${course.slug}`}
-            className="group flex items-center gap-2 rounded-full bg-gold px-6 py-3.5 text-sm font-medium text-ink transition-colors duration-200 hover:bg-cream"
-          >
-            View Details
-            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-          </Link>
-          {course.programId && (
-            <EnrolLink
-              programId={course.programId}
-              className="rounded-full border border-cream/25 px-6 py-3.5 text-sm font-medium text-cream transition-colors duration-200 hover:border-gold hover:text-gold"
-            >
-              Enrol Now
-            </EnrolLink>
-          )}
-        </div>
-      </div>
-
-      <div className="relative min-h-64 lg:min-h-full">
+    <div className="grid overflow-hidden rounded-3xl border border-line bg-white lg:grid-cols-[1.1fr_1fr]">
+      <div className="relative aspect-[16/10] bg-sand lg:order-2 lg:aspect-auto lg:min-h-[22rem]">
         {course.image && (
           <Image
             src={course.image}
@@ -68,10 +30,40 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
             priority
             quality={80}
             unoptimized={!isOptimisable(course.image)}
-            sizes="(max-width: 1024px) 100vw, 620px"
+            sizes="(max-width: 1024px) 100vw, 560px"
             className="object-cover"
           />
         )}
+      </div>
+
+      <div className="flex flex-col justify-center p-6 sm:p-8 lg:p-12">
+        <h2 className="text-2xl font-bold leading-[1.15] tracking-tight sm:text-3xl lg:text-4xl">
+          {course.title}
+        </h2>
+        {facts.length > 0 && (
+          <p className="mt-2 text-sm text-ink-soft">{facts.join(" · ")}</p>
+        )}
+        {course.body && (
+          <p className="mt-4 line-clamp-2 max-w-xl leading-relaxed text-ink-soft">{course.body}</p>
+        )}
+
+        <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <Link
+            href={`/courses/${course.slug}`}
+            className="group inline-flex h-12 items-center gap-2 rounded-full bg-ink px-6 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
+          >
+            View Details
+            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+          </Link>
+          {course.programId && (
+            <EnrolLink
+              programId={course.programId}
+              className="text-sm font-semibold text-gold-deep underline-offset-4 transition-colors hover:underline"
+            >
+              Enrol Now
+            </EnrolLink>
+          )}
+        </div>
       </div>
     </div>
   );

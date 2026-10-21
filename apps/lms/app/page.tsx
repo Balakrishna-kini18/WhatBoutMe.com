@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { SITE_URL } from "./lib/site";
 import { API_URL } from "./lib/api";
+import { courseImageFor } from "./lib/courseImage";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -217,14 +218,15 @@ export default function LearnerDashboard() {
   const overall = isEnrolled
     ? Math.round(user.enrolledPrograms.reduce((sum, p) => sum + (p.progress || 0), 0) / numEnrolled)
     : 0;
-  const RING = 2 * Math.PI * 52;
 
-  const stats = [
-    { label: "Courses", value: String(numEnrolled), href: "#courses", icon: Icons.course },
-    { label: "Meetings", value: String(sessions.length), href: "/live", icon: Icons.meeting },
-    { label: "Certificates", value: String(certificates.length), href: "/certificates", icon: Icons.certificate },
-    { label: "Progress", value: `${overall}%`, href: "#courses", icon: Icons.progress },
-  ];
+  // the course the "Continue learning" card offers: one the learner can open
+  // right now (the same cases that show Resume/Start in the list), preferring
+  // one already started
+  const blocked = ["PENDING_AGREEMENT", "PENDING_PAYMENT", "WAITLIST", "REVOKED"];
+  const openable = user.enrolledPrograms.filter((p) => !blocked.includes(p.status) && p.progress < 100);
+  const continueProg = openable.find((p) => p.progress > 0) ?? openable[0];
+  const attendancePct = attendanceSummary?.overallAttendancePercentage ?? 0;
+  const attendanceMet = attendancePct >= 75;
 
   const shortcuts = [
     { label: "Live Sessions", href: "/live", icon: Icons.meeting },
@@ -239,13 +241,44 @@ export default function LearnerDashboard() {
   const isOpen = (s: Session) =>
     now >= new Date(new Date(s.startTime).getTime() - 5 * 60000) && now <= new Date(s.endTime);
 
+  // the action for one course: exactly the cases the list has always had
+  const courseAction = (prog: EnrolledProgram, className = styles.darkBtn) =>
+    prog.status === "PENDING_AGREEMENT" ? (
+      <Link href="/agreement" className={className}>
+        Sign Agreement
+      </Link>
+    ) : prog.status === "PENDING_PAYMENT" ? (
+      <span className={`${styles.pill} ${styles.pillOff}`}>Payment Pending</span>
+    ) : prog.status === "WAITLIST" ? (
+      <span className={`${styles.pill} ${styles.pillOff}`}>On Waitlist</span>
+    ) : prog.status === "REVOKED" ? (
+      <span className={`${styles.pill} ${styles.pillOff}`}>Access Revoked</span>
+    ) : prog.progress === 100 ? (
+      <button type="button" onClick={() => requestCertificate(prog.enrolmentId)} className={styles.secondaryBtn}>
+        Request Certificate
+      </button>
+    ) : (
+      <Link href={`/programs/${prog.programId}/steps`} className={className}>
+        {prog.progress > 0 ? "Resume" : "Start"}
+        {Icons.arrow}
+      </Link>
+    );
+
+  const compliance = (prog: EnrolledProgram) => {
+    const c = complianceMap[prog.enrolmentId];
+    if (!c || c.status === "NOT_APPLICABLE") return null;
+    const ok = c.status === "COMPLIANT";
+    return (
+      <span className={`${styles.attendTag} ${ok ? styles.attendOk : styles.attendLow}`}>
+        {ok ? "Attendance Compliant" : "Low Attendance"} ({Math.round(c.attendancePercentage)}%)
+      </span>
+    );
+  };
+
   return (
-    <div className={styles.dashboard}>
+    <div className={`${styles.dashboard} ${styles.home}`}>
       <header className={styles.pageHeader}>
         <div>
-          <span style={{ display: "inline-block", fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-primary)", marginBottom: "4px" }}>
-            Brain Health · Resilience · Purpose
-          </span>
           <h1 className={styles.pageTitle}>{greeting}, {firstName}</h1>
           <p className={styles.pageSubtitle}>
             {isEnrolled
@@ -253,118 +286,109 @@ export default function LearnerDashboard() {
               : "For the people who hold everyone else together. Explore certified programmes built on neuroscience and lived experience."}
           </p>
         </div>
-        <Link href={siteCourses} className={styles.primaryBtn}>Browse Courses</Link>
+        <Link href={siteCourses} className={styles.headerBtn}>Browse Courses</Link>
       </header>
 
-      <div className={styles.stats}>
-        {stats.map((item) => (
-          <Link key={item.label} href={item.href} className={styles.stat}>
-            <span className={styles.statIcon}>{item.icon}</span>
-            <span className={styles.statText}>
-              <strong>{item.value}</strong>
-              <span>{item.label}</span>
-            </span>
+      {/* the one thing most visits are for: pick up the course where it was left */}
+      {continueProg && (
+        <section className={styles.continueCard} aria-label="Continue learning">
+          <Image
+            src={courseImageFor(continueProg.programTitle)}
+            alt=""
+            width={168}
+            height={112}
+            quality={80}
+            sizes="(max-width: 600px) 88px, 168px"
+            className={styles.continueThumb}
+          />
+          <div className={styles.continueBody}>
+            <p className={styles.continueLabel}>
+              {continueProg.progress > 0 ? "Continue Where You Left Off" : "Ready When You Are"}
+            </p>
+            <h2 className={styles.continueTitle}>{continueProg.programTitle}</h2>
+            <p className={styles.muted}>Cohort: {continueProg.batchName}</p>
+            <div className={styles.progressLine}>
+              <div className={styles.progress} role="progressbar" aria-valuenow={continueProg.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${continueProg.programTitle} progress`}>
+                <span style={{ width: `${continueProg.progress}%` }} />
+              </div>
+              <span>{continueProg.progress}%</span>
+            </div>
+          </div>
+          <Link href={`/programs/${continueProg.programId}/steps`} className={styles.continueBtn}>
+            {continueProg.progress > 0 ? "Resume Course" : "Start Course"}
+            {Icons.arrow}
           </Link>
-        ))}
-      </div>
+        </section>
+      )}
 
       <div className={styles.board}>
         <div className={styles.boardMain}>
           <section id="courses" className={styles.panel}>
             <div className={styles.panelHead}>
               <h2>Your Courses</h2>
-              <Link href={siteCourses} className={styles.textLink}>Browse all</Link>
+              <Link href={siteCourses} className={styles.textLink}>Browse All</Link>
             </div>
             {!isEnrolled ? (
-              <div className={styles.empty} style={{ textAlign: "center", padding: "32px 16px" }}>
-                <p style={{ fontWeight: 600, fontSize: "1.05rem", color: "var(--text-primary)", marginBottom: "6px" }}>
-                  Start Your Brain Health Journey
-                </p>
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", maxWidth: "480px", margin: "0 auto 16px", lineHeight: 1.5 }}>
+              <div className={styles.emptyBlock}>
+                <p className={styles.emptyTitle}>Start Your Brain Health Journey</p>
+                <p className={styles.muted}>
                   From a 12-class CPD-certified programme to focused resilience workshops, rewire your brain for clarity, confidence, and fulfillment.
                 </p>
-                <Link href={siteCourses} className={styles.primaryBtn} style={{ display: "inline-flex" }}>
+                <Link href={siteCourses} className={styles.darkBtn}>
                   Explore Programmes &amp; Workshops
                 </Link>
               </div>
             ) : (
-              <ul className={styles.list}>
+              <ul className={styles.courseGrid}>
                 {user.enrolledPrograms.map((prog) => (
-                  <li key={prog.programId} className={styles.course}>
-                    <Image
-                      src="/brand/session.png"
-                      alt=""
-                      width={104}
-                      height={72}
-                      quality={80}
-                      loading="lazy"
-                      sizes="104px"
-                      className={styles.thumb}
-                    />
-                    <div className={styles.rowMain}>
-                      <p className={styles.rowTitle}>{prog.programTitle}</p>
-                      <p className={styles.muted} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span>Cohort: {prog.batchName}</span>
-                        {complianceMap[prog.enrolmentId] && complianceMap[prog.enrolmentId].status !== 'NOT_APPLICABLE' && (
-                          <span style={{ 
-                            fontSize: '0.75rem', 
-                            padding: '2px 6px', 
-                            borderRadius: '4px',
-                            background: complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? '#ecfdf5' : '#fef2f2',
-                            color: complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? '#059669' : '#dc2626',
-                            border: `1px solid ${complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? '#a7f3d0' : '#fecaca'}`
-                          }}>
-                            {complianceMap[prog.enrolmentId].status === 'COMPLIANT' ? 'Attendance Compliant' : 'Low Attendance'} 
-                            ({Math.round(complianceMap[prog.enrolmentId].attendancePercentage)}%)
-                          </span>
-                        )}
-                      </p>
-                      <div className={styles.progressLine}>
-                        <div className={styles.progress} role="progressbar" aria-valuenow={prog.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${prog.programTitle} progress`}>
-                          <span style={{ width: `${prog.progress}%` }} />
-                        </div>
-                        <span>{prog.progress}%</span>
+                  <li key={prog.programId} className={styles.courseCard}>
+                    {/* the picture takes most of the card; a little info below it */}
+                    <div className={styles.courseCardMedia}>
+                      <Image
+                        src={courseImageFor(prog.programTitle)}
+                        alt=""
+                        fill
+                        quality={80}
+                        loading="lazy"
+                        sizes="(max-width: 600px) 100vw, 320px"
+                        className={styles.courseCardImg}
+                      />
+                    </div>
+
+                    <div className={styles.courseCardBody}>
+                      <p className={styles.courseCardTitle}>{prog.programTitle}</p>
+                      <p className={styles.muted}>{prog.batchName}</p>
+                    </div>
+
+                    {compliance(prog)}
+
+                    <div className={styles.courseCardProgress}>
+                      <div className={styles.courseCardProgressLabel}>
+                        <span>Progress</span>
+                        <strong>{prog.progress}%</strong>
+                      </div>
+                      <div className={styles.courseCardBar} role="progressbar" aria-valuenow={prog.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${prog.programTitle} progress`}>
+                        <span style={{ width: `${prog.progress}%` }} />
                       </div>
                     </div>
-                    {prog.status === "PENDING_AGREEMENT" ? (
-                      <Link href="/agreement" className={styles.darkBtn}>
-                        Sign Agreement
-                      </Link>
-                    ) : prog.status === "PENDING_PAYMENT" ? (
-                      <span className={`${styles.pill} ${styles.pillOff}`}>
-                        Payment Pending
-                      </span>
-                    ) : prog.status === "WAITLIST" ? (
-                      <span className={`${styles.pill} ${styles.pillOff}`}>
-                        On Waitlist
-                      </span>
-                    ) : prog.status === "REVOKED" ? (
-                      <span className={`${styles.pill} ${styles.pillOff}`}>
-                        Access Revoked
-                      </span>
-                    ) : prog.progress === 100 ? (
-                      <button type="button" onClick={() => requestCertificate(prog.enrolmentId)} className={styles.secondaryBtn}>
-                        Request Certificate
-                      </button>
-                    ) : (
-                      <Link href={`/programs/${prog.programId}/steps`} className={styles.darkBtn}>
-                        {prog.progress > 0 ? "Resume" : "Start"}
-                      </Link>
-                    )}
+
+                    <div className={styles.courseCardAction}>{courseAction(prog, styles.courseCardBtn)}</div>
                   </li>
                 ))}
               </ul>
             )}
           </section>
 
-          {/* every meeting scheduled for the learner's cohorts */}
-          <section id="meetings" className={`${styles.panel} ${styles.grow}`}>
+          {/* every meeting scheduled for the learner's cohorts; the next one is marked */}
+          <section id="meetings" className={styles.panel}>
             <div className={styles.panelHead}>
-              <h2>Scheduled Meetings</h2>
-              <Link href="/live" className={styles.textLink}>View all</Link>
+              <h2>Upcoming Sessions</h2>
+              <Link href="/live" className={styles.textLink}>View All</Link>
             </div>
             {sessions.length === 0 ? (
-              <p className={styles.empty}>No meetings are scheduled for your cohort yet.</p>
+              <p className={styles.empty}>
+                Nothing scheduled yet. New live sessions for your cohort will show up here.
+              </p>
             ) : (
               <ul className={styles.list}>
                 {sessions.map((session) => {
@@ -372,7 +396,7 @@ export default function LearnerDashboard() {
                   const ended = now > new Date(session.endTime);
                   const open = isOpen(session);
                   return (
-                    <li key={session.id} className={styles.row}>
+                    <li key={session.id} className={`${styles.row} ${session.id === nextUp?.id ? styles.rowNext : ""}`}>
                       <div className={styles.dateBox}>
                         <span>{start.toLocaleDateString([], { month: "short" })}</span>
                         <strong>{start.getDate()}</strong>
@@ -400,106 +424,59 @@ export default function LearnerDashboard() {
               </ul>
             )}
           </section>
-          <section className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2>Quick Links</h2>
-            </div>
-            <div className={styles.shortcuts}>
-              {shortcuts.map((item) => (
-                <Link key={item.label} href={item.href} className={styles.shortcut}>
-                  <span className={styles.shortcutIcon}>{item.icon}</span>
-                  {item.label}
-                  <span className={styles.shortcutArrow}>{Icons.arrow}</span>
-                </Link>
-              ))}
-            </div>
-          </section>
         </div>
 
         <aside className={styles.boardSide}>
+          {/* progress, attendance and certificates in one place */}
           <section className={styles.panel}>
             <div className={styles.panelHead}>
-              <h2>Overall Progress</h2>
+              <h2>Your Progress</h2>
             </div>
-            <div className={styles.ringWrap}>
-              <svg width="132" height="132" viewBox="0 0 120 120" role="img" aria-label={`${overall}% complete`}>
-                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border-light)" strokeWidth="10" />
-                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--accent-secondary)" strokeWidth="10" strokeLinecap="round" strokeDasharray={RING} strokeDashoffset={RING * (1 - overall / 100)} transform="rotate(-90 60 60)" />
-                <text x="60" y="67" textAnchor="middle" fontSize="24" fontWeight="800" fill="var(--text-primary)">{overall}%</text>
-              </svg>
-              <p className={styles.muted}>
-                {completed.length} of {numEnrolled} {numEnrolled === 1 ? "course" : "courses"} completed
-              </p>
-            </div>
-          </section>
 
-          {/* Attendance & Certificate Eligibility Progress Card */}
-          <section className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2>Attendance &amp; Certificate Gate</h2>
-              <Link href="/attendance" className={styles.textLink}>Details</Link>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "4px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span style={{ fontSize: "1.75rem", fontWeight: 800, color: "var(--text-primary)" }}>
-                  {attendanceSummary ? `${attendanceSummary.overallAttendancePercentage}%` : "—"}
-                </span>
-                <span style={{
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
-                  padding: "3px 8px",
-                  borderRadius: "6px",
-                  background: (attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "#ecfdf5" : "#fff7ed",
-                  color: (attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "#047857" : "#c2410c",
-                  border: `1px solid ${(attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "#a7f3d0" : "#fed7aa"}`
-                }}>
-                  {(attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "Threshold Met (≥75%)" : "Needs 75% for Certificate"}
-                </span>
-              </div>
-              <div style={{ height: "8px", width: "100%", background: "var(--border-light, #e2e8f0)", borderRadius: "4px", overflow: "hidden" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${Math.min(100, attendanceSummary?.overallAttendancePercentage ?? 0)}%`,
-                    background: (attendanceSummary?.overallAttendancePercentage ?? 0) >= 75 ? "var(--accent-secondary, #10b981)" : "#f59e0b",
-                    borderRadius: "4px",
-                    transition: "width 0.3s ease"
-                  }}
-                />
-              </div>
-              <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-                {attendanceSummary
-                  ? `${attendanceSummary.totalAttendedSessions} of ${attendanceSummary.totalScheduledSessions} live sessions completed`
-                  : "Tracking live session attendance in real-time"}
-              </p>
-            </div>
-          </section>
-
-          <section className={`${styles.panel} ${styles.nextPanel}`}>
-            <p className={styles.kicker}>Next Meeting</p>
-            {nextUp ? (
-              <>
-                <h3>{nextUp.title}</h3>
-                <p>
-                  {new Date(nextUp.startTime).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
-                  <br />
-                  {timeRange(nextUp)}
+            <div className={styles.statCards}>
+              <div className={styles.statCard2}>
+                <div className={styles.courseCardProgressLabel}>
+                  <span>Overall Progress</span>
+                  <strong>{overall}%</strong>
+                </div>
+                <div className={styles.courseCardBar} role="progressbar" aria-valuenow={overall} aria-valuemin={0} aria-valuemax={100} aria-label="Overall progress">
+                  <span style={{ width: `${overall}%` }} />
+                </div>
+                <p className={styles.muted}>
+                  {completed.length} of {numEnrolled} {numEnrolled === 1 ? "course" : "courses"} completed
                 </p>
-                {isOpen(nextUp) ? (
-                  <button type="button" onClick={() => checkIn(nextUp)} className={styles.goldBtn}>Check In &amp; Join</button>
-                ) : (
-                  <Link href="/live" className={styles.goldBtn}>View Details</Link>
-                )}
-              </>
-            ) : (
-              <p>Nothing scheduled yet. New meetings will appear here.</p>
-            )}
+              </div>
+
+              <div className={styles.statCard2}>
+                <div className={styles.courseCardProgressLabel}>
+                  <span>Attendance</span>
+                  <strong>{attendanceSummary ? `${attendanceSummary.overallAttendancePercentage}%` : "—"}</strong>
+                </div>
+                <div className={styles.attendBar} role="progressbar" aria-valuenow={attendancePct} aria-valuemin={0} aria-valuemax={100} aria-label="Attendance">
+                  <span
+                    className={attendanceMet ? styles.attendBarOk : styles.attendBarWarn}
+                    style={{ width: `${Math.min(100, attendancePct)}%` }}
+                  />
+                </div>
+                <p className={styles.muted}>
+                  {attendanceSummary
+                    ? `${attendanceSummary.totalAttendedSessions} of ${attendanceSummary.totalScheduledSessions} live sessions completed`
+                    : "Tracking live session attendance in real-time"}
+                </p>
+                <div className={styles.summaryRow}>
+                  <span className={`${styles.attendTag} ${attendanceMet ? styles.attendOk : styles.attendWarn}`}>
+                    {attendanceMet ? "Threshold Met (≥75%)" : "Needs 75% for Certificate"}
+                  </span>
+                  <Link href="/attendance" className={styles.textLink}>Details</Link>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section className={`${styles.panel} ${styles.grow}`}>
             <div className={styles.panelHead}>
               <h2>Certificates</h2>
-              <Link href="/certificates" className={styles.textLink}>View all</Link>
+              <Link href="/certificates" className={styles.textLink}>View All</Link>
             </div>
             {certificates.length === 0 ? (
               <p className={styles.empty}>
@@ -523,6 +500,22 @@ export default function LearnerDashboard() {
                 ))}
               </ul>
             )}
+          </section>
+
+          {/* phones only: the sidebar carries these links on larger screens */}
+          <section className={`${styles.panel} ${styles.phoneOnly}`}>
+            <div className={styles.panelHead}>
+              <h2>Quick Links</h2>
+            </div>
+            <div className={styles.shortcuts}>
+              {shortcuts.map((item) => (
+                <Link key={item.label} href={item.href} className={styles.shortcut}>
+                  <span className={styles.shortcutIcon}>{item.icon}</span>
+                  {item.label}
+                  <span className={styles.shortcutArrow}>{Icons.arrow}</span>
+                </Link>
+              ))}
+            </div>
           </section>
         </aside>
       </div>

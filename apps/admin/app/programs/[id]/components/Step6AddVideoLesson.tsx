@@ -399,7 +399,6 @@ export default function Step6AddVideoLesson({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                <span style={{ fontSize: "1rem" }}>🔒</span>
                 <strong style={{ fontSize: "0.88rem", color: "#0f172a" }}>
                   Compulsory Playback &amp; Anti-Skip Security
                 </strong>
@@ -460,7 +459,7 @@ export default function Step6AddVideoLesson({
                   gap: "6px",
                 }}
               >
-                <span>⚡ Upload in Background &amp; Add Another</span>
+                <span>Upload in Background &amp; Add Another</span>
               </button>
             )}
 

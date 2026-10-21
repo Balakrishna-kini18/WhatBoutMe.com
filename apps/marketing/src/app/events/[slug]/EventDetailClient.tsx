@@ -16,11 +16,9 @@ import {
   Check,
   CreditCard,
   ArrowLeft,
-  Sparkles,
   ExternalLink,
   Printer,
   Copy,
-  ShieldCheck,
 } from "lucide-react";
 import {
   checkoutEvent,
@@ -350,8 +348,7 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
               />
             ) : (
               <div className="flex h-full w-full flex-col items-center justify-center p-8 text-center">
-                <Sparkles className="mb-3 h-10 w-10 text-gold-deep/60" />
-                <span className="text-sm font-semibold uppercase tracking-widest text-ink-soft">
+                <span className="text-sm text-ink-soft">
                   {isOnline ? "Virtual Interactive Session" : "In-Person Masterclass"}
                 </span>
               </div>
@@ -363,7 +360,7 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
                   isOnline ? "bg-emerald-600/90 text-white" : "bg-gold-deep text-white"
                 }`}
               >
-                {isOnline ? "🟢 Online Live Session" : "📍 In-Person Event"}
+                {isOnline ? "Online Live Session" : "In-Person Event"}
               </span>
             </div>
           </div>
@@ -486,7 +483,7 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
           </div>
 
           <p className="mt-4 text-center text-[11px] text-ink-soft">
-            🔒 100% secure payment checkout. Your access credentials are guaranteed.
+            100% secure payment checkout. Your access credentials are guaranteed.
           </p>
         </aside>
       </div>
@@ -511,10 +508,6 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
               <div className="py-2 text-center">
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 shadow-sm">
                   <CheckCircle2 className="h-7 w-7" />
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-800 border border-emerald-200 mb-2">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Confirmed &amp; Secured · Cannot Pay Twice</span>
                 </div>
                 <h3 className="text-xl font-bold tracking-tight text-ink md:text-2xl">
                   {event.price === 0 ? "Registration Confirmed!" : "Payment & Registration Confirmed!"}
@@ -661,16 +654,13 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
                   </button>
                 </div>
                 <p className="mt-3 text-[11px] text-ink-soft">
-                  🔒 You are officially registered. Further duplicate payments for this event are blocked.
+                  You are officially registered. Further duplicate payments for this event are blocked.
                 </p>
               </div>
             ) : (
               <div>
                 <div className="mb-6">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-gold-deep">
-                    {isOnline ? "Online Live Session Registration" : "In-Person Workshop Ticket"}
-                  </span>
-                  <h3 className="mt-1 text-xl font-bold tracking-tight text-ink md:text-2xl">
+                  <h3 className="text-xl font-bold tracking-tight text-ink md:text-2xl">
                     {event.title}
                   </h3>
                   <p className="mt-1 text-xs text-ink-soft">{schedule}</p>
@@ -755,7 +745,7 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
                         : `Pay Now — ${formatPrice(event.price, event.currency)}`}
                     </button>
                     <p className="mt-2 text-center text-[11px] text-ink-soft">
-                      🔒 Secure checkout with instant ticket &amp; calendar invite email.
+                      Secure checkout with instant ticket &amp; calendar invite email.
                     </p>
                   </div>
                 </form>

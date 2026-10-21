@@ -36,11 +36,9 @@
 
 .eyebrow {
   display: block;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #b86b11;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary, #4a443d);
   margin-bottom: 0.3rem;
 }
 

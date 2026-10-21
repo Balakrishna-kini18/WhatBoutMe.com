@@ -14,7 +14,6 @@ export default async function Offerings() {
       <div className="mx-auto max-w-[1480px] px-5 md:px-10">
         <SectionHeading
           center
-          eyebrow="Courses"
           title="Courses & Workshops"
           intro="The 11 Steps to U Program, Speaker Assignments on Brain Health, and the Vision Board Kit developed with neuroscience and lived experience."
         />

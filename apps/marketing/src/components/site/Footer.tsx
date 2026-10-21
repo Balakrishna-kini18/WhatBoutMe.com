@@ -12,7 +12,11 @@ const LINKS = [
   { label: "About Me", href: "/about" },
   { label: "Certification", href: "/#certification" },
   { label: "FAQ", href: "/#faq" },
-  { label: "API Endpoints", href: "/api/backend", external: true },
+];
+
+const LEGAL = [
+  { label: "Privacy Policy", href: "/privacy" },
+  { label: "Terms & Conditions", href: "/terms" },
 ];
 
 const LINK = "text-ink-soft transition-colors hover:text-ink";
@@ -57,20 +61,9 @@ export default async function Footer() {
             <ul className="flex flex-wrap gap-x-8 gap-y-3 text-[15px]">
               {LINKS.map((l) => (
                 <li key={l.href}>
-                  {l.external ? (
-                    <a
-                      href={l.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={LINK}
-                    >
-                      {l.label}
-                    </a>
-                  ) : (
-                    <Link href={l.href} className={LINK}>
-                      {l.label}
-                    </Link>
-                  )}
+                  <Link href={l.href} className={LINK}>
+                    {l.label}
+                  </Link>
                 </li>
               ))}
               <FooterPortalLink className={LINK} />
@@ -89,6 +82,13 @@ export default async function Footer() {
         <div className="flex flex-col gap-3 border-t border-line py-5 text-sm text-ink-soft max-sm:items-center sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-6">
           <span>Copyright © 2026 www.whatboutme.com - All Rights Reserved.</span>
           <ul className="flex flex-wrap gap-x-6 gap-y-2 max-sm:justify-center">
+            {LEGAL.map((l) => (
+              <li key={l.href}>
+                <Link href={l.href} className={LINK}>
+                  {l.label}
+                </Link>
+              </li>
+            ))}
             {SOCIALS.map((s) => (
               <li key={s.label}>
                 <a href={s.href} target="_blank" rel="noreferrer" className={LINK}>
@@ -101,6 +101,18 @@ export default async function Footer() {
 
         <p className="border-t border-line py-5 text-[11px] leading-relaxed text-ink-soft sm:py-6 sm:text-xs">
           <strong className="font-semibold text-ink">Disclaimer.</strong> {DISCLAIMER}
+        </p>
+
+        <p className="border-t border-line py-4 text-center text-xs text-ink-soft">
+          Developed by{" "}
+          <a
+            href="https://foxwel.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-ink transition-colors hover:text-gold-deep"
+          >
+            Foxwel AI
+          </a>
         </p>
       </footer>
       {/* keeps the end of the page clear of the phone tab bar */}

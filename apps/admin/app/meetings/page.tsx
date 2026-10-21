@@ -513,7 +513,7 @@ export default function MeetingsPage() {
     if (conflictCheck.hasConflict && conflictCheck.conflictingSession) {
       const c = conflictCheck.conflictingSession;
       setEditError(
-        `⚠️ Double-booking conflict: Coach already has "${c.title}" scheduled from ${formatShortTime(c.startTime, displayTimezone)} to ${formatShortTime(c.endTime, displayTimezone)} (${displayTimezone}).`
+        `Double-booking conflict: Coach already has "${c.title}" scheduled from ${formatShortTime(c.startTime, displayTimezone)} to ${formatShortTime(c.endTime, displayTimezone)} (${displayTimezone}).`
       );
       return;
     }
@@ -594,7 +594,7 @@ export default function MeetingsPage() {
     if (conflictCheck.hasConflict && conflictCheck.conflictingSession) {
       const c = conflictCheck.conflictingSession;
       setFormError(
-        `⚠️ Double-booking conflict: Roweena/Coach already has "${c.title}" scheduled from ${formatShortTime(c.startTime, displayTimezone)} to ${formatShortTime(c.endTime, displayTimezone)} (${displayTimezone}). Please select another time window to avoid clashes with Roweena's schedule.`
+        `Double-booking conflict: Roweena/Coach already has "${c.title}" scheduled from ${formatShortTime(c.startTime, displayTimezone)} to ${formatShortTime(c.endTime, displayTimezone)} (${displayTimezone}). Please select another time window to avoid clashes with Roweena's schedule.`
       );
       return;
     }

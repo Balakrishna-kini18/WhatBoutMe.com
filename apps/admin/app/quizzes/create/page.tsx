@@ -597,7 +597,7 @@ function QuizForm() {
                 <div style={{ marginBottom: "1.25rem", background: "#f8fafc", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                      📷 Question Prompt Visual (PNG/JPEG)
+                      Question Prompt Visual (PNG/JPEG)
                     </label>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <input
@@ -664,7 +664,7 @@ function QuizForm() {
                 {isText ? (
                   <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "14px", borderRadius: 8, marginBottom: "1rem" }}>
                     <h4 style={{ margin: "0 0 8px", fontSize: "0.88rem", color: "#166534" }}>
-                      ✍️ Open-Ended Written Reflection Configuration
+                      Open-Ended Written Reflection Configuration
                     </h4>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
                       <div>
@@ -831,7 +831,7 @@ function QuizForm() {
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                📷 +Img
+                                +Img
                               </label>
                             </div>
                           )}

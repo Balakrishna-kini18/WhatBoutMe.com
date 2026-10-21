@@ -22,11 +22,7 @@ export default function GlobalErrorPage({
           <AlertCircle className="h-8 w-8" />
         </div>
 
-        <span className="text-xs font-semibold uppercase tracking-widest text-gold-deep">
-          Temporary Glitch
-        </span>
-
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+        <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
           Something went wrong
         </h1>
 

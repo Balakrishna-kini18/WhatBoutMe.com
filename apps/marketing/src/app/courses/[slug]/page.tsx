@@ -168,7 +168,7 @@ export default async function CoursePage({ params }: Props) {
             <dl className="mt-4 divide-y divide-line">
               {facts.map((f) => (
                 <div key={f.label} className="py-4">
-                  <dt className="eyebrow text-gold-deep">{f.label}</dt>
+                  <dt className="text-sm text-ink-soft">{f.label}</dt>
                   <dd className="mt-1.5 leading-relaxed">{f.value}</dd>
                 </div>
               ))}

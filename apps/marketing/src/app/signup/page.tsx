@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, ArrowLeft, ShieldCheck, CheckCircle2, RefreshCw, Edit3 } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField from "@/components/site/PasswordField";
+import GoogleButton, { GOOGLE_NOT_READY } from "@/components/site/GoogleButton";
 import SearchableSelect from "@/components/site/SearchableSelect";
 import { COUNTRIES, getTimezones, canonicalizeTimezone } from "@/lib/geo-data";
 import { signUp, sendSignupOtp, portalUrl, continueToPortal } from "@/lib/auth";
@@ -423,6 +424,8 @@ export default function SignupPage() {
           <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
         </button>
       </form>
+
+      <GoogleButton onClick={() => setError(GOOGLE_NOT_READY)} />
 
       <p className="mt-3 text-center text-xs text-ink-soft">
         Already have an account?{" "}

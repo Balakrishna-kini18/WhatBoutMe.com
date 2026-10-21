@@ -52,13 +52,27 @@ function brochureFor(program: Program): Brochure | undefined {
   return COURSES.find((c) => c.slug === slug);
 }
 
-/** Admin-entered details win; the brochure fills anything left blank. */
+// each course's own photo, by words in its slug or title; the learner portal
+// keeps the same list (apps/lms/app/lib/courseImage.ts) so both show the same picture
+const PHOTOS: [string[], string, string][] = [
+  [["first", "step"], "/site/course-learning.webp", "Learners working on laptops in a bright classroom"],
+  [["sigma"], "/site/course-celebrate.webp", "A team celebrating a win together around a laptop"],
+];
+
+function photoFor(program: Program): { image: string; alt: string } | undefined {
+  const text = `${program.slug} ${program.title}`.toLowerCase();
+  const hit = PHOTOS.find(([words]) => words.every((w) => text.includes(w)));
+  return hit ? { image: hit[1], alt: hit[2] } : undefined;
+}
+
+/** Admin-entered details win; the course's own photo, then the brochure, fill anything left blank. */
 function toCourse(program: Program, index: number): Course {
   const info = parseCourseInfo(program.description);
   const brochure = brochureFor(program);
   const cover = brochure ?? (COURSES.length > 0 ? COURSES[index % COURSES.length] : undefined);
-  const image = info.image || cover?.image || "";
-  const alt = info.image ? (program.title || "Course") : (cover?.alt ?? program.title ?? "Course");
+  const photo = photoFor(program);
+  const image = info.image || photo?.image || cover?.image || "";
+  const alt = info.image ? (program.title || "Course") : (photo?.alt ?? cover?.alt ?? program.title ?? "Course");
 
   let rawFaqs: any[] = [];
   if (Array.isArray((program as any).faqs) && (program as any).faqs.length > 0) {

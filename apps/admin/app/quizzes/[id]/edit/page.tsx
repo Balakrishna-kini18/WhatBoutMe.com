@@ -580,7 +580,7 @@ export default function EditQuizPage({
                         <div style={{ padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px dashed #cbd5e1" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem" }}>
                             <span style={{ fontWeight: 600, color: "#334155" }}>
-                              ✍️ Minimum {q.minCharacters ?? 10} characters written reflection
+                              Minimum {q.minCharacters ?? 10} characters written reflection
                             </span>
                             <span style={{ color: q.gradingMode === "MANUAL_REVIEW" ? "#b45309" : "#15803d", fontWeight: 600 }}>
                               {q.gradingMode === "MANUAL_REVIEW" ? "Held for manual grading" : "Auto-pass on length threshold"}
@@ -819,7 +819,7 @@ export default function EditQuizPage({
                 <div style={{ background: "#f8fafc", padding: "10px 14px", borderRadius: 8, border: "1px solid #e2e8f0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569", textTransform: "uppercase" }}>
-                      📷 Question Prompt Visual (PNG/JPEG)
+                      Question Prompt Visual (PNG/JPEG)
                     </label>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input
@@ -906,7 +906,7 @@ export default function EditQuizPage({
                 {newQuestionType === "TEXT_BOX" ? (
                   <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "14px", borderRadius: 8 }}>
                     <h4 style={{ margin: "0 0 8px", fontSize: "0.88rem", color: "#166534" }}>
-                      ✍️ Written Reflection Evaluation Configuration
+                      Written Reflection Evaluation Configuration
                     </h4>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: 12 }}>
                       <div>
@@ -1066,7 +1066,7 @@ export default function EditQuizPage({
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                📷 +Img
+                                +Img
                               </label>
                             </div>
                           )}

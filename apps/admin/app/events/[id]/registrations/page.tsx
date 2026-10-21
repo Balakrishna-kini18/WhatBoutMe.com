@@ -5,10 +5,12 @@ import Link from "next/link";
 import styles from "./registrations.module.css";
 import {
   API_URL,
+  cachedFetch,
   type EventItem,
   type EventRegistrationItem,
   type EventRegistrationsResponse,
   type CurrencyCode,
+  type SupportedCurrency,
 } from "../../../lib/api";
 import { StatusBadge, useToast } from "../../../components";
 import type { StatusTone } from "../../../components";
@@ -54,11 +56,7 @@ export default function EventRegistrationsPage({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
-      const res = await fetch(`${API_URL}/admin/events/${eventId}/registrations`, { headers });
+      const res = await cachedFetch(`${API_URL}/admin/events/${eventId}/registrations`);
       if (res.ok) {
         const data: EventRegistrationsResponse = await res.json();
         setEvent(data.event);

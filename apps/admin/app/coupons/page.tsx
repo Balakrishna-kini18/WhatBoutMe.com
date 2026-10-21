@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import styles from "./coupons.module.css";
-import { API_URL, cachedFetch, errorMessage } from "../lib/api";
+import { API_URL, cachedFetch, errorMessage, type SupportedCurrency } from "../lib/api";
 import { Modal, CustomSelect, StatusBadge, ActionMenu, ConfirmDialog } from "../components";
 import type { StatusTone } from "../components";
 
@@ -12,7 +12,7 @@ interface Coupon {
   description: string | null;
   discountType: "PERCENTAGE" | "FIXED_AMOUNT";
   discountValue: number;
-  currency: "INR" | "AED" | "USD" | "ALL";
+  currency: SupportedCurrency | "ALL";
   scope: "ALL_COURSES" | "SPECIFIC_COURSES";
   maxTotalUses: number | null;
   currentUses: number;
@@ -124,7 +124,7 @@ export default function CouponsPage() {
   const [formDescription, setFormDescription] = useState("");
   const [formDiscountType, setFormDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
   const [formDiscountValue, setFormDiscountValue] = useState<number>(10);
-  const [formCurrency, setFormCurrency] = useState<"INR" | "AED" | "USD" | "ALL">("USD");
+  const [formCurrency, setFormCurrency] = useState<SupportedCurrency | "ALL">("USD");
   const [formScope, setFormScope] = useState<"ALL_COURSES" | "SPECIFIC_COURSES">("ALL_COURSES");
   const [formProgramIds, setFormProgramIds] = useState<string[]>([]);
   const [formMaxTotalUses, setFormMaxTotalUses] = useState<string>("");
@@ -152,9 +152,9 @@ export default function CouponsPage() {
     try {
       // Kill Waterfall: Load KPIs, Coupons, and Programs concurrently in a single window
       const [kpisRes, couponsRes, programsRes] = await Promise.all([
-        fetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include", signal }),
-        fetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include", signal }),
-        fetch(`${API_URL}/programs`, { credentials: "include", signal }).catch(() => null),
+        cachedFetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include", signal }),
+        cachedFetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include", signal }),
+        cachedFetch(`${API_URL}/programs`, { credentials: "include", signal }).catch(() => null),
       ]);
 
       if (kpisRes.ok) {
@@ -284,7 +284,7 @@ export default function CouponsPage() {
         : `${API_URL}/admin/coupons`;
       const method = editingCoupon ? "PATCH" : "POST";
 
-      const res = await fetch(url, {
+      const res = await cachedFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -317,7 +317,7 @@ export default function CouponsPage() {
     showToast(`Coupon ${coupon.code} ${nextActive ? "activated" : "deactivated"}`);
 
     try {
-      const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -378,7 +378,7 @@ export default function CouponsPage() {
     setViewingRedemptionsCoupon(coupon);
     setIsLoadingRedemptions(true);
     try {
-      const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         credentials: "include",
       });
       if (res.ok) {

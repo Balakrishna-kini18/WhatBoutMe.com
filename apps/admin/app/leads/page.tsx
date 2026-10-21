@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import leadStyles from "./leads.module.css";
-import { API_URL, cachedFetch } from "../lib/api";
+import { API_URL, cachedFetch, generateLeadCheckoutPaymentLink, type SupportedCurrency } from "../lib/api";
 import { CustomSelect, ActionMenu, ConfirmDialog, Modal, useToast } from "../components";
 
 interface Lead {
@@ -161,7 +161,7 @@ function LeadsContent() {
   const [leadToConvert, setLeadToConvert] = useState<Lead | null>(null);
   const [targetProgramId, setTargetProgramId] = useState("");
   const [targetBatchId, setTargetBatchId] = useState("");
-  const [targetCurrency, setTargetCurrency] = useState<"USD" | "AED" | "INR">("USD");
+  const [targetCurrency, setTargetCurrency] = useState<SupportedCurrency>("USD");
   const [adminNote, setAdminNote] = useState("");
   const [isConverting, setIsConverting] = useState(false);
   const [conversionResult, setConversionResult] = useState<{ checkoutUrl: string; emailSent: boolean } | null>(null);
@@ -270,28 +270,15 @@ function LeadsContent() {
     setIsConverting(true);
 
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await cachedFetch(`${API_URL}/leads/${leadToConvert.id}/convert-and-send-link`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          courseId: targetProgramId || undefined,
-          batchId: targetBatchId || undefined,
-          currency: targetCurrency,
-          note: adminNote.trim() || undefined,
-        }),
+      const linkResult = await generateLeadCheckoutPaymentLink({
+        leadId: leadToConvert.id,
+        courseId: targetProgramId,
+        batchId: targetBatchId || undefined,
+        currency: targetCurrency,
+        note: adminNote.trim() || undefined,
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.message || "Failed to convert lead and generate payment link.");
-      }
-
-      const data = await res.json();
-      setConversionResult({ checkoutUrl: data.checkoutUrl, emailSent: data.emailSent });
+      setConversionResult({ checkoutUrl: linkResult.checkoutUrl, emailSent: linkResult.emailSent });
 
       // Optimistically update lead status to CONVERTED
       setLeads((all) =>
@@ -302,8 +289,8 @@ function LeadsContent() {
       load();
 
       // Copy link to clipboard automatically
-      if (data.checkoutUrl && navigator.clipboard) {
-        await navigator.clipboard.writeText(data.checkoutUrl).catch(() => {});
+      if (linkResult.checkoutUrl && navigator.clipboard) {
+        await navigator.clipboard.writeText(linkResult.checkoutUrl).catch(() => {});
       }
 
       toast.success(

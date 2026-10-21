@@ -9,6 +9,17 @@ import {
   invalidateCache,
   logSlowApiCall,
   cachedFetch,
+  calculateTaxForCurrency,
+  computeOrderSignatureHash,
+  createCheckoutOrderIntent,
+  validateAndApplyCouponCode,
+  verifyPaymentWebhookSignature,
+  generateLeadCheckoutPaymentLink,
+  issueSequentialFzeInvoice,
+  formatInvoiceAmount,
+  type PaymentGatewayProvider,
+  type SupportedCurrency,
+  type CheckoutOrderIntent,
 } from './api';
 
 describe('Admin Client Real-World Resilience & Cache Integrity', () => {
@@ -329,5 +340,232 @@ describe('Admin Client Real-World Resilience & Cache Integrity', () => {
 
     manager.clear();
     expect(manager.size).toBe(0);
+  });
+
+  // =========================================================================
+  // SCENARIO 10: Zero-Trust Multi-Currency Tax Rules (AED 5%, INR 18%, USD 0%)
+  // =========================================================================
+  it('Scenario 10: Multi-currency tax calculation accurately enforces 5% UAE VAT, 18% India GST, and 0% USD export', () => {
+    // AED (UAE VAT 5%)
+    const aedTax = calculateTaxForCurrency(1000, 'AED');
+    expect(aedTax.taxRate).toBe(0.05);
+    expect(aedTax.taxAmount).toBe(50);
+    expect(aedTax.taxLabel).toContain('UAE VAT (5%)');
+
+    // INR (India GST 18%)
+    const inrTax = calculateTaxForCurrency(10000, 'INR');
+    expect(inrTax.taxRate).toBe(0.18);
+    expect(inrTax.taxAmount).toBe(1800);
+    expect(inrTax.taxLabel).toContain('India GST (18%)');
+
+    // USD (Export 0%)
+    const usdTax = calculateTaxForCurrency(500, 'USD');
+    expect(usdTax.taxRate).toBe(0);
+    expect(usdTax.taxAmount).toBe(0);
+    expect(usdTax.taxLabel).toContain('Export Tax (0%)');
+  });
+
+  // =========================================================================
+  // SCENARIO 11: Zero-Trust CheckoutOrderIntent Generation & Price Locking
+  // =========================================================================
+  it('Scenario 11: createCheckoutOrderIntent computes server-locked finalPayableAmount, tax, and signatureHash', async () => {
+    const originalFetch = global.fetch;
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/programs/prog-123')) {
+        return new Response(JSON.stringify({ id: 'prog-123', price: 1000, priceAED: 3600 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    try {
+      const intent = await createCheckoutOrderIntent({
+        itemType: 'COURSE_ENROLMENT',
+        itemId: 'prog-123',
+        currency: 'AED',
+        gatewayProvider: 'RAZORPAY',
+      });
+
+      expect(intent.orderId).toContain('order_enr_');
+      expect(intent.baseAmount).toBe(3600);
+      expect(intent.taxAmount).toBe(180); // 5% of 3600
+      expect(intent.finalPayableAmount).toBe(3780); // 3600 + 180
+      expect(intent.currency).toBe('AED');
+      expect(intent.gatewayProvider).toBe('RAZORPAY');
+      expect(intent.status).toBe('CREATED');
+      expect(intent.signatureHash).toBeDefined();
+      expect(intent.signatureHash.length).toBeGreaterThan(0);
+      expect(intent.idempotencyKey).toBeDefined();
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  // =========================================================================
+  // SCENARIO 12: Zero-Trust Coupon Validation & Scope Enforcement
+  // =========================================================================
+  it('Scenario 12: validateAndApplyCouponCode rejects invalid currency and enforces course-specific discounts', async () => {
+    const originalFetch = global.fetch;
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/admin/coupons?code=PROMO20')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: 'coup-1',
+                code: 'PROMO20',
+                discountType: 'PERCENTAGE',
+                discountValue: 20,
+                currency: 'USD',
+                scope: 'SPECIFIC_COURSES',
+                maxTotalUses: 10,
+                currentUses: 2,
+                isActive: true,
+                programs: [{ id: 'course-valid' }],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    try {
+      // 1. Should reject if currency is INR but coupon is USD-only
+      const invalidCurr = await validateAndApplyCouponCode('PROMO20', 'INR', 'course-valid', 500);
+      expect(invalidCurr.valid).toBe(false);
+      expect(invalidCurr.message).toContain('USD');
+
+      // 2. Should reject if applied to an excluded course
+      const invalidCourse = await validateAndApplyCouponCode('PROMO20', 'USD', 'course-excluded', 500);
+      expect(invalidCourse.valid).toBe(false);
+      expect(invalidCourse.message).toContain('cannot be applied to this specific course');
+
+      // 3. Should apply successfully for valid course and currency
+      const valid = await validateAndApplyCouponCode('PROMO20', 'USD', 'course-valid', 500);
+      expect(valid.valid).toBe(true);
+      expect(valid.discountAmount).toBe(100); // 20% of 500
+      expect(valid.finalAmount).toBe(400);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  // =========================================================================
+  // SCENARIO 13: Webhook Signature Verification Across Multi-Gateway Switch
+  // =========================================================================
+  it('Scenario 13: verifyPaymentWebhookSignature verifies Razorpay, Stripe, and Sandbox Escrow with idempotency', async () => {
+    // 1. Razorpay signature verification
+    const razorpayRes = await verifyPaymentWebhookSignature({
+      gatewayProvider: 'RAZORPAY',
+      rawPayload: { orderId: 'order_123', amount: 500, currency: 'USD' },
+      signature: 'abcdef1234567890abcdef1234567890abcdef12',
+      idempotencyKey: 'idemp_rzp_1',
+    });
+    expect(razorpayRes.verified).toBe(true);
+    expect(razorpayRes.status).toBe('CAPTURED');
+
+    // 2. Stripe signature verification
+    const stripeRes = await verifyPaymentWebhookSignature({
+      gatewayProvider: 'STRIPE',
+      rawPayload: { orderId: 'order_456', amount: 350, currency: 'AED' },
+      signature: 't=1600000000,v1=abcdef1234567890abcdef1234567890abcdef12',
+      idempotencyKey: 'idemp_str_1',
+    });
+    expect(stripeRes.verified).toBe(true);
+    expect(stripeRes.status).toBe('CAPTURED');
+
+    // 3. Sandbox Escrow signed token verification
+    const escrowRes = await verifyPaymentWebhookSignature({
+      gatewayProvider: 'SANDBOX_ESCROW',
+      rawPayload: { orderId: 'order_789', amount: 1500, currency: 'INR' },
+      signature: 'sig_escrow_valid_token_12345',
+      idempotencyKey: 'idemp_escrow_1',
+    });
+    expect(escrowRes.verified).toBe(true);
+    expect(escrowRes.status).toBe('CAPTURED');
+  });
+
+  // =========================================================================
+  // SCENARIO 14: Sequential FZE Invoice Issuance (WBM-FZE-YYYY-XXXX)
+  // =========================================================================
+  it('Scenario 14: issueSequentialFzeInvoice issues standard WhatBoutMe FZE formatted invoice', async () => {
+    const originalFetch = global.fetch;
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/invoices')) {
+        return new Response(
+          JSON.stringify({
+            id: 'inv-rec-1',
+            invoiceNumber: 'WBM-FZE-2026-0042',
+            pdfUrl: '/api/invoices/inv-rec-1/pdf',
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    try {
+      const inv = await issueSequentialFzeInvoice({
+        clientName: 'Sarah Jenkins',
+        clientEmail: 'sarah@example.com',
+        baseAmount: 1000,
+        currency: 'AED',
+        status: 'PAID',
+      });
+
+      expect(inv.invoiceNumber).toMatch(/^WBM-FZE-2026-\d{4}$/);
+      expect(inv.client).toBe('Sarah Jenkins');
+      expect(inv.numericAmount).toBe(1050); // 1000 + 5% VAT (50)
+      expect(inv.amount).toContain('1,050');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  // =========================================================================
+  // SCENARIO 15: Post-Discovery-Call Signed Lead Checkout Link Generation
+  // =========================================================================
+  it('Scenario 15: generateLeadCheckoutPaymentLink creates time-bound signed checkout link with server price', async () => {
+    const originalFetch = global.fetch;
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/leads/lead-999/convert-and-send-link')) {
+        return new Response(
+          JSON.stringify({
+            checkoutUrl: 'https://whatboutme.com/checkout?token=signed_token_999',
+            token: 'signed_token_999',
+            amount: 1200,
+            emailSent: true,
+            expiresAtUtc: '2026-10-24T10:00:00.000Z',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    try {
+      const result = await generateLeadCheckoutPaymentLink({
+        leadId: 'lead-999',
+        courseId: 'course-11-steps',
+        currency: 'USD',
+        note: 'Completed discovery call with Roweena.',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.checkoutUrl).toContain('signed_token_999');
+      expect(result.amount).toBe(1200);
+      expect(result.emailSent).toBe(true);
+      expect(result.currency).toBe('USD');
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

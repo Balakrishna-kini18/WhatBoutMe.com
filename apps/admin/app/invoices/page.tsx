@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
-import { API_URL, errorMessage, cachedFetch } from "../lib/api";
+import {
+  API_URL,
+  errorMessage,
+  cachedFetch,
+  issueSequentialFzeInvoice,
+  resendInvoice,
+  type SupportedCurrency,
+} from "../lib/api";
 import { CustomSelect, useToast } from "../components";
 import styles from "../page.module.css";
 
@@ -36,7 +43,7 @@ export default function InvoicesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [enrolments, setEnrolments] = useState<EnrolmentItem[]>([]);
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState("");
-  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">("USD");
+  const [currency, setCurrency] = useState<SupportedCurrency>("USD");
   const [amount, setAmount] = useState("199");
   const [status, setStatus] = useState("PAID");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -118,36 +125,29 @@ export default function InvoicesPage() {
     setIsSubmitting(true);
     setFormError("");
 
+    const match = enrolments.find((e) => e.id === selectedEnrolmentId);
+    const clientName = match?.user?.name || match?.user?.email || "Enrolled Learner";
+    const clientEmail = match?.user?.email || "";
+
     try {
-      const res = await cachedFetch(`${API_URL}/invoices`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          enrolmentId: selectedEnrolmentId,
-          amount: numAmount,
-          currency,
-          status,
-        }),
+      const createdInvoice = await issueSequentialFzeInvoice({
+        enrolmentId: selectedEnrolmentId,
+        clientName,
+        clientEmail,
+        baseAmount: numAmount,
+        currency,
+        status: status as any,
       });
 
-      if (res.ok) {
-        const createdData = await res.json().catch(() => null);
-        toastSuccess(
-          `Invoice ${createdData?.invoiceNumber || ""} created successfully.`,
-          "Invoice Created"
-        );
-        closeCreateModal();
-        fetchInvoices();
-      } else {
-        const data = await res.json().catch(() => null);
-        const msg = data?.error?.message || data?.message || `Failed to create invoice (HTTP ${res.status}).`;
-        setFormError(Array.isArray(msg) ? msg.join(", ") : msg);
-      }
-    } catch (err) {
+      toastSuccess(
+        `Invoice ${createdInvoice.invoiceNumber} created successfully.`,
+        "Invoice Created"
+      );
+      closeCreateModal();
+      fetchInvoices();
+    } catch (err: any) {
       console.error("Invoice creation error", err);
-      setFormError("Could not reach the server. Check that the API is running.");
+      setFormError(err?.message || "Could not reach the server. Check that the API is running.");
     } finally {
       setIsSubmitting(false);
     }
@@ -161,17 +161,11 @@ export default function InvoicesPage() {
 
   const handleResendInvoice = async (inv: Invoice) => {
     try {
-      const res = await cachedFetch(`${API_URL}/invoices/${inv.id}/resend`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-      if (res.ok) {
+      const res = await resendInvoice(inv.id);
+      if (res.success) {
         toastSuccess(`Invoice ${inv.invoiceNumber} resent to ${inv.clientEmail || inv.client}.`, "Invoice Resent");
       } else {
-        const data = await res.json().catch(() => null);
-        toastWarning(data?.message || `Failed to resend invoice (HTTP ${res.status}).`, "Resend Error");
+        toastWarning(res.message || "Failed to resend invoice.", "Resend Error");
       }
     } catch {
       toastWarning("Unable to connect to invoice mail service.", "Network Error");

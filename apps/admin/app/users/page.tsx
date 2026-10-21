@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { CustomSelect, ActionMenu, StatusBadge, useToast } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal } from "../components";
 
 const RevokeAccessModal = dynamic(
   () => import("../components/RevokeAccessModal").then((mod) => mod.RevokeAccessModal),
@@ -26,6 +26,10 @@ interface User {
   role: string;
   status: string;
   progress?: string;
+  currentStepNumber?: number;
+  twoFactorEnabled?: boolean;
+  isAgreementSigned?: boolean;
+  managedBatches?: Array<{ id: string; name: string }>;
   cohort?: string;
   batchId?: string | null;
   enrolmentId?: string | null;
@@ -126,6 +130,14 @@ export default function UsersPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [viewMode, setViewMode] = useState<"LEARNERS" | "STAFF">("LEARNERS");
+  const [roleFilter, setRoleFilter] = useState<"ALL" | "USER" | "MANAGER" | "ADMIN" | "SUPER_ADMIN">("ALL");
+  const [selectedManagerBatchIds, setSelectedManagerBatchIds] = useState<string[]>([]);
+
+  // Quick Assign Batch Modal State
+  const [assignBatchUser, setAssignBatchUser] = useState<User | null>(null);
+  const [assignBatchId, setAssignBatchId] = useState<string>("");
+  const [isAssigningBatch, setIsAssigningBatch] = useState(false);
+
   // Form states
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -195,7 +207,7 @@ export default function UsersPage() {
       clearTimeout(delay);
       controller.abort();
     };
-  }, [page, search, viewMode]);
+  }, [page, search, viewMode, roleFilter]);
 
   const fetchBatches = async () => {
     try {
@@ -205,7 +217,7 @@ export default function UsersPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setBatches(data);
+        setBatches(Array.isArray(data) ? data : data.batches || []);
       }
     } catch (e) {
       console.error(e);
@@ -215,11 +227,20 @@ export default function UsersPage() {
   const fetchUsers = async (signal?: AbortSignal) => {
     try {
       const token = localStorage.getItem("token");
-      const roleParam = viewMode === "LEARNERS" ? "USER" : "STAFF";
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&role=${roleParam}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal,
-      });
+      let roleParam = "";
+      if (roleFilter !== "ALL") {
+        roleParam = `&role=${roleFilter}`;
+      } else {
+        roleParam = viewMode === "LEARNERS" ? "&role=USER" : "&role=STAFF";
+      }
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}${roleParam}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          signal,
+        }
+      );
       if (res.ok) {
         const json = await res.json();
         setUsers(json.data || []);
@@ -257,6 +278,8 @@ export default function UsersPage() {
     setStatus(user.status || "ACTIVE");
     setPassword("");
     setPermissions(user.permissions || []);
+    const initialManaged = user.managedBatches?.map(b => b.id) || (user.batchId ? [user.batchId] : []);
+    setSelectedManagerBatchIds(initialManaged);
     setFormError("");
     setIsModalOpen(true);
   };
@@ -274,8 +297,42 @@ export default function UsersPage() {
     setStatus("ACTIVE");
     setPassword("");
     setPermissions([]);
+    setSelectedManagerBatchIds([]);
     setFormError("");
     setIsModalOpen(true);
+  };
+
+  const openAssignBatchModal = (user: User) => {
+    setAssignBatchUser(user);
+    setAssignBatchId(user.batchId || "");
+  };
+
+  const handleAssignBatchSubmit = async () => {
+    if (!assignBatchUser) return;
+    setIsAssigningBatch(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users/${assignBatchUser.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ batchId: assignBatchId || null }),
+      });
+      if (res.ok) {
+        toastSuccess(`Assigned ${assignBatchUser.name || "user"} to cohort.`);
+        setAssignBatchUser(null);
+        fetchUsers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || "Failed to assign batch");
+      }
+    } catch (e: any) {
+      alert(e.message || "Connection error");
+    } finally {
+      setIsAssigningBatch(false);
+    }
   };
 
   const handleOpenRevokeModal = (user: User) => {
@@ -305,6 +362,10 @@ export default function UsersPage() {
       status,
       ...(password ? { password } : {}),
     };
+
+    if (role === "MANAGER") {
+      payload.batchIds = selectedManagerBatchIds;
+    }
 
     try {
       const token = localStorage.getItem("token");
@@ -368,31 +429,69 @@ export default function UsersPage() {
       </header>
 
       {!isManager && (
-        <div className={styles.tabsContainer} role="tablist" aria-label="User directory views">
+        <div className={styles.tabsContainer} role="tablist" aria-label="User directory views" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
           <button 
             type="button"
             role="tab"
-            aria-selected={viewMode === "LEARNERS"}
-            className={`${styles.tabBtn} ${viewMode === "LEARNERS" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setViewMode("LEARNERS"); setPage(1); }}
+            aria-selected={roleFilter === "ALL"}
+            className={`${styles.tabBtn} ${roleFilter === "ALL" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setRoleFilter("ALL"); setViewMode("LEARNERS"); setPage(1); }}
           >
-            Learners
+            All Roles
           </button>
           <button 
             type="button"
             role="tab"
-            aria-selected={viewMode === "STAFF"}
-            className={`${styles.tabBtn} ${viewMode === "STAFF" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setViewMode("STAFF"); setPage(1); }}
+            aria-selected={roleFilter === "USER"}
+            className={`${styles.tabBtn} ${roleFilter === "USER" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setRoleFilter("USER"); setViewMode("LEARNERS"); setPage(1); }}
           >
-            Staff &amp; Administrators
+            Learners (USER)
+          </button>
+          <button 
+            type="button"
+            role="tab"
+            aria-selected={roleFilter === "MANAGER"}
+            className={`${styles.tabBtn} ${roleFilter === "MANAGER" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setRoleFilter("MANAGER"); setViewMode("STAFF"); setPage(1); }}
+          >
+            Batch Managers
+          </button>
+          <button 
+            type="button"
+            role="tab"
+            aria-selected={roleFilter === "ADMIN"}
+            className={`${styles.tabBtn} ${roleFilter === "ADMIN" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setRoleFilter("ADMIN"); setViewMode("STAFF"); setPage(1); }}
+          >
+            Admins
+          </button>
+          <button 
+            type="button"
+            role="tab"
+            aria-selected={roleFilter === "SUPER_ADMIN"}
+            className={`${styles.tabBtn} ${roleFilter === "SUPER_ADMIN" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setRoleFilter("SUPER_ADMIN"); setViewMode("STAFF"); setPage(1); }}
+          >
+            Super Admins
           </button>
         </div>
       )}
 
       <section className={styles.tableSection}>
         <div className={styles.sectionHeader}>
-          <h2>{viewMode === "LEARNERS" ? "All Learners" : "Staff & Administrators"} ({totalUsers})</h2>
+          <h2>
+            {roleFilter === "ALL"
+              ? "All Platform Accounts"
+              : roleFilter === "USER"
+              ? "Learners"
+              : roleFilter === "MANAGER"
+              ? "Batch Managers"
+              : roleFilter === "ADMIN"
+              ? "Administrators"
+              : "Super Administrators"}{" "}
+            ({totalUsers})
+          </h2>
           <div className={styles.searchContainer}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.4rem" }}>
               <circle cx="11" cy="11" r="8" />
@@ -419,22 +518,24 @@ export default function UsersPage() {
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>{viewMode === "LEARNERS" ? "Learner" : "Staff"}</th>
-                <th>Joined</th>
-                <th>{viewMode === "LEARNERS" ? "Cohort" : "Role"}</th>
-                <th>Status</th>
-                {viewMode === "LEARNERS" && <th>Progress</th>}
+                <th>User &amp; Profile</th>
+                <th>Role</th>
+                <th>Enrolled Courses</th>
+                <th>Unlocked Step</th>
+                <th>Agreement</th>
+                <th>Security</th>
+                <th>Cohort / Scoping</th>
                 <th className={styles.alignRight}>Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>Loading users from database...</td>
+                  <td colSpan={8} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>Loading users from database...</td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={viewMode === "LEARNERS" ? 6 : 5} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>No users found.</td>
+                  <td colSpan={8} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>No users found matching this filter.</td>
                 </tr>
               ) : users.map((user) => (
                 <tr key={user.id}>
@@ -446,65 +547,164 @@ export default function UsersPage() {
                       </div>
                     </Link>
                   </td>
-                  <td><span className={styles.cellTextMuted}>{user.joined || "Just now"}</span></td>
                   <td>
-                    {viewMode === "STAFF" ? (
-                      <StatusBadge status={user.role} />
+                    <StatusBadge status={user.role} />
+                  </td>
+                  <td>
+                    {user.enrolments && user.enrolments.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                          {user.enrolments[0]?.programTitle || "11 Steps to You"}
+                        </span>
+                        {user.enrolments.length > 1 && (
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                            +{user.enrolments.length - 1} other program{user.enrolments.length > 2 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
                     ) : (
-                      <span className={styles.cellText}>{user.cohort || "None"}</span>
+                      <span className={styles.cellTextMuted}>{user.role === "USER" ? "None" : "—"}</span>
                     )}
                   </td>
                   <td>
-                    <StatusBadge status={user.status} />
+                    {user.role === "USER" ? (
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        background: "#fef3c7",
+                        color: "#92400e",
+                        border: "1px solid #fde68a",
+                        padding: "2px 8px",
+                        borderRadius: "100px",
+                      }}>
+                        Step {user.currentStepNumber || 1} / 11
+                      </span>
+                    ) : (
+                      <span className={styles.cellTextMuted}>Global LMS</span>
+                    )}
                   </td>
-                  {viewMode === "LEARNERS" && (
-                    <td>
-                      {(() => {
-                        const percentVal = parseInt(user.progress || "0", 10) || 0;
-                        const progressFillColor = percentVal === 100 ? "var(--status-success)" : percentVal > 0 ? "var(--accent-primary)" : "var(--border-light)";
-                        return (
-                          <div className={styles.progressCell}>
-                            <div className={styles.progressBar}>
-                              <div className={styles.progressFill} style={{ width: user.progress || "0%", backgroundColor: progressFillColor }}></div>
-                            </div>
-                            <span className={styles.progressText} style={{ fontWeight: 600, color: percentVal === 100 ? "var(--status-success)" : undefined }}>
-                              {user.progress || "0%"}
+                  <td>
+                    {user.role === "USER" ? (
+                      user.isAgreementSigned ? (
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          background: "#dcfce7",
+                          color: "#15803d",
+                          border: "1px solid #bbf7d0",
+                          padding: "2px 8px",
+                          borderRadius: "100px",
+                        }}>
+                          ✓ Signed
+                        </span>
+                      ) : (
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          background: "#fee2e2",
+                          color: "#b91c1c",
+                          border: "1px solid #fecaca",
+                          padding: "2px 8px",
+                          borderRadius: "100px",
+                        }}>
+                          Pending
+                        </span>
+                      )
+                    ) : (
+                      <span className={styles.cellTextMuted}>Staff</span>
+                    )}
+                  </td>
+                  <td>
+                    {user.twoFactorEnabled ? (
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        background: "#ecfdf5",
+                        color: "#047857",
+                        border: "1px solid #a7f3d0",
+                        padding: "2px 8px",
+                        borderRadius: "100px",
+                      }}>
+                        🔒 2FA On
+                      </span>
+                    ) : (
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        background: "#f1f5f9",
+                        color: "#64748b",
+                        border: "1px solid #e2e8f0",
+                        padding: "2px 8px",
+                        borderRadius: "100px",
+                      }}>
+                        2FA Off
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    {user.role === "MANAGER" ? (
+                      user.managedBatches && user.managedBatches.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1e3a8a" }}>
+                            {user.managedBatches[0]?.name}
+                          </span>
+                          {user.managedBatches.length > 1 && (
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                              +{user.managedBatches.length - 1} more cohort{user.managedBatches.length > 2 ? "s" : ""}
                             </span>
-                          </div>
-                        );
-                      })()}
-                    </td>
-                  )}
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
+                      )
+                    ) : (
+                      <span className={styles.cellText}>{user.cohort || "—"}</span>
+                    )}
+                  </td>
                   <td className={styles.alignRight}>
                     <ActionMenu
                       ariaLabel={`Actions for ${user.name}`}
-                      items={
-                        isManager
+                      items={[
+                        {
+                          label: "View Full Profile",
+                          href: `/users/${user.id}`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Assign Batch",
+                          onClick: () => openAssignBatchModal(user),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                              <polyline points="2 17 12 22 22 17" />
+                              <polyline points="2 12 12 17 22 12" />
+                            </svg>
+                          ),
+                        },
+                        ...(!isManager
                           ? [
                               {
-                                label: "View Full Profile",
-                                href: `/users/${user.id}`,
-                                icon: (
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                    <circle cx="12" cy="7" r="4" />
-                                  </svg>
-                                ),
-                              },
-                            ]
-                          : [
-                              {
-                                label: "View Full Profile",
-                                href: `/users/${user.id}`,
-                                icon: (
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                    <circle cx="12" cy="7" r="4" />
-                                  </svg>
-                                ),
-                              },
-                              {
-                                label: "Edit User",
+                                label: "Edit Role / Profile",
                                 onClick: () => openEditModal(user),
                                 icon: (
                                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -528,7 +728,8 @@ export default function UsersPage() {
                                 ),
                               },
                             ]
-                      }
+                          : []),
+                      ]}
                     />
                   </td>
                 </tr>
@@ -758,6 +959,36 @@ export default function UsersPage() {
                   )}
                 </div>
 
+                {/* 4b. MANAGER SCOPED BATCH SELECTION (MULTI-BATCH ACCESS CONTROL) */}
+                {role === "MANAGER" && (
+                  <div className={styles.formGroup} style={{ marginTop: "0.5rem", background: "#fdfbf7", padding: "0.85rem", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+                    <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)", display: "block", marginBottom: "0.35rem" }}>
+                      Scoped Batches (Select which cohorts this Manager is permitted to manage &amp; reconcile):
+                    </label>
+                    <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      Per v2.0 RBAC, Managers are strictly batch-isolated. Check all cohorts this user manages:
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.45rem", maxHeight: "140px", overflowY: "auto", padding: "4px" }}>
+                      {batches.map((b) => (
+                        <label key={b.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedManagerBatchIds.includes(b.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedManagerBatchIds((prev) => [...prev, b.id]);
+                              } else {
+                                setSelectedManagerBatchIds((prev) => prev.filter((id) => id !== b.id));
+                              }
+                            }}
+                          />
+                          <span>{b.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* 5. TEMPORARY PASSWORD & ACCOUNT STATUS */}
                 <div className={styles.formRow}>
                   <div className={styles.formGroup}>
@@ -888,6 +1119,65 @@ export default function UsersPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Assign Batch Modal */}
+      {assignBatchUser && (
+        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="assign-batch-title">
+          <div className={styles.modal} style={{ maxWidth: 480 }}>
+            <div className={styles.modalHeader}>
+              <h2 id="assign-batch-title" className={styles.modalTitle}>
+                Assign Batch: {assignBatchUser.name || assignBatchUser.email}
+              </h2>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setAssignBatchUser(null)}
+                aria-label="Close modal"
+              >
+                &times;
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1rem" }}>
+                Select an active workshop batch or cohort for this learner. This will scope their session schedule and attendance.
+              </p>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Select Cohort / Batch</label>
+                <CustomSelect
+                  options={[
+                    { value: "", label: "No Batch Assigned (Unassigned)" },
+                    ...batches.map(b => ({
+                      value: b.id,
+                      label: b.name
+                    }))
+                  ]}
+                  value={assignBatchId}
+                  onChange={(val) => setAssignBatchId(val)}
+                  placeholder="Select cohort..."
+                />
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setAssignBatchUser(null)}
+                disabled={isAssigningBatch}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={handleAssignBatchSubmit}
+                disabled={isAssigningBatch}
+              >
+                {isAssigningBatch ? "Saving..." : "Save Assignment"}
+              </button>
+            </div>
           </div>
         </div>
       )}

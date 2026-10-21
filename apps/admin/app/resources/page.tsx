@@ -5,6 +5,7 @@ import styles from "../page.module.css";
 import resStyles from "./resources.module.css";
 import { API_URL, cachedFetch } from "../lib/api";
 import { Modal, CustomSelect, StatusBadge, ActionMenu, InputDialog, useToast } from "../components";
+import BackgroundUploadTray, { BackgroundUploadTask } from "../programs/[id]/components/BackgroundUploadTray";
 
 interface ResourceCategory {
   id: string;
@@ -37,6 +38,7 @@ interface ResourceItem {
   requiredStepId: string | null;
   requiredStep: { id: string; title: string; sequence: number } | null;
   isPublished: boolean;
+  viewOnlyProtected?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,9 +119,9 @@ export default function ResourcesPage() {
   const [filterStatus, setFilterStatus] = useState("");
 
   // Modals
+  // Modals & Upload Tasks
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadTasks, setUploadTasks] = useState<BackgroundUploadTask[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Form State
@@ -133,6 +135,7 @@ export default function ResourcesPage() {
   const [formBatchId, setFormBatchId] = useState("");
   const [formRequiredStepId, setFormRequiredStepId] = useState("");
   const [formIsPublished, setFormIsPublished] = useState(true);
+  const [formViewOnlyProtected, setFormViewOnlyProtected] = useState(true);
   const [formReason, setFormReason] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -236,88 +239,143 @@ export default function ResourcesPage() {
       return;
     }
 
-    setIsUploading(true);
-    setUploadError(null);
-    setUploadProgress(10);
+    // Capture values for asynchronous background execution
+    const fileToUpload = selectedFile;
+    const titleToSave = formTitle.trim();
+    const descToSave = formDescription.trim();
+    const typeToSave = formType;
+    const catIdToSave = formCategoryId;
+    const stepTagToSave = formStepTag ? Number(formStepTag) : undefined;
+    const scopeToSave = formAccessScope;
+    const progIdToSave = formProgramId || undefined;
+    const batchIdToSave = formBatchId || undefined;
+    const reqStepIdToSave = formRequiredStepId || undefined;
+    const isPubToSave = formIsPublished;
+    const viewOnlyToSave = formViewOnlyProtected;
+    const reasonToSave = formReason.trim() || undefined;
 
-    try {
-      // 1. Request presigned upload URL
-      setUploadProgress(25);
-      const urlRes = await fetch(`${API_URL}/admin/resources/upload-url`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          fileName: selectedFile.name,
-          mimeType: selectedFile.type || "application/octet-stream",
-          fileSizeBytes: selectedFile.size,
-        }),
-      });
+    // Close modal and reset form immediately so the admin can continue working
+    setUploadModalOpen(false);
+    resetForm();
 
-      if (!urlRes.ok) {
-        const err = await urlRes.json().catch(() => null);
-        throw new Error(err?.message || "Failed to generate secure upload credentials");
+    const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const stepLabel = stepTagToSave ? `Step ${stepTagToSave}` : "General / All Steps";
+
+    const newTask: BackgroundUploadTask = {
+      id: taskId,
+      title: titleToSave,
+      moduleTitle: stepLabel,
+      moduleId: stepTagToSave ? `step-${stepTagToSave}` : "general",
+      progress: 15,
+      status: "UPLOADING",
+      statusText: "Initiating presigned upload...",
+    };
+
+    setUploadTasks((prev) => [newTask, ...prev]);
+    toastSuccess(`Started upload: "${titleToSave}" in background.`);
+
+    (async () => {
+      try {
+        // 1. Request presigned upload URL
+        const urlRes = await fetch(`${API_URL}/admin/resources/upload-url`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            fileName: fileToUpload.name,
+            mimeType: fileToUpload.type || "application/octet-stream",
+            fileSizeBytes: fileToUpload.size,
+          }),
+        });
+
+        if (!urlRes.ok) {
+          const err = await urlRes.json().catch(() => null);
+          throw new Error(err?.message || "Failed to generate secure upload credentials");
+        }
+
+        const { uploadUrl, storageKey } = await urlRes.json();
+        setUploadTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, progress: 45, statusText: "Uploading file to secure storage..." }
+              : t
+          )
+        );
+
+        // 2. Upload directly to private storage
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": fileToUpload.type || "application/octet-stream",
+          },
+          body: fileToUpload,
+        });
+
+        if (!putRes.ok) {
+          throw new Error(`Upload to storage provider failed (${putRes.status})`);
+        }
+
+        setUploadTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, progress: 85, status: "SAVING", statusText: "Registering learning resource & permissions..." }
+              : t
+          )
+        );
+
+        // 3. Register resource in NestJS API
+        const createRes = await fetch(`${API_URL}/admin/resources`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            title: titleToSave,
+            description: descToSave || undefined,
+            type: typeToSave,
+            categoryId: catIdToSave,
+            storageKey,
+            mimeType: fileToUpload.type || "application/octet-stream",
+            fileSizeBytes: fileToUpload.size,
+            stepTagNumber: stepTagToSave,
+            accessScope: scopeToSave,
+            programId: progIdToSave,
+            batchId: batchIdToSave,
+            requiredStepId: reqStepIdToSave,
+            isPublished: isPubToSave,
+            viewOnlyProtected: viewOnlyToSave,
+            reason: reasonToSave,
+          }),
+        });
+
+        if (!createRes.ok) {
+          const err = await createRes.json().catch(() => null);
+          throw new Error(err?.message || "Failed to save resource record");
+        }
+
+        setUploadTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, progress: 100, status: "COMPLETED", statusText: "Upload complete & published!" }
+              : t
+          )
+        );
+        toastSuccess(`Resource "${titleToSave}" uploaded successfully.`);
+        await loadData();
+      } catch (err: any) {
+        setUploadTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, status: "ERROR", statusText: err.message || "Upload failed", error: err.message }
+              : t
+          )
+        );
+        toastError(`Failed to upload "${titleToSave}": ${err.message}`);
       }
-
-      const { uploadUrl, storageKey } = await urlRes.json();
-      setUploadProgress(45);
-
-      // 2. Upload directly to private storage
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": selectedFile.type || "application/octet-stream",
-        },
-        body: selectedFile,
-      });
-
-      if (!putRes.ok) {
-        throw new Error(`Upload to storage provider failed (${putRes.status})`);
-      }
-
-      setUploadProgress(80);
-
-      // 3. Register resource in NestJS API
-      const createRes = await fetch(`${API_URL}/admin/resources`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          title: formTitle.trim(),
-          description: formDescription.trim() || undefined,
-          type: formType,
-          categoryId: formCategoryId,
-          storageKey,
-          mimeType: selectedFile.type || "application/octet-stream",
-          fileSizeBytes: selectedFile.size,
-          stepTagNumber: formStepTag ? Number(formStepTag) : undefined,
-          accessScope: formAccessScope,
-          programId: formProgramId || undefined,
-          batchId: formBatchId || undefined,
-          requiredStepId: formRequiredStepId || undefined,
-          isPublished: formIsPublished,
-          reason: formReason.trim() || undefined,
-        }),
-      });
-
-      if (!createRes.ok) {
-        const err = await createRes.json().catch(() => null);
-        throw new Error(err?.message || "Failed to save resource record");
-      }
-
-      setUploadProgress(100);
-      setUploadModalOpen(false);
-      resetForm();
-      await loadData();
-    } catch (err: any) {
-      setUploadError(err.message || "Failed to upload resource");
-    } finally {
-      setIsUploading(false);
-    }
+    })();
   };
 
   const resetForm = () => {
@@ -329,8 +387,8 @@ export default function ResourcesPage() {
     setFormProgramId("");
     setFormBatchId("");
     setFormRequiredStepId("");
+    setFormViewOnlyProtected(true);
     setFormReason("");
-    setUploadProgress(0);
     setUploadError(null);
   };
 
@@ -432,7 +490,8 @@ export default function ResourcesPage() {
     }
     if (filterProgramId && item.programId !== filterProgramId) return false;
     if (filterBatchId && item.batchId !== filterBatchId) return false;
-    if (filterStepTag && String(item.stepTagNumber) !== filterStepTag) return false;
+    if (filterStepTag === "general" && item.stepTagNumber) return false;
+    if (filterStepTag && filterStepTag !== "general" && String(item.stepTagNumber) !== filterStepTag) return false;
     if (filterAccessScope && item.accessScope !== filterAccessScope) return false;
     if (filterStatus) {
       const pub = filterStatus === "published";
@@ -603,7 +662,8 @@ export default function ResourcesPage() {
           value={filterStepTag}
           onChange={(e) => setFilterStepTag(e.target.value)}
         >
-          <option value="">All Steps (1–11)</option>
+          <option value="">All Steps (General &amp; 1–11)</option>
+          <option value="general">General / All Steps</option>
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((s) => (
             <option key={s} value={String(s)}>Step {s}</option>
           ))}
@@ -652,6 +712,7 @@ export default function ResourcesPage() {
                 <th>RESOURCE NAME</th>
                 <th>TYPE</th>
                 <th>STEP TAG</th>
+                <th>PROTECTION</th>
                 <th>ACCESS SCOPE</th>
                 <th>FILE SIZE</th>
                 <th>STATUS</th>
@@ -661,13 +722,13 @@ export default function ResourcesPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
                     Loading resource library materials...
                   </td>
                 </tr>
               ) : filteredResources.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
                     No resources found matching the current filters.
                   </td>
                 </tr>
@@ -694,7 +755,18 @@ export default function ResourcesPage() {
                       {item.stepTagNumber ? (
                         <span className={resStyles.stepPill}>Step {item.stepTagNumber}</span>
                       ) : (
-                        <span style={{ color: "#94a3b8", fontSize: "0.8125rem" }}>—</span>
+                        <span className={resStyles.stepPillGeneral}>General / All Steps</span>
+                      )}
+                    </td>
+                    <td>
+                      {item.viewOnlyProtected !== false ? (
+                        <span className={resStyles.viewOnlyBadge} title="Protected from raw downloads; DRM canvas/watermark enabled">
+                          🔒 View Only
+                        </span>
+                      ) : (
+                        <span className={resStyles.downloadableBadge} title="Direct raw downloads permitted">
+                          ⬇ Downloadable
+                        </span>
                       )}
                     </td>
                     <td>
@@ -756,10 +828,8 @@ export default function ResourcesPage() {
           isOpen={uploadModalOpen}
           title="Upload Learning Resource"
           onClose={() => {
-            if (!isUploading) {
-              setUploadModalOpen(false);
-              resetForm();
-            }
+            setUploadModalOpen(false);
+            resetForm();
           }}
         >
           <form onSubmit={handleUploadSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -795,12 +865,6 @@ export default function ResourcesPage() {
                   : "PDFs, MP3/WAV guided audios, or MP4 videos up to 100MB"}
               </p>
             </div>
-
-            {isUploading && (
-              <div className={resStyles.progressContainer}>
-                <div className={resStyles.progressBar} style={{ width: `${uploadProgress}%` }} />
-              </div>
-            )}
 
             <div>
               <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "4px" }}>
@@ -856,7 +920,7 @@ export default function ResourcesPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <div>
                 <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "4px" }}>
-                  Tag by Step (Steps 1–11)
+                  Tag by Step (General or 1–11)
                 </label>
                 <select
                   className={resStyles.filterSelect}
@@ -864,7 +928,7 @@ export default function ResourcesPage() {
                   value={formStepTag}
                   onChange={(e) => setFormStepTag(e.target.value ? Number(e.target.value) : "")}
                 >
-                  <option value="">No Step Tag</option>
+                  <option value="">General / All Steps</option>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((s) => (
                     <option key={s} value={s}>Step {s}</option>
                   ))}
@@ -930,6 +994,34 @@ export default function ResourcesPage() {
               </div>
             )}
 
+            {/* View-Only Protection Toggle */}
+            <div
+              className={resStyles.protectedToggleCard}
+              onClick={() => setFormViewOnlyProtected(!formViewOnlyProtected)}
+            >
+              <input
+                type="checkbox"
+                id="viewOnlyProtectedToggle"
+                checked={formViewOnlyProtected}
+                onChange={(e) => setFormViewOnlyProtected(e.target.checked)}
+                style={{ width: "18px", height: "18px", accentColor: "#059669", marginTop: "2px", cursor: "pointer" }}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <label htmlFor="viewOnlyProtectedToggle" style={{ cursor: "pointer", flex: 1 }}>
+                <div className={resStyles.protectedToggleTitle}>
+                  <span>🔒 View-Only Protected (Prevent Raw File Downloads)</span>
+                  {formViewOnlyProtected ? (
+                    <span className={resStyles.viewOnlyBadge}>Protected</span>
+                  ) : (
+                    <span className={resStyles.downloadableBadge}>Download Allowed</span>
+                  )}
+                </div>
+                <div className={resStyles.protectedToggleSubtitle}>
+                  Disables raw file downloads in the learner portal. Forces in-app canvas DRM, right-click protection, and dynamic learner watermarking (name, email, timestamp).
+                </div>
+              </label>
+            </div>
+
             <div>
               <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "4px" }}>
                 Description &amp; Learner Instructions
@@ -951,16 +1043,14 @@ export default function ResourcesPage() {
                   setUploadModalOpen(false);
                   resetForm();
                 }}
-                disabled={isUploading}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 className={styles.primaryBtn}
-                disabled={isUploading}
               >
-                {isUploading ? `Uploading (${uploadProgress}%)...` : "Save & Publish"}
+                Upload Resource in Background
               </button>
             </div>
           </form>
@@ -1139,6 +1229,13 @@ export default function ResourcesPage() {
         tone="danger"
         isLoading={isDeletingResource}
         error={deleteResourceError}
+      />
+
+      {/* Background Upload Tray */}
+      <BackgroundUploadTray
+        tasks={uploadTasks}
+        onDismissTask={(id) => setUploadTasks((prev) => prev.filter((t) => t.id !== id))}
+        onClearCompleted={() => setUploadTasks((prev) => prev.filter((t) => t.status !== "COMPLETED"))}
       />
     </div>
   );

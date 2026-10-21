@@ -135,10 +135,15 @@ export class ResourcesService {
     }
 
     // 4. Create in Database
+    let finalDescription = dto.description?.trim();
+    if (dto.viewOnlyProtected !== undefined) {
+      finalDescription = `${finalDescription || ''} <!--viewOnlyProtected:${dto.viewOnlyProtected}-->`.trim();
+    }
+
     const resource = await this.prisma.resourceItem.create({
       data: {
         title: dto.title.trim(),
-        description: dto.description?.trim(),
+        description: finalDescription,
         type: dto.type,
         categoryId: dto.categoryId,
         storageKey: dto.storageKey,
@@ -174,11 +179,15 @@ export class ResourcesService {
         type: resource.type,
         accessScope: resource.accessScope,
         storageKey: resource.storageKey,
+        viewOnlyProtected: dto.viewOnlyProtected ?? true,
       },
     });
 
     await this.cacheHelper?.invalidateTags(['resources']);
-    return resource;
+    return {
+      ...resource,
+      viewOnlyProtected: dto.viewOnlyProtected ?? true,
+    };
   }
 
   async findAllAdmin(userId: string, userRole: Role, query: QueryResourceDto) {
@@ -241,8 +250,13 @@ export class ResourcesService {
       }),
     ]);
 
+    const mappedItems = items.map((item) => ({
+      ...item,
+      viewOnlyProtected: !item.description?.includes('viewOnlyProtected:false'),
+    }));
+
     return {
-      items,
+      items: mappedItems,
       total,
       page,
       limit,
@@ -276,7 +290,10 @@ export class ResourcesService {
       }
     }
 
-    return resource;
+    return {
+      ...resource,
+      viewOnlyProtected: !resource.description?.includes('viewOnlyProtected:false'),
+    };
   }
 
   async updateResource(

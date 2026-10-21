@@ -12,7 +12,7 @@ import {
   type CurrencyCode,
   type SupportedCurrency,
 } from "../../../lib/api";
-import { StatusBadge, useToast } from "../../../components";
+import { StatusBadge, useToast, TableSkeleton, EmptyState } from "../../../components";
 import type { StatusTone } from "../../../components";
 
 const paymentStatusToneMap: Record<string, StatusTone> = {
@@ -310,27 +310,37 @@ export default function EventRegistrationsPage({
 
       {/* Attendees Table */}
       <div className={styles.tableWrap}>
-        {isLoading ? (
-          <div className={styles.emptyRoster}>Loading attendee roster...</div>
-        ) : filteredRegistrations.length === 0 ? (
-          <div className={styles.emptyRoster}>
-            {search ? "No matching registrations found." : "No attendee registrations recorded yet for this event."}
-          </div>
-        ) : (
-          <table className={styles.table}>
-            <thead>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th className={styles.th} style={{ width: "45px" }}>#</th>
+              <th className={styles.th}>Attendee</th>
+              <th className={styles.th}>Contact Info</th>
+              <th className={styles.th}>Amount &amp; Currency</th>
+              <th className={styles.th}>Payment Status</th>
+              <th className={styles.th}>Gateway Details</th>
+              <th className={styles.th}>Registered At</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <TableSkeleton columns={7} rows={5} />
+            ) : filteredRegistrations.length === 0 ? (
               <tr>
-                <th className={styles.th} style={{ width: "45px" }}>#</th>
-                <th className={styles.th}>Attendee</th>
-                <th className={styles.th}>Contact Info</th>
-                <th className={styles.th}>Amount & Currency</th>
-                <th className={styles.th}>Payment Status</th>
-                <th className={styles.th}>Gateway Details</th>
-                <th className={styles.th}>Registered At</th>
+                <td colSpan={7} style={{ padding: "32px 16px" }}>
+                  <EmptyState
+                    icon="users"
+                    title="No registrations found"
+                    description={search || statusFilter !== "ALL"
+                      ? "No attendees match your search query or status filter."
+                      : "When guests register or purchase tickets, their details will appear here."}
+                    actionLabel={search || statusFilter !== "ALL" ? "Reset Filters" : undefined}
+                    onAction={search || statusFilter !== "ALL" ? () => { setSearch(""); setStatusFilter("ALL"); } : undefined}
+                  />
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredRegistrations.map((reg, index) => {
+            ) : (
+              filteredRegistrations.map((reg, index) => {
                 const name = reg.attendeeName || reg.fullName || "Guest Attendee";
                 const email = reg.attendeeEmail || reg.email || "—";
                 const phone = reg.attendeePhone || reg.phone || "—";
@@ -398,11 +408,11 @@ export default function EventRegistrationsPage({
                     </td>
                   </tr>
                 );
-              })}
+              })
+            )}
             </tbody>
           </table>
-        )}
-      </div>
+        </div>
     </div>
   );
 }

@@ -11,7 +11,7 @@ import {
   formatWhenInTz,
   formatShortTimeInTz,
 } from "../../../lib/timezone";
-import { CustomSelect, ConfirmDialog, InputDialog, useToast } from "../../../components";
+import { CustomSelect, ConfirmDialog, InputDialog, useToast, TableSkeleton, EmptyState } from "../../../components";
 
 interface Session {
   id: string;
@@ -415,15 +415,17 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
-                    Loading sessions...
-                  </td>
-                </tr>
+                <TableSkeleton columns={10} rows={5} />
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "20px" }}>
-                    No sessions scheduled yet for this batch.
+                  <td colSpan={10} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="calendar"
+                      title="No sessions scheduled yet"
+                      description="Create the live curriculum schedule for this cohort batch."
+                      actionLabel="Schedule First Session"
+                      onAction={() => setIsModalOpen(true)}
+                    />
                   </td>
                 </tr>
               ) : (

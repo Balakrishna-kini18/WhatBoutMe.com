@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import styles from "../page.module.css";
 import { API_URL, cachedFetch } from "../lib/api";
+import { TableSkeleton, EmptyState } from "../components";
 
 const Icons = {
   Export: () => (
@@ -165,13 +166,21 @@ export default function RevenuePage() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {isLoading ? "—" : `$${Math.round(usdTotal).toLocaleString()}`}
+            <span className={`${styles.kpiValue} tabularNums`}>
+              {isLoading ? (
+                <span className="skeletonStat" style={{ width: 110, height: 28, display: "inline-block" }} />
+              ) : (
+                `$${Math.round(usdTotal).toLocaleString()}`
+              )}
             </span>
           </div>
           <div className={styles.kpiFooter}>
             <span className={styles.kpiMeta}>
-              {data?.byCurrency?.USD?.count ?? 0} USD transaction{data?.byCurrency?.USD?.count === 1 ? "" : "s"}
+              {isLoading ? (
+                <span className="skeleton" style={{ width: 140, height: 14, display: "inline-block" }} />
+              ) : (
+                `${data?.byCurrency?.USD?.count ?? 0} USD transaction${data?.byCurrency?.USD?.count === 1 ? "" : "s"}`
+              )}
             </span>
           </div>
         </article>
@@ -185,13 +194,21 @@ export default function RevenuePage() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {isLoading ? "—" : `AED ${Math.round(aedTotal).toLocaleString()}`}
+            <span className={`${styles.kpiValue} tabularNums`}>
+              {isLoading ? (
+                <span className="skeletonStat" style={{ width: 130, height: 28, display: "inline-block" }} />
+              ) : (
+                `AED ${Math.round(aedTotal).toLocaleString()}`
+              )}
             </span>
           </div>
           <div className={styles.kpiFooter}>
             <span className={styles.kpiMeta}>
-              {data?.byCurrency?.AED?.count ?? 0} UAE transaction{data?.byCurrency?.AED?.count === 1 ? "" : "s"} (VAT 5%)
+              {isLoading ? (
+                <span className="skeleton" style={{ width: 160, height: 14, display: "inline-block" }} />
+              ) : (
+                `${data?.byCurrency?.AED?.count ?? 0} UAE transaction${data?.byCurrency?.AED?.count === 1 ? "" : "s"} (VAT 5%)`
+              )}
             </span>
           </div>
         </article>
@@ -205,13 +222,21 @@ export default function RevenuePage() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {isLoading ? "—" : `₹${Math.round(inrTotal).toLocaleString("en-IN")}`}
+            <span className={`${styles.kpiValue} tabularNums`}>
+              {isLoading ? (
+                <span className="skeletonStat" style={{ width: 120, height: 28, display: "inline-block" }} />
+              ) : (
+                `₹${Math.round(inrTotal).toLocaleString("en-IN")}`
+              )}
             </span>
           </div>
           <div className={styles.kpiFooter}>
             <span className={styles.kpiMeta}>
-              {data?.byCurrency?.INR?.count ?? 0} India transaction{data?.byCurrency?.INR?.count === 1 ? "" : "s"} (GST 18%)
+              {isLoading ? (
+                <span className="skeleton" style={{ width: 150, height: 14, display: "inline-block" }} />
+              ) : (
+                `${data?.byCurrency?.INR?.count ?? 0} India transaction${data?.byCurrency?.INR?.count === 1 ? "" : "s"} (GST 18%)`
+              )}
             </span>
           </div>
         </article>
@@ -225,8 +250,12 @@ export default function RevenuePage() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {isLoading ? "—" : paidCount.toLocaleString()}
+            <span className={`${styles.kpiValue} tabularNums`}>
+              {isLoading ? (
+                <span className="skeletonStat" style={{ width: 60, height: 28, display: "inline-block" }} />
+              ) : (
+                paidCount.toLocaleString()
+              )}
             </span>
           </div>
           <div className={styles.kpiFooter}>
@@ -327,15 +356,15 @@ export default function RevenuePage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      Loading transactions...
-                    </td>
-                  </tr>
+                  <TableSkeleton columns={6} rows={5} />
                 ) : !data?.transactions || data.transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      No transactions recorded yet.
+                    <td colSpan={6} style={{ padding: "32px 16px" }}>
+                      <EmptyState
+                        icon="dollar"
+                        title="No transactions recorded"
+                        description="When learners enroll and pay, their payment settlements will appear here."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -391,15 +420,15 @@ export default function RevenuePage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      Loading course breakdown...
-                    </td>
-                  </tr>
+                  <TableSkeleton columns={5} rows={4} />
                 ) : !data?.byCourse || data.byCourse.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      No course sales recorded yet.
+                    <td colSpan={5} style={{ padding: "32px 16px" }}>
+                      <EmptyState
+                        icon="academic"
+                        title="No course sales recorded"
+                        description="Revenue broken down by course track will appear here once orders are processed."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -439,15 +468,15 @@ export default function RevenuePage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      Loading batch breakdown...
-                    </td>
-                  </tr>
+                  <TableSkeleton columns={6} rows={4} />
                 ) : !data?.byBatch || data.byBatch.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      No batch sales recorded yet.
+                    <td colSpan={6} style={{ padding: "32px 16px" }}>
+                      <EmptyState
+                        icon="users"
+                        title="No cohort batch sales"
+                        description="Revenue aggregated across scheduled cohort workshops will appear here."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -455,10 +484,10 @@ export default function RevenuePage() {
                     <tr key={b.batchId || `batch-${idx}`}>
                       <td><span className={styles.cellUserName}>{b.batchName || b.name || "Batch"}</span></td>
                       <td><span className={styles.cellTextMuted}>{b.courseTitle || "Course"}</span></td>
-                      <td><span className={styles.cellText}>{b.USD > 0 ? `$${Math.round(b.USD).toLocaleString()}` : "—"}</span></td>
-                      <td><span className={styles.cellText}>{b.AED > 0 ? `AED ${Math.round(b.AED).toLocaleString()}` : "—"}</span></td>
-                      <td><span className={styles.cellText}>{b.INR > 0 ? `₹${Math.round(b.INR).toLocaleString("en-IN")}` : "—"}</span></td>
-                      <td className={styles.alignRight}><span className={styles.cellText} style={{ fontWeight: 600 }}>{b.count}</span></td>
+                      <td><span className={`${styles.cellText} tabularNums`}>{b.USD > 0 ? `$${Math.round(b.USD).toLocaleString()}` : "—"}</span></td>
+                      <td><span className={`${styles.cellText} tabularNums`}>{b.AED > 0 ? `AED ${Math.round(b.AED).toLocaleString()}` : "—"}</span></td>
+                      <td><span className={`${styles.cellText} tabularNums`}>{b.INR > 0 ? `₹${Math.round(b.INR).toLocaleString("en-IN")}` : "—"}</span></td>
+                      <td className={`${styles.alignRight} tabularNums`}><span className={styles.cellText} style={{ fontWeight: 600 }}>{b.count}</span></td>
                     </tr>
                   ))
                 )}
@@ -487,15 +516,15 @@ export default function RevenuePage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      Loading monthly breakdown...
-                    </td>
-                  </tr>
+                  <TableSkeleton columns={5} rows={4} />
                 ) : !data?.byMonth || data.byMonth.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>
-                      No monthly records recorded yet.
+                    <td colSpan={5} style={{ padding: "32px 16px" }}>
+                      <EmptyState
+                        icon="calendar"
+                        title="No monthly records"
+                        description="Monthly revenue tracking will populate automatically over time."
+                      />
                     </td>
                   </tr>
                 ) : (

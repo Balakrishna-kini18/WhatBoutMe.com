@@ -9,6 +9,11 @@ export type StatusTone =
   | "error"
   | "info"
   | "neutral"
+  | "converted"
+  | "diagnostic"
+  | "comprehension"
+  | "online"
+  | "physical"
   | "roleSuperAdmin"
   | "roleAdmin"
   | "roleManager"
@@ -25,11 +30,15 @@ export interface StatusBadgeProps {
 function resolveTone(rawStatus: string): StatusTone {
   const normalized = rawStatus.trim().toUpperCase().replace(/[\s-]+/g, "_");
   if (normalized === "ACTIVE" || normalized === "PUBLISHED") return "active";
+  if (normalized === "CONVERTED") return "converted";
+  if (normalized === "BEFORE_VIDEO" || normalized === "DIAGNOSTIC") return "diagnostic";
+  if (normalized === "AFTER_VIDEO" || normalized === "COMPREHENSION") return "comprehension";
+  if (normalized === "ONLINE" || normalized === "VIRTUAL") return "online";
+  if (normalized === "PHYSICAL" || normalized === "IN_PERSON") return "physical";
   if (
     normalized === "COMPLETED" ||
     normalized === "PASSED" ||
     normalized === "PAID" ||
-    normalized === "CONVERTED" ||
     normalized === "SIGNED"
   ) {
     return "completed";

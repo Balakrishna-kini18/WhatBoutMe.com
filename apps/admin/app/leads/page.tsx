@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import leadStyles from "./leads.module.css";
 import { API_URL, cachedFetch, generateLeadCheckoutPaymentLink, type SupportedCurrency } from "../lib/api";
-import { CustomSelect, ActionMenu, ConfirmDialog, Modal, useToast } from "../components";
+import { CustomSelect, ActionMenu, ConfirmDialog, Modal, useToast, TableSkeleton } from "../components";
 
 interface Lead {
   id: string;
@@ -488,13 +488,7 @@ function LeadsContent() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6}>
-                    <div className={leadStyles.emptyContainer}>
-                      <div className={leadStyles.emptySubtitle}>Loading enquiries...</div>
-                    </div>
-                  </td>
-                </tr>
+                <TableSkeleton columns={6} rows={5} />
               ) : visible.length === 0 ? (
                 <tr>
                   <td colSpan={6}>
@@ -1076,13 +1070,19 @@ function LeadsContent() {
                       fontWeight: 700,
                       cursor: isConverting || !targetProgramId ? "not-allowed" : "pointer",
                       opacity: isConverting || !targetProgramId ? 0.6 : 1,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
                     }}
                   >
-                    {isConverting
-                      ? "Generating Link & Dispatching..."
-                      : leadToConvert.status === "CONVERTED"
-                      ? "Resend Payment Link"
-                      : "Convert & Send Payment Link"}
+                    {isConverting && <span className="spinner" />}
+                    <span>
+                      {isConverting
+                        ? "Generating Link & Dispatching..."
+                        : leadToConvert.status === "CONVERTED"
+                        ? "Resend Payment Link"
+                        : "Convert & Send Payment Link"}
+                    </span>
                   </button>
                 </div>
               </div>

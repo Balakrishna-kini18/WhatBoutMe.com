@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState } from "../components";
 
 const RevokeAccessModal = dynamic(
   () => import("../components/RevokeAccessModal").then((mod) => mod.RevokeAccessModal),
@@ -530,12 +530,18 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={8} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>Loading users from database...</td>
-                </tr>
+                <TableSkeleton columns={8} rows={6} />
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{textAlign: "center", padding: "28px", color: "var(--text-muted)"}}>No users found matching this filter.</td>
+                  <td colSpan={8} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="users"
+                      title="No users found"
+                      description="No user records matched your filter criteria or search query."
+                      actionLabel={search || roleFilter !== "ALL" ? "Reset Filters" : "Add First User"}
+                      onAction={search || roleFilter !== "ALL" ? () => { setSearch(""); setRoleFilter("ALL"); } : () => openCreateModal()}
+                    />
+                  </td>
                 </tr>
               ) : users.map((user) => (
                 <tr key={user.id}>
@@ -1115,7 +1121,13 @@ export default function UsersPage() {
               <div className={styles.modalFooter}>
                 <button type="button" className={styles.secondaryBtn} onClick={() => setIsModalOpen(false)}>Cancel</button>
                 <button type="submit" className={styles.primaryBtn} disabled={isSubmitting}>
-                  {isSubmitting ? "Saving..." : (editingUserId ? "Save Changes" : "Add User")}
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner" /> Saving...
+                    </>
+                  ) : (
+                    editingUserId ? "Save Changes" : "Add User"
+                  )}
                 </button>
               </div>
             </form>
@@ -1175,7 +1187,13 @@ export default function UsersPage() {
                 onClick={handleAssignBatchSubmit}
                 disabled={isAssigningBatch}
               >
-                {isAssigningBatch ? "Saving..." : "Save Assignment"}
+                {isAssigningBatch ? (
+                  <>
+                    <span className="spinner" /> Saving...
+                  </>
+                ) : (
+                  "Save Assignment"
+                )}
               </button>
             </div>
           </div>

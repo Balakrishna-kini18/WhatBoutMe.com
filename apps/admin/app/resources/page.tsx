@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import styles from "../page.module.css";
 import resStyles from "./resources.module.css";
 import { API_URL, cachedFetch } from "../lib/api";
-import { Modal, CustomSelect, StatusBadge, ActionMenu, InputDialog, useToast } from "../components";
+import { Modal, CustomSelect, StatusBadge, ActionMenu, InputDialog, useToast, TableSkeleton, EmptyState } from "../components";
 import BackgroundUploadTray, { BackgroundUploadTask } from "../programs/[id]/components/BackgroundUploadTray";
 
 interface ResourceCategory {
@@ -721,15 +721,21 @@ export default function ResourcesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
-                    Loading resource library materials...
-                  </td>
-                </tr>
+                <TableSkeleton columns={8} rows={6} />
               ) : filteredResources.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "3rem", color: "#64748b" }}>
-                    No resources found matching the current filters.
+                  <td colSpan={8} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="document"
+                      title="No resources found"
+                      description={searchQuery || activeCategorySlug !== "all" || filterStatus
+                        ? "No resources matched your current filter criteria or search query."
+                        : "Upload your first PDF worksheet, audio guide, or reading material to the library."}
+                      actionLabel={searchQuery || activeCategorySlug !== "all" || filterStatus ? "Reset Filters" : "Upload First Resource"}
+                      onAction={searchQuery || activeCategorySlug !== "all" || filterStatus
+                        ? () => { setSearchQuery(""); setActiveCategorySlug("all"); setFilterStatus(""); }
+                        : () => setUploadModalOpen(true)}
+                    />
                   </td>
                 </tr>
               ) : (

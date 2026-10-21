@@ -336,7 +336,12 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
-  background: #faf7f2;
+  background: rgba(250, 247, 242, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
   border-bottom: 1px solid var(--border-light);
   white-space: nowrap;
 }
@@ -356,6 +361,7 @@
   color: var(--text-primary);
   border-bottom: 1px solid #f2ede4;
   vertical-align: middle;
+  font-variant-numeric: tabular-nums;
 }
 
 .enrolmentsTable td:first-child {
@@ -372,7 +378,7 @@
 }
 
 .tableRow:hover {
-  background-color: #faf8f5;
+  background-color: #faf6f0;
 }
 
 .tableRow:last-child td {
@@ -1318,7 +1324,12 @@
 }
 
 .adminTable th {
-  background: #faf7f2;
+  background: rgba(250, 247, 242, 0.95);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 700;
@@ -1335,6 +1346,7 @@
   vertical-align: middle;
   font-size: 0.875rem;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .adminTable tr:last-child td {

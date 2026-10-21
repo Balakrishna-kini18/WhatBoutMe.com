@@ -9,7 +9,7 @@ import {
   resendInvoice,
   type SupportedCurrency,
 } from "../lib/api";
-import { CustomSelect, useToast } from "../components";
+import { CustomSelect, useToast, TableSkeleton, EmptyState } from "../components";
 import styles from "../page.module.css";
 
 interface Invoice {
@@ -209,9 +209,7 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>Loading invoices...</td>
-                </tr>
+                <TableSkeleton columns={6} rows={5} />
               ) : fetchError ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--status-error, #dc2626)" }}>
@@ -223,7 +221,14 @@ export default function InvoicesPage() {
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>No invoices found.</td>
+                  <td colSpan={6} style={{ padding: "1rem" }}>
+                    <EmptyState
+                      title="No invoices found"
+                      description="Official WhatBoutMe FZE automated PDF invoices generated upon course enrolment or event checkout will appear here."
+                      actionLabel="Create New Invoice"
+                      onAction={openCreateModal}
+                    />
+                  </td>
                 </tr>
               ) : invoices.map((inv) => {
                 const curr = (inv.currency || "USD").toUpperCase();
@@ -397,8 +402,10 @@ export default function InvoicesPage() {
                   type="submit"
                   className={styles.primaryBtn}
                   disabled={isSubmitting || enrolments.length === 0}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
                 >
-                  {isSubmitting ? "Creating Invoice..." : "Create Invoice"}
+                  {isSubmitting && <span className="spinner" />}
+                  <span>{isSubmitting ? "Creating Invoice..." : "Create Invoice"}</span>
                 </button>
               </div>
             </form>

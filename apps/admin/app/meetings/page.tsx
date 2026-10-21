@@ -20,6 +20,8 @@ import {
   useToast,
   Modal,
   StatusBadge,
+  TableSkeleton,
+  EmptyState,
 } from "../components";
 
 interface TrainerInfo {
@@ -1187,21 +1189,21 @@ export default function MeetingsPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}
-                    >
-                      Loading sessions...
-                    </td>
-                  </tr>
+                  <TableSkeleton columns={9} rows={6} />
                 ) : filteredMeetings.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={9}
-                      style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}
-                    >
-                      No sessions matching your filter criteria.
+                    <td colSpan={9} style={{ padding: "32px 16px" }}>
+                      <EmptyState
+                        icon="calendar"
+                        title="No sessions found"
+                        description={filterType !== "ALL" || filterStatus !== "ALL" || commitmentCategory !== "ALL"
+                          ? "No sessions matched your current filter criteria."
+                          : "Schedule your first live workshop session, coaching call, or 15-min discovery meeting."}
+                        actionLabel={filterType !== "ALL" || filterStatus !== "ALL" || commitmentCategory !== "ALL" ? "Reset Filters" : "Schedule New Session"}
+                        onAction={filterType !== "ALL" || filterStatus !== "ALL" || commitmentCategory !== "ALL"
+                          ? () => { setFilterType("ALL"); setFilterStatus("ALL"); setCommitmentCategory("ALL"); }
+                          : () => openModal()}
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -1596,7 +1598,13 @@ export default function MeetingsPage() {
               className={calStyles.modalSubmitBtn}
               disabled={isUpdating}
             >
-              {isUpdating ? "Saving..." : "Save & Sync Calendar"}
+              {isUpdating ? (
+                <>
+                  <span className="spinner" /> Saving...
+                </>
+              ) : (
+                "Save & Sync Calendar"
+              )}
             </button>
           </div>
         }
@@ -1722,7 +1730,13 @@ export default function MeetingsPage() {
                 disabled={isCompletingAndConverting}
                 onClick={() => handleCompleteAndConvert(selectedMeeting)}
               >
-                Mark Call Completed &amp; Convert Lead &rarr;
+                {isCompletingAndConverting ? (
+                  <>
+                    <span className="spinner" /> Converting Lead...
+                  </>
+                ) : (
+                  "Mark Call Completed & Convert Lead →"
+                )}
               </button>
             )}
             {selectedMeeting?.status === "SCHEDULED" && (

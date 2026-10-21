@@ -1062,7 +1062,13 @@ export default function ProgramsPage() {
                   Cancel
                 </button>
                 <button type="submit" className={styles.primaryBtn} disabled={isSaving}>
-                  {isSaving ? "Saving..." : editingProgramId ? "Update Settings" : "Create & Author Curriculum →"}
+                  {isSaving ? (
+                    <>
+                      <span className="spinner" /> Saving...
+                    </>
+                  ) : (
+                    editingProgramId ? "Update Settings" : "Create & Author Curriculum →"
+                  )}
                 </button>
               </div>
             </form>

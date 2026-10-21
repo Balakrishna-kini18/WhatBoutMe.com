@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import { API_URL, errorMessage, cachedFetch } from "../lib/api";
-import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast, TableSkeleton, EmptyState } from "../components";
 
 interface Batch {
   id: string;
@@ -575,18 +575,7 @@ function BatchesContent() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    style={{
-                      textAlign: "center",
-                      padding: "28px",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    Loading batches from database...
-                  </td>
-                </tr>
+                <TableSkeleton columns={7} rows={5} />
               ) : batches.filter((batch) => {
                   const q = search.toLowerCase();
                   const matchesSearch =
@@ -606,15 +595,17 @@ function BatchesContent() {
                   return matchesSearch && matchesProgram && matchesStatus;
                 }).length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={7}
-                    style={{
-                      textAlign: "center",
-                      padding: "28px",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    No batches found. Create one!
+                  <td colSpan={7} style={{ padding: "1rem" }}>
+                    <EmptyState
+                      title="No batches found"
+                      description={
+                        search
+                          ? `No cohorts match "${search}". Try adjusting your search query or filters.`
+                          : "Get started by launching a cohort batch for an active program."
+                      }
+                      actionLabel={!isManager ? "Create Batch" : undefined}
+                      actionHref={!isManager ? "/batches/create" : undefined}
+                    />
                   </td>
                 </tr>
               ) : (

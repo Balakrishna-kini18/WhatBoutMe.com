@@ -115,6 +115,7 @@ export class AdminDashboardController {
           },
           select: {
             amount: true,
+            currency: true,
             status: true,
             taxFields: true,
           },
@@ -140,15 +141,33 @@ export class AdminDashboardController {
       ]);
 
       // Financial calculations: recognize only PAID invoices, subtracting any credit notes/refunds
-      const netRevenue = paidInvoices.reduce((sum, inv) => {
-        if (inv.status !== InvoiceStatus.PAID) return sum;
+      const byCurrency: Record<string, number> = { USD: 0, AED: 0, INR: 0 };
+      for (const inv of paidInvoices) {
+        if (inv.status !== InvoiceStatus.PAID) continue;
         const taxFields = inv.taxFields as any;
         const totalCredited = Number(taxFields?.totalCredited) || 0;
         const net = Math.max(0, inv.amount - totalCredited);
-        return sum + net;
-      }, 0);
+        const curr = (inv.currency || 'USD').toUpperCase();
+        if (curr in byCurrency) {
+          byCurrency[curr] += net;
+        } else {
+          byCurrency[curr] = (byCurrency[curr] || 0) + net;
+        }
+      }
 
-      const formattedRevenue = `$${Math.round(netRevenue).toLocaleString()}`;
+      // Convert to normalized USD (1 USD = 83 INR, 1 USD = 3.67 AED)
+      const normalizedUSD = (byCurrency.USD || 0) + ((byCurrency.AED || 0) / 3.67) + ((byCurrency.INR || 0) / 83);
+      const formattedRevenue = `$${Math.round(normalizedUSD).toLocaleString()}`;
+
+      // Build helpful subtitle showing multi-currency breakdown if non-USD currencies exist
+      const activeCurrencies: string[] = [];
+      if (byCurrency.USD > 0) activeCurrencies.push(`$${Math.round(byCurrency.USD).toLocaleString()}`);
+      if (byCurrency.AED > 0) activeCurrencies.push(`AED ${Math.round(byCurrency.AED).toLocaleString()}`);
+      if (byCurrency.INR > 0) activeCurrencies.push(`₹${Math.round(byCurrency.INR).toLocaleString('en-IN')}`);
+
+      const revenueSubtitle = (byCurrency.AED > 0 || byCurrency.INR > 0)
+        ? `USD Equiv. (${activeCurrencies.join(' · ')})`
+        : 'Program enrolment revenue';
 
       const recentEnrolments = recentEnrolmentsList.map((e) => ({
         id: e.id,
@@ -184,6 +203,8 @@ export class AdminDashboardController {
         totalCertificates,
         certificatesIssued: totalCertificates,
         totalRevenue: formattedRevenue,
+        revenueSubtitle,
+        currencies: byCurrency,
         mockRevenue: formattedRevenue, // Maintained for backward compatibility
         recentEnrolments,
         programDistribution,

@@ -616,6 +616,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       setShowSignOutConfirm(false);
       setUserDropdownOpen(false);
       await authLogout();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
     } catch (err) {
       setIsLoggingOut(false);
       setLogoutError(err instanceof Error ? err.message : "Failed to sign out. Please try again.");
@@ -624,6 +627,16 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   if (pathname === "/login") {
     return <>{children}</>;
+  }
+
+  // If client is mounted and has no session token on protected route, redirect to login
+  if (mounted && !user && typeof window !== "undefined" && !localStorage.getItem("token")) {
+    window.location.href = "/login";
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FBF8F4" }}>
+        <p style={{ color: "#78716A", fontSize: "0.9rem" }}>Redirecting to sign in…</p>
+      </div>
+    );
   }
 
   const userName = mounted && user?.name ? user.name : "Administrator";

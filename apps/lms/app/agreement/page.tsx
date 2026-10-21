@@ -98,7 +98,7 @@ function AgreementSignContent() {
   const [justSignedSuccess, setJustSignedSuccess] = useState<SignedAgreementResponse | null>(null);
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
 
-  const handleConfirmPaymentAndProceed = async (targetProgramId?: string, targetEnrolmentId?: string) => {
+  const handleConfirmPaymentAndProceed = (targetProgramId?: string, targetEnrolmentId?: string) => {
     const progId = targetProgramId || enrolment?.programId || queryProgramId || signedRecord?.programId || justSignedSuccess?.programId;
     const enrolId = targetEnrolmentId || enrolment?.id || queryEnrolmentId || signedRecord?.enrolmentId || justSignedSuccess?.enrolmentId;
 
@@ -107,39 +107,8 @@ function AgreementSignContent() {
       return;
     }
 
-    setIsConfirmingPayment(true);
-
-    try {
-      const res = await fetch(`${API_URL}/checkout/mock`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          programId: progId,
-          enrolmentId: enrolId,
-          bypass: true,
-          simulate: true,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        if (text.includes("already enrolled") || text.includes("ACTIVE")) {
-          router.push(`/programs/${progId}/steps`);
-          return;
-        }
-        // Fallback to checkout URL if unexpected response
-        router.push(buildCheckoutUrl(progId, enrolId));
-        return;
-      }
-
-      // Bypass confirmation successful - take learner straight to course steps
-      router.push(`/programs/${progId}/steps`);
-    } catch (err: any) {
-      console.error("Payment bypass confirmation failed:", err);
-      router.push(buildCheckoutUrl(progId, enrolId));
-    } finally {
-      setIsConfirmingPayment(false);
-    }
+    // Advance to Step 3: Payment Confirmation (/checkout)
+    router.push(buildCheckoutUrl(progId, enrolId));
   };
 
   useEffect(() => {
@@ -249,11 +218,28 @@ function AgreementSignContent() {
           const existingSigned = text ? JSON.parse(text) : null;
           if (existingSigned && existingSigned.status === "SIGNED") {
             setSignedRecord(existingSigned);
-            setIsLoading(false);
-            return;
+            setTypedName(existingSigned.typedName || "");
+            setConsentGiven(true);
+            setConsentTimestamp(existingSigned.consentTimestamp || new Date().toISOString());
+            if (existingSigned.drawnSignature || existingSigned.signatureImage) {
+              setSignatureData(existingSigned.drawnSignature || existingSigned.signatureImage);
+              setSignatureMethod(existingSigned.signatureType === "UPLOADED" ? "UPLOADED" : "DRAWN");
+              setSignatureChoice("SAVED");
+            }
           }
         }
       }
+
+      // Pre-fill user's legal name from profile if typedName is still empty
+      try {
+        const meRes = await fetch(`${API_URL}/auth/me`, { headers: getAuthHeaders() });
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          if (meData?.name) {
+            setTypedName((prev) => (prev ? prev : meData.name));
+          }
+        }
+      } catch {}
 
       // If active template was already retrieved via initiate, set it
       if (tpl) {
@@ -295,11 +281,14 @@ function AgreementSignContent() {
           if (sigData && sigData.hasSavedSignature && sigData.savedSignature) {
             setSavedProfileSig(sigData);
             setSignatureChoice("SAVED");
-            setSignatureData(sigData.savedSignature);
+            setSignatureData((prev) => (prev ? prev : sigData.savedSignature));
             if (sigData.savedSignatureType) {
               setSignatureMethod(sigData.savedSignatureType);
             }
-          } else {
+            // Auto-tick consent when verified signature is present
+            setConsentGiven(true);
+            setConsentTimestamp((prev) => (prev ? prev : new Date().toISOString()));
+          } else if (!signedRecord) {
             setSavedProfileSig(null);
             setSignatureChoice("NEW");
           }
@@ -334,11 +323,13 @@ function AgreementSignContent() {
       nextErrors.name = `Your full legal name must be ${MAX_LEGAL_NAME_LENGTH} characters or fewer.`;
     }
 
-    const usingSaved = signatureChoice === "SAVED" && !!savedProfileSig?.savedSignature;
-    const finalSigData = usingSaved ? savedProfileSig!.savedSignature : signatureData;
-    const finalSigType = usingSaved
-      ? (savedProfileSig!.savedSignatureType || "DRAWN")
-      : signatureMethod;
+    const originalSig =
+      signedRecord?.drawnSignature ||
+      signedRecord?.signatureImage ||
+      savedProfileSig?.savedSignature;
+    const finalSigData = signatureChoice === "SAVED" ? (signatureData || originalSig) : signatureData;
+    const usingSaved = signatureChoice === "SAVED" && !!finalSigData;
+    const finalSigType = signatureMethod || (savedProfileSig?.savedSignatureType || "DRAWN");
 
     if (!finalSigData || finalSigData.length < 10) {
       nextErrors.signature =
@@ -526,88 +517,25 @@ function AgreementSignContent() {
     );
   }
 
-  if (signedRecord) {
-    const position = resolveJourneyPosition(
-      signedRecord.nextStep,
-      signedRecord.enrolmentStatus ?? enrolment?.status
-    );
-    const nextUrl =
-      position === "CHECKOUT"
-        ? signedRecord.checkoutUrl ||
-          buildCheckoutUrl(enrolment?.programId || queryProgramId || undefined, enrolment?.id || queryEnrolmentId || undefined)
-        : `/programs/${enrolment?.programId || queryProgramId}/steps`;
-    const programTitle =
-      enrolment?.program?.title || activeTemplate?.programTitle || "your selected program";
-
-    return (
-      <div className={css.page}>
-        <div className={css.shell}>
-          <EnrollmentStepper currentStep={position === "CHECKOUT" ? 3 : 4} />
-          <div className={`${css.card} ${css.centered}`}>
-            <span className={css.statusIcon}>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </span>
-            <p className={css.stateText}>Agreement already signed</p>
-            <p className={css.stateBody}>
-              You have already signed the program agreement for{" "}
-              <span className={css.stateBodyStrong}>{programTitle}</span>.
-            </p>
-
-            <dl className={css.details}>
-              <div>
-                <dt className={css.detailLabel}>Signed by</dt>
-                <dd className={css.detailValue}>{signedRecord.typedName}</dd>
-              </div>
-              <div>
-                <dt className={css.detailLabel}>Agreement version</dt>
-                <dd className={css.detailValue}>{signedRecord.templateVersion || "v1.0"}</dd>
-              </div>
-              <div>
-                <dt className={css.detailLabel}>Signed at</dt>
-                <dd className={css.detailValue}>{new Date(signedRecord.signedAt).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className={css.detailLabel}>Next step</dt>
-                <dd className={css.detailValue}>
-                  {position === "CHECKOUT" ? "Payment confirmation" : "Course access"}
-                </dd>
-              </div>
-            </dl>
-
-            {position === "CHECKOUT" ? (
-              <button
-                type="button"
-                onClick={() =>
-                  handleConfirmPaymentAndProceed(
-                    signedRecord.programId || enrolment?.programId,
-                    signedRecord.enrolmentId || enrolment?.id
-                  )
-                }
-                disabled={isConfirmingPayment}
-                className={css.submit}
-                style={{ cursor: isConfirmingPayment ? "wait" : "pointer" }}
-              >
-                {isConfirmingPayment ? "Confirming Payment & Unlocking Course…" : "Continue to Payment"}
-              </button>
-            ) : (
-              <Link href={nextUrl} className={css.submit}>
-                Go to Course
-              </Link>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const programTitle =
     enrolment?.program?.title || activeTemplate?.programTitle || "Selected program";
   const agreementTitle = activeTemplate?.templateTitle || "Program agreement";
-  const agreementVersion = activeTemplate?.version || "v1.0";
+  const agreementVersion = activeTemplate?.version || signedRecord?.templateVersion || "v1.0";
   const agreementContent = activeTemplate?.content?.trim() || "";
   const hasAgreementContent = agreementContent.length > 0;
+
+  const originalSignature =
+    signedRecord?.drawnSignature ||
+    signedRecord?.signatureImage ||
+    savedProfileSig?.savedSignature ||
+    null;
+
+  const activeSignature =
+    signatureChoice === "SAVED"
+      ? (signatureData || originalSignature)
+      : signatureData;
+
+  const hasSignature = !!activeSignature;
 
   return (
     <div className={css.page}>
@@ -679,102 +607,130 @@ function AgreementSignContent() {
                   Digital signature <span className={css.required}>*</span>
                 </span>
                 <span className={css.fieldHint}>
-                  {savedProfileSig?.hasSavedSignature
-                    ? "Confirm your saved signature or draw/upload a new one"
+                  {hasSignature && signatureChoice === "SAVED"
+                    ? "Your digital signature has been fetched. You can replace or remove it below."
                     : "Draw with finger, pen or mouse, or upload an image"}
                 </span>
               </label>
 
-              {savedProfileSig?.hasSavedSignature ? (
-                <>
-                  {/* Option Switcher */}
-                  <div className={css.sigOptionTabs} role="tablist">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={signatureChoice === "SAVED"}
-                      className={`${css.sigOptionBtn} ${
-                        signatureChoice === "SAVED" ? css.sigOptionBtnActive : ""
-                      }`}
-                      onClick={() => {
-                        setSignatureChoice("SAVED");
-                        setErrors((prev) => ({ ...prev, signature: undefined, form: undefined }));
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              {hasSignature && signatureChoice === "SAVED" ? (
+                <div className={css.savedSigCard}>
+                  <div className={css.savedSigHeader}>
+                    <span className={css.savedSigTitle}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
-                      Use Profile Signature
-                    </button>
+                      {signedRecord ? "Signed Digital Signature" : "Saved Profile Signature"}
+                    </span>
+                    <span className={css.savedSigBadge}>
+                      {signatureMethod === "UPLOADED" ? "Uploaded Image" : "Drawn Signature"}
+                    </span>
+                  </div>
+                  <div className={css.savedSigImgWrap}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={activeSignature!}
+                      alt="Digital Signature"
+                      className={css.savedSigImg}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.85rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
                     <button
                       type="button"
-                      role="tab"
-                      aria-selected={signatureChoice === "NEW"}
-                      className={`${css.sigOptionBtn} ${
-                        signatureChoice === "NEW" ? css.sigOptionBtnActive : ""
-                      }`}
                       onClick={() => {
                         setSignatureChoice("NEW");
-                        setErrors((prev) => ({ ...prev, signature: undefined, form: undefined }));
+                        setSignatureData(null);
+                        setErrors((prev) => ({ ...prev, signature: undefined }));
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        padding: "0.45rem 0.85rem",
+                        borderRadius: "8px",
+                        border: "1px solid #B86B11",
+                        background: "#FFFFFF",
+                        color: "#B86B11",
+                        fontSize: "0.82rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
                       }}
                     >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="M12 20h9" />
                         <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
                       </svg>
-                      Draw / Upload New
+                      Replace Signature
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignatureChoice("NEW");
+                        setSignatureData(null);
+                        setSavedProfileSig(null);
+                        if (signedRecord) {
+                          setSignedRecord((prev) =>
+                            prev ? { ...prev, drawnSignature: undefined, signatureImage: undefined } : null
+                          );
+                        }
+                        setErrors((prev) => ({ ...prev, signature: undefined }));
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        padding: "0.45rem 0.85rem",
+                        borderRadius: "8px",
+                        border: "1px solid #DC2626",
+                        background: "#FFFFFF",
+                        color: "#DC2626",
+                        fontSize: "0.82rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                      Remove
                     </button>
                   </div>
-
-                  {signatureChoice === "SAVED" ? (
-                    <div className={css.savedSigCard}>
-                      <div className={css.savedSigHeader}>
-                        <span className={css.savedSigTitle}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B86B11" strokeWidth="2">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                          </svg>
-                          Saved Profile Signature
-                        </span>
-                        <span className={css.savedSigBadge}>
-                          {savedProfileSig.savedSignatureType === "UPLOADED" ? "Uploaded Image" : "Drawn Signature"}
-                        </span>
-                      </div>
-                      <div className={css.savedSigImgWrap}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={savedProfileSig.savedSignature!}
-                          alt="Learner Saved Profile Signature"
-                          className={css.savedSigImg}
-                        />
-                      </div>
-                      <div className={css.savedSigMeta}>
-                        <span>
-                          {savedProfileSig.savedSignatureUpdatedAt
-                            ? `Saved on ${new Date(savedProfileSig.savedSignatureUpdatedAt).toLocaleDateString()}`
-                            : "Saved on your authenticated profile"}
-                        </span>
-                        <span>Explicit confirmation required below</span>
-                      </div>
-                      <p className={css.savedSigNote}>
-                        Your saved signature will only be applied after you review the terms, accept the mandatory consent statement, and click the final sign button.
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <SignaturePad onSignatureChange={handleSignatureChange} height={160} />
-                      <label className={css.saveToProfileOption}>
-                        <input
-                          type="checkbox"
-                          checked={updateProfileSignature}
-                          onChange={(e) => setUpdateProfileSignature(e.target.checked)}
-                        />
-                        <span>Update my profile saved signature with this new signature</span>
-                      </label>
-                    </div>
-                  )}
-                </>
+                </div>
               ) : (
-                <SignaturePad onSignatureChange={handleSignatureChange} height={160} />
+                <div>
+                  <SignaturePad onSignatureChange={handleSignatureChange} height={160} />
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <label className={css.saveToProfileOption}>
+                      <input
+                        type="checkbox"
+                        checked={updateProfileSignature}
+                        onChange={(e) => setUpdateProfileSignature(e.target.checked)}
+                      />
+                      <span>Save / update this signature on my profile</span>
+                    </label>
+                    {originalSignature && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSignatureData(originalSignature);
+                          setSignatureChoice("SAVED");
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#B86B11",
+                          fontSize: "0.8rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          textDecoration: "underline",
+                        }}
+                      >
+                        Keep Existing Signature
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
 
               {errors.signature && (
@@ -837,9 +793,36 @@ function AgreementSignContent() {
               </div>
             )}
 
-            <button type="submit" className={css.submit} disabled={isSubmitting || !hasAgreementContent}>
-              {isSubmitting ? "Signing agreement…" : "Sign Agreement & Continue to Payment"}
-            </button>
+            {signedRecord && signatureChoice === "SAVED" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  handleConfirmPaymentAndProceed(
+                    signedRecord.programId || enrolment?.programId,
+                    signedRecord.enrolmentId || enrolment?.id
+                  )
+                }
+                disabled={isConfirmingPayment}
+                className={css.submit}
+                style={{ cursor: isConfirmingPayment ? "wait" : "pointer" }}
+              >
+                {isConfirmingPayment
+                  ? "Confirming Payment & Unlocking Course…"
+                  : "Continue to Payment"}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className={css.submit}
+                disabled={isSubmitting || !hasAgreementContent}
+              >
+                {isSubmitting
+                  ? "Signing agreement…"
+                  : signedRecord
+                  ? "Update Signature & Continue"
+                  : "Sign Agreement & Continue to Payment"}
+              </button>
+            )}
           </form>
         </div>
       </div>

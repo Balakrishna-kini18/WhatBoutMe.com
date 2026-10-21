@@ -23,6 +23,8 @@ const Icons = {
   Attendance: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>,
   Explore: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>,
   Sessions: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>,
+  Events: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"></path><path d="M13 5v2"></path><path d="M13 17v2"></path><path d="M13 11v2"></path></svg>,
+  External: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>,
   Certificates: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg>,
   Notes: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>,
   Messages: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>,
@@ -187,7 +189,6 @@ export default function LmsSidebar() {
               className={styles.brandLogoImg}
             />
           </div>
-          <span className={styles.portalTag}>LEARNER PORTAL</span>
         </Link>
       </div>
 
@@ -236,7 +237,7 @@ export default function LmsSidebar() {
         <div className={styles.navGroup}>
           <p className={styles.navTitle}>COMMUNITY</p>
           <Link href="/events" className={`${styles.navItem} ${pathname === "/events" || pathname.startsWith("/events/") ? styles.active : ""}`}>
-            <Icons.Sessions />
+            <Icons.Events />
             <span>Events</span>
           </Link>
           <Link href="/chat" className={`${styles.navItem} ${pathname === "/chat" || pathname.startsWith("/chat/") ? styles.active : ""}`}>
@@ -247,6 +248,16 @@ export default function LmsSidebar() {
             <Icons.Profile />
             <span>My Profile</span>
           </Link>
+        </div>
+
+        {/* the way back to the website, which phones get from the bottom bar */}
+        <div className={styles.navGroup}>
+          <p className={styles.navTitle}>WEBSITE</p>
+          <a href={`${SITE_URL}/courses`} onClick={toSite("/courses")} className={styles.navItem}>
+            <Icons.Explore />
+            <span>Explore Courses</span>
+            <span className={styles.navItemExternal} aria-hidden="true"><Icons.External /></span>
+          </a>
         </div>
       </nav>
 

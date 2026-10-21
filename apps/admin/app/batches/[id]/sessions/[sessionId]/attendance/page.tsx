@@ -341,13 +341,13 @@ export default function SessionAttendancePage({
               <polyline points="1 20 1 14 7 14"></polyline>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
             </svg>
-            <span>{isSyncing ? "Syncing..." : "🔄 Sync Meeting Report"}</span>
+            <span>{isSyncing ? "Syncing..." : "Sync Meeting Report"}</span>
           </button>
           <button className={styles.secondaryBtn} onClick={handleShowQrModal}>
-            📱 Show Check-In QR
+            Show Check-In QR
           </button>
           <button className={styles.primaryBtn} onClick={handleExportCsv}>
-            ⬇ Export Attendance (CSV)
+            Export Attendance (CSV)
           </button>
         </div>
       </header>

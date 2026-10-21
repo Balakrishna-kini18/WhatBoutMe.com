@@ -207,7 +207,7 @@ export default function SimulatorPage() {
       <div className={styles.headerCard}>
         <div>
           <div className={styles.badgeTester}>
-            <span>⚡ Interactive Spec Verification Simulator</span>
+            <span>Interactive Spec Verification Simulator</span>
           </div>
           <h1 className={styles.headerTitle}>Learner &amp; Public Funnel Test Simulator</h1>
           <p className={styles.headerSubtitle}>
@@ -812,7 +812,7 @@ export default function SimulatorPage() {
                       fontSize: "0.82rem",
                     }}
                   >
-                    ✍️ Mode A: Draw Signature (Canvas)
+                    Mode A: Draw Signature (Canvas)
                   </button>
                   <button
                     type="button"
@@ -829,7 +829,7 @@ export default function SimulatorPage() {
                       fontSize: "0.82rem",
                     }}
                   >
-                    📁 Mode B: Upload Image (PNG/JPEG)
+                    Mode B: Upload Image (PNG/JPEG)
                   </button>
                 </div>
               </div>
@@ -926,7 +926,6 @@ export default function SimulatorPage() {
 
               {!agreementSigned ? (
                 <div style={{ padding: "2rem", textAlign: "center", color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12 }}>
-                  <div style={{ fontSize: "1.5rem", marginBottom: "8px" }}>🔒</div>
                   <h4 style={{ margin: "0 0 4px", fontWeight: 800 }}>Step 1 Locked (Agreement Required)</h4>
                   <p style={{ margin: 0, fontSize: "0.82rem" }}>
                     The backend strictly rejects lesson access requests for Step 1 until a verified signed agreement PDF record is stored in private storage.
@@ -945,7 +944,7 @@ export default function SimulatorPage() {
 
                   <div style={{ padding: "1.25rem", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, marginTop: "1rem" }}>
                     <h4 style={{ margin: "0 0 6px", fontSize: "0.95rem", fontWeight: 800, color: "#166534" }}>
-                      🎉 Step 1 Unlocked: Course Active
+                      Step 1 Unlocked: Course Active
                     </h4>
                     <p style={{ margin: "0 0 12px", fontSize: "0.82rem", color: "#15803d" }}>
                       Learner <strong>Alex Morgan</strong> now has full access to Step 1 video lectures, worksheets, and anti-skip player.
@@ -998,7 +997,7 @@ export default function SimulatorPage() {
                       cursor: "pointer",
                     }}
                   >
-                    🌐 ONLINE (Private Zoom/Meet Link)
+                    ONLINE (Private Zoom/Meet Link)
                   </button>
                   <button
                     type="button"
@@ -1014,7 +1013,7 @@ export default function SimulatorPage() {
                       cursor: "pointer",
                     }}
                   >
-                    📍 PHYSICAL (Hall &amp; Google Maps)
+                    PHYSICAL (Hall &amp; Google Maps)
                   </button>
                 </div>
               </div>
@@ -1052,7 +1051,7 @@ export default function SimulatorPage() {
                   className={styles.btnSecondary}
                   style={{ width: "100%", justifyContent: "center" }}
                 >
-                  🔗 {copiedLink ? "Event Link Copied to Clipboard! ✓" : "Share Event Link (1-Click Copy)"}
+                  {copiedLink ? "Event Link Copied to Clipboard! ✓" : "Share Event Link (1-Click Copy)"}
                 </button>
               </div>
 
@@ -1094,7 +1093,7 @@ export default function SimulatorPage() {
                 {eventLocationType === "PHYSICAL" && (
                   <div style={{ marginTop: 4 }}>
                     <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer" style={{ color: "#0284c7", fontWeight: 700 }}>
-                      📍 View Location on Google Maps &rarr;
+                      View Location on Google Maps &rarr;
                     </a>
                   </div>
                 )}
@@ -1103,7 +1102,7 @@ export default function SimulatorPage() {
               {!eventTicketBooked ? (
                 <div style={{ padding: "1.25rem", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 10, textAlign: "center" }}>
                   <div style={{ color: "#d97706", fontSize: "0.82rem", fontWeight: 700 }}>
-                    🔒 Meeting link is private and revealed immediately upon ticket confirmation.
+                    Meeting link is private and revealed immediately upon ticket confirmation.
                   </div>
                 </div>
               ) : (

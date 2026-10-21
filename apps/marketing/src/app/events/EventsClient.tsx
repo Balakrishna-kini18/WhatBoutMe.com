@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  Sparkles,
   ArrowRight,
   Share2,
   Check,
@@ -22,7 +21,6 @@ import {
   Printer,
   Copy,
   FileText,
-  ShieldCheck,
 } from "lucide-react";
 import {
   getPublicEvents,
@@ -411,7 +409,7 @@ export default function EventsClient() {
                 : "bg-cream-deep/70 text-ink-soft hover:bg-cream-deep hover:text-ink"
             }`}
           >
-            🟢 Online Live
+            Online Live
           </button>
           <button
             type="button"
@@ -423,7 +421,7 @@ export default function EventsClient() {
                 : "bg-cream-deep/70 text-ink-soft hover:bg-cream-deep hover:text-ink"
             }`}
           >
-            📍 In-Person Workshops
+            In-Person Workshops
           </button>
         </div>
 
@@ -550,8 +548,7 @@ export default function EventsClient() {
                       />
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center">
-                        <Sparkles className="mb-2 h-8 w-8 text-gold-deep/60" />
-                        <span className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+                        <span className="text-sm text-ink-soft">
                           {isOnline ? "Virtual Interactive Session" : "In-Person Masterclass"}
                         </span>
                       </div>
@@ -564,7 +561,7 @@ export default function EventsClient() {
                           isOnline ? "bg-emerald-600/90 text-white" : "bg-gold-deep text-white"
                         }`}
                       >
-                        {isOnline ? "🟢 Online" : "📍 In-Person"}
+                        {isOnline ? "Online" : "In-Person"}
                       </span>
                     </div>
 
@@ -700,10 +697,6 @@ export default function EventsClient() {
               <div className="py-2 text-center">
                 <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 shadow-sm">
                   <CheckCircle2 className="h-7 w-7" />
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-emerald-800 border border-emerald-200 mb-2">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Confirmed &amp; Secured · Cannot Pay Twice</span>
                 </div>
                 <h3 className="text-xl font-bold tracking-tight text-ink md:text-2xl">
                   {selectedEvent.price === 0 ? "Registration Confirmed!" : "Payment & Registration Confirmed!"}
@@ -852,7 +845,7 @@ export default function EventsClient() {
                   </button>
                 </div>
                 <p className="mt-3 text-[11px] text-ink-soft">
-                  🔒 You are officially registered. Further duplicate payments for this event are blocked.
+                  You are officially registered. Further duplicate payments for this event are blocked.
                 </p>
               </div>
             ) : (
@@ -978,7 +971,7 @@ export default function EventsClient() {
                         : `Pay Now — ${formatPrice(selectedEvent.price, selectedEvent.currency)}`}
                     </button>
                     <p className="mt-2 text-center text-[11px] text-ink-soft">
-                      🔒 Secure 256-bit encrypted checkout. Instant confirmation &amp; calendar invite.
+                      Secure 256-bit encrypted checkout. Instant confirmation &amp; calendar invite.
                     </p>
                   </div>
                 </form>

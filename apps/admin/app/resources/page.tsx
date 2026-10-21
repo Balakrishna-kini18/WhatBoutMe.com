@@ -581,7 +581,7 @@ export default function ResourcesPage() {
           className={resStyles.manageCategoriesBtn}
           onClick={() => setCategoryModalOpen(true)}
         >
-          <span>⚙ Manage Categories</span>
+          <span>Manage Categories</span>
         </button>
       </div>
 

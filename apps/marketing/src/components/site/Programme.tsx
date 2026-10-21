@@ -56,7 +56,7 @@ function StepsTrack() {
       <div className="mt-1 grid grid-cols-5 gap-1 text-center md:hidden">
         {[1, 3, 5, 7, 11].map((stepNum) => (
           <div key={stepNum} className="flex flex-col items-center">
-            <span className="text-[10px] font-semibold text-gold-deep">
+            <span className="text-[10px] text-ink-soft">
               Step {stepNum}
             </span>
             <span className="text-[11px] font-medium leading-tight text-ink">
@@ -144,7 +144,7 @@ function Curriculum() {
             <dl className="mt-8 grid grid-cols-3 divide-x divide-line border-t border-line pt-6 text-center">
               {PROGRAMME_FACTS.map((f) => (
                 <div key={f.label} className="px-2 sm:px-4">
-                  <dt className="eyebrow text-gold-deep">{f.label}</dt>
+                  <dt className="text-xs text-ink-soft sm:text-sm">{f.label}</dt>
                   <dd className="mt-1 text-base font-bold tracking-tight sm:text-2xl md:text-3xl">
                     {f.value}
                   </dd>
@@ -246,7 +246,6 @@ function Certification() {
       <div className="mx-auto max-w-[1240px] px-5 md:px-10">
         <SectionHeading
           center
-          eyebrow="Certification"
           title="How Certification Works"
           intro={
             <>

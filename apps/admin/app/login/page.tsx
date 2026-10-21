@@ -287,7 +287,7 @@ export default function AdminLogin() {
 
           <div className={styles.panelTop}>
             <Image
-              src="/brand/logo-light.png"
+              src="/brand/logo-dark.png"
               alt="whatboutme"
               width={168}
               height={24}

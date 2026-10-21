@@ -239,7 +239,7 @@ export default function LeadCheckoutPage({
           textAlign: "left",
         }}
       >
-        {/* Brand & Badge */}
+        {/* Brand */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Image src="/icon.png" alt="WhatBoutMe" width={28} height={28} />
@@ -247,20 +247,6 @@ export default function LeadCheckoutPage({
               whatboutme
             </span>
           </div>
-          <span
-            style={{
-              fontSize: "0.75rem",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              padding: "4px 10px",
-              borderRadius: "9999px",
-              backgroundColor: "rgba(184, 107, 17, 0.12)",
-              color: "#B86B11",
-            }}
-          >
-            Official Course Enrolment
-          </span>
         </div>
 
         {/* Header */}
@@ -405,7 +391,7 @@ export default function LeadCheckoutPage({
                 border: "1px solid #E7E0D6",
               }}
             >
-              <span>⚡ TEST_BYPASS Mode: Server-Side Webhook Emulation Active</span>
+              <span>TEST_BYPASS Mode: Server-Side Webhook Emulation Active</span>
             </div>
 
             {simulationError && (
@@ -453,7 +439,7 @@ export default function LeadCheckoutPage({
                   "Processing Simulated Payment..."
                 ) : (
                   <>
-                    <span>⚡ Simulate Test Payment (Instant Paid)</span>
+                    <span>Simulate Test Payment (Instant Paid)</span>
                     <span>({currencySymbol}{data.amount.toLocaleString()})</span>
                   </>
                 )}

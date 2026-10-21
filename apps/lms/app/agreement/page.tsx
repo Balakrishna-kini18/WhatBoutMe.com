@@ -518,7 +518,7 @@ function AgreementSignContent() {
   }
 
   const programTitle =
-    enrolment?.program?.title || activeTemplate?.programTitle || "Selected program";
+    enrolment?.program?.title || activeTemplate?.programTitle || "Selected Program";
   const agreementTitle = activeTemplate?.templateTitle || "Program agreement";
   const agreementVersion = activeTemplate?.version || signedRecord?.templateVersion || "v1.0";
   const agreementContent = activeTemplate?.content?.trim() || "";
@@ -547,7 +547,7 @@ function AgreementSignContent() {
 
           {/* Selected program */}
           <section className={css.summary}>
-            <span className={css.eyebrow}>Selected program</span>
+            <span className={css.eyebrow}>Selected Program</span>
             <span className={css.programName}>{programTitle}</span>
           </section>
 

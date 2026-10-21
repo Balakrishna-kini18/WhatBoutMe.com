@@ -326,7 +326,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                         {/* Step Details */}
                         <div className={styles.stepBody}>
                           <p className={styles.kicker}>
-                            STEP {step.sequence}
+                            Step {step.sequence}
                             {isOverride && (
                               <span
                                 className={styles.overrideBadge}
@@ -426,7 +426,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
                     <div className={styles.stepBody}>
                       <p className={styles.kicker} style={{ color: percent >= 100 ? "#854d0e" : undefined }}>
-                        FINAL MILESTONE
+                        Final Milestone
                       </p>
                       <h3 className={styles.stepTitle} style={{ color: percent >= 100 ? "#854d0e" : undefined }}>
                         Certificate of Completion
@@ -510,7 +510,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
             {/* Up Next Card */}
             <section className={styles.upNextCard} aria-labelledby="upnext-heading">
-              <p id="upnext-heading" className={styles.upNextKicker}>UP NEXT</p>
+              <p id="upnext-heading" className={styles.upNextKicker}>Up Next</p>
               {current ? (
                 <>
                   <h3 className={styles.upNextTitle}>{current.title}</h3>

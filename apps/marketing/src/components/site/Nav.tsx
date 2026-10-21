@@ -4,7 +4,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowUpRight, MoreVertical } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import Logo from "./Logo";
 import ProfileMenu from "./ProfileMenu";
 import MobileTabBar from "./MobileTabBar";
@@ -47,6 +47,10 @@ export default function Nav() {
   const hrefFor = (href: string) =>
     href.startsWith("/") ? href : `/${href === "#top" ? "" : href}`;
 
+  // page links mark the page you are on; section links never do
+  const isActive = (href: string) =>
+    href.startsWith("/") && (pathname === href || pathname.startsWith(`${href}/`));
+
   const go = (href: string) => (e: MouseEvent<HTMLAnchorElement>) => {
     const wasOpen = open;
     setOpen(false);
@@ -72,13 +76,16 @@ export default function Nav() {
             <Logo tone="light" className="h-[1.125rem] sm:h-[18px] md:h-[22px]" />
           </Link>
 
-          <ul className="hidden items-center gap-10 lg:flex">
+          <ul className="hidden items-center gap-5 lg:flex xl:gap-6 2xl:gap-8">
             {NAV_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={hrefFor(link.href)}
                   onClick={go(link.href)}
-                  className="block py-2.5 text-[15px] font-medium text-cream/75 transition-colors hover:text-cream"
+                  aria-current={isActive(link.href) ? "page" : undefined}
+                  className={`relative block py-2.5 text-[15px] font-medium transition-colors after:absolute after:inset-x-0 after:bottom-0.5 after:mx-auto after:h-0.5 after:rounded-full after:bg-gold after:transition-[width] after:duration-200 hover:text-cream ${
+                    isActive(link.href) ? "text-cream after:w-4" : "text-cream/75 after:w-0"
+                  }`}
                 >
                   {link.label}
                 </Link>
@@ -101,23 +108,22 @@ export default function Nav() {
               <ArrowUpRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </Link>
 
-            {/* menu button: three dots on phones, two lines from sm up */}
+            {/* menu button: two lines that turn into a cross */}
             <button
               onClick={() => setOpen((v) => !v)}
               aria-label={open ? "Close menu" : "Open menu"}
               aria-expanded={open}
               aria-controls="site-menu"
-              className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-cream sm:h-11 sm:w-11 sm:bg-cream/10 lg:hidden"
+              className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-cream transition-colors hover:bg-cream/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold sm:bg-cream/10 lg:hidden"
             >
-              <MoreVertical className="h-5 w-5 sm:hidden" strokeWidth={2} />
               <span
-                className={`absolute h-[1.5px] w-4 bg-cream transition-transform duration-300 max-sm:hidden ${
-                  open ? "rotate-45" : "-translate-y-1"
+                className={`absolute h-[1.5px] w-[18px] bg-cream transition-transform duration-300 ${
+                  open ? "rotate-45" : "-translate-y-[3.5px]"
                 }`}
               />
               <span
-                className={`absolute h-[1.5px] w-4 bg-cream transition-transform duration-300 max-sm:hidden ${
-                  open ? "-rotate-45" : "translate-y-1"
+                className={`absolute h-[1.5px] w-[18px] bg-cream transition-transform duration-300 ${
+                  open ? "-rotate-45" : "translate-y-[3.5px]"
                 }`}
               />
             </button>
@@ -186,18 +192,28 @@ export default function Nav() {
                 )}
                 {NAV_LINKS.map((link) => (
                   <li key={link.href}>
-                    <Link href={hrefFor(link.href)} onClick={go(link.href)} className={MENU_ITEM}>
+                    <Link
+                      href={hrefFor(link.href)}
+                      onClick={go(link.href)}
+                      aria-current={isActive(link.href) ? "page" : undefined}
+                      className={`${MENU_ITEM} ${isActive(link.href) ? "bg-cream-deep font-semibold" : ""}`}
+                    >
                       {link.label}
+                      {isActive(link.href) && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-gold-deep" />}
                     </Link>
                   </li>
                 ))}
-                <li>
-                  <Link href={ENQUIRE_HREF} onClick={() => setOpen(false)} className={MENU_ITEM}>
-                    Enquire now
-                    <ArrowUpRight className="h-4 w-4 text-ink-soft" />
-                  </Link>
-                </li>
               </ul>
+
+              {/* the main call to action, as a button rather than one more row */}
+              <Link
+                href={ENQUIRE_HREF}
+                onClick={() => setOpen(false)}
+                className="group mx-1 mt-2 flex min-h-12 items-center justify-center gap-1.5 rounded-xl bg-gold px-4 text-[15px] font-semibold text-ink transition-colors duration-200 hover:bg-ink hover:text-cream"
+              >
+                Enquire now
+                <ArrowUpRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </Link>
 
               <div className="mt-2 border-t border-line pt-2">
                 <a href={`mailto:${CONTACT.email}`} className={`${MENU_ITEM} break-all text-gold-deep`}>

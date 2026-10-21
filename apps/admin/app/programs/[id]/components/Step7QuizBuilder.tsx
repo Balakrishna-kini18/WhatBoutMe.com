@@ -605,7 +605,7 @@ export default function Step7QuizBuilder({
             className={`${styles.questionTypePill} ${selectedKind === 'SINGLE_CHOICE' ? styles.questionTypePillActive : ''}`}
             aria-pressed={selectedKind === 'SINGLE_CHOICE'}
           >
-            ● Single Choice (Radio)
+            Single Choice (Radio)
           </button>
           <button
             type="button"
@@ -613,7 +613,7 @@ export default function Step7QuizBuilder({
             className={`${styles.questionTypePill} ${selectedKind === 'MULTIPLE_CHOICE' ? styles.questionTypePillActive : ''}`}
             aria-pressed={selectedKind === 'MULTIPLE_CHOICE'}
           >
-            ☑ Multiple Choice (Checkboxes)
+            Multiple Choice (Checkboxes)
           </button>
           <button
             type="button"
@@ -621,7 +621,7 @@ export default function Step7QuizBuilder({
             className={`${styles.questionTypePill} ${selectedKind === 'TEXT_BOX' ? styles.questionTypePillActive : ''}`}
             aria-pressed={selectedKind === 'TEXT_BOX'}
           >
-            ✎ Written Reflection (Text Box)
+            Written Reflection (Text Box)
           </button>
         </div>
       </div>
@@ -850,7 +850,7 @@ export default function Step7QuizBuilder({
                 className={styles.secondaryActionBtn}
                 style={{ fontSize: "0.85rem" }}
               >
-                {newPromptUploading ? "Uploading Image..." : "📷 Attach Question Image"}
+                {newPromptUploading ? "Uploading Image..." : "Attach Question Image"}
               </button>
               <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
                 Supports diagrams, formulas, and visual scenarios
@@ -1044,7 +1044,7 @@ export default function Step7QuizBuilder({
                   ) : (
                     <div>
                       <label style={{ fontSize: "0.78rem", color: "#0284c7", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <span>📷 Attach Option Image</span>
+                        <span>Attach Option Image</span>
                         <input
                           type="file"
                           accept="image/png, image/jpeg, image/jpg"

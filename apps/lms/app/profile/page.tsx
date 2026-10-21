@@ -413,7 +413,7 @@ export default function ProfilePage() {
                       : "Verified on authenticated profile"}
                   </p>
                   <p className={styles.sigMetaNote}>
-                    🔒 Secured in private storage. When you enroll in a new program, this signature will be displayed for your explicit review and confirmation.
+                    Secured in private storage. When you enroll in a new program, this signature will be displayed for your explicit review and confirmation.
                   </p>
                 </div>
               </div>
@@ -447,11 +447,8 @@ export default function ProfilePage() {
         <section className={styles.deviceSection}>
           <div className={styles.deviceHeader}>
             <div>
-              <div className={styles.policyBadge}>
-                <span className={styles.policyDot} />
-                Single Active Device Enforced (1 Device Max)
-              </div>
               <h2 className={styles.sectionTitle}>Active Devices &amp; Security</h2>
+              <p className={styles.policyNote}>Single Active Device Enforced (1 Device Max)</p>
               <p className={styles.deviceSubtitle}>
                 To protect your course materials and prevent unauthorized sharing, WhatBoutMe limits each account to <strong>1 active session</strong>. Signing in on another browser or device automatically signs out previous sessions.
               </p>

@@ -23,9 +23,8 @@
 
 .cover {
   height: 150px;
-  background:
-    radial-gradient(circle at 85% 20%, rgba(239, 169, 68, 0.45), transparent 45%),
-    linear-gradient(120deg, var(--accent-primary-hover), var(--accent-primary));
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border-light);
 }
 
 /* avatar overlaps the cover; name beside it, actions on the right */
@@ -431,25 +430,10 @@
   margin-bottom: 1.25rem;
 }
 
-.policyBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
-  font-size: 0.75rem;
-  font-weight: 700;
-  margin-bottom: 0.6rem;
-  border: 1px solid rgba(16, 185, 129, 0.25);
-}
-
-.policyDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #10B981;
+.policyNote {
+  margin: -0.45rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .deviceSubtitle {

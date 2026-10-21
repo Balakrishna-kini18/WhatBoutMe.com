@@ -289,11 +289,9 @@
   align-items: center;
   gap: 0.5rem;
   margin: 0 0 0.2rem;
-  font-size: 0.725rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted, #78716a);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary, #4a443d);
 }
 
 .overrideBadge {
@@ -499,11 +497,10 @@
 
 .upNextKicker {
   margin: 0 0 0.45rem;
-  font-size: 0.725rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--accent-secondary, #efa944);
+  font-size: 0.8rem;
+  font-weight: 500;
+  /* on the ink card, matches .upNextSub for legibility */
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .upNextTitle {

@@ -8,7 +8,6 @@ export default function Facilitator({ image }: { image: string }) {
     <>
       {/* intro: headline left, portrait right */}
       <section className="relative overflow-hidden border-b border-line">
-        <div aria-hidden className="bg-grid absolute inset-0" />
         <div className="relative mx-auto grid max-w-[1240px] items-end gap-10 px-5 pt-20 sm:pt-32 md:px-10 md:pt-40 lg:grid-cols-[1.15fr_0.85fr] lg:gap-16">
           <div className="pb-4 text-center lg:pb-20 lg:text-left">
             <h1 className="text-balance text-[1.75rem] font-bold sm:text-4xl leading-[1.08] tracking-tight md:text-[3.25rem]">
@@ -95,7 +94,7 @@ export default function Facilitator({ image }: { image: string }) {
           <dl className="mt-8 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
             {CREDENTIALS.map((c) => (
               <div key={c.group} className="border-t-2 border-gold pt-5">
-                <dt className="eyebrow text-gold-deep">{c.group}</dt>
+                <dt className="text-sm text-ink-soft">{c.group}</dt>
                 <dd className="mt-4">
                   <ul className="space-y-2.5">
                     {c.items.map((item) => (

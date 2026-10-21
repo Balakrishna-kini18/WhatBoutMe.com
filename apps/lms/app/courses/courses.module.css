@@ -383,3 +383,141 @@
   font-size: var(--text-sm);
   line-height: 1.5;
 }
+
+/* ---- Enrolled courses as cards (same look as the dashboard's) ----
+   Picture on top, then the name, cohort, progress and what is next, and the
+   buttons in their own footer. Side by side on wide screens, stacked on phones. */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 1rem;
+  margin-top: 0.25rem;
+}
+
+.cardGrid .block,
+.cardGrid .block:last-child {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 1rem;
+  overflow: hidden;
+  border: 1px solid #cbb797;
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(20, 17, 15, 0.05), 0 10px 24px -18px rgba(110, 63, 18, 0.35);
+}
+
+.cardGrid .blockHead {
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.85rem;
+}
+
+.cardGrid .cover {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* the details: one column, padded inside the card */
+.cardGrid .blockHead > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 1rem;
+}
+
+/* the progress count reads as plain text, not a pill */
+.cardGrid .titleRow > span:last-child {
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.cardGrid .progressLine,
+.cardGrid [role="progressbar"] {
+  margin-top: 0.6rem;
+}
+
+.cardGrid .upNext {
+  white-space: normal;
+}
+
+.cardGrid .actions {
+  margin-top: auto;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.cardGrid .blockHead > div > p:last-of-type {
+  margin-bottom: 0.85rem;
+}
+
+.cardGrid .actions > a,
+.cardGrid .actions > span {
+  flex: 1;
+  text-align: center;
+}
+
+/* the main action: warm, inviting, a small lift on hover */
+.cardGrid .actions > a:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #d98a2b 0%, var(--accent-primary) 100%);
+  box-shadow: 0 6px 16px -8px rgba(201, 122, 30, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cardGrid .actions > a:first-child:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -10px rgba(201, 122, 30, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.cardGrid .actions > a + a {
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
+  border-radius: 12px;
+}
+
+.cardGrid .pending,
+.cardGrid .more {
+  margin-right: 1rem;
+  margin-left: 1rem;
+}
+
+@media (min-width: 641px) {
+  /* undo the wide-row layout (actions in a right-hand column) inside cards */
+  .cardGrid .blockHead > div {
+    display: flex;
+  }
+
+  .cardGrid .blockHead .actions {
+    margin-top: auto;
+  }
+
+  .cardGrid .titleRow {
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .cardGrid .cover {
+    aspect-ratio: 2 / 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cardGrid .actions > a:first-child {
+    transition: none;
+  }
+}

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import dash from "../page.module.css";
 import { SITE_URL } from "../lib/site";
+import { courseImageFor } from "../lib/courseImage";
 import cert from "../certificates/certificates.module.css";
 import styles from "./courses.module.css";
 
@@ -213,7 +214,8 @@ function Courses() {
           ) : shown.length === 0 ? (
             <p className={dash.empty}>Nothing in your courses matches that search.</p>
           ) : (
-            shown.map((course) => {
+            <div className={styles.cardGrid}>
+            {shown.map((course) => {
               const isActive = !course.status || course.status === "ACTIVE";
               const pending = isActive ? (course.pending ?? []) : [];
               const done = course.progress >= 100;
@@ -233,7 +235,7 @@ function Courses() {
                     {isActive ? (
                       <Link href={resume} className={styles.cover} aria-label={`${action}: ${course.programTitle}`}>
                         <Image
-                          src="/brand/session.png"
+                          src={courseImageFor(course.programTitle)}
                           alt=""
                           width={220}
                           height={124}
@@ -248,7 +250,7 @@ function Courses() {
                     ) : course.status === "PENDING_AGREEMENT" ? (
                       <Link href={`/agreement?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={styles.cover} aria-label={`Sign Agreement: ${course.programTitle}`}>
                         <Image
-                          src="/brand/session.png"
+                          src={courseImageFor(course.programTitle)}
                           alt=""
                           width={220}
                           height={124}
@@ -263,7 +265,7 @@ function Courses() {
                     ) : course.status === "PENDING_PAYMENT" ? (
                       <Link href={`/checkout?programId=${course.programId}&enrolmentId=${course.enrolmentId}`} className={styles.cover} aria-label={`Complete Payment: ${course.programTitle}`}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/brand/session.png" alt="" />
+                        <img src={courseImageFor(course.programTitle)} alt="" />
                         <span className={styles.play} aria-hidden="true" title="Complete Payment">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" /></svg>
                         </span>
@@ -271,7 +273,7 @@ function Courses() {
                     ) : (
                       <div className={styles.cover} style={{ cursor: "not-allowed", opacity: 0.7 }} aria-label={`Gated: ${course.programTitle}`}>
                         <Image
-                          src="/brand/session.png"
+                          src={courseImageFor(course.programTitle)}
                           alt=""
                           width={220}
                           height={124}
@@ -391,7 +393,8 @@ function Courses() {
                   )}
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </section>
       </div>

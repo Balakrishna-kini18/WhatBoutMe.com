@@ -9,21 +9,26 @@ export interface Step extends StepModule {}
 
 export interface Step8ModulePreviewProps {
   module: Step;
+  allModules?: Step[];
+  courseTitle?: string;
   onBackToEdit: () => void;
   onContinueToReview: () => void;
 }
 
 export default function Step8ModulePreview({
   module,
+  allModules,
+  courseTitle,
   onBackToEdit,
   onContinueToReview,
 }: Step8ModulePreviewProps) {
   return (
     <LearnerPortalFlow
       module={module}
-      courseTitle="Executive Leadership & Emotional Mastery (CPD 25h)"
+      allModules={allModules}
+      courseTitle={courseTitle || "Executive Leadership & Emotional Mastery (CPD 25h)"}
       cohortName="Sigma 1 — Cohort 1"
-      totalStepsCount={12}
+      totalStepsCount={allModules && allModules.length > 0 ? allModules.length : 12}
       completedStepsCount={3}
       overallProgressPercentage={25}
       learnerName="Roweena Foxwel"

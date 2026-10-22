@@ -713,6 +713,8 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       {wizardStep === "MODULE_PREVIEW" && activeModule && (
         <Step8ModulePreview
           module={activeModule}
+          allModules={steps}
+          courseTitle={programData?.title}
           onBackToEdit={() => setWizardStep("MODULE_DETAILS")}
           onContinueToReview={() => setWizardStep("REVIEW_PUBLISH")}
         />

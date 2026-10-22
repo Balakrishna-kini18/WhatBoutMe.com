@@ -1528,48 +1528,117 @@
 }
 
 /* -------------------------------------------------------------------------
-   4. Step C: RESOURCE_PAGE (Dedicated PDF Viewer)
+   4. Step C: RESOURCE_PAGE (Dedicated PDF / Resource Viewer)
    ------------------------------------------------------------------------- */
 .resourceScreenContainer {
   display: flex;
   flex-direction: column;
+  gap: 1.25rem;
+}
+
+.resourceTopHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 1rem;
+}
+
+.resourceHeaderLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resourceLessonTitle {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.screenTabsBar {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #ece6dd;
+  padding-bottom: 2px;
+  margin-top: 0.25rem;
+}
+
+.screenTabBtn {
+  background: transparent;
+  border: none;
+  padding: 8px 18px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #78716c;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.screenTabBtn:hover {
+  color: #1c1917;
+  background: #fdfbf7;
+}
+
+.screenTabBtnActive {
+  background: #d97706 !important;
+  color: #ffffff !important;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.25);
+}
+
+.docViewerCard {
+  background: #0f172a;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  border: 1px solid #1e293b;
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
 }
 
 .docToolbar {
   background: #1e293b;
   color: #ffffff;
-  border-radius: 12px;
   padding: 0.75rem 1.25rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.75rem;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid #334155;
 }
 
 .docToolbarLeft {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .docToolbarTitle {
   font-size: 0.88rem;
   font-weight: 700;
   color: #f8fafc;
+  font-family: monospace;
 }
 
 .docToolbarControls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .docToolbarBtn {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   color: #ffffff;
   border-radius: 6px;
   padding: 4px 10px;
@@ -1579,25 +1648,118 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: background 0.15s ease;
-  min-height: 32px;
+  transition: all 0.15s ease;
+  min-height: 30px;
 }
 
 .docToolbarBtn:hover {
   background: rgba(255, 255, 255, 0.22);
 }
 
-.docCanvasCard {
-  background: #ffffff;
-  border: 1px solid #ece6dd;
-  border-radius: 14px;
-  padding: 2.5rem 3rem;
-  box-shadow: 0 4px 20px rgba(28, 25, 23, 0.05);
-  min-height: 540px;
+.docToolbarBtnActive {
+  background: #d97706 !important;
+  border-color: #d97706 !important;
+  color: #ffffff !important;
+}
+
+.docSplitBody {
+  display: flex;
+  min-height: 520px;
+  background: #334155;
+  overflow: hidden;
+  position: relative;
+}
+
+.docThumbnailStrip {
+  width: 140px;
+  background: #0f172a;
+  border-right: 1px solid #1e293b;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: 580px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.docThumbnailStripClosed {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-right: none;
+}
+
+.docThumbnailItem {
+  border-radius: 8px;
+  padding: 8px 6px;
+  border: 1.5px solid #334155;
+  background: #1e293b;
+  cursor: pointer;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.docThumbnailItem:hover {
+  border-color: #f59e0b;
+  color: #ffffff;
+}
+
+.docThumbnailItemActive {
+  border-color: #f59e0b !important;
+  background: #fff7ed !important;
+  color: #b45309 !important;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+}
+
+.docThumbnailPreviewBox {
+  width: 100%;
+  height: 56px;
+  background: #ffffff;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.docThumbnailLine {
+  height: 3px;
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
+.docPageCanvasWrapper {
+  flex: 1;
+  padding: 2.5rem 1.5rem;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: #334155;
+}
+
+.docCanvasCard {
+  background: #ffffff;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 740px;
+  min-height: 540px;
+  padding: 2.5rem 3rem;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
   position: relative;
+  transition: transform 0.2s ease;
+  transform-origin: top center;
+  box-sizing: border-box;
 }
 
 .docPageWatermark {
@@ -1613,20 +1775,76 @@
   border-radius: 6px;
 }
 
+.docEmptyStateCard {
+  background: #ffffff;
+  border: 1.5px dashed #cbd5e1;
+  border-radius: 14px;
+  padding: 3.5rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 600px;
+  margin: 2rem auto;
+}
+
+.emptyStateTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+}
+
+.emptyStateSubtitle {
+  font-size: 0.88rem;
+  color: #57534e;
+  margin: 0 0 0.5rem;
+  line-height: 1.5;
+  max-width: 460px;
+}
+
+.resourceFooterBar {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
 /* -------------------------------------------------------------------------
    5. Step D: NOTES_PAGE (Distraction-Free Notes Companion)
    ------------------------------------------------------------------------- */
-.notesScreenGrid {
-  display: grid;
-  grid-templateColumns: 1fr 380px;
-  gap: 1.5rem;
-  align-items: start;
+.notesScreenContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-@media (max-width: 960px) {
-  .notesScreenGrid {
-    grid-templateColumns: 1fr;
-  }
+.notesTopHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.notesHeaderLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notesLessonTitle {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .notesEditorCard {
@@ -1637,55 +1855,237 @@
   box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
 }
 
-.notesRichToolbar {
+.notesFormattingToolbar {
   display: flex;
-  gap: 6px;
-  background: #fdfbf7;
-  border: 1px solid #ece6dd;
-  border-radius: 8px;
-  padding: 6px;
-  margin-bottom: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #ece6dd;
+}
+
+.notesFormatLeftGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.richBtn {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+.formatBtnGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.formatBtn {
+  width: 30px;
+  height: 30px;
   border-radius: 6px;
-  padding: 4px 9px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
   color: #374151;
+  font-weight: 800;
+  font-size: 0.8rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
 }
 
-.richBtn:hover {
-  background: #fff7ed;
-  border-color: #f59e0b;
-  color: #b45309;
+.formatBtn:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
 }
 
-.noteTextarea {
+.alignBtnGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: #f3f4f6;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.alignBtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.alignBtn:hover {
+  color: #1c1917;
+}
+
+.alignBtnActive {
+  background: #ffffff !important;
+  color: #d97706 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.notesScopedBadge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #78716c;
+  background: #fdfbf7;
+  border: 1px solid #ece6dd;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.noteTextareaLarge {
   width: 100%;
-  min-height: 180px;
-  padding: 1rem;
+  min-height: 300px;
+  padding: 1.15rem 1.25rem;
   border: 1.5px solid #ece6dd;
   border-radius: 10px;
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   color: #1c1917;
   background: #ffffff;
   box-sizing: border-box;
   font-family: inherit;
-  line-height: 1.6;
+  line-height: 1.65;
   resize: vertical;
   transition: border-color 0.15s ease;
+  outline: none;
 }
 
-.noteTextarea:focus {
-  outline: none;
+.noteTextareaLarge:focus {
   border-color: #d97706;
   box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12);
+}
+
+.notesCardFooterBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.notesStatusIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #15803d;
+}
+
+.btnSaveNotePrimary {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25);
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.btnSaveNotePrimary:hover {
+  background: #b45309;
+  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.35);
+}
+
+.previousNotesContainer {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.previousNotesHeading {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.previousNotesList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.previousNoteCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.previousNoteHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #78716c;
+  margin-bottom: 6px;
+}
+
+.previousNoteText {
+  font-size: 0.88rem;
+  color: #1c1917;
+  line-height: 1.55;
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.previousNoteFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  color: #a8a29e;
+}
+
+.btnDeleteSavedNote {
+  background: transparent;
+  border: none;
+  color: #dc2626;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.btnDeleteSavedNote:hover {
+  text-decoration: underline;
+}
+
+.notesFooterBar {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 
 /* -------------------------------------------------------------------------
@@ -1700,10 +2100,159 @@
   gap: 1.25rem;
 }
 
+.quizHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.25rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.quizHeaderLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.quizHeaderTitle {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.quizHeaderSubtitle {
+  font-size: 0.85rem;
+  color: #78716c;
+  margin: 0;
+}
+
+.quizMetaPill {
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  box-shadow: 0 1px 4px rgba(180, 83, 9, 0.08);
+}
+
+.quizMetaPillBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #b45309;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.quizMetaPillSub {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #92400e;
+}
+
+/* Compulsory Video Gate Check Locked Card */
+.quizLockedCard {
+  background: #ffffff;
+  border: 1.5px dashed #f59e0b;
+  border-radius: 16px;
+  padding: 3rem 2rem;
+  text-align: center;
+  max-width: 680px;
+  margin: 1.5rem auto;
+  box-shadow: 0 8px 24px rgba(217, 119, 6, 0.06);
+}
+
+.quizLockIconCircle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+}
+
+.quizLockedTitle {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0 0 0.5rem;
+}
+
+.quizLockedMessage {
+  font-size: 0.92rem;
+  color: #57534e;
+  max-width: 500px;
+  margin: 0 auto 1.75rem;
+  line-height: 1.55;
+}
+
+.btnReturnToVideo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.75rem 1.85rem;
+  border-radius: 10px;
+  border: none;
+  background: #d97706;
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 10px rgba(217, 119, 6, 0.28);
+  min-height: 44px;
+}
+
+.btnReturnToVideo:hover {
+  background: #b45309;
+  transform: translateY(-1px);
+}
+
+/* Quiz Progress Bar Card */
+.quizProgressCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.15rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.quizProgressLabels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.quizProgressQuestionCount {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #57534e;
+}
+
+.quizProgressPercent {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #d97706;
+}
+
 .quizProgressBarTrack {
   width: 100%;
   height: 8px;
-  background: #f3f4f6;
+  background: #f3ece3;
   border-radius: 6px;
   overflow: hidden;
 }
@@ -1715,6 +2264,7 @@
   transition: width 0.3s ease;
 }
 
+/* Single-Question Focus Card */
 .singleQuestionCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
@@ -1723,28 +2273,200 @@
   box-shadow: 0 4px 18px rgba(28, 25, 23, 0.05);
 }
 
-.questionOptionRadioCard {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  border-radius: 12px;
-  background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-bottom: 10px;
+.quizPromptContainer {
+  margin-bottom: 1.5rem;
 }
 
-.questionOptionRadioCard:hover {
+.quizCategoryTag {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #d97706;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.quizPromptTitle {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* Optional Media / Code Block */
+.quizMediaContainer {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.quizMediaLabel {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.quizCodeBlock {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  color: #1f2937;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.quizImageMedia {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+}
+
+/* Options List & Full-Width Option Rows */
+.quizOptionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 1.75rem;
+}
+
+.quizOptionRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  margin-bottom: 0;
+}
+
+.quizOptionRow:hover {
   background: #fdfbf7;
   border-color: #d97706;
 }
 
-.questionOptionSelected {
+.quizOptionRowSelected {
   background: #fff7ed !important;
-  border-color: #f59e0b !important;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.1);
+  border: 2px solid #d97706 !important;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.12);
+}
+
+.quizOptionDot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid #d1d5db;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.quizOptionDotSelected {
+  border-color: #d97706;
+  background: #d97706;
+}
+
+.quizOptionDotInner {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.quizCheckboxBox {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid #d1d5db;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.quizCheckboxBoxSelected {
+  border-color: #d97706;
+  background: #d97706;
+}
+
+.quizOptionTextWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.quizOptionText {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: #374151;
+  transition: color 0.15s ease;
+}
+
+.quizOptionTextSelected {
+  font-weight: 700 !important;
+  color: #1c1917 !important;
+}
+
+.quizTextBoxWrap {
+  margin-bottom: 1.75rem;
+}
+
+.quizTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  color: #1c1917;
+  background: #ffffff;
+  resize: vertical;
+  min-height: 120px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.quizTextarea:focus {
+  border-color: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
+}
+
+.quizTextCounterRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #78716c;
+}
+
+.quizCardActionBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #ece6dd;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 /* -------------------------------------------------------------------------
@@ -1761,15 +2483,39 @@
   box-shadow: 0 10px 30px rgba(22, 163, 74, 0.08);
 }
 
-.retryCard {
-  max-width: 720px;
-  margin: 1.5rem auto 0;
-  background: #ffffff;
-  border: 1.5px solid #fed7aa;
-  border-radius: 16px;
-  padding: 3rem 2.5rem;
-  text-align: center;
-  box-shadow: 0 10px 30px rgba(217, 119, 6, 0.08);
+.celebrationIconBox {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #16a34a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+}
+
+.celebrationTitle {
+  font-size: 1.8rem;
+  font-weight: 800;
+  margin: 1rem 0 0.5rem;
+  color: #1c1917;
+}
+
+.celebrationMessage {
+  margin: 0 auto;
+  font-size: 0.95rem;
+  color: #57534e;
+  max-width: 520px;
+  line-height: 1.55;
+}
+
+.celebrationActions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
 }
 
 .unlockAnnouncementBox {
@@ -1782,6 +2528,77 @@
   align-items: center;
   gap: 1rem;
   text-align: left;
+}
+
+.unlockIconBox {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #bbf7d0;
+  color: #15803d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.unlockTitle {
+  margin: 0 0 2px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #166534;
+}
+
+.unlockDescription {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #15803d;
+}
+
+.retryCard {
+  max-width: 720px;
+  margin: 1.5rem auto 0;
+  background: #ffffff;
+  border: 1.5px solid #fed7aa;
+  border-radius: 16px;
+  padding: 3rem 2.5rem;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(217, 119, 6, 0.08);
+}
+
+.retryIconBox {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #b45309;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.25rem;
+}
+
+.retryTitle {
+  font-size: 1.8rem;
+  font-weight: 800;
+  margin: 1rem 0 0.5rem;
+  color: #1c1917;
+}
+
+.retryMessage {
+  margin: 0 auto;
+  font-size: 0.95rem;
+  color: #57534e;
+  max-width: 520px;
+  line-height: 1.55;
+}
+
+.retryActions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
 }
 
 /* -------------------------------------------------------------------------

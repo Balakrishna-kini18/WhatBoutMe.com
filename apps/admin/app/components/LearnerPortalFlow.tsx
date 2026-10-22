@@ -686,18 +686,31 @@ export default function LearnerPortalFlow({
   // ---------------------------------------------------------------------------
   // Step C: Dedicated PDF Resource State
   // ---------------------------------------------------------------------------
+  const [showThumbnails, setShowThumbnails] = useState(true);
   const [pdfPage, setPdfPage] = useState(1);
-  const totalPdfPages = 4;
+  const totalPdfPages = 12;
   const [pdfZoom, setPdfZoom] = useState(100);
+  const [pdfRotation, setPdfRotation] = useState(0);
   const [pdfMarkedAsRead, setPdfMarkedAsRead] = useState(false);
+
+  const handleRotatePdf = () => {
+    setPdfRotation((prev) => (prev + 90) % 360);
+  };
+
+  const handleFitPdf = () => {
+    setPdfZoom(100);
+    setPdfRotation(0);
+  };
 
   // ---------------------------------------------------------------------------
   // Step D: Distraction-Free Notes Companion State
   // ---------------------------------------------------------------------------
-  const [inLessonNoteText, setInLessonNoteText] = useState("");
+  const [noteTextAlign, setNoteTextAlign] = useState<"left" | "center" | "right">("left");
+  const defaultStarterNotes = "Key Points:\n• \n\nAction Items:\n• \n\nPersonal Reflection:\n• ";
+  const [inLessonNoteText, setInLessonNoteText] = useState(defaultStarterNotes);
   const [inLessonHighlight, setInLessonHighlight] = useState("");
   const [bookmarkTimestamp, setBookmarkTimestamp] = useState<number | null>(null);
-  const [autoSaveFeedback, setAutoSaveFeedback] = useState<string>("All notes saved securely");
+  const [autoSaveFeedback, setAutoSaveFeedback] = useState<string>("✓ Saved to My Notes");
   const [savedNotes, setSavedNotes] = useState<SavedNoteItem[]>([
     {
       id: "note-init-1",
@@ -725,8 +738,16 @@ export default function LearnerPortalFlow({
     setAutoSaveFeedback(`Tagged video timestamp at ${formatVideoTime(timeToTag)}`);
   };
 
-  const handleSaveNote = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleInsertFormatInNotes = (tag: "B" | "I" | "U" | "BULLET" | "NUMBER") => {
+    if (tag === "B") setInLessonNoteText((prev) => `${prev} **bold**`);
+    else if (tag === "I") setInLessonNoteText((prev) => `${prev} *italic*`);
+    else if (tag === "U") setInLessonNoteText((prev) => `${prev} _underline_`);
+    else if (tag === "BULLET") setInLessonNoteText((prev) => `${prev}\n• `);
+    else if (tag === "NUMBER") setInLessonNoteText((prev) => `${prev}\n1. `);
+  };
+
+  const handleSaveNote = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!inLessonNoteText.trim()) return;
 
     const newNote: SavedNoteItem = {
@@ -736,14 +757,13 @@ export default function LearnerPortalFlow({
       videoTimestampSeconds: bookmarkTimestamp != null ? bookmarkTimestamp : Math.floor(currentTime),
       createdAt: new Date().toISOString(),
       stepTitle: `Step ${activeModule.sequence}: ${activeModule.title}`,
-      lessonTitle: videoLesson.title,
+      lessonTitle: currentVideoLesson.title,
     };
 
     setSavedNotes([newNote, ...savedNotes]);
-    setInLessonNoteText("");
-    setInLessonHighlight("");
     setBookmarkTimestamp(null);
-    setAutoSaveFeedback(`Auto-saved at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`);
+    const nowTime = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    setAutoSaveFeedback(`✓ Saved to My Notes at ${nowTime}`);
   };
 
   const handleDeleteNote = (id: string) => {
@@ -756,6 +776,7 @@ export default function LearnerPortalFlow({
   const [selectedSingleChoice, setSelectedSingleChoice] = useState<number | null>(null);
   const [selectedMultiChoice, setSelectedMultiChoice] = useState<number[]>([]);
   const [shortAnswerText, setShortAnswerText] = useState("");
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, any>>({});
   const [quizScore, setQuizScore] = useState<number | null>(null);
   const [isQuizPassed, setIsQuizPassed] = useState(false);
 
@@ -765,6 +786,7 @@ export default function LearnerPortalFlow({
       type: "MULTIPLE_CHOICE" as const,
       question: "Which leadership practice is most effective in stabilizing psychological safety during organizational restructuring?",
       category: "Emotional Regulation & Trust",
+      codeSnippet: "// Executive Crisis Protocol:\nconst protocol = {\n  strategy: 'transparent_vulnerability',\n  method: 'active_stakeholder_listening',\n  stabilizePsychologicalSafety: true\n};\nexecuteProtocol(protocol);",
       options: [
         { id: 0, text: "Top-down directive delegation without consultation" },
         { id: 1, text: "Transparent vulnerability, open dialogue, and active listening" },
@@ -778,6 +800,7 @@ export default function LearnerPortalFlow({
       type: "MULTI_SELECT" as const,
       question: "Select all foundational components of Roweena's Emotional Intelligence Leadership Framework:",
       category: "Framework Architecture",
+      codeSnippet: "/* Strategic Emotional Intelligence Framework */\n• Pillar 1: Somatic Signal Mapping & Physiological Baselines\n• Pillar 2: Social Empathy & Cognitive Perspective Synthesis\n• Pillar 3: Non-Reactive De-escalation Protocols",
       options: [
         { id: 0, text: "Self-Awareness & Physiological Trigger Mapping" },
         { id: 1, text: "Repression of Negative Feedback and Dissent" },
@@ -791,7 +814,7 @@ export default function LearnerPortalFlow({
       type: "SHORT_ANSWER" as const,
       question: "In your own words, describe how you intend to apply this module's emotional response matrix in your leadership workflow:",
       category: "Personal Action Plan",
-      placeholder: "Describe specific meetings, stakeholders, or triggers where you will apply this reframing...",
+      placeholder: "Describe specific meetings, stakeholders, or volatile triggers where you will apply this reframing...",
       minCharacters: 15,
     },
   ];
@@ -800,18 +823,45 @@ export default function LearnerPortalFlow({
   const fallbackQuestion = quizQuestions[0]!;
   const currentQuestion = quizQuestions[activeQuizQuestionIndex] ?? fallbackQuestion;
 
+  const handleSelectSingleChoice = (questionId: string, optId: number) => {
+    setQuizAnswers((prev) => ({ ...prev, [questionId]: optId }));
+    setSelectedSingleChoice(optId);
+  };
+
+  const handleToggleMultiChoice = (questionId: string, optId: number) => {
+    const existing: number[] = (quizAnswers[questionId] as number[]) || selectedMultiChoice || [];
+    const updated = existing.includes(optId)
+      ? existing.filter((id) => id !== optId)
+      : [...existing, optId];
+    setQuizAnswers((prev) => ({ ...prev, [questionId]: updated }));
+    setSelectedMultiChoice(updated);
+  };
+
+  const handleShortAnswerChange = (questionId: string, text: string) => {
+    setQuizAnswers((prev) => ({ ...prev, [questionId]: text }));
+    setShortAnswerText(text);
+  };
+
   const handleEvaluateQuiz = () => {
     let earned = 0;
     const q1 = quizQuestions[0];
-    if (q1 && selectedSingleChoice === q1.correctOption) earned += 1;
+    const q1Ans = quizAnswers[q1?.id ?? "q1"] ?? selectedSingleChoice;
+    if (q1 && q1Ans === q1.correctOption) earned += 1;
+
+    const q2 = quizQuestions[1];
+    const q2Ans: number[] = quizAnswers[q2?.id ?? "q2"] ?? selectedMultiChoice;
     if (
-      selectedMultiChoice.length === 2 &&
-      selectedMultiChoice.includes(0) &&
-      selectedMultiChoice.includes(2)
+      Array.isArray(q2Ans) &&
+      q2Ans.length === 2 &&
+      q2Ans.includes(0) &&
+      q2Ans.includes(2)
     ) {
       earned += 1;
     }
-    if (shortAnswerText.trim().length >= 15) earned += 1;
+
+    const q3 = quizQuestions[2];
+    const q3Ans: string = (quizAnswers[q3?.id ?? "q3"] ?? shortAnswerText ?? "").trim();
+    if (q3Ans.length >= (q3?.minCharacters || 15)) earned += 1;
 
     const percentage = Math.round((earned / totalQuestions) * 100);
     const passMark = activeModule.quiz?.passMark || 75;
@@ -825,12 +875,41 @@ export default function LearnerPortalFlow({
   const handleResetQuiz = () => {
     setActiveQuizQuestionIndex(0);
     onQuizQuestionIndexChange?.(0);
+    setQuizAnswers({});
     setSelectedSingleChoice(null);
     setSelectedMultiChoice([]);
     setShortAnswerText("");
     setQuizScore(null);
     setIsQuizPassed(false);
     goToQuizPage(selectedModuleId, selectedLessonId);
+  };
+
+  const handleContinueNext = () => {
+    // Check if there is another uncompleted video lesson in this active module
+    const nextLessonInModule = playlistVideos.find(
+      (v, idx) => idx > currentVideoIndex && v.status !== "Completed"
+    );
+    if (nextLessonInModule) {
+      goToVideoPage(selectedModuleId, nextLessonInModule.id);
+      return;
+    }
+
+    // Otherwise advance to next module
+    if (onNextModule) {
+      onNextModule();
+    } else if (onContinueToReview) {
+      onContinueToReview();
+    } else {
+      const nextMod = courseTimelineModules.find((m) => m.sequence === activeModule.sequence + 1);
+      if (nextMod) {
+        setSelectedModuleId(nextMod.id);
+        onModuleSelect?.(nextMod.id);
+        setActiveModule(nextMod);
+        goToModulePage(nextMod.id);
+      } else {
+        goToModulePage(selectedModuleId);
+      }
+    }
   };
 
   // Gating status calculation
@@ -1754,146 +1833,366 @@ export default function LearnerPortalFlow({
           STEP C: RESOURCE_PAGE (Dedicated PDF / Resource Viewer Screen)
           ===================================================================== */}
       {learningStep === "RESOURCE_PAGE" && (
-        <section className={styles.resourceScreenContainer}>
-          {/* Top Breadcrumb Back Link */}
+        <section className={styles.resourceScreenContainer} aria-label="Dedicated PDF / Resource Viewer">
+          {/* 1. Top Breadcrumb & Lesson Header */}
           <div>
-            <button
-              type="button"
-              onClick={() => goToVideoPage(selectedModuleId, selectedLessonId)}
-              className={styles.breadcrumbBackLink}
-            >
-              &larr; Back to Video Lecture
-            </button>
-          </div>
-
-          {/* Visible Progress Indicator */}
-          <div style={{ padding: "10px 16px", background: "#ffffff", border: "1px solid #ece6dd", borderRadius: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 800, color: "#1c1917" }}>
-                Step 3 of 6:
-              </span>
-              <span style={{ fontSize: "0.85rem", color: "#57534e" }}>
-                Interactive PDF Worksheet &amp; Framework
-              </span>
-            </div>
-            <span className={styles.statusBadge + " " + (pdfMarkedAsRead ? styles.statusCompleted : styles.statusInProgress)}>
-              Document Progress: Page {pdfPage} of {totalPdfPages} {pdfMarkedAsRead && "• Read ✓"}
-            </span>
-          </div>
-
-          <div className={styles.docToolbar}>
-            <div className={styles.docToolbarLeft}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-              <span className={styles.docToolbarTitle}>{pdfLesson.title}.pdf</span>
-              <span className={styles.statusBadge + " " + (pdfMarkedAsRead ? styles.statusCompleted : styles.statusInProgress)}>
-                {pdfMarkedAsRead ? "Read &bull; Verified ✓" : "Page Review Required"}
-              </span>
-            </div>
-
-            <div className={styles.docToolbarControls}>
+            <div style={{ marginBottom: "0.5rem" }}>
               <button
                 type="button"
-                onClick={() => setPdfPage((prev) => Math.max(1, prev - 1))}
-                disabled={pdfPage === 1}
-                className={styles.docToolbarBtn}
+                onClick={() => goToVideoPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.breadcrumbBackLink}
               >
-                ◀ Prev
-              </button>
-              <span style={{ fontSize: "0.8rem", fontWeight: 700, padding: "0 6px" }}>
-                Page {pdfPage} of {totalPdfPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPdfPage((prev) => Math.min(totalPdfPages, prev + 1))}
-                disabled={pdfPage === totalPdfPages}
-                className={styles.docToolbarBtn}
-              >
-                Next ▶
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPdfZoom((prev) => Math.max(75, prev - 15))}
-                className={styles.docToolbarBtn}
-              >
-                − Zoom
-              </button>
-              <span style={{ fontSize: "0.8rem", fontWeight: 700, padding: "0 4px" }}>
-                {pdfZoom}%
-              </span>
-              <button
-                type="button"
-                onClick={() => setPdfZoom((prev) => Math.min(150, prev + 15))}
-                className={styles.docToolbarBtn}
-              >
-                + Zoom
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPdfMarkedAsRead(!pdfMarkedAsRead)}
-                className={styles.docToolbarBtn}
-                style={{ background: pdfMarkedAsRead ? "#16a34a" : "#d97706", borderColor: "transparent" }}
-              >
-                {pdfMarkedAsRead ? "✓ Completed" : "Mark as Read"}
+                &larr; Step {activeModule.sequence}: {activeModule.title}
               </button>
             </div>
-          </div>
 
-          {/* High-Fidelity Worksheet Document Sheet */}
-          <div className={styles.docCanvasCard} style={{ transform: `scale(${pdfZoom / 100})`, transformOrigin: "top center" }}>
-            <div className={styles.docPageWatermark}>
-              WHATBOUTME FZE &bull; ACCREDITED CPD
-            </div>
-
-            <div style={{ borderBottom: "2px solid #1c1917", paddingBottom: "1rem" }}>
-              <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "#d97706", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                Executive Leadership Practical Worksheet &bull; Unit 2
-              </span>
-              <h2 style={{ fontSize: "1.65rem", fontWeight: 800, margin: "6px 0 4px", color: "#1c1917" }}>
-                Emotional Stimulus &amp; Physiological Trigger Matrix
-              </h2>
-              <p style={{ margin: 0, fontSize: "0.88rem", color: "#57534e" }}>
-                Participant: <strong>{learnerName}</strong> &bull; Cohort: Executive Leadership Fall 2026
-              </p>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-              <div style={{ padding: "1.25rem", borderRadius: 10, background: "#fdfbf7", border: "1px solid #ece6dd" }}>
-                <h4 style={{ margin: "0 0 8px", fontSize: "0.95rem", fontWeight: 800, color: "#92400e" }}>
-                  1. Trigger Identification Checklist
-                </h4>
-                <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.85rem", color: "#44403c", lineHeight: 1.7 }}>
-                  <li>Unscheduled calendar shifts or urgent status requests.</li>
-                  <li>Interrupted speaking time during cross-functional alignment.</li>
-                  <li>Perceived ambiguity in resource and budget allocation.</li>
-                  <li>Public critique of strategic deliverables.</li>
-                </ul>
+            <div className={styles.resourceTopHeader}>
+              <div className={styles.resourceHeaderLeft}>
+                <h1 className={styles.resourceLessonTitle}>
+                  {currentLessonNumber}. {currentVideoLesson.title}
+                </h1>
               </div>
 
-              <div style={{ padding: "1.25rem", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
-                <h4 style={{ margin: "0 0 8px", fontSize: "0.95rem", fontWeight: 800, color: "#166534" }}>
-                  2. De-escalation Protocol (The 4-Step S.T.O.P. Rule)
-                </h4>
-                <ol style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.85rem", color: "#15803d", lineHeight: 1.7 }}>
-                  <li><strong>S: Stop</strong> immediately before speaking or reacting.</li>
-                  <li><strong>T: Take a breath</strong> to re-oxygenate frontal cortex.</li>
-                  <li><strong>O: Observe</strong> internal somatic sensations without judgment.</li>
-                  <li><strong>P: Proceed</strong> intentionally aligned with overarching mission.</li>
-                </ol>
-              </div>
+              {isVideoCompleted && (
+                <div className={styles.badgeCompletedGreen}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>✓ Video Completed</span>
+                </div>
+              )}
             </div>
 
-            <div style={{ marginTop: "1rem", padding: "1.25rem", borderRadius: 10, border: "1.5px dashed #cbd5e1", background: "#f8fafc" }}>
-              <h4 style={{ margin: "0 0 6px", fontSize: "0.9rem", fontWeight: 800, color: "#334155" }}>
-                Fillable Reflection Space (Print or Annotate Online)
-              </h4>
-              <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>
-                Note two recurring professional situations that trigger immediate defensive reactions. Contrast your default reaction with your reframed, intentional response.
+            {/* 3-Tab Step Bar with PDF / Resources active */}
+            <div className={styles.screenTabsBar} role="tablist">
+              <button
+                type="button"
+                role="tab"
+                onClick={() => goToNotesPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.screenTabBtn}
+              >
+                <span>📝 Lesson Notes</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="true"
+                className={`${styles.screenTabBtn} ${styles.screenTabBtnActive}`}
+              >
+                <span>📄 PDF / Resources</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                onClick={() => goToVideoPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.screenTabBtn}
+              >
+                <span>📑 Transcript</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Dedicated Document Viewer Card */}
+          {pdfLesson ? (
+            <div className={styles.docViewerCard}>
+              {/* Top Dark Toolbar (#1E293B) */}
+              <div className={styles.docToolbar}>
+                <div className={styles.docToolbarLeft}>
+                  {/* Hamburger Thumbnail Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setShowThumbnails(!showThumbnails)}
+                    className={`${styles.docToolbarBtn} ${showThumbnails ? styles.docToolbarBtnActive : ""}`}
+                    title="Toggle Thumbnails Strip"
+                    aria-label="Toggle Page Thumbnails"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="3" y1="12" x2="21" y2="12" />
+                      <line x1="3" y1="6" x2="21" y2="6" />
+                      <line x1="3" y1="18" x2="21" y2="18" />
+                    </svg>
+                    <span>Thumbnails</span>
+                  </button>
+
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <span className={styles.docToolbarTitle}>
+                    {pdfLesson.title ? `${pdfLesson.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf` : "variables-and-data-types.pdf"}
+                  </span>
+                </div>
+
+                <div className={styles.docToolbarControls}>
+                  {/* Page Counter & Controls */}
+                  <button
+                    type="button"
+                    onClick={() => setPdfPage((prev) => Math.max(1, prev - 1))}
+                    disabled={pdfPage === 1}
+                    className={styles.docToolbarBtn}
+                    title="Previous Page"
+                  >
+                    ◀ Prev
+                  </button>
+                  <span style={{ fontSize: "0.8rem", fontWeight: 700, padding: "0 6px", fontFamily: "monospace" }}>
+                    {pdfPage} / {totalPdfPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPdfPage((prev) => Math.min(totalPdfPages, prev + 1))}
+                    disabled={pdfPage === totalPdfPages}
+                    className={styles.docToolbarBtn}
+                    title="Next Page"
+                  >
+                    Next ▶
+                  </button>
+
+                  {/* Zoom Controls */}
+                  <button
+                    type="button"
+                    onClick={() => setPdfZoom((prev) => Math.max(60, prev - 15))}
+                    className={styles.docToolbarBtn}
+                    title="Zoom Out"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFitPdf}
+                    className={styles.docToolbarBtn}
+                    title="Reset Zoom to 100%"
+                  >
+                    {pdfZoom}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPdfZoom((prev) => Math.min(160, prev + 15))}
+                    className={styles.docToolbarBtn}
+                    title="Zoom In"
+                  >
+                    +
+                  </button>
+
+                  {/* Rotate Icon */}
+                  <button
+                    type="button"
+                    onClick={handleRotatePdf}
+                    className={styles.docToolbarBtn}
+                    title="Rotate 90° Clockwise"
+                    aria-label="Rotate Document"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="23 4 23 10 17 10" />
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                    </svg>
+                  </button>
+
+                  {/* Download / Open action */}
+                  {pdfLesson.mediaUrl && (
+                    <a
+                      href={pdfLesson.mediaUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.docToolbarBtn}
+                      title="Open PDF in new tab"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                      <span>Open PDF ↗</span>
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setPdfMarkedAsRead(!pdfMarkedAsRead)}
+                    className={styles.docToolbarBtn}
+                    style={{ background: pdfMarkedAsRead ? "#16a34a" : "#d97706", borderColor: "transparent" }}
+                  >
+                    {pdfMarkedAsRead ? "✓ Completed" : "Mark as Read"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Split Document Body: Left Thumbnails + Right Document Canvas */}
+              <div className={styles.docSplitBody}>
+                {/* Left Thumbnail Strip */}
+                {showThumbnails && (
+                  <div className={styles.docThumbnailStrip} role="region" aria-label="Page Thumbnails">
+                    {Array.from({ length: totalPdfPages }, (_, i) => i + 1).map((p) => (
+                      <div
+                        key={p}
+                        onClick={() => setPdfPage(p)}
+                        className={`${styles.docThumbnailItem} ${p === pdfPage ? styles.docThumbnailItemActive : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        title={`Jump to Page ${p}`}
+                      >
+                        <div className={styles.docThumbnailPreviewBox}>
+                          <div className={styles.docThumbnailLine} style={{ width: "70%" }} />
+                          <div className={styles.docThumbnailLine} style={{ width: "90%" }} />
+                          <div className={styles.docThumbnailLine} style={{ width: "55%" }} />
+                          <div className={styles.docThumbnailLine} style={{ width: "80%" }} />
+                        </div>
+                        <span>Page {p}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Right Crisp White Document Page Canvas */}
+                <div className={styles.docPageCanvasWrapper}>
+                  <div
+                    className={styles.docCanvasCard}
+                    style={{
+                      transform: `scale(${pdfZoom / 100}) rotate(${pdfRotation}deg)`,
+                    }}
+                  >
+                    <div className={styles.docPageWatermark}>
+                      WHATBOUTME FZE &bull; ACCREDITED CPD
+                    </div>
+
+                    <div style={{ borderBottom: "2px solid #1c1917", paddingBottom: "1rem" }}>
+                      <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "#d97706", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        Executive Leadership Practical Framework &bull; Page {pdfPage} of {totalPdfPages}
+                      </span>
+                      <h2 style={{ fontSize: "1.65rem", fontWeight: 800, margin: "6px 0 4px", color: "#1c1917" }}>
+                        {pdfPage === 1
+                          ? "Emotional Stimulus & Physiological Trigger Matrix"
+                          : pdfPage === 2
+                          ? "The 4-Step S.T.O.P. De-escalation Protocol"
+                          : pdfPage === 3
+                          ? "Multi-Stakeholder Persuasion & Consensus Mapping"
+                          : pdfPage === 4
+                          ? "Executive Gravitas & Cross-Functional Psychological Safety"
+                          : `Advanced Study Sheet — Section ${pdfPage}: Leadership Applied Protocols`}
+                      </h2>
+                      <p style={{ margin: 0, fontSize: "0.88rem", color: "#57534e" }}>
+                        Participant: <strong>{learnerName}</strong> &bull; Cohort: Executive Leadership Fall 2026
+                      </p>
+                    </div>
+
+                    {pdfPage === 1 && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+                        <div style={{ padding: "1.25rem", borderRadius: 10, background: "#fdfbf7", border: "1px solid #ece6dd" }}>
+                          <h4 style={{ margin: "0 0 8px", fontSize: "0.95rem", fontWeight: 800, color: "#92400e" }}>
+                            1. Trigger Identification Checklist
+                          </h4>
+                          <ul style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.85rem", color: "#44403c", lineHeight: 1.7 }}>
+                            <li>Unscheduled calendar shifts or urgent status requests.</li>
+                            <li>Interrupted speaking time during cross-functional alignment.</li>
+                            <li>Perceived ambiguity in resource and budget allocation.</li>
+                            <li>Public critique of strategic deliverables.</li>
+                          </ul>
+                        </div>
+
+                        <div style={{ padding: "1.25rem", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                          <h4 style={{ margin: "0 0 8px", fontSize: "0.95rem", fontWeight: 800, color: "#166534" }}>
+                            2. De-escalation Protocol (The 4-Step S.T.O.P. Rule)
+                          </h4>
+                          <ol style={{ margin: 0, paddingLeft: "1.25rem", fontSize: "0.85rem", color: "#15803d", lineHeight: 1.7 }}>
+                            <li><strong>S: Stop</strong> immediately before speaking or reacting.</li>
+                            <li><strong>T: Take a breath</strong> to re-oxygenate frontal cortex.</li>
+                            <li><strong>O: Observe</strong> internal somatic sensations without judgment.</li>
+                            <li><strong>P: Proceed</strong> intentionally aligned with overarching mission.</li>
+                          </ol>
+                        </div>
+                      </div>
+                    )}
+
+                    {pdfPage === 2 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                        <div style={{ padding: "1.25rem", borderRadius: 10, background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                          <h4 style={{ margin: "0 0 8px", fontSize: "0.95rem", fontWeight: 800, color: "#92400e" }}>
+                            Somatic Baseline Indicators &amp; Amygdala Hijack Mitigation
+                          </h4>
+                          <p style={{ margin: "0 0 10px", fontSize: "0.85rem", color: "#44403c", lineHeight: 1.6 }}>
+                            When acute stress initiates sympathetic autonomic arousal, cognitive perspective taking collapses.
+                            Executives must identify their primary bodily warning signals:
+                          </p>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "0.82rem" }}>
+                            <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: 6, border: "1px solid #fed7aa" }}>
+                              <strong>Vocal Constriction:</strong> Elevation in pitch, rapid cadence.
+                            </div>
+                            <div style={{ padding: "8px 12px", background: "#ffffff", borderRadius: 6, border: "1px solid #fed7aa" }}>
+                              <strong>Somatic Tension:</strong> Shoulders elevated, clenched jaw.
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {pdfPage >= 3 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                        <div style={{ padding: "1.25rem", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                          <h4 style={{ margin: "0 0 8px", fontSize: "0.95rem", fontWeight: 800, color: "#1e293b" }}>
+                            Section {pdfPage}: Applied Boardroom Scenarios &amp; Strategic Action Matrix
+                          </h4>
+                          <p style={{ margin: 0, fontSize: "0.85rem", color: "#475569", lineHeight: 1.65 }}>
+                            Review your cohort study group assignments and implement the strategic frameworks covered in Unit {activeModule.sequence}.
+                            Maintain daily logs of emotional regulation practices and cross-functional feedback loops.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: "1rem", padding: "1.25rem", borderRadius: 10, border: "1.5px dashed #cbd5e1", background: "#f8fafc" }}>
+                      <h4 style={{ margin: "0 0 6px", fontSize: "0.9rem", fontWeight: 800, color: "#334155" }}>
+                        Fillable Reflection Space (Print or Annotate Online)
+                      </h4>
+                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>
+                        Note two recurring professional situations that trigger immediate defensive reactions. Contrast your default reaction with your reframed, intentional response.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Empty State Card if no PDF attached */
+            <div className={styles.docEmptyStateCard}>
+              <div style={{ width: 52, height: 52, borderRadius: "50%", background: "#fff7ed", color: "#d97706", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <line x1="9" y1="15" x2="15" y2="15" />
+                </svg>
+              </div>
+              <h3 className={styles.emptyStateTitle}>Optional Step — No PDF attached to this lesson</h3>
+              <p className={styles.emptyStateSubtitle}>
+                This lesson does not require supplemental worksheets or external reading documents. You can advance directly to taking notes.
               </p>
+              <button
+                type="button"
+                onClick={() => goToNotesPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.btnNextCTA}
+              >
+                Continue to Notes &rarr;
+              </button>
+            </div>
+          )}
+
+          {/* 3. Bottom Navigation Action Bar (Screen C) */}
+          <div className={styles.resourceFooterBar}>
+            <div>
+              <button
+                type="button"
+                onClick={() => goToVideoPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.btnPrevVideo}
+              >
+                &larr; Previous Video
+              </button>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => goToNotesPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.btnNextCTA}
+              >
+                Continue to Notes &rarr;
+              </button>
             </div>
           </div>
         </section>
@@ -1903,148 +2202,217 @@ export default function LearnerPortalFlow({
           STEP D: NOTES_PAGE (Distraction-Free Lesson Notes Companion)
           ===================================================================== */}
       {learningStep === "NOTES_PAGE" && (
-        <section>
-          {/* Top Breadcrumb Back Link */}
-          <div style={{ marginBottom: "0.75rem" }}>
-            <button
-              type="button"
-              onClick={() => goToResourcePage(selectedModuleId, selectedLessonId)}
-              className={styles.breadcrumbBackLink}
-            >
-              &larr; Back to PDF Worksheet
-            </button>
-          </div>
-
-          {/* Visible Progress Indicator */}
-          <div style={{ marginBottom: "1.25rem", padding: "10px 16px", background: "#ffffff", border: "1px solid #ece6dd", borderRadius: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 800, color: "#1c1917" }}>
-                Step 4 of 6:
-              </span>
-              <span style={{ fontSize: "0.85rem", color: "#57534e" }}>
-                Distraction-Free Lesson Notes Companion
-              </span>
+        <section className={styles.notesScreenContainer} aria-label="Distraction-Free Lesson Notes Companion">
+          {/* 1. Top Breadcrumb & Lesson Header */}
+          <div>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <button
+                type="button"
+                onClick={() => pdfLesson ? goToResourcePage(activeModule.id, pdfLesson.id) : goToVideoPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.breadcrumbBackLink}
+              >
+                &larr; Step {activeModule.sequence}: {activeModule.title}
+              </button>
             </div>
-            <span className={styles.statusBadge + " " + styles.statusCompleted}>
-              Notebook Progress: {savedNotes.length} Entries Synced
-            </span>
+
+            <div className={styles.notesTopHeader}>
+              <div className={styles.notesHeaderLeft}>
+                <h1 className={styles.notesLessonTitle}>
+                  {currentLessonNumber}. {currentVideoLesson.title}
+                </h1>
+              </div>
+            </div>
+
+            {/* 3-Tab Step Bar with Lesson Notes active */}
+            <div className={styles.screenTabsBar} role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected="true"
+                className={`${styles.screenTabBtn} ${styles.screenTabBtnActive}`}
+              >
+                <span>📝 Lesson Notes</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                onClick={() => goToResourcePage(activeModule.id, pdfLesson?.id)}
+                className={styles.screenTabBtn}
+              >
+                <span>📄 PDF / Resources</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                onClick={() => goToVideoPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.screenTabBtn}
+              >
+                <span>📑 Transcript</span>
+              </button>
+            </div>
           </div>
 
-          <div className={styles.notesScreenGrid}>
-            {/* Notes Composition Form */}
-            <div className={styles.notesEditorCard}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-                <div>
-                  <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "#d97706", textTransform: "uppercase" }}>
-                    Distraction-Free Study Companion
-                  </span>
-                  <h3 style={{ margin: "2px 0 0", fontSize: "1.25rem", fontWeight: 800 }}>
-                    Take Notes on Step {activeModule.sequence}
-                  </h3>
+          {/* 2. Distraction-Free Note Editor Card */}
+          <div className={styles.notesEditorCard}>
+            {/* Top Formatting Toolbar */}
+            <div className={styles.notesFormattingToolbar}>
+              <div className={styles.notesFormatLeftGroup}>
+                {/* B, I, U, Bullet, Number buttons */}
+                <div className={styles.formatBtnGroup}>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertFormatInNotes("B")}
+                    className={styles.formatBtn}
+                    title="Bold"
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertFormatInNotes("I")}
+                    className={styles.formatBtn}
+                    title="Italic"
+                    style={{ fontStyle: "italic" }}
+                  >
+                    I
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertFormatInNotes("U")}
+                    className={styles.formatBtn}
+                    title="Underline"
+                    style={{ textDecoration: "underline" }}
+                  >
+                    U
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertFormatInNotes("BULLET")}
+                    className={styles.formatBtn}
+                    title="Bullet List"
+                  >
+                    &bull;
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInsertFormatInNotes("NUMBER")}
+                    className={styles.formatBtn}
+                    title="Numbered List"
+                  >
+                    1.
+                  </button>
                 </div>
 
-                <span style={{ fontSize: "0.75rem", color: "#16a34a", fontWeight: 700 }}>
-                  ● {autoSaveFeedback}
-                </span>
-              </div>
+                {/* Text Alignment buttons */}
+                <div className={styles.alignBtnGroup} role="group" aria-label="Text Alignment">
+                  <button
+                    type="button"
+                    onClick={() => setNoteTextAlign("left")}
+                    className={`${styles.alignBtn} ${noteTextAlign === "left" ? styles.alignBtnActive : ""}`}
+                    title="Align Left"
+                    aria-label="Align Left"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="17" y1="10" x2="3" y2="10" />
+                      <line x1="21" y1="6" x2="3" y2="6" />
+                      <line x1="21" y1="14" x2="3" y2="14" />
+                      <line x1="17" y1="18" x2="3" y2="18" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNoteTextAlign("center")}
+                    className={`${styles.alignBtn} ${noteTextAlign === "center" ? styles.alignBtnActive : ""}`}
+                    title="Align Center"
+                    aria-label="Align Center"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="10" x2="6" y2="10" />
+                      <line x1="21" y1="6" x2="3" y2="6" />
+                      <line x1="21" y1="14" x2="3" y2="14" />
+                      <line x1="18" y1="18" x2="6" y2="18" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNoteTextAlign("right")}
+                    className={`${styles.alignBtn} ${noteTextAlign === "right" ? styles.alignBtnActive : ""}`}
+                    title="Align Right"
+                    aria-label="Align Right"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="21" y1="10" x2="7" y2="10" />
+                      <line x1="21" y1="6" x2="3" y2="6" />
+                      <line x1="21" y1="14" x2="3" y2="14" />
+                      <line x1="21" y1="18" x2="7" y2="18" />
+                    </svg>
+                  </button>
+                </div>
 
-              {/* Rich Formatting Toolbar */}
-              <div className={styles.notesRichToolbar}>
+                {/* Tag video timestamp button */}
                 <button
                   type="button"
-                  className={styles.richBtn}
-                  onClick={() => setInLessonNoteText((prev) => prev + " **[Key Insight]** ")}
-                >
-                  <strong>B</strong>
-                </button>
-                <button
-                  type="button"
-                  className={styles.richBtn}
-                  onClick={() => setInLessonNoteText((prev) => prev + " *[Emphasis]* ")}
-                >
-                  <em>I</em>
-                </button>
-                <button
-                  type="button"
-                  className={styles.richBtn}
-                  onClick={() => setInLessonNoteText((prev) => prev + "\n• ")}
-                >
-                  &bull; Bullet List
-                </button>
-                <button
-                  type="button"
-                  className={styles.richBtn}
-                  onClick={() => setInLessonNoteText((prev) => prev + "\n1. ")}
-                >
-                  1. Numbered
-                </button>
-                <button
-                  type="button"
-                  className={styles.richBtn}
                   onClick={handleCaptureTimestamp}
-                  style={{ color: "#d97706", borderColor: "#fed7aa", background: "#fff7ed" }}
+                  className={styles.btnTagTime}
+                  title="Tag current video timestamp"
                 >
                   ▶ Tag Video ({formatVideoTime(currentTime)})
                 </button>
               </div>
 
-              <form onSubmit={handleSaveNote}>
-                <div style={{ marginBottom: "12px" }}>
-                  <input
-                    type="text"
-                    placeholder="Capture standout quote or core takeaway..."
-                    value={inLessonHighlight}
-                    onChange={(e) => setInLessonHighlight(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      border: "1.5px solid #ece6dd",
-                      fontSize: "0.85rem",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-
-                <div style={{ marginBottom: "14px" }}>
-                  <textarea
-                    required
-                    rows={6}
-                    placeholder="Type your personal insights, executive application plans, and reflection points..."
-                    value={inLessonNoteText}
-                    onChange={(e) => setInLessonNoteText(e.target.value)}
-                    className={styles.noteTextarea}
-                  />
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "0.78rem", color: "#78716c" }}>
-                    Notes are synced privately to your learner account.
-                  </span>
-
-                  <button
-                    type="submit"
-                    className={styles.btnActionNext}
-                    style={{ minHeight: "44px" }}
-                  >
-                    Save Note to Notebook ✓
-                  </button>
-                </div>
-              </form>
+              {/* Subtle Right Badge */}
+              <div className={styles.notesScopedBadge}>
+                <span>🔒 Private to you &bull; Scoped to Step {activeModule.sequence}: {activeModule.title} / {currentVideoLesson.title}</span>
+              </div>
             </div>
 
-            {/* Chronological "My Notes" Notebook Column */}
-            <div className={styles.timelineCard}>
-              <div className={styles.timelineTitle}>
-                <span>Chronological Notes ({savedNotes.length})</span>
-                <span className={styles.statusBadge + " " + styles.statusCompleted}>Synced</span>
-              </div>
+            {/* Focused Writing Area (min-height: 300px) */}
+            <form onSubmit={handleSaveNote}>
+              <textarea
+                className={styles.noteTextareaLarge}
+                placeholder="Key Points:&#10;• &#10;&#10;Action Items:&#10;• &#10;&#10;Personal Reflection:&#10;• "
+                value={inLessonNoteText}
+                onChange={(e) => setInLessonNoteText(e.target.value)}
+                style={{ textAlign: noteTextAlign }}
+                aria-label="Write personal lesson notes"
+              />
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "480px", overflowY: "auto" }}>
+              {/* Card Footer Bar */}
+              <div className={styles.notesCardFooterBar}>
+                <div className={styles.notesStatusIndicator}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>{autoSaveFeedback}</span>
+                </div>
+
+                <button
+                  type="submit"
+                  className={styles.btnSaveNotePrimary}
+                >
+                  Save Note
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Previous Saved Notes List for this lesson */}
+          {savedNotes.length > 0 && (
+            <div className={styles.previousNotesContainer}>
+              <h3 className={styles.previousNotesHeading}>
+                <span>Previous Notes for this Lesson</span>
+                <span className={styles.statusBadge + " " + styles.statusCompleted}>
+                  {savedNotes.length} Entries Saved
+                </span>
+              </h3>
+
+              <div className={styles.previousNotesList}>
                 {savedNotes.map((note) => (
-                  <div key={note.id} style={{ padding: "12px", borderRadius: 10, background: "#fdfbf7", border: "1px solid #ece6dd" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "#78716c", marginBottom: "4px" }}>
-                      <span style={{ fontWeight: 700, color: "#d97706" }}>{note.stepTitle}</span>
+                  <div key={note.id} className={styles.previousNoteCard}>
+                    <div className={styles.previousNoteHeader}>
+                      <span style={{ fontWeight: 700, color: "#d97706" }}>
+                        {note.stepTitle} &bull; {note.lessonTitle}
+                      </span>
                       <span>{formatNoteDate(note.createdAt)}</span>
                     </div>
 
@@ -2056,21 +2424,16 @@ export default function LearnerPortalFlow({
                       </div>
                     )}
 
-                    {note.highlightSnippet && (
-                      <blockquote style={{ margin: "4px 0 6px", padding: "4px 8px", borderLeft: "3px solid #d97706", background: "#ffffff", fontSize: "0.8rem", fontStyle: "italic", color: "#475569" }}>
-                        &ldquo;{note.highlightSnippet}&rdquo;
-                      </blockquote>
-                    )}
-
-                    <p style={{ margin: "4px 0 8px", fontSize: "0.85rem", color: "#1c1917", lineHeight: 1.45 }}>
+                    <p className={styles.previousNoteText}>
                       {note.noteText}
                     </p>
 
-                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <div className={styles.previousNoteFooter}>
+                      <span>Private learner note</span>
                       <button
                         type="button"
                         onClick={() => handleDeleteNote(note.id)}
-                        style={{ background: "none", border: "none", color: "#dc2626", fontSize: "0.72rem", cursor: "pointer", fontWeight: 700 }}
+                        className={styles.btnDeleteSavedNote}
                       >
                         Delete Note
                       </button>
@@ -2078,6 +2441,29 @@ export default function LearnerPortalFlow({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* 3. Bottom Navigation Action Bar (Screen D) */}
+          <div className={styles.notesFooterBar}>
+            <div>
+              <button
+                type="button"
+                onClick={() => pdfLesson ? goToResourcePage(activeModule.id, pdfLesson.id) : goToVideoPage(activeModule.id, currentVideoLesson.id)}
+                className={styles.btnPrevVideo}
+              >
+                &larr; Previous
+              </button>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => goToQuizPage(activeModule.id)}
+                className={styles.btnNextCTA}
+              >
+                Continue to Quiz &rarr;
+              </button>
             </div>
           </div>
         </section>
@@ -2088,181 +2474,258 @@ export default function LearnerPortalFlow({
           ===================================================================== */}
       {learningStep === "QUIZ_PAGE" && (
         <section className={styles.quizScreenContainer}>
-          {/* Top Breadcrumb Back Link */}
-          <div>
-            <button
-              type="button"
-              onClick={() => goToNotesPage(selectedModuleId, selectedLessonId)}
-              className={styles.breadcrumbBackLink}
-            >
-              &larr; Back to Lesson Notes
-            </button>
-          </div>
-
-          {/* Visible Progress Indicator Header */}
-          <div style={{ background: "#ffffff", border: "1px solid #ece6dd", borderRadius: 14, padding: "1.25rem 1.5rem", boxShadow: "0 2px 10px rgba(28, 25, 23, 0.04)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
-              <div>
-                <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "#d97706", textTransform: "uppercase" }}>
-                  Step 5 of 6 &bull; {currentQuestion.category}
-                </span>
-                <h3 style={{ margin: "2px 0 0", fontSize: "1.15rem", fontWeight: 800 }}>
-                  Question {activeQuizQuestionIndex + 1} of {totalQuestions}
-                </h3>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span className={styles.statusBadge + " " + styles.statusRequired}>
-                  Pass mark: {activeModule.quiz?.passMark || 75}%
-                </span>
-                <span className={styles.statusBadge + " " + (isBeforeVideo ? styles.statusInProgress : styles.statusCompleted)}>
-                  {isBeforeVideo ? "Diagnostic" : "Post-Assessment"}
-                </span>
-              </div>
-            </div>
-
-            {/* Question Progress Bar */}
-            <div className={styles.quizProgressBarTrack}>
-              <div
-                className={styles.quizProgressBarFill}
-                style={{ width: `${Math.round(((activeQuizQuestionIndex + 1) / totalQuestions) * 100)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Single Question Card */}
-          <div className={styles.singleQuestionCard}>
-            <div style={{ marginBottom: "1.5rem" }}>
-              <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "#78716c", textTransform: "uppercase" }}>
-                {currentQuestion.type === "MULTIPLE_CHOICE"
-                  ? "Single Choice (Select One)"
-                  : currentQuestion.type === "MULTI_SELECT"
-                  ? "Multi-Select Checkboxes (Select All That Apply)"
-                  : "Short Answer Reflection"}
-              </span>
-              <h2 style={{ fontSize: "1.2rem", fontWeight: 800, margin: "8px 0 0", color: "#1c1917", lineHeight: 1.45 }}>
-                {currentQuestion.question}
-              </h2>
-            </div>
-
-            {/* Question Type 1: Single Choice */}
-            {currentQuestion.type === "MULTIPLE_CHOICE" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {currentQuestion.options?.map((opt) => {
-                  const isSelected = selectedSingleChoice === opt.id;
-                  return (
-                    <label
-                      key={opt.id}
-                      className={`${styles.questionOptionRadioCard} ${isSelected ? styles.questionOptionSelected : ""}`}
-                    >
-                      <input
-                        type="radio"
-                        name="single_choice"
-                        checked={isSelected}
-                        onChange={() => setSelectedSingleChoice(opt.id)}
-                        style={{ accentColor: "#d97706", width: 18, height: 18 }}
-                      />
-                      <span style={{ fontSize: "0.92rem", fontWeight: isSelected ? 700 : 500, color: "#1c1917" }}>
-                        {opt.text}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Question Type 2: Multi-Select Checkboxes */}
-            {currentQuestion.type === "MULTI_SELECT" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {currentQuestion.options?.map((opt) => {
-                  const isChecked = selectedMultiChoice.includes(opt.id);
-                  return (
-                    <label
-                      key={opt.id}
-                      className={`${styles.questionOptionRadioCard} ${isChecked ? styles.questionOptionSelected : ""}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedMultiChoice([...selectedMultiChoice, opt.id]);
-                          } else {
-                            setSelectedMultiChoice(selectedMultiChoice.filter((id) => id !== opt.id));
-                          }
-                        }}
-                        style={{ accentColor: "#d97706", width: 18, height: 18 }}
-                      />
-                      <span style={{ fontSize: "0.92rem", fontWeight: isChecked ? 700 : 500, color: "#1c1917" }}>
-                        {opt.text}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Question Type 3: Short Answer Reflective Text Box */}
-            {currentQuestion.type === "SHORT_ANSWER" && (
-              <div>
-                <textarea
-                  rows={5}
-                  value={shortAnswerText}
-                  placeholder={currentQuestion.placeholder}
-                  onChange={(e) => setShortAnswerText(e.target.value)}
-                  className={styles.noteTextarea}
-                />
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px", fontSize: "0.75rem", color: "#78716c" }}>
-                  <span>Min characters: {currentQuestion.minCharacters || 15}</span>
-                  <span>{shortAnswerText.trim().length} characters entered</span>
-                </div>
-              </div>
-            )}
-
-            {/* Navigation inside card */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2rem", paddingTop: "1.25rem", borderTop: "1px solid #ece6dd" }}>
+          {/* 1. Top Quiz Header */}
+          <div className={styles.quizHeader}>
+            <div className={styles.quizHeaderLeft}>
               <button
                 type="button"
-                onClick={() => {
-                  const prev = Math.max(0, activeQuizQuestionIndex - 1);
-                  setActiveQuizQuestionIndex(prev);
-                  onQuizQuestionIndexChange?.(prev);
-                }}
-                disabled={activeQuizQuestionIndex === 0}
-                className={styles.btnActionBack}
+                onClick={() => goToNotesPage(selectedModuleId, selectedLessonId)}
+                className={styles.breadcrumbBackLink}
               >
-                ◀ Previous Question
+                &larr; Step {activeModule.sequence}: {activeModule.title}
               </button>
+              <h2 className={styles.quizHeaderTitle}>
+                {currentLessonNumber}. {currentVideoLesson.title}
+              </h2>
+              <p className={styles.quizHeaderSubtitle}>
+                {isBeforeVideo ? "Diagnostic Pre-Assessment" : "Knowledge Check & Mastery Assessment"}
+              </p>
+            </div>
 
-              {activeQuizQuestionIndex < totalQuestions - 1 ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = Math.min(totalQuestions - 1, activeQuizQuestionIndex + 1);
-                    setActiveQuizQuestionIndex(next);
-                    onQuizQuestionIndexChange?.(next);
-                  }}
-                  className={styles.btnActionNext}
-                >
-                  Next Question ▶
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleEvaluateQuiz}
-                  className={styles.btnActionNext}
-                  style={{ background: "#16a34a" }}
-                >
-                  Submit Quiz &amp; Evaluate Score ✓
-                </button>
-              )}
+            <div className={styles.quizMetaPill}>
+              <div className={styles.quizMetaPillBadge}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <span>Quiz &bull; {totalQuestions} Questions</span>
+              </div>
+              <span className={styles.quizMetaPillSub}>
+                Pass Mark: {activeModule.quiz?.passMark || 75}%
+              </span>
             </div>
           </div>
+
+          {/* Compulsory Video Gate Check: AFTER_VIDEO requirement */}
+          {!isBeforeVideo && !isVideoCompleted ? (
+            <div className={styles.quizLockedCard}>
+              <div className={styles.quizLockIconCircle}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </div>
+              <h3 className={styles.quizLockedTitle}>Compulsory Video Lecture Required</h3>
+              <p className={styles.quizLockedMessage}>
+                Roweena&apos;s curriculum requires you to complete the lesson video lecture (<strong>{currentVideoLesson.title}</strong>) in full before unlocking this comprehension quiz. Content anti-skip enforcement is active.
+              </p>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => goToVideoPage(selectedModuleId, selectedLessonId)}
+                  className={styles.btnReturnToVideo}
+                >
+                  Return to Video &rarr;
+                </button>
+                {isSimulatorMode && (
+                  <button
+                    type="button"
+                    onClick={() => setIsVideoCompleted(true)}
+                    className={styles.btnActionBack}
+                    style={{ color: "#d97706", borderColor: "#f59e0b" }}
+                  >
+                    ⚡ Bypass &amp; Unlock Video (Simulator Testing)
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 2. Quiz Progress Bar Card */}
+              <div className={styles.quizProgressCard}>
+                <div className={styles.quizProgressLabels}>
+                  <span className={styles.quizProgressQuestionCount}>
+                    Question {activeQuizQuestionIndex + 1} of {totalQuestions}
+                  </span>
+                  <span className={styles.quizProgressPercent}>
+                    {Math.round(((activeQuizQuestionIndex + 1) / totalQuestions) * 100)}%
+                  </span>
+                </div>
+                <div className={styles.quizProgressBarTrack}>
+                  <div
+                    className={styles.quizProgressBarFill}
+                    style={{ width: `${Math.round(((activeQuizQuestionIndex + 1) / totalQuestions) * 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* 3. Single-Question Focus Card (One Question at a Time) */}
+              <div className={styles.singleQuestionCard}>
+                <div className={styles.quizPromptContainer}>
+                  <div className={styles.quizCategoryTag}>
+                    {currentQuestion.category} &bull;{" "}
+                    {currentQuestion.type === "MULTIPLE_CHOICE"
+                      ? "Single Choice"
+                      : currentQuestion.type === "MULTI_SELECT"
+                      ? "Multi-Select (Select All That Apply)"
+                      : "Reflective Short Answer"}
+                  </div>
+                  <h3 className={styles.quizPromptTitle}>
+                    {activeQuizQuestionIndex + 1}. {currentQuestion.question}
+                  </h3>
+                </div>
+
+                {/* Optional Media / Code Block */}
+                {currentQuestion.codeSnippet && (
+                  <div className={styles.quizMediaContainer}>
+                    <div className={styles.quizMediaLabel}>Scenario / Code Context</div>
+                    <pre className={styles.quizCodeBlock}>
+                      <code>{currentQuestion.codeSnippet}</code>
+                    </pre>
+                  </div>
+                )}
+
+                {/* Answer Options: SINGLE_CHOICE */}
+                {currentQuestion.type === "MULTIPLE_CHOICE" && (
+                  <div className={styles.quizOptionsList} role="radiogroup" aria-label={`Question ${activeQuizQuestionIndex + 1}`}>
+                    {currentQuestion.options?.map((opt) => {
+                      const isSelected = (quizAnswers[currentQuestion.id] ?? selectedSingleChoice) === opt.id;
+                      return (
+                        <div
+                          key={opt.id}
+                          role="radio"
+                          aria-checked={isSelected}
+                          tabIndex={0}
+                          onClick={() => handleSelectSingleChoice(currentQuestion.id, opt.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleSelectSingleChoice(currentQuestion.id, opt.id);
+                            }
+                          }}
+                          className={`${styles.quizOptionRow} ${isSelected ? styles.quizOptionRowSelected : ""}`}
+                        >
+                          <div className={`${styles.quizOptionDot} ${isSelected ? styles.quizOptionDotSelected : ""}`}>
+                            {isSelected && <div className={styles.quizOptionDotInner} />}
+                          </div>
+                          <div className={styles.quizOptionTextWrap}>
+                            <span className={`${styles.quizOptionText} ${isSelected ? styles.quizOptionTextSelected : ""}`}>
+                              {opt.text}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Answer Options: MULTI_SELECT */}
+                {currentQuestion.type === "MULTI_SELECT" && (
+                  <div className={styles.quizOptionsList} role="group" aria-label={`Question ${activeQuizQuestionIndex + 1}`}>
+                    {currentQuestion.options?.map((opt) => {
+                      const selectedArr: number[] = quizAnswers[currentQuestion.id] ?? selectedMultiChoice;
+                      const isChecked = selectedArr.includes(opt.id);
+                      return (
+                        <div
+                          key={opt.id}
+                          role="checkbox"
+                          aria-checked={isChecked}
+                          tabIndex={0}
+                          onClick={() => handleToggleMultiChoice(currentQuestion.id, opt.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleToggleMultiChoice(currentQuestion.id, opt.id);
+                            }
+                          }}
+                          className={`${styles.quizOptionRow} ${isChecked ? styles.quizOptionRowSelected : ""}`}
+                        >
+                          <div className={`${styles.quizCheckboxBox} ${isChecked ? styles.quizCheckboxBoxSelected : ""}`}>
+                            {isChecked && (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </div>
+                          <div className={styles.quizOptionTextWrap}>
+                            <span className={`${styles.quizOptionText} ${isChecked ? styles.quizOptionTextSelected : ""}`}>
+                              {opt.text}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Answer Options: SHORT_ANSWER / TEXT_BOX */}
+                {currentQuestion.type === "SHORT_ANSWER" && (
+                  <div className={styles.quizTextBoxWrap}>
+                    <textarea
+                      rows={5}
+                      value={quizAnswers[currentQuestion.id] ?? shortAnswerText}
+                      placeholder={currentQuestion.placeholder}
+                      onChange={(e) => handleShortAnswerChange(currentQuestion.id, e.target.value)}
+                      className={styles.quizTextarea}
+                    />
+                    <div className={styles.quizTextCounterRow}>
+                      <span>Min requirement: {currentQuestion.minCharacters || 15} characters</span>
+                      <span>
+                        {(quizAnswers[currentQuestion.id] ?? shortAnswerText).trim().length} characters entered
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Bottom Navigation Action Bar inside Card */}
+                <div className={styles.quizCardActionBar}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeQuizQuestionIndex > 0) {
+                        const prev = activeQuizQuestionIndex - 1;
+                        setActiveQuizQuestionIndex(prev);
+                        onQuizQuestionIndexChange?.(prev);
+                      } else {
+                        goToNotesPage(selectedModuleId, selectedLessonId);
+                      }
+                    }}
+                    className={styles.btnActionBack}
+                  >
+                    &larr; {activeQuizQuestionIndex === 0 ? "Back to Notes" : "Previous"}
+                  </button>
+
+                  {activeQuizQuestionIndex < totalQuestions - 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = activeQuizQuestionIndex + 1;
+                        setActiveQuizQuestionIndex(next);
+                        onQuizQuestionIndexChange?.(next);
+                      }}
+                      className={styles.btnActionNext}
+                    >
+                      Next Question &rarr;
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleEvaluateQuiz}
+                      className={styles.btnActionNext}
+                    >
+                      Submit Quiz &rarr;
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </section>
       )}
 
       {/* =====================================================================
-          STEP F: NEXT_STEP_PAGE (Pass Celebration / Friendly Retry Screen)
+          STEP F: NEXT_STEP_PAGE (Quiz Result & Next Module / Lesson Unlock)
           ===================================================================== */}
       {learningStep === "NEXT_STEP_PAGE" && (
         <section>
@@ -2273,129 +2736,114 @@ export default function LearnerPortalFlow({
               onClick={() => goToModulePage(selectedModuleId)}
               className={styles.breadcrumbBackLink}
             >
-              &larr; Back to Step {activeModule.sequence} Roadmap
+              &larr; Step {activeModule.sequence}: {activeModule.title}
             </button>
           </div>
 
-          {/* Visible Progress Indicator */}
-          <div style={{ padding: "10px 16px", background: "#ffffff", border: "1px solid #ece6dd", borderRadius: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "1.25rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 800, color: "#1c1917" }}>
-                Step 6 of 6:
-              </span>
-              <span style={{ fontSize: "0.85rem", color: "#57534e" }}>
-                Module Completion &amp; Progression Evaluation
-              </span>
-            </div>
-            <span className={styles.statusBadge + " " + (isQuizPassed ? styles.statusPassed : styles.statusFailed)}>
-              {isQuizPassed ? `Passed (${quizScore}%)` : `Retake Needed (${quizScore}%)`}
-            </span>
-          </div>
-
           {isQuizPassed ? (
-            /* Pass Celebration Screen */
+            /* 1. Passed / Completed Celebration Card */
             <div className={styles.celebrationCard}>
-              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#dcfce7", color: "#16a34a", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
+              <div className={styles.celebrationIconBox}>
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                   <polyline points="22 4 12 14.01 9 11.01" />
                 </svg>
               </div>
 
-              <span className={styles.statusBadge + " " + styles.statusPassed} style={{ fontSize: "0.85rem", padding: "4px 12px" }}>
-                Passed &bull; {quizScore}% Score
+              <span className={styles.statusBadge + " " + styles.statusPassed} style={{ fontSize: "0.85rem", padding: "4px 14px", borderRadius: 20 }}>
+                Passed
               </span>
 
-              <h2 style={{ fontSize: "1.8rem", fontWeight: 800, margin: "1rem 0 0.5rem", color: "#1c1917" }}>
+              <h2 className={styles.celebrationTitle}>
                 Congratulations, {learnerName}!
               </h2>
-              <p style={{ margin: "0 auto", fontSize: "0.95rem", color: "#57534e", maxWidth: "520px", lineHeight: 1.5 }}>
-                You have successfully demonstrated mastery of <strong>Module {activeModule.sequence}: {activeModule.title}</strong>, achieving {quizScore}% (Required pass mark was {activeModule.quiz?.passMark || 75}%).
+
+              <p style={{ margin: "0 auto 0.75rem", fontSize: "1rem", fontWeight: 700, color: "#166534" }}>
+                You scored {quizScore}% &bull; Pass mark: {activeModule.quiz?.passMark || 75}%
               </p>
 
-              {/* Unlocked Next Step Announcement */}
+              <p className={styles.celebrationMessage}>
+                Great work! You have completed <strong>{currentVideoLesson.title || activeModule.title}</strong> and unlocked the next step in your learning path.
+              </p>
+
+              {/* Unlocked Next Step Announcement Box */}
               <div className={styles.unlockAnnouncementBox}>
-                <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#bbf7d0", color: "#15803d", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <div className={styles.unlockIconBox}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                     <path d="M7 11V7a5 5 0 0 1 9.9-1" />
                   </svg>
                 </div>
                 <div>
-                  <h4 style={{ margin: "0 0 2px", fontSize: "0.95rem", fontWeight: 800, color: "#166534" }}>
-                    Module {activeModule.sequence + 1}: Strategic Influence Unlocked!
+                  <h4 className={styles.unlockTitle}>
+                    Module {activeModule.sequence + 1}: Strategic Influence &amp; High-Stakes Communication Unlocked!
                   </h4>
-                  <p style={{ margin: 0, fontSize: "0.82rem", color: "#15803d" }}>
-                    Your progression has updated on the server. Continuing advances your official CPD certification record.
+                  <p className={styles.unlockDescription}>
+                    Your progression has verified and updated on the server. Continuing advances your official CPD certification record.
                   </p>
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginTop: "1.5rem" }}>
+              {/* Action Buttons */}
+              <div className={styles.celebrationActions}>
                 <button
                   type="button"
                   onClick={() => goToModulePage(selectedModuleId)}
                   className={styles.btnActionBack}
                 >
-                  Review Module Roadmap
+                  Back to Learning Path
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    if (onNextModule) {
-                      onNextModule();
-                    } else if (onContinueToReview) {
-                      onContinueToReview();
-                    } else {
-                      goToModulePage(selectedModuleId);
-                    }
-                  }}
+                  onClick={handleContinueNext}
                   className={styles.btnActionNext}
-                  style={{ minHeight: "48px", padding: "0.75rem 2rem", fontSize: "1rem" }}
+                  style={{ minHeight: "48px", padding: "0.75rem 2.25rem", fontSize: "1rem" }}
                 >
                   Continue to Next Module &rarr;
                 </button>
               </div>
             </div>
           ) : (
-            /* Friendly Retry Screen */
+            /* 2. Failed / Retry State Card (If Score < Pass Mark) */
             <div className={styles.retryCard}>
-              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#fef3c7", color: "#b45309", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem" }}>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <div className={styles.retryIconBox}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
                 </svg>
               </div>
 
-              <span className={styles.statusBadge + " " + styles.statusFailed} style={{ fontSize: "0.85rem", padding: "4px 12px" }}>
-                Score: {quizScore != null ? `${quizScore}%` : "Incomplete"} &bull; Below 75% Pass Mark
+              <span className={styles.statusBadge + " " + styles.statusFailed} style={{ fontSize: "0.85rem", padding: "4px 14px", borderRadius: 20 }}>
+                Score: {quizScore != null ? `${quizScore}%` : "Incomplete"} &bull; Below {activeModule.quiz?.passMark || 75}% Pass Mark
               </span>
 
-              <h2 style={{ fontSize: "1.8rem", fontWeight: 800, margin: "1rem 0 0.5rem", color: "#1c1917" }}>
+              <h2 className={styles.retryTitle}>
                 Almost There! Let&apos;s Review &amp; Retry
               </h2>
-              <p style={{ margin: "0 auto", fontSize: "0.95rem", color: "#57534e", maxWidth: "520px", lineHeight: 1.5 }}>
-                You scored {quizScore}% on this attempt. The passing threshold is {activeModule.quiz?.passMark || 75}%. You can review the video theatre and worksheet materials, then retry the assessment immediately.
+
+              <p className={styles.retryMessage}>
+                You scored {quizScore}% on this attempt. The passing threshold is {activeModule.quiz?.passMark || 75}%. You have remaining attempts. Review the lesson video and notes, then retry the assessment.
               </p>
 
-              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginTop: "2rem" }}>
+              {/* Action Buttons */}
+              <div className={styles.retryActions}>
                 <button
                   type="button"
                   onClick={() => goToVideoPage(selectedModuleId, selectedLessonId)}
                   className={styles.btnActionBack}
                 >
-                  ← Rewatch Video Lecture
+                  &larr; Review Lesson Video &amp; Notes
                 </button>
 
                 <button
                   type="button"
                   onClick={handleResetQuiz}
                   className={styles.btnActionNext}
-                  style={{ minHeight: "48px", padding: "0.75rem 2rem", fontSize: "1rem" }}
+                  style={{ minHeight: "48px", padding: "0.75rem 2.25rem", fontSize: "1rem" }}
                 >
-                  Retry Knowledge Check Quiz &rarr;
+                  Retry Quiz &rarr;
                 </button>
               </div>
             </div>
@@ -2443,10 +2891,18 @@ export default function LearnerPortalFlow({
           ) : learningStep === "QUIZ_PAGE" ? (
             <button
               type="button"
-              onClick={() => goToNotesPage(selectedModuleId, selectedLessonId)}
+              onClick={() => {
+                if (activeQuizQuestionIndex > 0) {
+                  const prev = activeQuizQuestionIndex - 1;
+                  setActiveQuizQuestionIndex(prev);
+                  onQuizQuestionIndexChange?.(prev);
+                } else {
+                  goToNotesPage(selectedModuleId, selectedLessonId);
+                }
+              }}
               className={styles.btnActionBack}
             >
-              &larr; Previous: Lesson Notes
+              &larr; {activeQuizQuestionIndex === 0 ? "Previous: Lesson Notes" : "Previous Question"}
             </button>
           ) : (
             <button
@@ -2454,7 +2910,7 @@ export default function LearnerPortalFlow({
               onClick={() => goToModulePage(selectedModuleId)}
               className={styles.btnActionBack}
             >
-              &larr; Previous: Return to Roadmap
+              &larr; Back to Learning Path
             </button>
           )}
         </div>
@@ -2529,16 +2985,14 @@ export default function LearnerPortalFlow({
               type="button"
               onClick={() => {
                 if (isQuizPassed) {
-                  if (onNextModule) onNextModule();
-                  else if (onContinueToReview) onContinueToReview();
-                  else goToModulePage(selectedModuleId);
+                  handleContinueNext();
                 } else {
                   handleResetQuiz();
                 }
               }}
               className={styles.btnActionNext}
             >
-              <span>{isQuizPassed ? "Continue to Next Lesson / Module &rarr;" : "Retry Quiz &rarr;"}</span>
+              <span>{isQuizPassed ? "Continue to Next Module &rarr;" : "Retry Quiz &rarr;"}</span>
             </button>
           )}
         </div>

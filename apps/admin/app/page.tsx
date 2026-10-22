@@ -515,11 +515,11 @@ interface ProgramDistItem {
       </section>
 
       {/* ===================================================================
-          2b. Multi-Currency Revenue Summary Cards (USD, AED, INR)
+          2b. Multi-Currency Revenue Summary Cards (USD, AED, INR) - Commented out from Dashboard UI
           =================================================================== */}
+      {/*
       {!isManager && (
         <section className={styles.multiCurrencyGrid} aria-label="Multi-Currency Revenue Summary">
-          {/* USD Card */}
           <div className={styles.currencyCard}>
             <div className={styles.currencyHeader}>
               <span className={styles.currencyTitle}>USD Direct Revenue</span>
@@ -533,7 +533,6 @@ interface ProgramDistItem {
             </span>
           </div>
 
-          {/* AED Card */}
           <div className={styles.currencyCard}>
             <div className={styles.currencyHeader}>
               <span className={styles.currencyTitle}>UAE &amp; GCC Revenue</span>
@@ -547,7 +546,6 @@ interface ProgramDistItem {
             </span>
           </div>
 
-          {/* INR Card */}
           <div className={styles.currencyCard}>
             <div className={styles.currencyHeader}>
               <span className={styles.currencyTitle}>India Domestic Revenue</span>
@@ -561,7 +559,6 @@ interface ProgramDistItem {
             </span>
           </div>
 
-          {/* Normalized USD Total */}
           <div className={styles.currencyCard} style={{ borderColor: "#e9d5ff", background: "#fcfaff" }}>
             <div className={styles.currencyHeader}>
               <span className={styles.currencyTitle}>Normalized Global Total</span>
@@ -576,6 +573,7 @@ interface ProgramDistItem {
           </div>
         </section>
       )}
+      */}
 
       {/* ===================================================================
           2c. Action Required Queues: Discovery Calls, Approvals & Reconciliation

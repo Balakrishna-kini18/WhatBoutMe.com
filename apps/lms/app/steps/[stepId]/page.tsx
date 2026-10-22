@@ -420,12 +420,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   };
 
   const openPdfModal = (doc: any) => {
-    let url = doc.mediaUrl || "";
-    if (url.startsWith("upload:")) {
-      const publicId = url.replace("upload:", "");
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      url = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const url = `${API_URL}/media/document/${doc.id}${token ? `?token=${encodeURIComponent(token)}` : ""}#toolbar=0&navpanes=0`;
     setViewingPdf({ id: doc.id, title: doc.title, url });
     if (!lessonProgress[doc.id]?.isCompleted) {
       handleCompleteDocument(doc.id);
@@ -1009,12 +1005,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
                 {documents.map((doc: any) => {
                   const isDocCompleted = lessonProgress[doc.id]?.isCompleted || lessonProgress[doc.id]?.viewed;
-                  let resolvedPdfUrl = doc.mediaUrl || "";
-                  if (resolvedPdfUrl.startsWith("upload:")) {
-                    const publicId = resolvedPdfUrl.replace("upload:", "");
-                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                    resolvedPdfUrl = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                  }
 
                   return (
                     <li
@@ -1055,28 +1045,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           <polyline points="10 9 9 9 8 9" />
                         </svg>
                         <span>{doc.title}</span>
-                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.8rem", marginLeft: "4px" }}>
+                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.82rem", marginLeft: "6px", fontWeight: 700 }}>
                           (View PDF &rarr;)
                         </span>
                       </button>
 
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <a
-                          href={resolvedPdfUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={() => handleCompleteDocument(doc.id)}
-                          style={{
-                            fontSize: "0.82rem",
-                            color: "var(--text-secondary, #64748b)",
-                            textDecoration: "none",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          New tab ↗
-                        </a>
                         {isDocCompleted ? (
                           <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "4px 10px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
                             ✓ Read
@@ -1605,38 +1579,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <a
-                  href={viewingPdf.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: "var(--accent-primary, #0284c7)",
-                    textDecoration: "none",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <span>Open in New Tab</span>
-                  <span>↗</span>
-                </a>
                 <button
                   type="button"
                   onClick={() => setViewingPdf(null)}
                   style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "1.4rem",
-                    color: "#64748b",
+                    background: "rgba(241, 245, 249, 0.9)",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "6px",
+                    fontSize: "1.2rem",
+                    color: "#475569",
                     cursor: "pointer",
-                    padding: "0 4px",
+                    padding: "4px 10px",
                     lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                   aria-label="Close PDF Viewer"
                 >
@@ -1645,12 +1602,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
             </div>
 
-            {/* Modal Body: Embedded PDF iframe */}
-            <div style={{ flex: 1, width: "100%", height: "100%", background: "#525659" }}>
+            {/* Modal Body: Embedded PDF viewer iframe (Protected, Inline Stream) */}
+            <div
+              style={{
+                flex: 1,
+                width: "100%",
+                height: "100%",
+                background: "#1e293b",
+                position: "relative",
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+            >
               <iframe
                 src={viewingPdf.url}
                 title={viewingPdf.title}
-                style={{ width: "100%", height: "100%", border: "none" }}
+                style={{ width: "100%", height: "100%", border: "none", display: "block" }}
               />
             </div>
           </div>

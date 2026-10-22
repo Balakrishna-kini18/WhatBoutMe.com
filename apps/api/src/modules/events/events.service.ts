@@ -566,7 +566,7 @@ export class EventsService {
     // Strict validation of Online vs Physical
     if (locationType === EventLocationType.ONLINE) {
       if (!meetingLink) {
-        throw new BadRequestException('Online events require a valid Meeting Link (Zoom, Google Meet, etc.)');
+        throw new BadRequestException('Online events require a valid Meeting Link (Zoom URL)');
       }
     } else if (locationType === EventLocationType.PHYSICAL) {
       if (!venueName || !venueAddress) {
@@ -666,7 +666,7 @@ export class EventsService {
 
     if (locationType === EventLocationType.ONLINE) {
       if (!meetingLink || !meetingLink.trim()) {
-        throw new BadRequestException('Online events require a valid Meeting Link (Zoom, Google Meet, etc.)');
+        throw new BadRequestException('Online events require a valid Meeting Link (Zoom URL)');
       }
     } else if (locationType === EventLocationType.PHYSICAL) {
       if (!venueName?.trim() || !venueAddress?.trim()) {

@@ -20,5 +20,7 @@
     "strictPropertyInitialization": false,
     "types": ["vitest/globals", "node"],
     "jsx": "react-jsx"
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "storage", "scratch", "test", "**/*.spec.ts"]
 }

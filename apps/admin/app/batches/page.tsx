@@ -417,11 +417,11 @@ function BatchesContent() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches & Cohorts"}</h1>
-          <p className={styles.subtitle}>
-            {isManager
-              ? "View and manage sessions, attendance, and learners in your cohorts."
-              : "Organize learners into groups and schedule live sessions."}
-          </p>
+          {/* {isManager && (
+            <p className={styles.subtitle}>
+              View and manage sessions, attendance, and learners in your cohorts.
+            </p>
+          )} */}
         </div>
         {!isManager && (
           <div className={styles.headerActions}>
@@ -567,7 +567,7 @@ function BatchesContent() {
                 <th>Status</th>
                 <th
                   className={styles.alignRight}
-                  style={{ width: "15.5rem", minWidth: "240px" }}
+                  style={{ width: "4rem", minWidth: "60px" }}
                 >
                   Action
                 </th>
@@ -667,37 +667,9 @@ function BatchesContent() {
                       </td>
                       <td
                         className={styles.alignRight}
-                        style={{ minWidth: "240px" }}
+                        style={{ width: "4rem", minWidth: "60px" }}
                       >
-                        <div className={styles.rowActions}>
-                          {!isManager && (
-                            <button
-                              type="button"
-                              className={styles.rowActionBtn}
-                              disabled={issuingId !== null}
-                              onClick={() => setConfirmBatch(batch)}
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.75"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <circle cx="12" cy="8" r="6" />
-                                <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                              </svg>
-                              <span>
-                                {issuingId === batch.id
-                                  ? "Issuing..."
-                                  : "Issue Certificates"}
-                              </span>
-                            </button>
-                          )}
+                        <div className={styles.rowActions} style={{ justifyContent: "flex-end" }}>
                           <ActionMenu
                             ariaLabel={`Actions for ${batch.name}`}
                             items={
@@ -732,48 +704,8 @@ function BatchesContent() {
                                       ),
                                       href: `/batches/${batch.id}/sessions`,
                                     },
-                                    {
-                                      label: "View Schedule",
-                                      icon: (
-                                        <svg
-                                          width="15"
-                                          height="15"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="1.75"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          aria-hidden="true"
-                                        >
-                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                      ),
-                                      onClick: () => openEditModal(batch),
-                                    },
                                   ]
                                 : [
-                                    {
-                                      label: "Edit Schedule",
-                                      icon: (
-                                        <svg
-                                          width="15"
-                                          height="15"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="1.75"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          aria-hidden="true"
-                                        >
-                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                      ),
-                                      onClick: () => openEditModal(batch),
-                                    },
                                     {
                                       label: "Manage Sessions & Attendance",
                                       icon: (
@@ -802,6 +734,46 @@ function BatchesContent() {
                                         </svg>
                                       ),
                                       href: `/batches/${batch.id}/sessions`,
+                                    },
+                                    {
+                                      label: "Edit Batch",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        </svg>
+                                      ),
+                                      onClick: () => openEditModal(batch),
+                                    },
+                                    {
+                                      label: "Issue Certificates",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <circle cx="12" cy="8" r="6" />
+                                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                                        </svg>
+                                      ),
+                                      onClick: () => setConfirmBatch(batch),
                                     },
                                     {
                                       label: "Delete Batch",
@@ -1170,7 +1142,10 @@ function BatchesContent() {
         }
         callout={{
           tone: "warning",
-          text: "Permanent action: Associated schedules and sessions for this cohort will be removed.",
+          text:
+            batchToDelete && batchToDelete.students > 0
+              ? `Caution: This cohort has ${batchToDelete.students} enrolled learner(s). Deleting it will permanently remove the cohort batch and associated records.`
+              : "Permanent action: This empty cohort batch will be permanently removed.",
         }}
       />
     </div>

@@ -19,6 +19,24 @@
   border-color: var(--border-light, #e7decb);
 }
 
+.triggerBtnText {
+  width: auto;
+  height: 2rem;
+  padding: 0 0.7rem;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid var(--border-light, #e7decb);
+  background: var(--bg-card-muted, #fdfbf7);
+  color: var(--text-primary, #14110f);
+  border-radius: 6px;
+}
+
+.triggerBtnText:hover {
+  background: var(--bg-soft, #f5ece1);
+  border-color: var(--border-medium, #d8cbbe);
+}
+
 .triggerBtnActive {
   color: var(--accent-primary, #c97a1e);
   background: #fdf5ea;

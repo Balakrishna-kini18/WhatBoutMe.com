@@ -201,7 +201,11 @@ export default function SessionAttendancePage({
           : l
       );
       const newPresentCount = updatedLearners.filter(
-        (l) => l.status === "PRESENT" || l.status === "EXCUSED"
+        (l) =>
+          l.status === "PRESENT" ||
+          l.status === "PRESENT_AUTO" ||
+          l.status === "PRESENT_MANUAL" ||
+          l.status === "CORRECTED"
       ).length;
 
       setData({
@@ -293,19 +297,12 @@ export default function SessionAttendancePage({
     <div className={styles.dashboard}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <div style={{ display: "flex", alignItems: "center", gap: "15px", marginBottom: "8px" }}>
+          <div style={{ marginBottom: "8px" }}>
             <Link
               href={`/batches/${batchId}/sessions`}
-              style={{ textDecoration: "none", color: "var(--accent-primary, #6366f1)", fontSize: "0.95rem", fontWeight: 600 }}
+              style={{ textDecoration: "none", color: "var(--accent-primary, #c97a1e)", fontSize: "0.92rem", fontWeight: 600 }}
             >
               ← Back to Sessions
-            </Link>
-            <span style={{ color: "#94a3b8" }}>/</span>
-            <Link
-              href={`/batches/${batchId}/sessions/${sessionId}/reconciliation`}
-              style={{ textDecoration: "none", color: "#0ea5e9", fontSize: "0.95rem", fontWeight: 600 }}
-            >
-              Go to Reconciliation →
             </Link>
           </div>
           <h1 className={styles.title}>
@@ -323,7 +320,7 @@ export default function SessionAttendancePage({
             className={styles.secondaryBtn}
             onClick={handleSyncMeeting}
             disabled={isSyncing}
-            title="Pull attendance participant report from Zoom or Google Meet"
+            title="Pull attendance participant report from Zoom"
             style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <svg
@@ -341,12 +338,9 @@ export default function SessionAttendancePage({
               <polyline points="1 20 1 14 7 14"></polyline>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
             </svg>
-            <span>{isSyncing ? "Syncing..." : "Sync Meeting Report"}</span>
+            <span>{isSyncing ? "Syncing..." : "Sync Zoom Report"}</span>
           </button>
-          <button className={styles.secondaryBtn} onClick={handleShowQrModal}>
-            Show Check-In QR
-          </button>
-          <button className={styles.primaryBtn} onClick={handleExportCsv}>
+          <button type="button" className={styles.primaryBtn} onClick={handleExportCsv}>
             Export Attendance (CSV)
           </button>
         </div>
@@ -363,6 +357,7 @@ export default function SessionAttendancePage({
             fontWeight: 500,
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: "10px",
             backgroundColor: syncNotice.type === "success" ? "#f0fdf4" : "#fef2f2",
             color: syncNotice.type === "success" ? "#166534" : "#991b1b",
@@ -370,6 +365,18 @@ export default function SessionAttendancePage({
           }}
         >
           <span>{syncNotice.message}</span>
+          <Link
+            href={`/batches/${batchId}/sessions/${sessionId}/reconciliation`}
+            style={{
+              color: "#0369a1",
+              fontWeight: 600,
+              textDecoration: "underline",
+              fontSize: "0.85rem",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Review Reconciliation →
+          </Link>
         </div>
       )}
 
@@ -412,61 +419,89 @@ export default function SessionAttendancePage({
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Learner</th>
-                <th>Status</th>
-                <th>Source</th>
-                <th>Time Present</th>
-                <th>Join (Local)</th>
-                <th>Leave (Local)</th>
-                <th>Audit / Override Reason</th>
-                <th className={styles.alignRight}>Actions</th>
+                <th style={{ minWidth: "220px" }}>Learner</th>
+                <th style={{ width: "180px", minWidth: "150px" }}>Status</th>
+                <th style={{ width: "120px", minWidth: "100px" }}>Source</th>
+                <th style={{ width: "180px", minWidth: "150px" }}>Time Present</th>
+                <th style={{ width: "140px", minWidth: "120px" }} className={styles.alignRight}>Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "30px" }}>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: "var(--text-secondary)" }}>
                     Loading attendance records...
                   </td>
                 </tr>
               ) : !data || data.learners.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "30px" }}>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: "var(--text-secondary)" }}>
                     No learners currently enrolled in this batch.
                   </td>
                 </tr>
               ) : (
                 data.learners.map((learner) => {
-                  const isPresent =
-                    learner.status === "PRESENT" ||
-                    learner.status === "PRESENT_AUTO" ||
-                    learner.status === "PRESENT_MANUAL" ||
-                    learner.status === "CORRECTED";
-
                   return (
                     <tr key={learner.userId}>
+                      {/* Learner Info */}
                       <td>
                         <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span className={styles.cellUserName}>{learner.name}</span>
-                          <span className={styles.cellTextMuted}>{learner.email}</span>
+                          <span className={styles.cellUserName} style={{ fontSize: "0.92rem", fontWeight: 600 }}>
+                            {learner.name}
+                          </span>
+                          <span className={styles.cellTextMuted} style={{ fontSize: "0.8rem" }}>
+                            {learner.email}
+                          </span>
                         </div>
                       </td>
+
+                      {/* Status & Optional Override Note */}
                       <td>
-                        <StatusBadge
-                          status={learner.status}
-                          tone={
-                            learner.status === "PRESENT" || learner.status === "PRESENT_AUTO" || learner.status === "PRESENT_MANUAL" || learner.status === "CORRECTED"
-                              ? "active"
-                              : learner.status === "EXCUSED"
-                                ? "pending"
-                                : "inactive"
-                          }
-                        />
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
+                          <StatusBadge
+                            status={learner.status}
+                            tone={
+                              learner.status === "PRESENT" ||
+                              learner.status === "PRESENT_AUTO" ||
+                              learner.status === "PRESENT_MANUAL" ||
+                              learner.status === "CORRECTED"
+                                ? "active"
+                                : learner.status === "EXCUSED"
+                                  ? "pending"
+                                  : "inactive"
+                            }
+                          />
+                          {learner.overrideReason && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "0.72rem",
+                                color: "#475569",
+                                background: "#f8fafc",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                maxWidth: "200px",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                border: "1px solid #e2e8f0",
+                              }}
+                              title={`Audit Override Reason: ${learner.overrideReason}`}
+                            >
+                              <span>📝</span>
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{learner.overrideReason}</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
+
+                      {/* Attendance Source */}
                       <td>
                         <span
                           style={{
-                            fontSize: "0.75rem",
+                            fontSize: "0.74rem",
                             padding: "3px 8px",
                             borderRadius: "12px",
                             fontWeight: 600,
@@ -487,38 +522,35 @@ export default function SessionAttendancePage({
                           {learner.source}
                         </span>
                       </td>
+
+                      {/* Time Present & Local Join/Leave Span */}
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span style={{ fontWeight: 600 }}>{learner.minutesPresent} mins</span>
-                          <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                            {Math.round(learner.attendancePercentage)}% of class
-                          </span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                            <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{learner.minutesPresent} mins</span>
+                            <span style={{ fontSize: "0.74rem", color: "#64748b" }}>
+                              ({Math.round(learner.attendancePercentage)}%)
+                            </span>
+                          </div>
+                          {learner.joinTimeUtc && (
+                            <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                              {learner.leaveTimeUtc
+                                ? `${formatLocalTime(learner.joinTimeUtc)} – ${formatLocalTime(learner.leaveTimeUtc)}`
+                                : `Joined ${formatLocalTime(learner.joinTimeUtc)}`}
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td>
-                        <span className={styles.cellTextMuted}>{formatLocalTime(learner.joinTimeUtc)}</span>
-                      </td>
-                      <td>
-                        <span className={styles.cellTextMuted}>{formatLocalTime(learner.leaveTimeUtc)}</span>
-                      </td>
-                      <td>
-                        <span
-                          style={{
-                            fontSize: "0.85rem",
-                            color: learner.overrideReason ? "#334155" : "#94a3b8",
-                            fontStyle: learner.overrideReason ? "normal" : "italic",
-                          }}
-                        >
-                          {learner.overrideReason || "None"}
-                        </span>
-                      </td>
+
+                      {/* Action */}
                       <td className={styles.alignRight}>
                         <button
+                          type="button"
                           className={styles.secondaryBtn}
                           onClick={() => handleOpenOverride(learner)}
-                          style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                          style={{ padding: "5px 12px", fontSize: "0.8125rem", whiteSpace: "nowrap" }}
                         >
-                          Edit / Override
+                          Edit Attendance
                         </button>
                       </td>
                     </tr>

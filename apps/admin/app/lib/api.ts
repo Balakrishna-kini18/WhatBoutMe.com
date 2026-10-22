@@ -333,6 +333,15 @@ export async function cachedFetch(
     }
   }
 
+  // RSC or Next.js internal router requests should bypass caching and stream buffering
+  if (requestHeaders.has("RSC") || requestHeaders.has("Next-Router-State-Tree") || requestHeaders.has("Next-Router-Prefetch")) {
+    const rawFetch =
+      typeof window !== "undefined" && (window as any).__rawOriginalFetch
+        ? (window as any).__rawOriginalFetch
+        : fetch;
+    return rawFetch(url, init);
+  }
+
   // Auto-bust cache on mutations
   if (!isGet) {
     autoInvalidateOnMutation(url);
@@ -1201,6 +1210,10 @@ export async function getBatches(query?: { programId?: string; status?: string }
 
 export async function getBatchById(id: string): Promise<any> {
   return apiGet<any>(`/batches/${id}`);
+}
+
+export async function getBatchSessions(batchId: string): Promise<any[]> {
+  return apiGet<any[]>(`/batches/${batchId}/sessions`);
 }
 
 export async function createBatch(data: CreateBatchInput): Promise<any> {

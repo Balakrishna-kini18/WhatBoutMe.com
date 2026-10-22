@@ -125,12 +125,13 @@ function Curriculum() {
                   Enquire about the course
                   <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
                 </a>
-                <button
+                {/* Commented out from UI: How certification works button */}
+                {/* <button
                   onClick={() => scrollToTarget("#certification")}
                   className="rounded-full px-5 py-3.5 text-sm font-medium text-ink underline-offset-4 hover:underline"
                 >
                   How certification works
-                </button>
+                </button> */}
               </div>
             </div>
           </div>
@@ -289,7 +290,9 @@ export default function Programme() {
   return (
     <>
       <Curriculum />
+      {/* Commented out from UI per user request:
       <Certification />
+      */}
     </>
   );
 }

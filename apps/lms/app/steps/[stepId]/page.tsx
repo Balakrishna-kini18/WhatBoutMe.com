@@ -339,6 +339,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       // If learner passed, re-fetch authoritative progression to unlock next step
       if (data.passed && step.programId) {
+        invalidateCache("/progression");
+        invalidateCache("/progress");
+        invalidateCache("/auth");
+        invalidateCache("/certificates");
         fetchStepAndProgression();
       }
     } catch (err: any) {
@@ -377,6 +381,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (data.isCompleted || isEnded) {
             invalidateCache("/progression");
             invalidateCache("/progress");
+            invalidateCache("/auth");
+            invalidateCache("/certificates");
             fetchStepAndProgression();
           }
         }
@@ -402,6 +408,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       if (res.ok) {
         const data = await res.json();
         setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
+        invalidateCache("/progression");
+        invalidateCache("/progress");
+        invalidateCache("/auth");
+        invalidateCache("/certificates");
         fetchStepAndProgression();
       }
     } catch (err) {
@@ -428,6 +438,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         method: "POST",
         headers: getAuthHeaders(),
       });
+      invalidateCache("/progression");
+      invalidateCache("/progress");
+      invalidateCache("/auth");
+      invalidateCache("/certificates");
+      fetchStepAndProgression();
     } catch (err) {
       console.warn("Failed to mark lesson complete:", err);
     }
@@ -859,6 +874,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             lastPositionSec: currentMedia.durationSec,
                           },
                         }));
+                        invalidateCache("/progression");
+                        invalidateCache("/progress");
+                        invalidateCache("/auth");
+                        invalidateCache("/certificates");
                         fetchStepAndProgression();
                       }}
                     />
@@ -912,6 +931,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                               headers: getAuthHeaders(),
                             });
                           } catch {}
+                          invalidateCache("/progression");
+                          invalidateCache("/progress");
+                          invalidateCache("/auth");
+                          invalidateCache("/certificates");
                           fetchStepAndProgression();
                         }}
                         className={styles.secondaryBtn}

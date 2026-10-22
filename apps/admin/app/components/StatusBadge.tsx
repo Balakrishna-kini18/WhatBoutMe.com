@@ -77,12 +77,12 @@ function resolveTone(rawStatus: string): StatusTone {
 }
 
 function normalizeStatusLabel(rawStatus?: string | null): string {
-  if (!rawStatus) return "ACTIVE";
+  if (!rawStatus) return "Active";
   const trimmed = rawStatus.trim();
-  if (trimmed.toUpperCase() === "ACTIVE") {
-    return "ACTIVE";
-  }
-  return trimmed.replace(/_/g, " ").toUpperCase();
+  const words = trimmed.replace(/[_-]+/g, " ").split(/\s+/);
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export function StatusBadge({

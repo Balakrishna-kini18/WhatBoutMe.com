@@ -294,12 +294,10 @@ export default function CompulsoryVideoPlayer({
 
     // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95
     if (dur > 0 && current >= dur * 0.95 && !hasCompletedRef.current) {
-      if (current >= dur - 2) {
-        hasCompletedRef.current = true;
-        setHasEnded(true);
-        onHeartbeat(dur, true, dur);
-        onComplete();
-      }
+      hasCompletedRef.current = true;
+      setHasEnded(true);
+      onHeartbeat(dur, true, dur);
+      onComplete();
     }
   };
 
@@ -308,9 +306,11 @@ export default function CompulsoryVideoPlayer({
     setIsPlaying(false);
     setHasEnded(true);
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
-    hasCompletedRef.current = true;
-    onHeartbeat(dur, true, dur);
-    onComplete();
+    if (!hasCompletedRef.current) {
+      hasCompletedRef.current = true;
+      onHeartbeat(dur, true, dur);
+      onComplete();
+    }
   };
 
   // Auto-hide controls when playing and idle

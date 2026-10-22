@@ -173,6 +173,7 @@ export function autoInvalidateOnMutation(url: string): void {
         invalidateCache("/progress");
         invalidateCache("/quizzes");
         invalidateCache("/certificates");
+        invalidateCache("/auth");
       }
       if (r === "certificates") {
         invalidateCache("/certificates");
@@ -180,9 +181,18 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "agreements") {
         invalidateCache("/agreements");
         invalidateCache("/progression");
+        invalidateCache("/auth");
       }
       break;
     }
+  }
+
+  if (url.includes("/complete") || url.includes("/submit")) {
+    invalidateCache("/progression");
+    invalidateCache("/progress");
+    invalidateCache("/quizzes");
+    invalidateCache("/certificates");
+    invalidateCache("/auth");
   }
 }
 

@@ -33,10 +33,15 @@ export class AttendanceComplianceService {
       throw new BadRequestException('Enrolment not found');
     }
 
-    const programThreshold = enrolment.batch.program.attendanceThreshold;
-    const batchThreshold = enrolment.batch.attendanceThreshold;
+    const programThreshold = (enrolment.batch?.program as any)?.attendanceThreshold;
+    const batchThreshold = (enrolment.batch as any)?.attendanceThreshold;
 
-    const threshold = batchThreshold !== null && batchThreshold !== undefined ? batchThreshold : programThreshold;
+    const threshold =
+      typeof batchThreshold === 'number' && !isNaN(batchThreshold)
+        ? batchThreshold
+        : typeof programThreshold === 'number' && !isNaN(programThreshold)
+          ? programThreshold
+          : 75;
 
     // Validate threshold
     if (threshold < 0 || threshold > 100) {

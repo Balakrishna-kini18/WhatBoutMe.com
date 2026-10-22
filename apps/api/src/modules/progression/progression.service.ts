@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -145,6 +146,7 @@ export interface EnrolmentProgressionResponse {
 
 @Injectable()
 export class ProgressionService {
+  private readonly logger = new Logger(ProgressionService.name);
   private readonly localShareCache = new Map<string, any>();
 
   constructor(
@@ -1488,14 +1490,23 @@ export class ProgressionService {
       },
     });
 
-    // Progression evaluation trigger if lesson newly transitioned to viewed
+    // Progression evaluation trigger whenever viewed changes or is completed or ended
     const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
-    if (transitionToCompleted) {
-      await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
-      if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
-        await this.cacheHelper.invalidateNamespace('users');
-      }
+    const shouldInvalidate = transitionToCompleted || viewed || Boolean(isEnded) || newProgressPercent >= 90;
+
+    if (shouldInvalidate && this.cacheHelper) {
+      await Promise.allSettled([
+        this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`),
+        this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
+        this.cacheHelper.invalidateNamespace('users'),
+      ]);
+    }
+
+    if (transitionToCompleted || Boolean(isEnded)) {
+      // Fire-and-forget progression evaluation in background so heartbeat responds in <100ms
+      this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true }).catch((err) => {
+        this.logger.error(`Background progression evaluation failed: ${err.message}`);
+      });
     }
 
     return {
@@ -1617,12 +1628,19 @@ export class ProgressionService {
     });
 
     const transitionToCompleted = !(existingProgress?.viewed ?? false);
+    if (this.cacheHelper) {
+      await Promise.allSettled([
+        this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`),
+        this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
+        this.cacheHelper.invalidateNamespace('users'),
+      ]);
+    }
+
     if (transitionToCompleted) {
-      await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
-      if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
-        await this.cacheHelper.invalidateNamespace('users');
-      }
+      // Fire-and-forget progression evaluation in background so complete responds in <100ms
+      this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true }).catch((err) => {
+        this.logger.error(`Background progression evaluation failed: ${err.message}`);
+      });
     }
 
     return {

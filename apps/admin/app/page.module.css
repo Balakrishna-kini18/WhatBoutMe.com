@@ -304,23 +304,30 @@
 }
 
 .colLearner {
-  width: 24%;
+  width: 22%;
+  min-width: 160px;
 }
 
 .colEmail {
-  width: 25%;
+  width: 22%;
+  min-width: 160px;
 }
 
 .colProgram {
-  width: 23%;
+  width: 20%;
+  min-width: 140px;
 }
 
 .colStatus {
-  width: 12%;
+  width: 16%;
+  min-width: 140px;
+  white-space: nowrap;
 }
 
 .colDate {
-  width: 12%;
+  width: 14%;
+  min-width: 115px;
+  white-space: nowrap;
 }
 
 .colActions {

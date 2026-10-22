@@ -1137,42 +1137,14 @@ export default function UsersPage() {
 
       {/* Quick Assign Batch Modal */}
       {assignBatchUser && (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="assign-batch-title">
-          <div className={styles.modal} style={{ maxWidth: 480 }}>
-            <div className={styles.modalHeader}>
-              <h2 id="assign-batch-title" className={styles.modalTitle}>
-                Assign Batch: {assignBatchUser.name || assignBatchUser.email}
-              </h2>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setAssignBatchUser(null)}
-                aria-label="Close modal"
-              >
-                &times;
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <p style={{ fontSize: "0.875rem", color: "#64748b", marginBottom: "1rem" }}>
-                Select an active workshop batch or cohort for this learner. This will scope their session schedule and attendance.
-              </p>
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Select Cohort / Batch</label>
-                <CustomSelect
-                  options={[
-                    { value: "", label: "No Batch Assigned (Unassigned)" },
-                    ...batches.map(b => ({
-                      value: b.id,
-                      label: b.name
-                    }))
-                  ]}
-                  value={assignBatchId}
-                  onChange={(val) => setAssignBatchId(val)}
-                  placeholder="Select cohort..."
-                />
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
+        <Modal
+          isOpen={Boolean(assignBatchUser)}
+          onClose={() => setAssignBatchUser(null)}
+          title={`Assign Batch: ${assignBatchUser.name || assignBatchUser.email}`}
+          subtitle="Select an active workshop batch or cohort for this learner. This will scope their session schedule and attendance."
+          maxWidth="480px"
+          footer={
+            <>
               <button
                 type="button"
                 className={styles.secondaryBtn}
@@ -1195,9 +1167,27 @@ export default function UsersPage() {
                   "Save Assignment"
                 )}
               </button>
-            </div>
+            </>
+          }
+        >
+          <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
+            <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem", color: "var(--text-primary)" }}>
+              Select Cohort / Batch
+            </label>
+            <CustomSelect
+              options={[
+                { value: "", label: "No Batch Assigned (Unassigned)" },
+                ...batches.map((b) => ({
+                  value: b.id,
+                  label: b.name,
+                })),
+              ]}
+              value={assignBatchId}
+              onChange={(val) => setAssignBatchId(val)}
+              placeholder="Select cohort..."
+            />
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Branded, Accessible Revoke Access Confirmation Modal */}

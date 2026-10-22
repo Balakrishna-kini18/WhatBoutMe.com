@@ -215,6 +215,7 @@ interface SearchablePageItem {
 }
 
 const SEARCH_ITEMS: SearchablePageItem[] = [
+  /*
   {
     id: "simulator",
     title: "Client Portal & Funnel Preview",
@@ -224,6 +225,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Dashboard",
     keywords: ["portal", "client", "funnel", "preview", "simulator", "checkout", "signature", "discovery", "contact", "notes", "player"],
   },
+  */
   {
     id: "dashboard",
     title: "Dashboard Overview",
@@ -722,7 +724,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       permission: true,
       items: [
         { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
-        { label: "Client Portal & Funnel Preview", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
+        // { label: "Client Portal & Funnel Preview", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
         { label: "Analytics", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },

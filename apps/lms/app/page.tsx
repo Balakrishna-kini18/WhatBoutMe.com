@@ -6,7 +6,7 @@ import Link from "next/link";
 import { SITE_URL } from "./lib/site";
 import { API_URL } from "./lib/api";
 import { courseImageFor } from "./lib/courseImage";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -64,33 +64,39 @@ export default function LearnerDashboard() {
     history: any[];
   } | null>(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
+  const loadDashboard = useCallback(
+    async (isInitial = false) => {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
 
-    const authHeaders = { Authorization: `Bearer ${token}` };
+      if (isInitial) {
+        setLoading(true);
+      }
 
-    fetch(`${API_URL}/auth/me`, {
-      headers: authHeaders,
-    })
-      .then((res) => {
+      const authHeaders = { Authorization: `Bearer ${token}` };
+
+      try {
+        const res = await fetch(`${API_URL}/auth/me`, {
+          headers: authHeaders,
+        });
+
         if (res.status === 401) {
           localStorage.removeItem("token");
           router.push("/login");
-          throw new Error("Unauthorized");
+          return;
         }
+
         if (!res.ok) {
-          setLoadError(true);
-          throw new Error(`Dashboard failed to load (${res.status})`);
+          if (isInitial) setLoadError(true);
+          return;
         }
-        return res.json();
-      })
-      .then(async (profile: UserProfile) => {
+
+        const profile: UserProfile = await res.json();
         setUser(profile);
-        
+
         // Fetch compliance, attendance summary, and certificates concurrently
         const enrolled = profile.enrolledPrograms || [];
         const compliancePromises = enrolled.map((ep) =>
@@ -118,10 +124,35 @@ export default function LearnerDashboard() {
         setComplianceMap(compMap);
         if (attData) setAttendanceSummary(attData);
         setCertificates(certs || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [router]);
+      } catch {
+        if (isInitial) setLoadError(true);
+      } finally {
+        if (isInitial) setLoading(false);
+      }
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    loadDashboard(true);
+
+    const onFocus = () => {
+      loadDashboard(false);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        loadDashboard(false);
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadDashboard]);
 
   const requestCertificate = async (enrolmentId: string) => {
     try {

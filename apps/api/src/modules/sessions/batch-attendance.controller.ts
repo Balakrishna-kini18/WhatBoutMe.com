@@ -4,6 +4,7 @@ import {
   Patch,
   Post,
   Param,
+  Query,
   Body,
   Request,
   UseGuards,
@@ -14,6 +15,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { SessionsService } from './sessions.service.js';
 import { AttendanceService } from './attendance.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { BatchScopeGuard } from '../../common/guards/batch-scope.guard.js';
@@ -374,3 +376,45 @@ export class BatchAttendanceController {
     };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH SESSIONS CONTROLLER: GET /batches/:batchId/sessions
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Controller('batches/:batchId/sessions')
+@UseGuards(BatchScopeGuard, PermissionsGuard)
+export class BatchSessionsController {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessionsService: SessionsService,
+  ) {}
+
+  /**
+   * Phase 5 Endpoint:
+   * GET /api/batches/:batchId/sessions
+   * List all sessions scheduled for a given batch.
+   * Scoped to manager's assigned cohort or global for Admin/SuperAdmin.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
+  @Get()
+  async getBatchSessions(
+    @Param('batchId') batchId: string,
+    @Request() req: any,
+    @Query() query: any,
+  ) {
+    const batch = await this.prisma.batch.findUnique({
+      where: { id: batchId },
+      select: { id: true, name: true, status: true },
+    });
+
+    if (!batch) {
+      throw new NotFoundException(`Batch with ID ${batchId} not found.`);
+    }
+
+    return this.sessionsService.getSessions(
+      { ...query, batchId },
+      req.user,
+    );
+  }
+}
+

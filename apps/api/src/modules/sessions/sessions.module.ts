@@ -5,7 +5,7 @@ import { AttendanceService } from './attendance.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { AttendanceComplianceService } from './attendance-compliance.service.js';
 import { AttendanceController } from './attendance.controller.js';
-import { BatchAttendanceController } from './batch-attendance.controller.js';
+import { BatchAttendanceController, BatchSessionsController } from './batch-attendance.controller.js';
 import { SessionCheckinController } from './session-checkin.controller.js';
 import { MeAttendanceController } from './me-attendance.controller.js';
 import { SessionLifecycleService } from './session-lifecycle.service.js';
@@ -42,6 +42,7 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
     SessionsController,
     AttendanceController,
     BatchAttendanceController,
+    BatchSessionsController,
     SessionCheckinController,
     MeAttendanceController,
   ],

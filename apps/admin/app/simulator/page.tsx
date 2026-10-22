@@ -210,9 +210,9 @@ export default function SimulatorPage() {
             <span>Interactive Spec Verification Simulator</span>
           </div>
           <h1 className={styles.headerTitle}>Learner &amp; Public Funnel Test Simulator</h1>
-          <p className={styles.headerSubtitle}>
+          {/* <p className={styles.headerSubtitle}>
             End-to-end verification laboratory for all audio-verified items from <strong>Developer note.pdf</strong>: Contact Us (no phone number), 15-Min Discovery Booking, Test-Bypass Multi-Currency Checkout, Workshop Digital Consent + Dual-Mode Signature, and GSB Event Ticketing.
-          </p>
+          </p> */}
         </div>
 
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>

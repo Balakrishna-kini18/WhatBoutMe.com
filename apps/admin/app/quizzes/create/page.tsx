@@ -395,9 +395,9 @@ function QuizForm() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Create Visual Assessment (Quiz)</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Build Google-Forms-style visual quizzes with prompt and choice image uploads, 3 answer formats, and passing criteria.
-          </p>
+          </p> */}
         </div>
       </header>
 

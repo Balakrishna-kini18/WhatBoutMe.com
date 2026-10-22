@@ -786,9 +786,13 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private formatBatchResponse(batch: any) {
-    const enrolledCount =
-      batch._count?.enrolments ??
-      (Array.isArray(batch.enrolments) ? batch.enrolments.length : 0);
+    // Use the filtered enrolments array length as the authoritative active count.
+    // batch._count.enrolments does NOT respect status filters applied to the include
+    // and would inflate the count with REVOKED enrolments. The enrolments array is
+    // always filtered (status ≠ REVOKED) wherever it's included, so use its length.
+    const enrolledCount = Array.isArray(batch.enrolments)
+      ? batch.enrolments.filter((e: any) => e.status !== 'REVOKED').length
+      : (batch._count?.enrolments ?? 0);
     const capacity = batch.capacity ?? 0;
     const remainingCapacity = Math.max(0, capacity - enrolledCount);
     const isFull = enrolledCount >= capacity;

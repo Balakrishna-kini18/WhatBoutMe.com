@@ -237,9 +237,9 @@ export default function CreateBatchPage() {
           <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary, #14110f)", fontFamily: "var(--font-serif, serif)" }}>
             Create Batch Cohort
           </h1>
-          <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary, #4a443d)" }}>
+          {/* <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary, #4a443d)" }}>
             Configure cohort schedule, assign a batch manager, and specify multi-currency pricing tiers (USD, AED, INR).
-          </p>
+          </p> */}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

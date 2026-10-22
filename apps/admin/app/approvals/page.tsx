@@ -624,9 +624,9 @@ export default function ApprovalsPage() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Approvals &amp; Certification Gates</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Audit learner progression eligibility, approve completion certificates, and conduct live oral competency assessments.
-          </p>
+          </p> */}
         </div>
 
         <div className={styles.headerActions}>

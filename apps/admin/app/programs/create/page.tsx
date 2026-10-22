@@ -113,9 +113,9 @@ export default function CreateProgramPage() {
             <span>Back to Programs</span>
           </Link>
           <h1 className={styles.title}>Create New Program</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Define core program attributes, multi-currency pricing (USD, AED, INR), early-bird discounts, and course FAQs.
-          </p>
+          </p> */}
         </div>
       </header>
 

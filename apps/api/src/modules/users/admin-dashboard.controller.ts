@@ -50,9 +50,12 @@ export class AdminDashboardController {
           this.prisma.certificate.count({
             where: { status: 'PENDING', enrolment: { batch: batchWhere } },
           }).catch(() => 0),
-          this.prisma.unmatchedAttendance.count({
-            where: { status: 'UNMATCHED', session: { batch: batchWhere } },
-          }).catch(() => 0),
+          (this.prisma.unmatchedAttendance?.count
+            ? this.prisma.unmatchedAttendance.count({
+                where: { status: 'UNMATCHED', session: { batch: batchWhere } },
+              })
+            : Promise.resolve(0)
+          ).catch(() => 0),
           this.prisma.enrolment.findMany({
             where: { batch: batchWhere },
             take: 5,
@@ -135,7 +138,10 @@ export class AdminDashboardController {
         this.prisma.batch.count(),
         this.prisma.certificate.count(),
         this.prisma.certificate.count({ where: { status: 'PENDING' } }).catch(() => 0),
-        this.prisma.unmatchedAttendance.count({ where: { status: 'UNMATCHED' } }).catch(() => 0),
+        (this.prisma.unmatchedAttendance?.count
+          ? this.prisma.unmatchedAttendance.count({ where: { status: 'UNMATCHED' } })
+          : Promise.resolve(0)
+        ).catch(() => 0),
         this.prisma.invoice.findMany({
           where: {
             status: { in: [InvoiceStatus.PAID, InvoiceStatus.REFUNDED] },

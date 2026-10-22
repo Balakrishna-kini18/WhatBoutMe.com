@@ -457,7 +457,7 @@ export async function cachedFetch(
   const isGet = method === "GET";
   const skipCache = init?.skipCache ?? false;
   const ttlMs = init?.ttlMs ?? 30_000; // 30s default cache TTL for instant tab switching (<15ms)
-  const timeoutMs = init?.timeoutMs ?? 12_000; // 12s default request timeout
+  const timeoutMs = init?.timeoutMs ?? (isGet ? 20_000 : 60_000); // 60s default for mutations, 20s for GET
 
   // Auto-inject Authorization token from localStorage if in browser and not explicitly provided
   const requestHeaders = new Headers(init?.headers);
@@ -1594,6 +1594,7 @@ export async function generateLeadCheckoutPaymentLink(
       currency,
       note: params.note,
     }),
+    timeoutMs: 60_000,
   });
 
   if (!res.ok) {

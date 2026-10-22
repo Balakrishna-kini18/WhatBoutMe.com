@@ -202,7 +202,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 setQuestions(attemptData.questions || []);
               } else {
                 setLastResult(attemptData);
+                setActiveAttempt(null);
               }
+            } else {
+              setActiveAttempt(null);
             }
           }
         } catch (quizErr) {
@@ -267,9 +270,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setIsSubmittingQuiz(true);
 
     try {
+      const targetAttemptId = activeAttempt.attemptId || (activeAttempt as any).id;
       // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId, optionIds, textAnswer }] }
       const submissionDto = {
-        attemptId: activeAttempt.attemptId,
+        attemptId: targetAttemptId,
+        id: targetAttemptId,
         answers: questions.map((q) => {
           const val = answers[q.id];
           const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
@@ -301,10 +306,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         body: JSON.stringify(submissionDto),
       });
 
-      const data: QuizSubmissionResult = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
-        throw new Error((data as any)?.message || "Failed to submit quiz attempt");
+        const errorMsg =
+          data?.error?.message ||
+          data?.message ||
+          "Failed to submit quiz attempt";
+        // If attempt was already finalized/passed on server, reconcile immediately
+        if (
+          errorMsg.toLowerCase().includes("already finalized") ||
+          errorMsg.toLowerCase().includes("already passed") ||
+          res.status === 400 ||
+          res.status === 409
+        ) {
+          await fetchStepAndProgression();
+          return;
+        }
+        throw new Error(errorMsg);
       }
 
       setLastResult(data);
@@ -317,6 +341,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
     } catch (err: any) {
       setQuizError(err.message || "Failed to submit quiz");
+      fetchStepAndProgression().catch(() => {});
     } finally {
       setIsSubmittingQuiz(false);
     }

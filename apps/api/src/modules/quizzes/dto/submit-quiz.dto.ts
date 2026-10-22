@@ -14,21 +14,21 @@ export class QuizAnswerSubmissionDto {
   questionId: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'optionId must be a valid UUID' })
+  @IsString({ message: 'optionId must be a string' })
   optionId?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'selectedOptionId must be a valid UUID' })
+  @IsString({ message: 'selectedOptionId must be a string' })
   selectedOptionId?: string;
 
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true, message: 'Each optionId must be a valid UUID' })
+  @IsString({ each: true, message: 'Each optionId must be a string' })
   optionIds?: string[];
 
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true, message: 'Each selectedOptionId must be a valid UUID' })
+  @IsString({ each: true, message: 'Each selectedOptionId must be a string' })
   selectedOptionIds?: string[];
 
   @IsOptional()
@@ -41,9 +41,13 @@ export class QuizAnswerSubmissionDto {
 }
 
 export class SubmitQuizDto {
+  @IsOptional()
   @IsUUID('4', { message: 'attemptId must be a valid UUID' })
-  @IsNotEmpty({ message: 'attemptId is required' })
-  attemptId: string;
+  attemptId?: string;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'id must be a valid UUID' })
+  id?: string;
 
   @IsArray()
   @ValidateNested({ each: true })

@@ -245,7 +245,8 @@ export default function ExamPage({
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          attemptId: activeAttempt.attemptId,
+          attemptId: activeAttempt.attemptId || (activeAttempt as any).id,
+          id: activeAttempt.attemptId || (activeAttempt as any).id,
           answers: answersPayload,
         }),
       });

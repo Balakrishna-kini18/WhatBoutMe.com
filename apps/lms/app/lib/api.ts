@@ -295,7 +295,7 @@ export async function cachedFetch(
   const isGet = method === "GET";
   const skipCache = init?.skipCache ?? false;
   const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
-  const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
+  const timeoutMs = init?.timeoutMs ?? (isGet ? 30_000 : 60_000); // 60s default for mutations, 30s for GET
 
   // Auto-bust cache on mutations
   if (!isGet) {

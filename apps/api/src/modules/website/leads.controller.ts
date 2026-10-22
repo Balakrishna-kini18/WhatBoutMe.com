@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -48,6 +49,8 @@ export class ConvertLeadDto {
 /** Enquiries from the public website, worked through in the admin CRM. */
 @Controller(['leads', 'api/leads'])
 export class LeadsController {
+  private readonly logger = new Logger(LeadsController.name);
+
   constructor(
     private prisma: PrismaService,
     @Optional() private readonly emailService?: EmailService,
@@ -333,34 +336,21 @@ export class LeadsController {
     @Body() body: ConvertLeadDto,
     @Req() req: any,
   ) {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id },
-    });
+    // 1. Concurrently fetch Lead, specified Program, and specified Batch in ONE round-trip
+    const [lead, specifiedProgram, specifiedBatch] = await Promise.all([
+      this.prisma.lead.findUnique({ where: { id } }),
+      body.courseId ? this.prisma.program.findUnique({ where: { id: body.courseId } }) : null,
+      body.batchId ? this.prisma.batch.findUnique({ where: { id: body.batchId } }) : null,
+    ]);
 
     if (!lead) {
       throw new NotFoundException(`Lead '${id}' not found`);
     }
 
-    // 1. Find or create User account (idempotent; prevents duplicate users on resend)
     const email = lead.email.toLowerCase().trim();
-    let user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          email,
-          name: lead.name.trim(),
-          phone: lead.phone?.trim() || null,
-          role: Role.USER,
-        },
-      });
-    }
 
-    // 2. Identify Course: specified ID -> extracted ID from lead message -> first published program
-    let program: any = null;
-    if (body.courseId) {
-      program = await this.prisma.program.findUnique({ where: { id: body.courseId } });
-    }
-
+    // 2. Concurrently resolve User, Program (fallback if needed), and Batch (fallback if needed)
+    let program: any = specifiedProgram;
     if (!program && lead.message) {
       const match = lead.message.match(/ID:\s*([a-zA-Z0-9-]+)/i);
       if (match && match[1]) {
@@ -379,22 +369,33 @@ export class LeadsController {
       throw new BadRequestException('No active course available for converting this lead. Please create or publish a program first.');
     }
 
-    // 3. Identify or create Batch
-    let batch: any = null;
-    if (body.batchId) {
-      batch = await this.prisma.batch.findUnique({ where: { id: body.batchId } });
-    }
+    // Parallelize user lookup and batch resolution (if not pre-specified)
+    const [existingUser, fallbackBatch] = await Promise.all([
+      this.prisma.user.findUnique({ where: { email } }),
+      specifiedBatch
+        ? null
+        : this.prisma.batch.findFirst({
+            where: {
+              programId: program.id,
+              status: { in: [BatchStatus.UPCOMING, BatchStatus.ACTIVE] },
+            },
+            orderBy: { startDate: 'asc' },
+          }),
+    ]);
 
-    if (!batch) {
-      batch = await this.prisma.batch.findFirst({
-        where: {
-          programId: program.id,
-          status: { in: [BatchStatus.UPCOMING, BatchStatus.ACTIVE] },
+    let user = existingUser;
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          name: lead.name.trim(),
+          phone: lead.phone?.trim() || null,
+          role: Role.USER,
         },
-        orderBy: { startDate: 'asc' },
       });
     }
 
+    let batch = specifiedBatch || fallbackBatch;
     if (!batch) {
       batch = await this.prisma.batch.create({
         data: {
@@ -408,7 +409,7 @@ export class LeadsController {
       });
     }
 
-    // 4. Find or create pending Enrolment (idempotent; resends reuse existing pending enrolment)
+    // 3. Find or create pending Enrolment (idempotent; resends reuse existing pending enrolment)
     let enrolment = await this.prisma.enrolment.findFirst({
       where: {
         userId: user.id,
@@ -435,11 +436,11 @@ export class LeadsController {
       }
     }
 
-    // 5. Calculate Currency & Pricing
+    // 4. Calculate Currency & Pricing
     const currency: 'USD' | 'AED' | 'INR' = body.currency || (program.currency as any) || 'USD';
     const amount = this.getProgramPrice(program, currency);
 
-    // 6. Sign trackable Checkout Token
+    // 5. Sign trackable Checkout Token
     const payload = {
       leadId: lead.id,
       userId: user.id,
@@ -453,53 +454,54 @@ export class LeadsController {
     };
     const token = this.generateLeadCheckoutToken(payload);
 
-    // 7. Generate Checkout URL
+    // 6. Generate Checkout URL
     const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
     const checkoutUrl = `${lmsUrl}/checkout/lead/${token}`;
 
-    // 8. Update Lead status to CONVERTED and append details cleanly (avoid duplicate notices on resend)
+    // 7. Update Lead status to CONVERTED and log Audit concurrently
     const conversionNotice = `\n[Converted to Enrolment: ${enrolment.id} | Course: ${program.title} | Link: ${checkoutUrl}]`;
     const cleanBaseMessage = (lead.message || '').replace(/\n?\[Converted to Enrolment:[^\]]+\]/gi, '').trim();
-    const updatedLead = await this.prisma.lead.update({
-      where: { id: lead.id },
-      data: {
-        status: LeadStatus.CONVERTED,
-        message: cleanBaseMessage ? `${cleanBaseMessage}${conversionNotice}` : conversionNotice.trim(),
-      },
-    });
-
-    // 9. Mandatory Audit Log (LEAD_CONVERT)
     const actorId = req?.user?.id || req?.user?.sub || 'system';
-    if (this.auditService) {
-      await this.auditService.log(this.prisma, {
-        actorId,
-        action: 'LEAD_CONVERT',
-        entityType: 'Lead',
-        entityId: lead.id,
-        reason:
-          body.note?.trim() ||
-          `Converted lead ${lead.name} and dispatched checkout link for ${program.title} (${currency} ${amount})`,
-        metadata: {
-          leadId: lead.id,
-          userId: user.id,
-          enrolmentId: enrolment.id,
-          programId: program.id,
-          batchId: batch?.id,
-          currency,
-          amount,
-          checkoutUrl,
-        },
-      });
-    }
 
-    // 10. Email Payment Link to Prospect
+    const [updatedLead] = await Promise.all([
+      this.prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          status: LeadStatus.CONVERTED,
+          message: cleanBaseMessage ? `${cleanBaseMessage}${conversionNotice}` : conversionNotice.trim(),
+        },
+      }),
+      this.auditService
+        ? this.auditService.log(this.prisma, {
+            actorId,
+            action: 'LEAD_CONVERT',
+            entityType: 'Lead',
+            entityId: lead.id,
+            reason:
+              body.note?.trim() ||
+              `Converted lead ${lead.name} and dispatched checkout link for ${program.title} (${currency} ${amount})`,
+            metadata: {
+              leadId: lead.id,
+              userId: user.id,
+              enrolmentId: enrolment.id,
+              programId: program.id,
+              batchId: batch?.id,
+              currency,
+              amount,
+              checkoutUrl,
+            },
+          })
+        : Promise.resolve(),
+    ]);
+
+    // 10. Email Payment Link to Prospect (Asynchronous non-blocking dispatch so Admin UI responds immediately)
     let emailSent = false;
     if (this.emailService) {
       const currencySymbol = currency === 'INR' ? '₹' : currency === 'AED' ? 'AED ' : '$';
       const formattedAmount = `${currencySymbol}${amount.toLocaleString()}`;
 
-      try {
-        await this.emailService.sendEmail({
+      this.emailService
+        .sendEmail({
           to: lead.email,
           subject: `Complete Your Enrolment: ${program.title} — WhatBoutMe`,
           html: `
@@ -538,11 +540,15 @@ export class LeadsController {
             </div>
           `,
           text: `Hi ${lead.name},\n\nYour course enrolment for ${program.title} is ready!\nTuition: ${formattedAmount} ${currency}\n\nComplete checkout here:\n${checkoutUrl}\n\nWhatBoutMe Team`,
+        })
+        .then(() => {
+          this.logger.log(`[convertAndSendLink] Successfully dispatched checkout email to ${lead.email}`);
+        })
+        .catch((err: any) => {
+          this.logger.warn(`[convertAndSendLink] Async email delivery warning for ${lead.email}: ${err?.message}`);
         });
-        emailSent = true;
-      } catch (err: any) {
-        console.warn('[convertAndSendLink] Email delivery warning:', err?.message);
-      }
+
+      emailSent = true;
     }
 
     return {
@@ -552,6 +558,8 @@ export class LeadsController {
       enrolmentId: enrolment.id,
       checkoutUrl,
       token,
+      amount,
+      currency,
       emailSent,
       message: 'Lead converted successfully. Pre-configured checkout link generated and emailed to prospect.',
     };

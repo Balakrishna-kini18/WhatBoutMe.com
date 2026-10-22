@@ -646,9 +646,9 @@ export default function EventsAdminPage() {
 
                   <div className={styles.cardHeaderOverlay}>
                     {isOnline ? (
-                      <span className={styles.badgeOnline}>🟢 Online</span>
+                      <span className={styles.badgeOnline}>Online</span>
                     ) : (
-                      <span className={styles.badgePhysical}>📍 In-Person</span>
+                      <span className={styles.badgePhysical}>In-Person</span>
                     )}
 
                     <StatusBadge
@@ -801,14 +801,14 @@ export default function EventsAdminPage() {
                   className={`${styles.segmentBtn} ${locationType === "ONLINE" ? styles.segmentBtnActive : ""}`}
                   onClick={() => setLocationType("ONLINE")}
                 >
-                  🟢 Online Session (Zoom / Meet)
+                  Online Session (Zoom / Meet)
                 </button>
                 <button
                   type="button"
                   className={`${styles.segmentBtn} ${locationType === "PHYSICAL" ? styles.segmentBtnActive : ""}`}
                   onClick={() => setLocationType("PHYSICAL")}
                 >
-                  📍 In-Person Physical Venue
+                  In-Person Physical Venue
                 </button>
               </div>
             </div>
@@ -826,7 +826,7 @@ export default function EventsAdminPage() {
                   required={locationType === "ONLINE"}
                 />
                 <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                  🔒 Kept secure and private from public APIs. Automatically sent via email upon verified payment.
+                  Kept secure and private from public APIs. Automatically sent via email upon verified payment.
                 </span>
               </div>
             ) : (

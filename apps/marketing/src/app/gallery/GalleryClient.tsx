@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Maximize2,
   Calendar,
-  Sparkles,
 } from "lucide-react";
 
 const BRAND_FALLBACK_IMG =
@@ -165,9 +164,6 @@ export default function GalleryClient() {
       ) : filteredItems.length === 0 ? (
         /* Empty State */
         <div className="rounded-3xl border border-dashed border-ink/15 bg-white/50 px-6 py-20 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
-            <Sparkles className="h-7 w-7" />
-          </div>
           <h2 className="text-xl font-bold text-ink sm:text-2xl">
             {activeCategory === "ALL"
               ? "Gallery Photos Coming Soon"
@@ -211,15 +207,6 @@ export default function GalleryClient() {
 
                 {/* Subtle Hover Overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-ink/60 via-ink/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-
-                {/* Category Pill */}
-                {item.category && (
-                  <div className="absolute left-3 top-3">
-                    <span className="rounded-full bg-cream/95 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-ink shadow-sm backdrop-blur-sm">
-                      {item.category}
-                    </span>
-                  </div>
-                )}
 
                 {/* Expand Indicator on Hover */}
                 <div className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full bg-cream/95 text-ink opacity-0 shadow-md backdrop-blur-sm transition-all duration-300 group-hover:opacity-100 group-hover:scale-100 scale-90">
@@ -265,11 +252,6 @@ export default function GalleryClient() {
             {/* Top Toolbar */}
             <div className="flex items-center justify-between border-b border-cream/10 px-5 py-3.5 bg-ink/40">
               <div className="flex items-center gap-3">
-                {currentPhoto.category && (
-                  <span className="rounded-full border border-gold/40 bg-gold/15 px-3 py-0.5 text-xs font-semibold uppercase tracking-wider text-gold">
-                    {currentPhoto.category}
-                  </span>
-                )}
                 <span className="text-xs text-cream/60">
                   Photo {(lightboxIndex ?? 0) + 1} of {filteredItems.length}
                 </span>

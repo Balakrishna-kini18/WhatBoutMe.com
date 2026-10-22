@@ -5,7 +5,9 @@
   justify-content: center;
   min-height: 100vh;
   padding: 1rem;
-  background: #14110f;
+  /* phones show the whole height of the picture; wide screens zoom it to the
+     full width and keep the sun and the ridges in view, not the trees */
+  background: #f8dfab url("/brand/auth-bg.webp") center 52% / cover no-repeat;
   color: var(--text-primary);
 }
 
@@ -16,6 +18,9 @@
   overflow: hidden;
   border-radius: 2rem;
   background: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.7),
+    0 40px 90px -40px rgba(110, 63, 18, 0.55);
 }
 
 /* left: gradient panel (hidden on small screens) */
@@ -53,7 +58,7 @@
   bottom: -8rem;
   width: 24rem;
   height: 24rem;
-  background: rgba(15, 30, 80, 0.5);
+  background: rgba(169, 103, 15, 0.4);
 }
 
 .panelTop,
@@ -80,7 +85,7 @@
 
 .headline {
   margin: 1rem 0 0;
-  color: #ffffff;
+  color: #14110f;
   font-size: 1.875rem;
   font-weight: 700;
   line-height: 1.08;
@@ -90,7 +95,7 @@
 .subtitle {
   max-width: 28rem;
   margin: 0.75rem 0 0;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(20, 17, 15, 0.75);
   line-height: 1.5;
 }
 
@@ -146,7 +151,7 @@
   padding: 0.875rem 1rem;
   border: 1px solid transparent;
   border-radius: 0.75rem;
-  background: #eef2f8;
+  background: #f3eee6;
   color: var(--text-primary);
   font-family: inherit;
   font-size: 1rem;
@@ -155,7 +160,7 @@
 }
 
 .field::placeholder {
-  color: rgba(100, 116, 139, 0.7);
+  color: rgba(74, 68, 61, 0.6);
 }
 
 .field:focus {

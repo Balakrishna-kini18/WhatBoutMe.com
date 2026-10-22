@@ -836,7 +836,7 @@ function CheckoutContent() {
                     "Log In to Finalize Enrollment"
                   ) : (
                     <>
-                      <span>⚡ Simulate Test Payment (Instant Paid)</span>
+                      <span>Simulate Test Payment (Instant Paid)</span>
                       <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
                     </>
                   )}

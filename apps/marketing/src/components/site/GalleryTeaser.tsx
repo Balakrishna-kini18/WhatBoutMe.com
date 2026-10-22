@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import SectionHeading from "./SectionHeading";
 import Reveal from "./Reveal";
 import { getPublicGallery } from "@/lib/api";
@@ -23,7 +23,6 @@ export default async function GalleryTeaser() {
       <div className="mx-auto max-w-[1240px] px-5 md:px-10">
         <SectionHeading
           center
-          eyebrow="Visual Credibility"
           title="Courses, Conferences & Global Moments"
         />
 
@@ -45,13 +44,6 @@ export default async function GalleryTeaser() {
                     loading="lazy"
                     unoptimized={!item.imageUrl.startsWith("https://res.cloudinary.com") && !item.imageUrl.startsWith("/")}
                   />
-                  {item.category && (
-                    <div className="absolute left-3 top-3">
-                      <span className="rounded-full bg-cream/95 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-ink shadow-sm backdrop-blur-sm">
-                        {item.category}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 <div className="flex flex-1 flex-col p-5">

@@ -31,7 +31,6 @@ export default async function CoursesPage() {
       <Nav />
 
       <header className="relative overflow-hidden">
-        <div aria-hidden className="bg-grid absolute inset-0" />
         <div className="relative mx-auto max-w-[1240px] px-5 pb-10 pt-20 sm:pt-32 text-center md:px-10 md:pb-12 md:pt-40">
           <h1 className="mx-auto max-w-3xl text-balance text-[1.75rem] font-bold sm:text-4xl leading-[1.08] tracking-tight md:text-5xl">
             All Courses &amp; Workshops

@@ -28,8 +28,6 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
       id="top"
       className="relative flex overflow-hidden border-b border-line"
     >
-      <div aria-hidden className="bg-grid absolute inset-0" />
-
       {/* phones: a compact stack sized like an app's home screen (small title,
           short buttons, facts as three tiles, small portrait). xl: text and
           course facts left, portrait right */}
@@ -64,8 +62,7 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
             {...rise(0.25)}
             className="rise mx-auto mt-6 w-full max-w-sm max-sm:text-center sm:mt-10 sm:max-w-2xl xl:mx-0"
           >
-            <p className="text-xs text-gold-deep sm:text-sm">Get Certified</p>
-            <p className="mt-0.5 text-lg font-bold tracking-tight sm:mt-1 sm:text-2xl md:text-3xl">
+            <p className="text-lg font-bold tracking-tight sm:text-2xl md:text-3xl">
               11 Steps to U Program
             </p>
             <ul className="mt-3 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-6">

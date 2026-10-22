@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 export const FIELD =
-  "w-full rounded-xl border border-transparent bg-sand px-4 py-3.5 text-ink outline-none transition-colors placeholder:text-ink-soft/60 focus:border-gold-deep focus:bg-white";
+  "w-full rounded-xl border border-transparent bg-sand px-4 py-3 text-ink sm:py-3.5 outline-none transition-colors placeholder:text-ink-soft/60 focus:border-gold-deep focus:bg-white";
 
 /** Password input with a show/hide button. */
 export default function PasswordField({

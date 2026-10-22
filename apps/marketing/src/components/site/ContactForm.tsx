@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
-import { ArrowRight, CheckCircle2, Calendar, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Calendar } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
 import DiscoveryCallBooking from "./DiscoveryCallBooking";
 
@@ -266,7 +266,7 @@ export default function ContactForm() {
                 : "text-ink-soft hover:text-ink"
             }`}
           >
-            <span>💬 General Inquiry</span>
+            <span>General Inquiry</span>
           </button>
 
           <button
@@ -278,7 +278,7 @@ export default function ContactForm() {
                 : "text-ink-soft hover:text-ink"
             }`}
           >
-            <span>🎓 Course Inquiry</span>
+            <span>Course Inquiry</span>
           </button>
         </div>
       </div>

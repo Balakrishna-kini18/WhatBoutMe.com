@@ -10,7 +10,6 @@ import {
   Download,
   ExternalLink,
   ChevronRight,
-  Sparkles,
 } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
 import {
@@ -221,10 +220,7 @@ export default function DiscoveryCallBooking({
             <CheckCircle2 className="h-6 w-6" />
           </div>
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-green-800 bg-green-100/80 px-2.5 py-0.5 rounded-full">
-              Appointment Confirmed
-            </span>
-            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-ink mt-0.5">
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-ink">
               1-to-1 Discovery Call with Roweena
             </h2>
           </div>
@@ -236,7 +232,7 @@ export default function DiscoveryCallBooking({
 
         {/* Multi-Timezone Schedule Card */}
         <div className="rounded-xl border border-sand bg-white p-5 mb-5 space-y-3">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gold-deep">
+          <div className="flex items-center gap-2 text-sm text-ink-soft">
             <Clock className="h-4 w-4" />
             <span>Scheduled Meeting Time</span>
           </div>
@@ -247,15 +243,15 @@ export default function DiscoveryCallBooking({
 
           <div className="grid gap-2 sm:grid-cols-3 pt-1 text-xs sm:text-sm">
             <div className="p-2.5 rounded-lg bg-cream border border-sand">
-              <span className="text-[11px] font-semibold text-ink-soft block uppercase">Your Timezone</span>
+              <span className="text-xs text-ink-soft block">Your Timezone</span>
               <span className="font-bold text-ink">{timeSummary.local}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-cream border border-sand">
-              <span className="text-[11px] font-semibold text-ink-soft block uppercase">Dubai Time</span>
+              <span className="text-xs text-ink-soft block">Dubai Time</span>
               <span className="font-bold text-ink">{timeSummary.gst}</span>
             </div>
             <div className="p-2.5 rounded-lg bg-cream border border-sand">
-              <span className="text-[11px] font-semibold text-ink-soft block uppercase">India Time</span>
+              <span className="text-xs text-ink-soft block">India Time</span>
               <span className="font-bold text-ink">{timeSummary.ist}</span>
             </div>
           </div>
@@ -264,7 +260,7 @@ export default function DiscoveryCallBooking({
         {/* Zoom Link Container */}
         <div className="rounded-xl border border-gold/40 bg-gold/10 p-5 mb-5 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gold-deep flex items-center gap-1.5">
+            <span className="text-sm text-ink-soft flex items-center gap-1.5">
               <Video className="h-4 w-4" />
               <span>Zoom Meeting Link</span>
             </span>
@@ -326,17 +322,11 @@ export default function DiscoveryCallBooking({
     <div className="rounded-2xl bg-cream-deep p-6 sm:p-8 animate-fadeIn text-ink">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="inline-flex items-center gap-1 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-gold-deep bg-gold/15 rounded-full">
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Step 2 · 1-on-1 Discovery Call</span>
-          </span>
-          {courseTitle && (
-            <span className="text-xs font-medium text-ink-soft hidden sm:inline">
-              · {courseTitle}
-            </span>
-          )}
-        </div>
+        {courseTitle && (
+          <p className="mb-2 hidden text-sm text-ink-soft sm:block">
+            {courseTitle}
+          </p>
+        )}
         <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink">
           Book Your 1-to-1 Discovery Call with Roweena (15-Minute Slot)
         </h2>

@@ -1,5 +1,5 @@
 // Service Worker for WhatBoutMe Admin Web Push Notifications
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -12,7 +12,7 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       data = event.data.json();
-    } catch (e) {
+    } catch {
       data = {
         title: 'WhatBoutMe Notification',
         body: event.data.text() || 'You have an important update.',

@@ -21,7 +21,6 @@ export default async function ContactPage() {
       <Nav />
 
       <section className="relative overflow-hidden">
-        <div aria-hidden className="bg-grid absolute inset-0" />
         <div className="relative mx-auto grid max-w-[1240px] gap-12 px-5 pb-20 pt-20 sm:pt-32 md:px-10 md:pb-28 md:pt-40 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
           <div>
             <h1 className="text-balance text-[1.75rem] font-bold sm:text-4xl leading-[1.08] tracking-tight md:text-5xl">
@@ -33,7 +32,7 @@ export default async function ContactPage() {
 
             <dl className="mt-10 space-y-6">
               <div>
-                <dt className="eyebrow text-gold-deep">Email Us</dt>
+                <dt className="text-sm text-ink-soft">Email Us</dt>
                 <dd className="mt-1.5">
                   <a
                     href={`mailto:${contact.email}`}
@@ -44,13 +43,13 @@ export default async function ContactPage() {
                 </dd>
               </div>
               <div>
-                <dt className="eyebrow text-gold-deep">Inquiries & Consultations</dt>
+                <dt className="text-sm text-ink-soft">Inquiries & Consultations</dt>
                 <dd className="mt-1.5 text-sm text-ink-soft leading-relaxed">
                   Submit a General or Course Inquiry using the form. Our coaching team reviews and responds to all messages within 24 hours.
                 </dd>
               </div>
               <div>
-                <dt className="eyebrow text-gold-deep">Location & Global Reach</dt>
+                <dt className="text-sm text-ink-soft">Location & Global Reach</dt>
                 <dd className="mt-1.5 text-sm text-ink-soft">
                   Dubai, UAE & Mangalore, India · Serving global learners worldwide
                 </dd>

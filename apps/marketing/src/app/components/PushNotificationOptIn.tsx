@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import styles from "./PushNotificationOptIn.module.css";
 import { fetchVapidPublicKey, registerPushSubscription, urlBase64ToUint8Array } from "@/lib/api";
 
 export default function PushNotificationOptIn() {
@@ -99,99 +100,44 @@ export default function PushNotificationOptIn() {
   if (!showPrompt) return null;
 
   return (
-    <div
-      role="region"
-      aria-label="Event alerts prompt"
-      style={{
-        position: "fixed",
-        bottom: "24px",
-        left: "24px",
-        maxWidth: "380px",
-        width: "calc(100vw - 48px)",
-        background: "#ffffff",
-        border: "1px solid #fae8ce",
-        borderRadius: "14px",
-        boxShadow: "0 12px 32px -4px rgba(224, 109, 40, 0.12), 0 4px 12px rgba(0, 0, 0, 0.08)",
-        padding: "16px 20px",
-        zIndex: 9999,
-      }}
-    >
-      {subscribedMessage ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#2f855a" }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
-          <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>{subscribedMessage}</span>
-        </div>
-      ) : (
-        <div>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
-            <div
-              style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "10px",
-                background: "#fef3c7",
-                color: "#d97706",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-              </svg>
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: "0.9375rem", fontWeight: 700, color: "#1a202c" }}>
-                Stay Informed On Upcoming Events
-              </p>
-              <p style={{ margin: "4px 0 0", fontSize: "0.8125rem", color: "#4a5568", lineHeight: 1.45 }}>
-                Enable push notifications to be the first to know about new workshops, keynotes, and masterclasses.
-              </p>
-            </div>
+    <>
+      {/* phones: dims the page behind the centred pop-up */}
+      <div className={styles.backdrop} aria-hidden="true" />
+      <div role="region" aria-label="Event alerts prompt" className={styles.card}>
+        {subscribedMessage ? (
+          <div className={styles.done}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span>{subscribedMessage}</span>
           </div>
-          <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", marginTop: "14px" }}>
-            <button
-              type="button"
-              onClick={handleDismiss}
-              style={{
-                background: "transparent",
-                border: "1px solid #e2e8f0",
-                color: "#718096",
-                borderRadius: "8px",
-                padding: "7px 14px",
-                fontSize: "0.8125rem",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              Not Now
-            </button>
-            <button
-              type="button"
-              onClick={handleSubscribe}
-              disabled={isSubscribing}
-              style={{
-                background: "#e06d28",
-                border: "none",
-                color: "#ffffff",
-                borderRadius: "8px",
-                padding: "7px 16px",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                cursor: isSubscribing ? "not-allowed" : "pointer",
-                opacity: isSubscribing ? 0.7 : 1,
-                boxShadow: "0 2px 6px rgba(224, 109, 40, 0.3)",
-              }}
-            >
-              {isSubscribing ? "Enabling..." : "Notify Me"}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+        ) : (
+          <>
+            <div className={styles.head}>
+              <div className={styles.icon} aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+              </div>
+              <div>
+                <p className={styles.title}>Stay Informed On Upcoming Events</p>
+                <p className={styles.text}>
+                  Enable push notifications to be the first to know about new workshops, keynotes, and masterclasses.
+                </p>
+              </div>
+            </div>
+            <div className={styles.actions}>
+              <button type="button" onClick={handleDismiss} className={styles.later}>
+                Not Now
+              </button>
+              <button type="button" onClick={handleSubscribe} disabled={isSubscribing} className={styles.allow}>
+                {isSubscribing ? "Enabling..." : "Notify Me"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }

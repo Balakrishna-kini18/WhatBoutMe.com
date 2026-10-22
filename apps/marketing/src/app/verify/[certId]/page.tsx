@@ -11,7 +11,6 @@ import {
   Calendar,
   User,
   ExternalLink,
-  ShieldCheck,
   Building,
 } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
@@ -112,11 +111,6 @@ export default async function VerifyCertificatePage({
           <div className="bg-white/85 backdrop-blur-md border border-border-warm/80 rounded-3xl p-8 sm:p-12 shadow-sm">
             <div className="w-16 h-16 bg-forest/10 text-forest rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
               <CheckCircle2 className="w-9 h-9 text-forest" />
-            </div>
-
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-forest/10 text-forest text-xs font-semibold mb-3 tracking-wide uppercase">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Accredited & Authentic
             </div>
 
             <h1 className="font-display text-3xl sm:text-4xl font-bold text-ink mb-2">

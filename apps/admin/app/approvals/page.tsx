@@ -726,7 +726,7 @@ export default function ApprovalsPage() {
             transition: "all 0.15s ease"
           }}
         >
-          <span>🎓 Certificate Approvals &amp; Eligibility</span>
+          <span>Certificate Approvals &amp; Eligibility</span>
           {pendingCount > 0 && (
             <span style={{
               background: "#b8860b",
@@ -759,7 +759,7 @@ export default function ApprovalsPage() {
             transition: "all 0.15s ease"
           }}
         >
-          <span>🎙 Oral Assessments &amp; Rubrics</span>
+          <span>Oral Assessments &amp; Rubrics</span>
           <span style={{
             background: "var(--border-light)",
             color: "var(--text-secondary)",

@@ -374,7 +374,7 @@ export default function ExamPage({
 
         {submitWarning && (
           <div style={{ backgroundColor: "#fef2f2", border: "1px solid #f87171", color: "#991b1b", padding: "12px 16px", borderRadius: "8px", marginBottom: "1rem" }}>
-            ⚠️ {submitWarning}
+            {submitWarning}
           </div>
         )}
 
@@ -747,7 +747,6 @@ export default function ExamPage({
         >
           {result.passed ? (
             <>
-              <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🏆</div>
               <h2 style={{ color: "#166534", margin: "0 0 8px", fontSize: "1.5rem" }}>
                 Congratulations! You Passed!
               </h2>
@@ -773,7 +772,6 @@ export default function ExamPage({
             </>
           ) : (
             <>
-              <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>📚</div>
               <h2 style={{ color: "#991b1b", margin: "0 0 8px", fontSize: "1.5rem" }}>
                 Exam Attempt Not Passed
               </h2>
@@ -796,7 +794,7 @@ export default function ExamPage({
                     textAlign: "left",
                   }}
                 >
-                  <strong style={{ color: "#92400e" }}>⏳ Cooldown Period Active</strong>
+                  <strong style={{ color: "#92400e" }}>Cooldown Period Active</strong>
                   <p style={{ margin: "4px 0 0", color: "#78350f", fontSize: "0.875rem" }}>
                     To ensure mastery, next attempt will be available after:{" "}
                     <strong>
@@ -820,7 +818,7 @@ export default function ExamPage({
                     textAlign: "left",
                   }}
                 >
-                  <strong style={{ color: "#1e293b" }}>📖 Recommended Review:</strong>
+                  <strong style={{ color: "#1e293b" }}>Recommended Review:</strong>
                   <p style={{ margin: "4px 0 8px", color: "#475569", fontSize: "0.875rem" }}>
                     Step {result.stepToRevisit.sequence}: {result.stepToRevisit.title}
                   </p>
@@ -844,7 +842,7 @@ export default function ExamPage({
                     textAlign: "left",
                   }}
                 >
-                  <strong style={{ color: "#1e293b" }}>💡 Advice:</strong>
+                  <strong style={{ color: "#1e293b" }}>Advice:</strong>
                   <p style={{ margin: "4px 0 0", color: "#475569", fontSize: "0.875rem" }}>
                     {result.retryGuidance}
                   </p>
@@ -865,22 +863,6 @@ export default function ExamPage({
           boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
         }}
       >
-        <span
-          style={{
-            display: "inline-block",
-            padding: "4px 12px",
-            borderRadius: "6px",
-            backgroundColor: "#fef3c7",
-            color: "#92400e",
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            marginBottom: "1rem",
-          }}
-        >
-          FINAL CERTIFICATION
-        </span>
-
         <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "#0f172a", margin: "0 0 1rem" }}>
           {config?.title || "Final Comprehensive Examination"}
         </h1>

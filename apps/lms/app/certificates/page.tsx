@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dash from "../page.module.css";
+import { courseImageFor } from "../lib/courseImage";
 import styles from "./certificates.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -125,7 +126,7 @@ export default function CertificatesPage() {
                   return (
                     <li key={course.programId} className={dash.course}>
                       <Image
-                        src="/brand/session.png"
+                        src={courseImageFor(course.programTitle)}
                         alt=""
                         width={104}
                         height={72}

@@ -1027,7 +1027,7 @@ export async function deleteGalleryItem(id: string): Promise<{ success: boolean;
 // ZERO-TRUST PAYMENT ARCHITECTURE, CHECKOUT & INVOICING (RAZORPAY & STRIPE READY)
 // -----------------------------------------------------------------------------
 
-export type PaymentGatewayProvider = "RAZORPAY" | "STRIPE" | "SANDBOX_ESCROW";
+export type PaymentGatewayProvider = "RAZORPAY" | "STRIPE" | "SANDBOX_ESCROW" | "TEST_BYPASS";
 export type SupportedCurrency = "USD" | "AED" | "INR";
 export type CheckoutItemType = "COURSE_ENROLMENT" | "EVENT_TICKET";
 export type CheckoutOrderStatus = "CREATED" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "REFUNDED";
@@ -1180,14 +1180,18 @@ export function calculateTaxForCurrency(
  */
 export function formatInvoiceAmount(amount: number, currency: string = "USD"): string {
   const code = (currency || "USD").toUpperCase();
+  const formatted = amount.toLocaleString(code === "INR" ? "en-IN" : "en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   switch (code) {
     case "INR":
-      return `₹${amount.toLocaleString("en-IN")}`;
+      return `₹${formatted}`;
     case "AED":
-      return `AED ${amount.toLocaleString()}`;
+      return `AED ${formatted}`;
     case "USD":
     default:
-      return `$${amount.toLocaleString()}`;
+      return `$${formatted}`;
   }
 }
 
@@ -2245,4 +2249,243 @@ export async function createStudentNote(payload: {
 export async function deleteStudentNote(id: string): Promise<boolean> {
   await apiDelete(`/notes/${id}`);
   return true;
+}
+
+// -----------------------------------------------------------------------------
+// DUAL-MODE DIGITAL WORKSHOP AGREEMENT & E-SIGNATURE (MANDATE #3)
+// -----------------------------------------------------------------------------
+
+export interface SignAgreementPayload {
+  enrolmentId?: string;
+  enrollmentId?: string;
+  versionId?: string;
+  consentGiven: boolean;
+  typedName: string;
+  drawnSignature?: string;
+  signatureImage?: string;
+  signatureType: "DRAW" | "UPLOAD";
+  consentVersion?: string;
+  consentTimestamp?: string;
+}
+
+export function validateAgreementSignature(payload: {
+  consentGiven: boolean;
+  typedName: string;
+  signatureType: "DRAW" | "UPLOAD";
+  drawnSignature?: string;
+  signatureImage?: string;
+}): { valid: boolean; error?: string } {
+  if (!payload.consentGiven) {
+    return { valid: false, error: "Consent checkbox must be explicitly checked before signing." };
+  }
+  if (!payload.typedName || !payload.typedName.trim()) {
+    return { valid: false, error: "Full legal printed name is required to execute the agreement." };
+  }
+  if (payload.signatureType === "DRAW") {
+    if (!payload.drawnSignature || !payload.drawnSignature.trim() || payload.drawnSignature.length < 50) {
+      return { valid: false, error: "Vector drawn signature is required when Draw Mode is selected." };
+    }
+  } else if (payload.signatureType === "UPLOAD") {
+    if (!payload.signatureImage || !payload.signatureImage.trim() || payload.signatureImage.length < 50) {
+      return { valid: false, error: "Signature image upload is required when Upload Mode is selected." };
+    }
+  } else {
+    return { valid: false, error: "Invalid signature mode specified (must be DRAW or UPLOAD)." };
+  }
+  return { valid: true };
+}
+
+export function isStep1UnlockedAfterSigning(enrolment: {
+  isAgreementSigned?: boolean | null;
+  status: string;
+  currentStepNumber?: number;
+}): { isUnlocked: boolean; lockReason?: string } {
+  if (!enrolment.isAgreementSigned) {
+    return {
+      isUnlocked: false,
+      lockReason: "Digital Workshop Agreement & Consent must be signed before Step 1 unlocks.",
+    };
+  }
+  if (enrolment.status !== "ACTIVE" && enrolment.status !== "CONFIRMED") {
+    return {
+      isUnlocked: false,
+      lockReason: `Enrolment is in ${enrolment.status} status. Active enrolment required.`,
+    };
+  }
+  return { isUnlocked: true };
+}
+
+export async function signWorkshopAgreement(
+  payload: SignAgreementPayload
+): Promise<{ success: boolean; signedAt: string; step1Unlocked: boolean; agreementPdfUrl?: string }> {
+  const validation = validateAgreementSignature(payload);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+  return apiPost("/agreements/sign", payload);
+}
+
+// -----------------------------------------------------------------------------
+// CONFIGURABLE QUIZ PLACEMENT & VISUAL QUESTION BANK (MANDATES #5 & #6)
+// -----------------------------------------------------------------------------
+
+export type QuizPlacementType = "BEFORE_VIDEO" | "AFTER_VIDEO";
+export type QuestionBankType = "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TEXT_BOX";
+
+export interface QuestionBankOption {
+  id: string;
+  text: string;
+  imageUrl?: string | null;
+  isCorrect: boolean;
+}
+
+export interface QuestionBankItem {
+  id: string;
+  prompt: string;
+  imageUrl?: string | null;
+  type: QuestionBankType;
+  options?: QuestionBankOption[];
+  expectedAnswerText?: string | null;
+  points: number;
+}
+
+export interface QuizConfiguration {
+  id?: string;
+  stepId: string;
+  placement: QuizPlacementType;
+  passMarkPercentage: number;
+  maxAttempts: number;
+  questions: QuestionBankItem[];
+}
+
+export function validateQuizConfiguration(config: QuizConfiguration): { valid: boolean; error?: string } {
+  if (!config.stepId) {
+    return { valid: false, error: "Quiz must be associated with a valid stepId." };
+  }
+  if (config.placement !== "BEFORE_VIDEO" && config.placement !== "AFTER_VIDEO") {
+    return { valid: false, error: "Quiz placement must be either BEFORE_VIDEO or AFTER_VIDEO." };
+  }
+  if (config.passMarkPercentage < 1 || config.passMarkPercentage > 100) {
+    return { valid: false, error: "Pass mark percentage must be between 1 and 100." };
+  }
+  if (!config.questions || config.questions.length === 0) {
+    return { valid: false, error: "Quiz must contain at least one question." };
+  }
+  for (let i = 0; i < config.questions.length; i++) {
+    const q = config.questions[i]!;
+    if (!q.prompt || !q.prompt.trim()) {
+      return { valid: false, error: `Question ${i + 1} is missing a text prompt.` };
+    }
+    if (q.type === "SINGLE_CHOICE") {
+      const correct = q.options?.filter((o) => o.isCorrect) || [];
+      if (correct.length !== 1) {
+        return { valid: false, error: `Single choice question ${i + 1} must have exactly 1 correct option.` };
+      }
+    } else if (q.type === "MULTIPLE_CHOICE") {
+      const correct = q.options?.filter((o) => o.isCorrect) || [];
+      if (correct.length < 1) {
+        return { valid: false, error: `Multiple choice question ${i + 1} must have at least 1 correct option.` };
+      }
+    } else if (q.type === "TEXT_BOX") {
+      if (!q.expectedAnswerText || !q.expectedAnswerText.trim()) {
+        return { valid: false, error: `Short answer question ${i + 1} must have an expected answer text for grading.` };
+      }
+    }
+  }
+  return { valid: true };
+}
+
+export function evaluateQuestionGradingRule(
+  question: QuestionBankItem,
+  submittedAnswer: string | string[]
+): { isCorrect: boolean; pointsAwarded: number } {
+  if (question.type === "SINGLE_CHOICE") {
+    const correctOption = question.options?.find((o) => o.isCorrect);
+    const isCorrect = typeof submittedAnswer === "string" && submittedAnswer === correctOption?.id;
+    return { isCorrect, pointsAwarded: isCorrect ? question.points : 0 };
+  }
+
+  if (question.type === "MULTIPLE_CHOICE") {
+    const correctOptionIds = (question.options?.filter((o) => o.isCorrect) || []).map((o) => o.id).sort();
+    const submittedIds = Array.isArray(submittedAnswer) ? [...submittedAnswer].sort() : [];
+    const isCorrect =
+      correctOptionIds.length === submittedIds.length &&
+      correctOptionIds.every((id, idx) => id === submittedIds[idx]);
+    return { isCorrect, pointsAwarded: isCorrect ? question.points : 0 };
+  }
+
+  if (question.type === "TEXT_BOX") {
+    const expected = (question.expectedAnswerText || "").trim().toLowerCase();
+    const actual = (typeof submittedAnswer === "string" ? submittedAnswer : "").trim().toLowerCase();
+    const isCorrect = expected.length > 0 && actual === expected;
+    return { isCorrect, pointsAwarded: isCorrect ? question.points : 0 };
+  }
+
+  return { isCorrect: false, pointsAwarded: 0 };
+}
+
+// -----------------------------------------------------------------------------
+// CONTACT US & 15-MIN DISCOVERY CALL ROUTING (MANDATES #12 & #13)
+// -----------------------------------------------------------------------------
+
+export interface ContactUsInquiryPayload {
+  name: string;
+  email: string;
+  phone?: string;
+  category: "GENERAL_INQUIRY" | "COURSE_INQUIRY";
+  courseId?: string;
+  message: string;
+  requestedSlotUtc?: string;
+}
+
+export interface ContactRoutingResult {
+  destination: "STAFF_INBOX" | "PROSPECT_CRM_LEADS";
+  requiresCourseSelection: boolean;
+  scheduledDiscoveryCall: boolean;
+  zoomMeetingLink?: string;
+  leadId?: string;
+  messageId?: string;
+  notificationDispatched: boolean;
+}
+
+export function routeContactInquiry(inquiry: ContactUsInquiryPayload): ContactRoutingResult {
+  if (inquiry.category === "COURSE_INQUIRY") {
+    if (!inquiry.courseId) {
+      throw new Error("Course Inquiry requires selecting a course track to route to CRM leads.");
+    }
+    const hasSlot = Boolean(inquiry.requestedSlotUtc);
+    return {
+      destination: "PROSPECT_CRM_LEADS",
+      requiresCourseSelection: true,
+      scheduledDiscoveryCall: hasSlot,
+      zoomMeetingLink: hasSlot ? generateZoomMeetingLink(inquiry.name, inquiry.requestedSlotUtc!).joinUrl : undefined,
+      leadId: `lead_${Date.now()}`,
+      notificationDispatched: true,
+    };
+  }
+
+  return {
+    destination: "STAFF_INBOX",
+    requiresCourseSelection: false,
+    scheduledDiscoveryCall: false,
+    messageId: `msg_${Date.now()}`,
+    notificationDispatched: true,
+  };
+}
+
+export function generateZoomMeetingLink(
+  prospectName: string,
+  startIso: string
+): { joinUrl: string; hostUrl: string; meetingId: string; password?: string } {
+  const hash = Math.abs(
+    startIso.split("").reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0)
+  ).toString().substring(0, 9);
+  const meetingId = `842${hash.padStart(8, "0")}`;
+  const pwd = `WBM${meetingId.slice(-4)}`;
+  return {
+    joinUrl: `https://zoom.us/j/${meetingId}?pwd=${pwd}`,
+    hostUrl: `https://zoom.us/s/${meetingId}?pwd=${pwd}`,
+    meetingId,
+    password: pwd,
+  };
 }

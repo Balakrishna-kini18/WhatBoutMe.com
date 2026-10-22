@@ -179,7 +179,7 @@ export default function EventRegistrationsPage({
                 borderRadius: "6px",
               }}
             >
-              {event?.locationType === "ONLINE" ? "🟢 Online Live Session" : "📍 In-Person Event"}
+              {event?.locationType === "ONLINE" ? "Online Live Session" : "In-Person Event"}
             </span>
             <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>
               {event?.isPublished ? "PUBLISHED" : "DRAFT"}
@@ -191,7 +191,6 @@ export default function EventRegistrationsPage({
           {event && (
             <div className={styles.heroMeta}>
               <div className={styles.heroMetaItem}>
-                <span>📅</span>
                 <span>
                   {new Date(event.startDateTime || event.startAt || "").toLocaleDateString(undefined, {
                     weekday: "short",
@@ -202,17 +201,14 @@ export default function EventRegistrationsPage({
                 </span>
               </div>
               <div className={styles.heroMetaItem}>
-                <span>🏷️</span>
                 <span>{formatPrice(event.price, event.currency)}</span>
               </div>
               {event.locationType === "ONLINE" ? (
                 <div className={styles.heroMetaItem}>
-                  <span>🔗</span>
                   <span>Gated Meeting URL</span>
                 </div>
               ) : (
                 <div className={styles.heroMetaItem}>
-                  <span>📍</span>
                   <span>{event.venueName || event.venueAddress || "Physical Hall"}</span>
                 </div>
               )}
@@ -227,7 +223,7 @@ export default function EventRegistrationsPage({
             onClick={handleExportCsv}
             disabled={registrations.length === 0}
           >
-            <span>📥 Export to CSV</span>
+            <span>Export to CSV</span>
           </button>
         </div>
       </div>
@@ -297,7 +293,7 @@ export default function EventRegistrationsPage({
         </div>
 
         <div className={styles.searchWrap}>
-          <span className={styles.searchIcon}>🔍</span>
+          <span className={styles.searchIcon}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg></span>
           <input
             type="search"
             placeholder="Search attendee, email, phone, transaction ID..."
@@ -365,7 +361,7 @@ export default function EventRegistrationsPage({
                           <div className={styles.userName}>{name}</div>
                           {reg.emailSent && (
                             <span style={{ fontSize: "0.7rem", color: "#059669", fontWeight: 600 }}>
-                              ✉️ Access email dispatched
+                              Access email dispatched
                             </span>
                           )}
                         </div>

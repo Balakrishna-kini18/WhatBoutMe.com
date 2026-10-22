@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldAlert } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField, { FIELD } from "@/components/site/PasswordField";
+import GoogleButton, { GOOGLE_NOT_READY } from "@/components/site/GoogleButton";
 import { continueToPortal, signIn, signOut } from "@/lib/auth";
 
 type Method = "email" | "mobile";
@@ -73,8 +74,8 @@ export default function LoginPage() {
         setMethod(value);
         setError("");
       }}
-      className={`flex-1 rounded-full py-2.5 text-sm font-medium transition-colors duration-200 ${
-        method === value ? "bg-ink text-cream" : "text-ink-soft hover:text-ink"
+      className={`flex-1 rounded-full py-2 text-sm font-medium transition-colors duration-200 ${
+        method === value ? "bg-white text-ink shadow-[0_1px_3px_rgba(20,17,15,0.12)]" : "text-ink-soft hover:text-ink"
       }`}
     >
       {label}
@@ -86,7 +87,7 @@ export default function LoginPage() {
       headline="Continue Your Journey"
       subtitle="Sign in to reach your courses, live sessions and certificates."
     >
-      <h1 className="text-center text-3xl font-bold tracking-tight md:text-4xl">
+      <h1 className="text-center text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
         Welcome Back
       </h1>
 
@@ -105,7 +106,7 @@ export default function LoginPage() {
       )}
 
       {forPortal && !deviceConflict && (
-        <p role="status" className="mt-5 rounded-xl bg-cream-deep px-4 py-3 text-center text-sm text-ink">
+        <p role="status" className="mx-auto mt-2 max-w-xs text-center text-sm text-ink-soft">
           Sign in to see your courses and profile. No course yet? You can
           explore and pick one after signing in.
         </p>
@@ -115,13 +116,13 @@ export default function LoginPage() {
       <div
         role="tablist"
         aria-label="Sign in with"
-        className="mt-8 flex rounded-full bg-sand p-1"
+        className="mt-6 flex rounded-full bg-sand p-1 sm:mt-8"
       >
         {tab("email", "Email")}
         {tab("mobile", "Mobile Number")}
       </div>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-5">
+      <form onSubmit={onSubmit} className="mt-5 space-y-4 sm:mt-6 sm:space-y-5">
         {method === "email" ? (
           <div>
             <label htmlFor="email" className="mb-2 block text-sm font-medium">
@@ -187,32 +188,21 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={busy}
-          className="group flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink disabled:opacity-60"
+          className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink disabled:opacity-60"
         >
           {busy ? "Signing In…" : "Sign In"}
           <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
         </button>
       </form>
 
-      <p className="mt-4 text-center text-sm text-ink-soft">
+      <GoogleButton onClick={() => setError(GOOGLE_NOT_READY)} />
+
+      <p className="mt-5 text-center text-sm text-ink-soft">
         Don&apos;t have an account?{" "}
         <Link href="/signup" className="font-semibold text-gold-deep hover:underline">
           Sign up
         </Link>
       </p>
-
-      <div className="my-6 flex items-center gap-4 text-sm text-ink-soft">
-        <span className="h-px flex-1 bg-line" />
-        Or
-        <span className="h-px flex-1 bg-line" />
-      </div>
-
-      <Link
-        href="/signup"
-        className="flex w-full items-center justify-center rounded-xl border border-line bg-white py-4 font-semibold text-ink transition-colors duration-200 hover:border-ink"
-      >
-        Create Account
-      </Link>
     </AuthShell>
   );
 }

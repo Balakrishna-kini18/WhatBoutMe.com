@@ -37,11 +37,7 @@ export default async function EventsPage() {
 
       {/* Hero Header */}
       <header className="relative overflow-hidden">
-        <div aria-hidden className="bg-grid absolute inset-0 opacity-40" />
         <div className="relative mx-auto max-w-[1240px] px-5 pb-8 pt-20 text-center sm:pt-32 md:px-10 md:pb-12 md:pt-40">
-          <div className="mx-auto mb-3 inline-flex items-center gap-2 rounded-full border border-gold/40 bg-gold-deep/10 px-3.5 py-1 text-xs font-semibold uppercase tracking-wider text-gold-deep">
-            <span>Live Interactive Sessions</span>
-          </div>
           <h1 className="mx-auto max-w-3xl text-balance text-[1.75rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
             Upcoming Events &amp; Webinars
           </h1>

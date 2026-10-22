@@ -16,7 +16,6 @@ export default function Testimonials({
       <div className="mx-auto max-w-[1240px] px-5 md:px-10">
         <SectionHeading
           center
-          eyebrow="Testimonials"
           title="What Clients Are Saying"
         />
 

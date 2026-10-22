@@ -265,7 +265,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     if (conflictCheck.hasConflict && conflictCheck.conflictingSession) {
       const c = conflictCheck.conflictingSession;
       setFormError(
-        `⚠️ Scheduling Conflict Detected: Coach/Trainer already has commitment "${c.title}" scheduled from ${formatShortTimeInTz(c.startTime, displayTimezone)} to ${formatShortTimeInTz(c.endTime, displayTimezone)} (${displayTimezone}). Please select another time slot.`
+        `Scheduling Conflict Detected: Coach/Trainer already has commitment "${c.title}" scheduled from ${formatShortTimeInTz(c.startTime, displayTimezone)} to ${formatShortTimeInTz(c.endTime, displayTimezone)} (${displayTimezone}). Please select another time slot.`
       );
       return;
     }

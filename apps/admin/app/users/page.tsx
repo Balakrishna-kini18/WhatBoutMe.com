@@ -892,7 +892,7 @@ export default function UsersPage() {
 
                           {isDisabled && (
                             <div style={{ fontSize: "0.72rem", color: "var(--status-error)", marginTop: "0.25rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                              <span>🔒 Requires Super Admin role</span>
+                              <span>Requires Super Admin role</span>
                             </div>
                           )}
                         </div>

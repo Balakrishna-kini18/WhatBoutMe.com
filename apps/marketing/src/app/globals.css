@@ -89,6 +89,13 @@
     min-height: 100vh;
     min-height: 100dvh;
   }
+  /* never leave one word alone on the last line; headings break into even lines */
+  p, li, dd, dt, label, blockquote, figcaption, small {
+    text-wrap: pretty;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+  }
   ::selection {
     background: #efa944;
     color: #14110f;
@@ -132,26 +139,6 @@
   -ms-overflow-style: none;
   &::-webkit-scrollbar {
     display: none;
-  }
-}
-
-@layer utilities {
-  /* Faint square grid behind the hero */
-  .bg-grid {
-    background-image:
-      linear-gradient(rgba(20, 17, 15, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(20, 17, 15, 0.045) 1px, transparent 1px);
-    background-size: 56px 56px;
-    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent);
-    mask-image: linear-gradient(to bottom, black 55%, transparent);
-  }
-
-  /* Letter-spaced small caps label used throughout the brochure */
-  .eyebrow {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
   }
 }
 

@@ -714,11 +714,11 @@ export default function LiveSessionsPage() {
                 <div className={styles.cardBody}>
                   <div className={styles.cardEyebrow}>
                     <span>11 Steps to You</span>
-                    <span className={styles.eyebrowDot} aria-hidden="true">•</span>
+                    <span className={styles.eyebrowDot} aria-hidden="true">·</span>
                     <span>{formatDuration(start, end)}</span>
                     {s.sessionType === "ONE_ON_ONE" && (
                       <>
-                        <span className={styles.eyebrowDot} aria-hidden="true">•</span>
+                        <span className={styles.eyebrowDot} aria-hidden="true">·</span>
                         <span>1-on-1</span>
                       </>
                     )}

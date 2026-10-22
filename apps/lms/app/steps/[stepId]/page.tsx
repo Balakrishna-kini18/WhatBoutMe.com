@@ -457,7 +457,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return (
       <div className={styles.container}>
         <div className={styles.lockCard}>
-          <div className={styles.lockIconWrap}>⚠️</div>
           <h2 className={styles.lockTitle}>Unable to load step</h2>
           <p className={styles.lockMessage}>{loadError || "Step not found."}</p>
           <Link href={step?.programId ? `/programs/${step.programId}/steps` : "/"} className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}>
@@ -525,7 +524,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return (
       <div className={styles.container}>
         <div className={styles.lockCard}>
-          <div className={styles.lockIconWrap}>🛡️</div>
           <span className={styles.lockBadge}>{status || "RESTRICTED"}</span>
           <h2 className={styles.lockTitle}>{heading}</h2>
           <p className={styles.lockMessage}>{message}</p>
@@ -539,7 +537,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return (
       <div className={styles.container}>
         <div className={styles.lockCard}>
-          <div className={styles.lockIconWrap}>🔒</div>
           <span className={styles.lockBadge}>{currentStepProg?.lockReason || "STEP LOCKED"}</span>
           <h2 className={styles.lockTitle}>Step {step.sequence}: {step.title} is Locked</h2>
           <p className={styles.lockMessage}>
@@ -765,7 +762,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       gap: "6px",
                     }}
                   >
-                    <span>{m.type === "AUDIO" ? "🎧" : "🎬"} Lesson {idx + 1}</span>
+                    <span>Lesson {idx + 1}</span>
                     {isViewed && <span style={{ color: "#16a34a" }}>✓</span>}
                   </button>
                 );
@@ -952,7 +949,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                        <h4 style={{ margin: 0, fontSize: "1rem" }}>📖 {textLesson.title}</h4>
+                        <h4 style={{ margin: 0, fontSize: "1rem" }}>{textLesson.title}</h4>
                         {isRead ? (
                           <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>✓ Completed</span>
                         ) : (
@@ -1497,7 +1494,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             {isStepCompleted && (
               <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid var(--border-light)" }}>
                 <p style={{ color: "#16a34a", fontWeight: 700, fontSize: "0.9rem", margin: "0 0 10px" }}>
-                  🎉 All Requirements Met!
+                  All Requirements Met
                 </p>
                 {nextStep ? (
                   <Link
@@ -1566,7 +1563,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "1.2rem" }}>📄</span>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)" }}>
                     {viewingPdf.title}

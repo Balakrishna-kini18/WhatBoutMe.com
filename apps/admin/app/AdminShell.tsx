@@ -87,6 +87,12 @@ const Icons = {
       <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
     </svg>
   ),
+  Approvals: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  ),
   Resources: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -731,7 +737,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
         { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
         { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
-        { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Certificates />, perm: "manage_operations" },
+        { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Approvals />, perm: "manage_operations" },
         { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
       ],
     },

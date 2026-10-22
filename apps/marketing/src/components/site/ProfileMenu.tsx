@@ -45,7 +45,7 @@ export default function ProfileMenu() {
       <a
         href={LMS_URL}
         onClick={openPortal()}
-        className="hidden h-11 items-center whitespace-nowrap rounded-full border border-cream/20 px-5 text-sm font-medium text-cream/90 transition-colors duration-200 hover:border-gold hover:text-gold sm:flex md:h-12 md:text-[15px]"
+        className="hidden h-11 items-center whitespace-nowrap rounded-full border border-cream/20 px-5 text-sm font-medium text-cream/90 transition-colors duration-200 hover:border-gold hover:text-gold sm:flex md:h-12 md:text-[15px] lg:hidden xl:flex"
       >
         LMS Portal
       </a>

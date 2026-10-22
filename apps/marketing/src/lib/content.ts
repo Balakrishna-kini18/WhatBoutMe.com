@@ -65,8 +65,8 @@ export const NAV_LINKS = [
   { label: "Events", href: "/events" },
   { label: "Gallery", href: "/gallery" },
   { label: "About Me", href: "/about" },
-  { label: "Certification", href: "#certification" },
-  { label: "FAQ", href: "#faq" },
+  // { label: "Certification", href: "#certification" },
+  // { label: "FAQ", href: "#faq" },
 ];
 
 /** Extra blocks shown on a course's own page. */

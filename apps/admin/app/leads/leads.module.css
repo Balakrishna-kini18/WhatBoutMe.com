@@ -161,7 +161,12 @@
 }
 
 .table th {
-  background: #faf7f2;
+  background: rgba(250, 247, 242, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
   color: var(--text-muted, #78716c);
   font-size: 0.72rem;
   font-weight: 700;
@@ -180,6 +185,7 @@
   color: var(--text-primary, #1c1917);
   word-break: break-word;
   overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
 .table tr:last-child td {
@@ -512,6 +518,13 @@
   transform: translateY(-1px);
 }
 
+.btnPrimaryConvert:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btnResendLink {
   display: inline-flex;
   align-items: center;
@@ -531,6 +544,11 @@
 .btnResendLink:hover {
   background: rgba(16, 185, 129, 0.2);
   border-color: #059669;
+}
+
+.btnResendLink:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Empty & Loading States */

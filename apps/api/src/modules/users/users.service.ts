@@ -138,7 +138,16 @@ export class UsersService {
           email: true,
           role: true,
           permissions: true,
+          twoFactorEnabled: true,
           createdAt: true,
+          signedAgreements: {
+            select: { id: true, status: true, signedAt: true },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
+          managedBatches: {
+            select: { id: true, name: true },
+          },
           enrolments: {
             select: {
               id: true,
@@ -243,6 +252,10 @@ export class UsersService {
         permissions: user.permissions || [],
         status: primaryEnrolment?.status || (user.role === Role.USER ? 'Unenrolled' : 'Active'),
         progress: `${progressPct}%`,
+        currentStepNumber: Math.max(1, Math.min(11, Math.ceil((progressPct / 100) * 11))),
+        twoFactorEnabled: Boolean(user.twoFactorEnabled),
+        isAgreementSigned: user.signedAgreements?.some((a: any) => a.status === 'SIGNED') || false,
+        managedBatches: user.managedBatches || [],
         cohort: primaryEnrolment?.batch?.name || 'Unassigned',
         batchId: primaryEnrolment?.batchId || null,
         enrolmentId: primaryEnrolment?.id || null,
@@ -383,7 +396,7 @@ export class UsersService {
       throw new BadRequestException(`Invalid IANA timezone: ${data.timezone}`);
     }
 
-    const { passwordHash: _ph, status: _st, cohort: _co, batchId: _bid, enrolmentId: _eid, progress: _pr, joined: _jo, ...userData } = data;
+    const { passwordHash: _ph, status: _st, cohort: _co, batchId: _bid, batchIds: _bids, enrolmentId: _eid, progress: _pr, joined: _jo, ...userData } = data;
     const bcrypt = await import('bcryptjs');
     if (data.password) {
       userData.passwordHash = await bcrypt.hash(data.password, 12);
@@ -511,6 +524,20 @@ export class UsersService {
         } else if ((currentUser.role as any) === 'MANAGER' || (currentUser.role as any) === Role.TEACHER) {
           await this.prisma.batch.update({
             where: { id: targetBatchId },
+            data: { managerId: id },
+          }).catch(() => null);
+        }
+      }
+
+      // Handle multi-batch assignment for Managers
+      if (data.batchIds && Array.isArray(data.batchIds)) {
+        await this.prisma.batch.updateMany({
+          where: { managerId: id, id: { notIn: data.batchIds } },
+          data: { managerId: null },
+        }).catch(() => null);
+        if (data.batchIds.length > 0) {
+          await this.prisma.batch.updateMany({
+            where: { id: { in: data.batchIds } },
             data: { managerId: id },
           }).catch(() => null);
         }

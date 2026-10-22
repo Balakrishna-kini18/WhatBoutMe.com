@@ -215,15 +215,17 @@ interface SearchablePageItem {
 }
 
 const SEARCH_ITEMS: SearchablePageItem[] = [
+  /*
   {
     id: "simulator",
-    title: "Learner & Funnel Simulator",
-    description: "Interactive test runner for video lock, e-signature, discovery call, and test-bypass checkout",
+    title: "Client Portal & Funnel Preview",
+    description: "End-to-end interactive preview for contact funnel, 15-min discovery booking, e-signatures, LMS player, and multi-currency checkout",
     href: "/simulator",
     category: "Overview",
     iconName: "Dashboard",
-    keywords: ["simulator", "funnel", "checkout", "signature", "discovery", "contact", "notes", "player", "preview"],
+    keywords: ["portal", "client", "funnel", "preview", "simulator", "checkout", "signature", "discovery", "contact", "notes", "player"],
   },
+  */
   {
     id: "dashboard",
     title: "Dashboard Overview",
@@ -722,12 +724,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       permission: true,
       items: [
         { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
+        // { label: "Client Portal & Funnel Preview", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
         { label: "Analytics", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
         { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
-        // a testing tool, so after the pages used every day
-        { label: "Funnel Simulator", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
       ],
     },
     {

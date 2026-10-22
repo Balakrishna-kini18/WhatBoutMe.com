@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
-import { Modal, CustomSelect, ConfirmDialog, useToast } from "../../../../../components";
+import { Modal, CustomSelect, ConfirmDialog, useToast, TableSkeleton } from "../../../../../components";
 import { errorMessage as extractErrorMessage } from "../../../../../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -336,11 +336,7 @@ export default function ReconciliationPage({
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "30px" }}>
-                    Loading unmatched attendees...
-                  </td>
-                </tr>
+                <TableSkeleton columns={6} rows={4} />
               ) : !data || data.unmatched.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: "center", padding: "40px" }}>

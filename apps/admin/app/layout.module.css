@@ -1349,3 +1349,87 @@
   cursor: pointer;
 }
 
+/* =========================================================================
+   Responsive Drawer & Tablet/Mobile Breakpoints (< 1024px)
+   ========================================================================= */
+@media (max-width: 1024px) {
+  .mobileMenuBtn {
+    display: inline-flex !important;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px !important;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 1000;
+    box-shadow: 0 10px 40px rgba(20, 17, 15, 0.25);
+  }
+
+  .sidebar.mobileOpen {
+    transform: translateX(0);
+  }
+
+  .mobileBackdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 17, 15, 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .mainWrapper {
+    margin-left: 0 !important;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .collapseToggle {
+    display: none !important;
+  }
+
+  .topbar {
+    padding: 0 1rem;
+  }
+
+  .searchContainer {
+    width: 240px;
+  }
+
+  .mainContent {
+    padding: 1.25rem 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .searchContainer {
+    display: none;
+  }
+
+  .userName,
+  .userRole {
+    display: none;
+  }
+
+  .userProfile {
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .topbar {
+    height: 58px;
+    padding: 0 0.75rem;
+  }
+
+  .mainContent {
+    padding: 1rem 0.75rem;
+  }
+}
+

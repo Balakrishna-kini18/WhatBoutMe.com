@@ -138,6 +138,12 @@ export function clearApiCache(): void {
  * Automatically purges cached GET responses when mutating endpoints are called.
  */
 export function autoInvalidateOnMutation(url: string): void {
+  // Routine playback telemetry heartbeats must NEVER flush the cache.
+  // Cache is explicitly invalidated on completion (/complete) or quiz submission.
+  if (url.includes("/heartbeat")) {
+    return;
+  }
+
   const resources = [
     "sessions",
     "bookings",
@@ -167,6 +173,7 @@ export function autoInvalidateOnMutation(url: string): void {
         invalidateCache("/progress");
         invalidateCache("/quizzes");
         invalidateCache("/certificates");
+        invalidateCache("/auth");
       }
       if (r === "certificates") {
         invalidateCache("/certificates");
@@ -174,9 +181,18 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "agreements") {
         invalidateCache("/agreements");
         invalidateCache("/progression");
+        invalidateCache("/auth");
       }
       break;
     }
+  }
+
+  if (url.includes("/complete") || url.includes("/submit")) {
+    invalidateCache("/progression");
+    invalidateCache("/progress");
+    invalidateCache("/quizzes");
+    invalidateCache("/certificates");
+    invalidateCache("/auth");
   }
 }
 
@@ -295,7 +311,7 @@ export async function cachedFetch(
   const isGet = method === "GET";
   const skipCache = init?.skipCache ?? false;
   const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
-  const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
+  const timeoutMs = init?.timeoutMs ?? (isGet ? 30_000 : 60_000); // 60s default for mutations, 30s for GET
 
   // Auto-bust cache on mutations
   if (!isGet) {

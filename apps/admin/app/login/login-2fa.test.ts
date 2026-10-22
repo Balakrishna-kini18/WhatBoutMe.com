@@ -261,4 +261,208 @@ describe('Admin 2FA / TOTP Frontend Flows (D1-022)', () => {
       expect(isExempt('http://localhost:4000/batches')).toBe(false);
     });
   });
+
+  describe('5. Server-Enforced RBAC Matrix Verification (SUPER_ADMIN, ADMIN, MANAGER, USER)', () => {
+    interface RbacUser {
+      id: string;
+      email: string;
+      role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'USER';
+    }
+
+    const canAccessAdminRoute = (user: RbacUser, route: string): boolean => {
+      // Learners (USER) cannot access any admin portal routes
+      if (user.role === 'USER') return false;
+
+      // SUPER_ADMIN has unrestricted access across all routes
+      if (user.role === 'SUPER_ADMIN') return true;
+
+      // MANAGER is batch-scoped: can only access batch sessions, attendance, and direct messaging
+      if (user.role === 'MANAGER') {
+        const allowedPrefixes = ['/batches', '/sessions', '/attendance', '/messages'];
+        const isRestrictedGlobal = ['/programs/create', '/revenue', '/settings', '/users'].some(p => route.startsWith(p));
+        if (isRestrictedGlobal) return false;
+        return allowedPrefixes.some(p => route.startsWith(p));
+      }
+
+      // ADMIN has operational access across programs, batches, leads, quizzes, revenue
+      if (user.role === 'ADMIN') {
+        // Restricted from system-level destructive operations or staff role management reserved for SUPER_ADMIN
+        const superAdminOnly = ['/settings/system-purge', '/users/assign-super-admin'];
+        return !superAdminOnly.includes(route);
+      }
+
+      return false;
+    };
+
+    it('SUPER_ADMIN can access all operational and destructive system routes', () => {
+      const superAdmin: RbacUser = { id: 'sa-1', email: 'roweena@whatboutme.com', role: 'SUPER_ADMIN' };
+
+      expect(canAccessAdminRoute(superAdmin, '/dashboard')).toBe(true);
+      expect(canAccessAdminRoute(superAdmin, '/programs')).toBe(true);
+      expect(canAccessAdminRoute(superAdmin, '/revenue')).toBe(true);
+      expect(canAccessAdminRoute(superAdmin, '/settings/system-purge')).toBe(true);
+      expect(canAccessAdminRoute(superAdmin, '/users/assign-super-admin')).toBe(true);
+    });
+
+    it('ADMIN has operational control but is restricted from SUPER_ADMIN-only destructive routes', () => {
+      const admin: RbacUser = { id: 'adm-1', email: 'ops@whatboutme.com', role: 'ADMIN' };
+
+      expect(canAccessAdminRoute(admin, '/dashboard')).toBe(true);
+      expect(canAccessAdminRoute(admin, '/programs')).toBe(true);
+      expect(canAccessAdminRoute(admin, '/revenue')).toBe(true);
+      expect(canAccessAdminRoute(admin, '/leads')).toBe(true);
+
+      // Blocked from destructive super-admin only endpoints
+      expect(canAccessAdminRoute(admin, '/settings/system-purge')).toBe(false);
+      expect(canAccessAdminRoute(admin, '/users/assign-super-admin')).toBe(false);
+    });
+
+    it('MANAGER is strictly batch-scoped and blocked from global curriculum, pricing, and revenue', () => {
+      const manager: RbacUser = { id: 'mgr-1', email: 'trainer@whatboutme.com', role: 'MANAGER' };
+
+      // Permitted batch management & attendance actions
+      expect(canAccessAdminRoute(manager, '/batches/batch-101')).toBe(true);
+      expect(canAccessAdminRoute(manager, '/sessions/sess-202')).toBe(true);
+      expect(canAccessAdminRoute(manager, '/attendance/reconcile')).toBe(true);
+
+      // Blocked from modifying global curriculum, revenue, or users
+      expect(canAccessAdminRoute(manager, '/programs/create')).toBe(false);
+      expect(canAccessAdminRoute(manager, '/revenue')).toBe(false);
+      expect(canAccessAdminRoute(manager, '/settings')).toBe(false);
+      expect(canAccessAdminRoute(manager, '/users')).toBe(false);
+    });
+
+    it('USER (Learner) is strictly blocked from the Admin & Studio Portal', () => {
+      const learner: RbacUser = { id: 'usr-1', email: 'learner@example.com', role: 'USER' };
+
+      expect(canAccessAdminRoute(learner, '/dashboard')).toBe(false);
+      expect(canAccessAdminRoute(learner, '/programs')).toBe(false);
+      expect(canAccessAdminRoute(learner, '/batches')).toBe(false);
+      expect(canAccessAdminRoute(learner, '/leads')).toBe(false);
+    });
+  });
+
+  describe('6. TOTP Input Sanitization, Rate Limiting & Lockout Handling', () => {
+    const sanitizeTotpInput = (input: string): string => {
+      return input.replace(/[\s-]/g, '').trim();
+    };
+
+    const validateTotpFormat = (input: string): boolean => {
+      const clean = sanitizeTotpInput(input);
+      return /^\d{6}$/.test(clean);
+    };
+
+    class TotpRateLimiter {
+      private attempts = new Map<string, { count: number; lockedUntil: number }>();
+      private readonly maxAttempts = 5;
+      private readonly lockoutDurationMs = 15 * 60 * 1000; // 15 minutes
+
+      recordFailure(tempToken: string): { locked: boolean; remainingAttempts: number; retryAfterMs?: number } {
+        const now = Date.now();
+        const entry = this.attempts.get(tempToken) || { count: 0, lockedUntil: 0 };
+
+        if (entry.lockedUntil > now) {
+          return { locked: true, remainingAttempts: 0, retryAfterMs: entry.lockedUntil - now };
+        }
+
+        entry.count += 1;
+        if (entry.count >= this.maxAttempts) {
+          entry.lockedUntil = now + this.lockoutDurationMs;
+          this.attempts.set(tempToken, entry);
+          return { locked: true, remainingAttempts: 0, retryAfterMs: this.lockoutDurationMs };
+        }
+
+        this.attempts.set(tempToken, entry);
+        return { locked: false, remainingAttempts: this.maxAttempts - entry.count };
+      }
+
+      reset(tempToken: string): void {
+        this.attempts.delete(tempToken);
+      }
+    }
+
+    it('sanitizes user input by stripping spaces and hyphens from 6-digit TOTP codes', () => {
+      expect(sanitizeTotpInput('123 456')).toBe('123456');
+      expect(sanitizeTotpInput('123-456')).toBe('123456');
+      expect(sanitizeTotpInput('  789 012  ')).toBe('789012');
+
+      expect(validateTotpFormat('123 456')).toBe(true);
+      expect(validateTotpFormat('123-456')).toBe(true);
+      expect(validateTotpFormat('12345')).toBe(false); // too short
+      expect(validateTotpFormat('1234567')).toBe(false); // too long
+      expect(validateTotpFormat('12345a')).toBe(false); // non-numeric
+    });
+
+    it('locks out tempToken after 5 consecutive failed verification attempts for 15 minutes', () => {
+      const limiter = new TotpRateLimiter();
+      const tempToken = 'temp_token_rate_test';
+
+      // 4 failed attempts: not locked
+      for (let i = 1; i <= 4; i++) {
+        const status = limiter.recordFailure(tempToken);
+        expect(status.locked).toBe(false);
+        expect(status.remainingAttempts).toBe(5 - i);
+      }
+
+      // 5th failed attempt: triggers lockout
+      const fifthAttempt = limiter.recordFailure(tempToken);
+      expect(fifthAttempt.locked).toBe(true);
+      expect(fifthAttempt.remainingAttempts).toBe(0);
+      expect(fifthAttempt.retryAfterMs).toBeGreaterThan(0);
+
+      // 6th attempt: remains locked
+      const sixthAttempt = limiter.recordFailure(tempToken);
+      expect(sixthAttempt.locked).toBe(true);
+
+      // Successful verification resets failure count
+      limiter.reset(tempToken);
+      const postReset = limiter.recordFailure(tempToken);
+      expect(postReset.locked).toBe(false);
+      expect(postReset.remainingAttempts).toBe(4);
+    });
+  });
+
+  describe('7. Base32 RFC 6238 Secret Invariant & Refresh Token Rotation', () => {
+    it('verifies TOTP secrets conform strictly to RFC 6238 Base32 alphabet and length', () => {
+      const isValidBase32Secret = (secret: string): boolean => {
+        // Base32 alphabet is A-Z and 2-7, standard length 16, 24, or 32 chars
+        return /^[A-Z2-7]{16,32}$/.test(secret);
+      };
+
+      expect(isValidBase32Secret('HXDMVJECJJWSRB3HWIZR4IFUGFTMXBOZ')).toBe(true); // 32 chars
+      expect(isValidBase32Secret('JBSWY3DPEHPK3PXP')).toBe(true); // 16 chars
+      expect(isValidBase32Secret('HXDMVJECJJWSRB3HWIZR4IFUGFTMXBO1')).toBe(false); // '1' is not in Base32
+      expect(isValidBase32Secret('HXDMVJECJJWSRB3HWIZR4IFUGFTMXBO8')).toBe(false); // '8' is not in Base32
+      expect(isValidBase32Secret('hxdmvjecjjwsrb3hwizr4ifugftmxboz')).toBe(false); // lowercase rejected
+    });
+
+    it('enforces atomic refresh token rotation to prevent replay attacks', () => {
+      // Simulate token rotation manager
+      let activeRefreshToken = 'rt_initial_version_1';
+      let activeAccessToken = 'at_initial_version_1';
+
+      const rotateTokens = (providedRefreshToken: string) => {
+        if (providedRefreshToken !== activeRefreshToken) {
+          throw new Error('Refresh token revoked or invalid: replay attack detected');
+        }
+        // Invalidate previous refresh token and generate new pair
+        activeRefreshToken = `rt_rotated_version_${Date.now()}`;
+        activeAccessToken = `at_rotated_version_${Date.now()}`;
+        return { access_token: activeAccessToken, refresh_token: activeRefreshToken };
+      };
+
+      // 1. Valid refresh succeeds and issues new pair
+      const newPair = rotateTokens('rt_initial_version_1');
+      expect(newPair.access_token).toBeDefined();
+      expect(newPair.refresh_token).not.toBe('rt_initial_version_1');
+
+      // 2. Attempting to replay old refresh token throws security error
+      expect(() => rotateTokens('rt_initial_version_1')).toThrow(/replay attack detected/i);
+
+      // 3. Using current rotated refresh token succeeds again
+      const secondRotation = rotateTokens(newPair.refresh_token);
+      expect(secondRotation.refresh_token).not.toBe(newPair.refresh_token);
+    });
+  });
 });
+

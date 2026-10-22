@@ -74,4 +74,8 @@ export class UpdateResourceDto {
   @IsBoolean()
   @IsOptional()
   isPublished?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  viewOnlyProtected?: boolean;
 }

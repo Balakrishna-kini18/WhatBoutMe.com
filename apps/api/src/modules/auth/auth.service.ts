@@ -948,26 +948,36 @@ export class AuthService {
 
     if (enrolmentIds.length > 0) {
       const [lessonProgress, passedAttempts] = await Promise.all([
-        this.prisma.userLessonProgress.groupBy({
-          by: ['enrolmentId'],
+        this.prisma.userLessonProgress.findMany({
           where: {
             enrolmentId: { in: enrolmentIds },
             viewed: true,
           },
-          _count: { lessonId: true },
+          select: { enrolmentId: true, lessonId: true },
         }),
         this.prisma.attempt.findMany({
           where: {
             enrolmentId: { in: enrolmentIds },
-            status: AttemptStatus.PASSED,
+            OR: [
+              { status: AttemptStatus.PASSED },
+              { passed: true },
+            ],
           },
           select: { enrolmentId: true, quizId: true },
         }),
       ]);
 
+      const viewedLessonSetByEnrolment: Record<string, Set<string>> = {};
       for (const lp of lessonProgress) {
-        enrolmentCompletedItems[lp.enrolmentId] =
-          (enrolmentCompletedItems[lp.enrolmentId] || 0) + lp._count.lessonId;
+        if (!viewedLessonSetByEnrolment[lp.enrolmentId]) {
+          viewedLessonSetByEnrolment[lp.enrolmentId] = new Set();
+        }
+        viewedLessonSetByEnrolment[lp.enrolmentId].add(lp.lessonId);
+      }
+
+      for (const [enrolId, lessonSet] of Object.entries(viewedLessonSetByEnrolment)) {
+        enrolmentCompletedItems[enrolId] =
+          (enrolmentCompletedItems[enrolId] || 0) + lessonSet.size;
       }
 
       const passedQuizSetByEnrolment: Record<string, Set<string>> = {};
@@ -1023,7 +1033,9 @@ export class AuthService {
       enrolledPrograms,
       upcomingSessions: sessions,
     };
-  });
+      },
+      30, // 30-second TTL prevents stale progression while shielding DB from request storms
+    );
   }
 
   /**

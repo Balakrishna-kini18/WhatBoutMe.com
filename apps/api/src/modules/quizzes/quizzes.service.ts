@@ -524,8 +524,13 @@ export class QuizzesService {
       throw new ForbiddenException('Access denied: Authentication required');
     }
 
+    const targetAttemptId = dto.attemptId || dto.id;
+    if (!targetAttemptId) {
+      throw new BadRequestException('attemptId is required');
+    }
+
     const attempt = await this.prisma.attempt.findUnique({
-      where: { id: dto.attemptId },
+      where: { id: targetAttemptId },
       include: {
         quiz: {
           include: {
@@ -575,10 +580,62 @@ export class QuizzesService {
       throw new ForbiddenException('Access denied: You do not own this attempt');
     }
 
+    // Idempotent Check: If already finalized (e.g. client timeout or network retry),
+    // return the existing completed result instead of failing with 400 Bad Request.
     if (attempt.status !== AttemptStatus.IN_PROGRESS) {
-      throw new BadRequestException(
-        `Attempt is already finalized with status: ${attempt.status}`,
+      const allAttempts = await this.prisma.attempt.findMany({
+        where: {
+          enrolmentId: attempt.enrolmentId,
+          quizId: attempt.quizId,
+        },
+        orderBy: { attemptNumber: 'desc' },
+      });
+
+      const lastReset = await this.prisma.auditLog.findFirst({
+        where: {
+          action: 'QUIZ_ATTEMPTS_RESET',
+          entity: 'QuizAttempt',
+          entityId: `${attempt.enrolmentId}_${attempt.quizId}`,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const currentRelevantAttempts = lastReset
+        ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)
+        : allAttempts;
+
+      const quizObj = attempt.quiz ?? { passMark: 75, maxAttempts: 3, cooldownHours: 24, retryGuidance: null, step: null };
+      const retryMeta = this.computeRetryMetadata(
+        quizObj,
+        currentRelevantAttempts,
+        quizObj.step ?? null,
       );
+
+      const passMark = attempt.quiz.passMark ?? 75;
+      const correctCount = attempt.answers.filter((a) => a.isCorrect).length;
+
+      return {
+        attemptId: attempt.id,
+        attemptNumber: attempt.attemptNumber,
+        quizId: attempt.quizId,
+        score: attempt.score ?? 0,
+        passed: attempt.passed,
+        status: attempt.status,
+        passMark,
+        totalQuestions: attempt.answers.length,
+        correctCount,
+        completedAt: attempt.completedAt,
+        retryGuidance: !attempt.passed ? attempt.quiz.retryGuidance : null,
+        attemptsUsed: retryMeta.attemptsUsed,
+        maxAttempts: retryMeta.maxAttempts,
+        attemptsRemaining: retryMeta.attemptsRemaining,
+        isCooldownActive: retryMeta.isCooldownActive,
+        cooldownHours: retryMeta.cooldownHours,
+        cooldownUntil: retryMeta.cooldownUntil,
+        cooldownSecondsRemaining: retryMeta.cooldownSecondsRemaining,
+        canRetry: retryMeta.canRetry,
+        stepToRevisit: retryMeta.stepToRevisit,
+      };
     }
 
     // Build question map of authoritative bound questions for this attempt
@@ -722,25 +779,27 @@ export class QuizzesService {
     const finalized = await this.prisma.$transaction(async (tx) => {
       const check = await tx.attempt.findUnique({
         where: { id: attempt.id },
-        select: { status: true },
+        select: { status: true, score: true, passed: true, completedAt: true },
       });
 
       if (check?.status !== AttemptStatus.IN_PROGRESS) {
-        throw new BadRequestException('Attempt was already finalized by another request');
+        return tx.attempt.findUniqueOrThrow({ where: { id: attempt.id } });
       }
 
-      for (const update of answerUpdates) {
-        await tx.quizAnswer.update({
-          where: { id: update.id },
-          data: {
-            selectedOptionId: update.selectedOptionId,
-            selectedOptionIds: update.selectedOptionIds,
-            textAnswer: update.textAnswer,
-            isCorrect: update.isCorrect,
-            pointsAwarded: update.pointsAwarded,
-          },
-        });
-      }
+      await Promise.all(
+        answerUpdates.map((update) =>
+          tx.quizAnswer.update({
+            where: { id: update.id },
+            data: {
+              selectedOptionId: update.selectedOptionId,
+              selectedOptionIds: update.selectedOptionIds,
+              textAnswer: update.textAnswer,
+              isCorrect: update.isCorrect,
+              pointsAwarded: update.pointsAwarded,
+            },
+          }),
+        ),
+      );
 
       return tx.attempt.update({
         where: { id: attempt.id },

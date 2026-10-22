@@ -32,6 +32,92 @@ export class CloudinaryController {
     return this.cloudinaryService.createDirectUpload();
   }
 
+  /**
+   * Secure, inline PDF document viewer stream.
+   * Serves application/pdf with Content-Disposition: inline and disables downloads.
+   */
+  @Get(['document/:lessonId', 'pdf/:lessonId'])
+  async streamDocument(
+    @Param('lessonId') lessonId: string,
+    @Request() req: any,
+    @Res() res: Response,
+  ) {
+    const user = req?.user;
+    if (!user) {
+      throw new UnauthorizedException('Authentication required to access protected document');
+    }
+
+    const cleanLessonId = (lessonId || '').trim();
+    if (!cleanLessonId) {
+      throw new NotFoundException('Document not specified');
+    }
+
+    // 1. Resolve lesson by ID or mediaUrl
+    const lesson = await this.prisma.lesson.findFirst({
+      where: {
+        OR: [
+          { id: cleanLessonId },
+          { mediaUrl: { contains: cleanLessonId } },
+        ],
+      },
+      include: {
+        step: {
+          select: { programId: true },
+        },
+      },
+    });
+
+    if (!lesson || !lesson.mediaUrl) {
+      throw new NotFoundException('Document lesson not found');
+    }
+
+    // 2. Authorization check: learners must be enrolled in the owning program
+    if (user.role === Role.USER) {
+      const userId = user.sub ?? user.userId ?? user.id;
+      const activeEnrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          userId,
+          programId: lesson.step.programId,
+          status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+        },
+      });
+
+      if (!activeEnrolment) {
+        throw new ForbiddenException('Active enrolment required to view course documents');
+      }
+    }
+
+    // 3. Resolve target storage URL
+    let targetUrl = lesson.mediaUrl;
+    if (targetUrl.startsWith('upload:')) {
+      const publicId = targetUrl.replace('upload:', '');
+      targetUrl = await this.objectStorage.getPresignedGetUrl(publicId, 300);
+    }
+
+    try {
+      const docRes = await fetch(targetUrl);
+      if (!docRes.ok) {
+        throw new NotFoundException('Failed to retrieve document from storage');
+      }
+
+      const buffer = Buffer.from(await docRes.arrayBuffer());
+
+      // 4. Force Content-Disposition: inline to render inside the browser viewer and prevent download
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+
+      return res.end(buffer);
+    } catch (err: any) {
+      console.error('Document stream error:', err);
+      res.status(500).send('Failed to stream document');
+    }
+  }
+
   // D2-016: Redirect to secure streaming CDN URL (Requires valid authenticated and authorized session)
   @Get('stream/*key')
   async streamMedia(@Param('key') key: string, @Request() req: any, @Res() res: Response) {

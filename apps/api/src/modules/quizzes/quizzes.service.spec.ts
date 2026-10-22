@@ -533,21 +533,33 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('rejects duplicate submission if attempt is already finalized', async () => {
+    it('returns finalized attempt result idempotently if attempt is already finalized', async () => {
       prismaMock.attempt.findUnique.mockResolvedValueOnce({
         id: 'attempt-finalized',
         quizId: 'quiz-step-1',
+        attemptNumber: 1,
+        score: 100,
+        passed: true,
         status: AttemptStatus.PASSED,
+        completedAt: new Date(),
         enrolment: mockEnrolment,
+        answers: [],
+        quiz: mockQuiz,
+      });
+      prismaMock.attempt.findMany.mockResolvedValueOnce([
+        { id: 'attempt-finalized', attemptNumber: 1, createdAt: new Date() } as any,
+      ]);
+      prismaMock.auditLog.findFirst.mockResolvedValueOnce(null);
+
+      const result = await service.submitQuiz('quiz-step-1', mockUser, {
+        attemptId: 'attempt-finalized',
         answers: [],
       });
 
-      await expect(
-        service.submitQuiz('quiz-step-1', mockUser, {
-          attemptId: 'attempt-finalized',
-          answers: [],
-        }),
-      ).rejects.toThrow(BadRequestException);
+      expect(result.status).toBe(AttemptStatus.PASSED);
+      expect(result.score).toBe(100);
+      expect(result.passed).toBe(true);
+      expect(result.attemptId).toBe('attempt-finalized');
     });
 
     it('rejects submission with question ID not bound to the attempt', async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./path.module.css";
@@ -127,41 +127,54 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    const token = getAuthToken();
-    if (!token) {
-      router.push("/login");
-      return;
-    }
+  const loadProgression = useCallback(
+    async (isRetry = false) => {
+      const token = getAuthToken();
+      if (!token) {
+        router.push("/login");
+        return;
+      }
 
-    setLoading(true);
-    setErrorMessage(null);
+      setLoading(true);
+      setErrorMessage(null);
 
-    fetch(`${API_URL}/progression/me/${id}`, {
-      headers: getAuthHeaders(),
-    })
-      .then(async (res) => {
+      try {
+        const res = await fetch(`${API_URL}/progression/me/${id}`, {
+          headers: getAuthHeaders(),
+        });
+
         if (res.status === 401) {
           router.push("/login");
           throw new Error("Unauthorized session. Please log in again.");
         }
+
         if (!res.ok) {
           const err = await parseApiError(res, "Failed to load learning progression");
           throw new Error(err.message);
         }
-        return res.json();
-      })
-      .then((data: EnrolmentProgressionResponse) => {
+
+        const data: EnrolmentProgressionResponse = await res.json();
         setProgression(data);
-      })
-      .catch((err: any) => {
+      } catch (err: any) {
+        // Auto-retry once on transient network/fetch failure
+        if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch"))) {
+          setTimeout(() => {
+            loadProgression(true);
+          }, 600);
+          return;
+        }
         console.error("Progression fetch error:", err);
         setErrorMessage(err.message || "Could not load learning progression.");
-      })
-      .finally(() => {
+      } finally {
         setLoading(false);
-      });
-  }, [id, router]);
+      }
+    },
+    [id, router]
+  );
+
+  useEffect(() => {
+    loadProgression();
+  }, [loadProgression]);
 
   const steps = progression?.steps || [];
   const total = steps.length;
@@ -276,7 +289,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           <button
             type="button"
             className={styles.retryBtn}
-            onClick={() => window.location.reload()}
+            onClick={() => loadProgression()}
           >
             Retry Loading
           </button>

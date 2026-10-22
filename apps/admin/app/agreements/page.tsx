@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, StatusBadge } from "../components";
+import { CustomSelect, StatusBadge, TableSkeleton, EmptyState } from "../components";
 
 interface AgreementTemplate {
   id: string;
@@ -271,26 +271,17 @@ export default function AdminAgreementsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                    Loading agreement templates...
-                  </td>
-                </tr>
+                <TableSkeleton columns={7} rows={4} />
               ) : templates.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                    <p style={{ margin: "0 0 1rem 0", fontSize: "0.95rem" }}>No agreement templates configured yet.</p>
-                    <button
-                      className={styles.secondaryBtn}
-                      style={{ margin: "0 auto", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-                      onClick={() => setIsModalOpen(true)}
-                    >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                      </svg>
-                      <span>Create First Agreement Template</span>
-                    </button>
+                  <td colSpan={7} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="document"
+                      title="No agreement templates configured yet"
+                      description="Create legal consent waivers and digital workshop terms before enrolling learners."
+                      actionLabel="Create First Agreement Template"
+                      onAction={() => setIsModalOpen(true)}
+                    />
                   </td>
                 </tr>
               ) : (
@@ -665,7 +656,13 @@ export default function AdminAgreementsPage() {
                   className={styles.primaryBtn}
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? "Creating..." : "Create Agreement"}
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner" /> Creating...
+                    </>
+                  ) : (
+                    "Create Agreement"
+                  )}
                 </button>
               </div>
             </form>

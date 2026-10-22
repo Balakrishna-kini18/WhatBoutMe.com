@@ -377,9 +377,9 @@ export default function MessagesPage() {
       <header className={page.header}>
         <div className={page.headerText}>
           <h1 className={page.title}>WhatsApp Support Inbox</h1>
-          <p className={page.subtitle}>
+          {/* <p className={page.subtitle}>
             Direct chat with learners. {unreadTotal > 0 ? `${unreadTotal} unread.` : "All caught up."}
-          </p>
+          </p> */}
         </div>
       </header>
 

@@ -334,7 +334,7 @@ export default function ProgramsPage() {
       <div className={pstyles.headerWrap}>
         <div className={pstyles.titleArea}>
           <h1>Programs &amp; Curriculum Studio</h1>
-          <p>Design, organize, and publish high-performance learning tracks and certification paths</p>
+          {/* <p>Design, organize, and publish high-performance learning tracks and certification paths</p> */}
         </div>
 
         <div className={pstyles.headerActions}>

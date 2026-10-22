@@ -396,7 +396,7 @@ function LeadsContent() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Enquiries (CRM)</h1>
-          <p className={styles.subtitle}>Messages sent from the contact form on the public website.</p>
+          {/* <p className={styles.subtitle}>Messages sent from the contact form on the public website.</p> */}
         </div>
       </header>
 

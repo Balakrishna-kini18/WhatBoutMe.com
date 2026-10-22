@@ -194,7 +194,7 @@ export default function InvoicesPage() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Invoices</h1>
-          <p className={styles.subtitle}>Manage auto-generated and manual invoices.</p>
+          {/* <p className={styles.subtitle}>Manage auto-generated and manual invoices.</p> */}
         </div>
         <div className={styles.headerActions}>
           <button className={styles.primaryBtn} onClick={openCreateModal}>

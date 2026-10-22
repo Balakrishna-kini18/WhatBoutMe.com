@@ -189,9 +189,9 @@ export default function AdminAgreementsPage() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Program Agreements</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Author, version, and manage legally binding curriculum agreements and review signed learner records.
-          </p>
+          </p> */}
         </div>
         <div className={styles.headerActions}>
           <button

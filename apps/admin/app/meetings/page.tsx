@@ -886,9 +886,9 @@ export default function MeetingsPage() {
       <div className={calStyles.pageHeader}>
         <div className={calStyles.headerInfo}>
           <h1 className={calStyles.headerTitle}>Calendar &amp; Session Management</h1>
-          <p className={calStyles.headerSubtitle}>
+          {/* <p className={calStyles.headerSubtitle}>
             Unified scheduling for cohort classes, 1-on-1 coaching, workshops, and Microsoft Outlook sync.
-          </p>
+          </p> */}
         </div>
         <div className={calStyles.headerActions}>
           <button
@@ -1561,7 +1561,7 @@ export default function MeetingsPage() {
               </label>
               <input
                 type="url"
-                placeholder="https://zoom.us/j/... or Google Meet (Leave blank to auto-generate Zoom)"
+                placeholder="https://zoom.us/j/... (Leave blank to auto-generate Zoom)"
                 value={joinUrl}
                 onChange={(e) => setJoinUrl(e.target.value)}
                 className={calStyles.inputControl}

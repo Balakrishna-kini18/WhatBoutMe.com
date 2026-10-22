@@ -148,9 +148,9 @@ export default function EditProgramPage({
             <span>Back to Curriculum Studio</span>
           </Link>
           <h1 className={styles.title}>Edit Course Details &amp; Pricing</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Update multi-currency pricing (USD, AED, INR), early-bird discounts, and course FAQs.
-          </p>
+          </p> */}
         </div>
       </header>
 

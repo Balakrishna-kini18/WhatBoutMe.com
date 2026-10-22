@@ -533,9 +533,9 @@ export default function WebsiteAdminPage() {
       <header className={styles.header}>
         <div>
           <h1 className={styles.headerTitle}>Website CMS &amp; Public Assets</h1>
-          <p className={styles.headerSubtitle}>
+          {/* <p className={styles.headerSubtitle}>
             Manage public website copy, hero banner, testimonials, and the visual credibility Photo Gallery.
-          </p>
+          </p> */}
         </div>
 
         {/* Tab Switcher */}

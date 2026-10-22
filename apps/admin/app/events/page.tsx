@@ -342,7 +342,7 @@ export default function EventsAdminPage() {
 
     // Strict location type validation
     if (locationType === "ONLINE" && !meetingLink.trim()) {
-      setFormError("Online events require a Virtual Meeting Link (Zoom / Google Meet URL)");
+      setFormError("Online events require a Virtual Meeting Link (Zoom URL)");
       return;
     }
 
@@ -496,9 +496,9 @@ export default function EventsAdminPage() {
       <div className={styles.header}>
         <div>
           <h1 className={styles.headerTitle}>Events & Ticketing</h1>
-          <p className={styles.headerSubtitle}>
+          {/* <p className={styles.headerSubtitle}>
             Manage community workshops, masterclasses, and live webinars with dynamic multi-currency pricing
-          </p>
+          </p> */}
         </div>
         <button type="button" className={styles.primaryBtn} onClick={openCreateModal}>
           <Icons.Plus />
@@ -798,7 +798,7 @@ export default function EventsAdminPage() {
             {/* Conditional Location Inputs */}
             {locationType === "ONLINE" ? (
               <div className={styles.formGroup}>
-                <label className={styles.label}>Virtual Meeting Link (Zoom / Google Meet URL) *</label>
+                <label className={styles.label}>Virtual Meeting Link (Zoom URL) *</label>
                 <input
                   type="url"
                   placeholder="https://zoom.us/j/1234567890"

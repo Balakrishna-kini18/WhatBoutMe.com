@@ -321,11 +321,11 @@ interface ProgramDistItem {
           <h1 className={styles.welcomeHeading}>
             {getGreeting()}, {currentUser?.name || "Roweena Britto"}
           </h1>
-          <p className={styles.welcomeSubtext}>
+          {/* <p className={styles.welcomeSubtext}>
             {isManager
               ? "Operational summary for your assigned batches, sessions, and learners."
               : "Executive studio managing certified brain health programmes, cohorts, and student progress across WhatBoutMe."}
-          </p>
+          </p> */}
         </div>
 
         <div className={styles.welcomeActions}>

@@ -473,9 +473,9 @@ export default function ResourcesPage() {
             </span>
           </div>
           <h1 className={styles.welcomeHeading}>Resource Library</h1>
-          <p className={styles.welcomeSubtext}>
+          {/* <p className={styles.welcomeSubtext}>
             Upload worksheets, core readings, and guided audios with page-by-page watermarking and step-level access rules.
-          </p>
+          </p> */}
         </div>
         <div className={styles.welcomeActions}>
           <button

@@ -9,6 +9,7 @@ import {
   getAuthHeaders,
   parseApiError,
   getLockMessage,
+  invalidateCache,
   EnrolmentProgressionResponse,
   StepProgressionItem,
   ActiveQuizAttempt,
@@ -35,6 +36,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
   const [targetSeekTime, setTargetSeekTime] = useState<number | null>(null);
   const lastHeartbeatTimeRef = useRef<number>(0);
+  const isHeartbeatInFlightRef = useRef<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Quiz engine state
@@ -350,6 +352,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   // D1-035: Video/Audio media playback heartbeat
   const sendMediaHeartbeat = useCallback(
     async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number, deltaWatchedSec?: number) => {
+      // Guard against overlapping concurrent heartbeat network requests
+      if (isHeartbeatInFlightRef.current && !isEnded) {
+        return;
+      }
+      isHeartbeatInFlightRef.current = true;
+
       try {
         const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
         const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
@@ -367,45 +375,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           const data = await res.json();
           setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
           if (data.isCompleted || isEnded) {
+            invalidateCache("/progression");
+            invalidateCache("/progress");
             fetchStepAndProgression();
           }
         }
       } catch (err) {
         console.warn("Heartbeat error:", err);
+      } finally {
+        isHeartbeatInFlightRef.current = false;
       }
     },
     [fetchStepAndProgression]
   );
 
-  // Send keepalive heartbeat on pagehide / tab switch (Edge Case 6)
-  useEffect(() => {
-    const handleVisibilityOrHide = () => {
-      const activeVideo = videoRef.current;
-      const mediaId = selectedMediaId || (step?.lessons?.find((l: any) => l.type === "VIDEO" || l.type === "AUDIO")?.id);
-      if (activeVideo && mediaId && (document.visibilityState === "hidden" || !document.hasFocus())) {
-        const currentSec = Math.floor(activeVideo.currentTime);
-        if (currentSec > 0) {
-          const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-          fetch(`${API_URL}/progress/lessons/${mediaId}/heartbeat`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ positionSec: currentSec }),
-            keepalive: true,
-          }).catch(() => {});
-        }
-      }
-    };
-
-    window.addEventListener("pagehide", handleVisibilityOrHide);
-    document.addEventListener("visibilitychange", handleVisibilityOrHide);
-    return () => {
-      window.removeEventListener("pagehide", handleVisibilityOrHide);
-      document.removeEventListener("visibilitychange", handleVisibilityOrHide);
-    };
-  }, [selectedMediaId, step]);
+  // Note: Tab hide/pagehide keepalive heartbeat is handled cleanly by CompulsoryVideoPlayer via onHeartbeat callback
 
   // D1-035: PDF or text lesson completion
   const handleCompleteDocument = async (lessonId: string) => {

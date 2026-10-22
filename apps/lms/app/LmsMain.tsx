@@ -50,7 +50,16 @@ function Notifications() {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const loadNotifications = async () => {
+  const loadUnreadCountOnly = async () => {
+    try {
+      const count = await fetchUnreadNotificationCount();
+      setUnreadCount(count);
+    } catch {
+      // Fallback silently
+    }
+  };
+
+  const loadAllNotifications = async () => {
     try {
       const [list, count] = await Promise.all([
         fetchNotifications(30),
@@ -64,14 +73,14 @@ function Notifications() {
   };
 
   useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30_000);
+    loadUnreadCountOnly();
+    const interval = setInterval(loadUnreadCountOnly, 60_000);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (!open) return;
-    loadNotifications();
+    loadAllNotifications();
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };

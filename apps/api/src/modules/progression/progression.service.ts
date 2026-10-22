@@ -400,10 +400,11 @@ export class ProgressionService {
     enrolmentId: string,
     stepId: string,
     user?: any,
+    options?: { skipEvaluateTreeIfUnlocked?: boolean },
   ): Promise<boolean> {
     const step = await this.prisma.step.findUnique({
       where: { id: stepId },
-      select: { id: true, programId: true, status: true },
+      select: { id: true, programId: true, status: true, sequence: true },
     });
 
     if (!step) {
@@ -445,6 +446,28 @@ export class ProgressionService {
 
     if (user) {
       this.assertUserAuthorizedForEnrolment(user, enrolment);
+    }
+
+    // Fast-path: if step is already confirmed unlocked in DB, avoid heavy 11-step tree re-evaluation
+    if (options?.skipEvaluateTreeIfUnlocked) {
+      const sp = await this.prisma.stepProgress.findUnique({
+        where: {
+          enrolmentId_stepId: {
+            enrolmentId: enrolment.id,
+            stepId,
+          },
+        },
+      });
+
+      if (sp?.overrideState === StepOverrideState.MANUAL_UNLOCKED) {
+        return true;
+      }
+      if (sp?.overrideState === StepOverrideState.MANUAL_LOCKED) {
+        throw new ForbiddenException('Step is locked: MANUAL_LOCKED');
+      }
+      if (sp?.isUnlocked) {
+        return true;
+      }
     }
 
     const tree = await this.evaluateProgression(enrolment, { persist: true });
@@ -1354,8 +1377,8 @@ export class ProgressionService {
       throw new ForbiddenException('Access denied: Enrolment is not ACTIVE');
     }
 
-    // Call D1-033/D1-034 step access gate
-    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
+    // Call D1-033/D1-034 step access gate with fast-path if already confirmed unlocked
+    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor, { skipEvaluateTreeIfUnlocked: true });
 
     // Configurable Quiz Placement Gate: When BEFORE_VIDEO, pre-video assessment must be passed
     const stepQuiz = lesson.step.quiz;

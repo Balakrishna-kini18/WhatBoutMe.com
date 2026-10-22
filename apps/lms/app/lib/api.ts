@@ -138,6 +138,12 @@ export function clearApiCache(): void {
  * Automatically purges cached GET responses when mutating endpoints are called.
  */
 export function autoInvalidateOnMutation(url: string): void {
+  // Routine playback telemetry heartbeats must NEVER flush the cache.
+  // Cache is explicitly invalidated on completion (/complete) or quiz submission.
+  if (url.includes("/heartbeat")) {
+    return;
+  }
+
   const resources = [
     "sessions",
     "bookings",

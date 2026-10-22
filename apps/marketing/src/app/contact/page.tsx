@@ -43,9 +43,9 @@ export default async function ContactPage() {
                 </dd>
               </div>
               <div>
-                <dt className="text-sm text-ink-soft">Inquiries & Consultations</dt>
+                <dt className="text-sm text-ink-soft">Enquiries & Consultations</dt>
                 <dd className="mt-1.5 text-sm text-ink-soft leading-relaxed">
-                  Submit a General or Course Inquiry using the form. Our coaching team reviews and responds to all messages within 24 hours.
+                  Submit a General or Course Enquiry using the form. Our coaching team reviews and responds to all messages within 24 hours.
                 </dd>
               </div>
               <div>

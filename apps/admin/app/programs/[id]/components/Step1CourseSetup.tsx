@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import styles from "../curriculum.module.css";
 import { uploadFile } from "../../../lib/api";
 import { CustomSelect } from "../../../components";
@@ -33,72 +34,49 @@ interface Step1CourseSetupProps {
     }>;
   }) => Promise<void>;
   isSaving: boolean;
+  onCancel?: () => void;
 }
 
 export default function Step1CourseSetup({
   programData,
   onSaveAndContinue,
   isSaving,
+  onCancel,
 }: Step1CourseSetupProps) {
   const courseInfo = parseCourseInfo(programData?.description);
   const rawInitialThumb = programData?.thumbnailUrl || courseInfo.image || "";
   const initialThumb =
-    rawInitialThumb.startsWith("http://") || rawInitialThumb.startsWith("https://") || rawInitialThumb.startsWith("/")
+    rawInitialThumb.startsWith("http://") ||
+    rawInitialThumb.startsWith("https://") ||
+    rawInitialThumb.startsWith("/")
       ? rawInitialThumb
-      : rawInitialThumb ? `/${rawInitialThumb}` : "";
+      : rawInitialThumb
+      ? `/${rawInitialThumb}`
+      : "";
 
   const [title, setTitle] = useState(programData?.title || "");
   const [description, setDescription] = useState(programData?.description || "");
   const [shortDescription, setShortDescription] = useState(
-    programData?.shortDescription || courseInfo.summary?.slice(0, 120) || programData?.description?.slice(0, 120) || ""
+    programData?.shortDescription ||
+      courseInfo.summary ||
+      programData?.description ||
+      ""
   );
   const [thumbnailUrl, setThumbnailUrl] = useState(initialThumb);
-  const [category, setCategory] = useState(programData?.category || courseInfo.type || "Leadership & Mindset");
+  const [category, setCategory] = useState(
+    programData?.category || courseInfo.type || "Leadership & Mindset"
+  );
   const [level, setLevel] = useState(programData?.level || "Beginner");
 
-  // Multi-Currency Pricing State
-  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">(
-    programData?.currency || "USD"
-  );
-  const [priceUSD, setPriceUSD] = useState<string>(
-    programData?.priceUSD !== undefined && programData?.priceUSD !== null
-      ? String(programData.priceUSD)
-      : programData?.currency === "USD"
-      ? String(programData?.price || 199)
-      : "199"
-  );
-  const [priceAED, setPriceAED] = useState<string>(
-    programData?.priceAED !== undefined && programData?.priceAED !== null
-      ? String(programData.priceAED)
-      : programData?.currency === "AED"
-      ? String(programData?.price || 749)
-      : "749"
-  );
-  const [priceINR, setPriceINR] = useState<string>(
-    programData?.priceINR !== undefined && programData?.priceINR !== null
-      ? String(programData.priceINR)
-      : programData?.currency === "INR"
-      ? String(programData?.price || 14999)
-      : "14999"
-  );
-
-  // Early Bird State
-  const [hasEarlyBird, setHasEarlyBird] = useState(
-    Boolean(programData?.earlyBirdPrice)
-  );
-  const [earlyBirdPrice, setEarlyBirdPrice] = useState<string>(
-    programData?.earlyBirdPrice ? String(programData.earlyBirdPrice) : ""
-  );
-  const [earlyBirdCurrency, setEarlyBirdCurrency] = useState<"USD" | "AED" | "INR">(
-    programData?.earlyBirdCurrency || programData?.currency || "USD"
-  );
-  const [earlyBirdDeadline, setEarlyBirdDeadline] = useState<string>(
-    programData?.earlyBirdDeadline
-      ? programData.earlyBirdDeadline.split("T")[0]
-      : ""
-  );
-
-  const [hasCertificate, setHasCertificate] = useState(programData?.hasCertificate ?? true);
+  // Keep existing pricing / certificate settings from programData so zero data is lost
+  const currency = (programData?.currency as "USD" | "AED" | "INR") || "USD";
+  const priceUSD = programData?.priceUSD;
+  const priceAED = programData?.priceAED;
+  const priceINR = programData?.priceINR;
+  const earlyBirdPrice = programData?.earlyBirdPrice;
+  const earlyBirdCurrency = programData?.earlyBirdCurrency;
+  const earlyBirdDeadline = programData?.earlyBirdDeadline;
+  const hasCertificate = programData?.hasCertificate ?? true;
 
   // Course-Specific FAQs State
   const initialFaqs = (() => {
@@ -121,14 +99,72 @@ export default function Step1CourseSetup({
     return [];
   })();
 
-  const [faqs, setFaqs] = useState<Array<{
-    id: string;
-    question: string;
-    answer: string;
-    sortOrder: number;
-  }>>(initialFaqs);
+  const [faqs, setFaqs] = useState<
+    Array<{
+      id: string;
+      question: string;
+      answer: string;
+      sortOrder: number;
+    }>
+  >(initialFaqs);
+  const [isFaqsExpanded, setIsFaqsExpanded] = useState(initialFaqs.length > 0);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Text formatting toolbar insertion helper
+  const applyFormat = (
+    type: "bold" | "italic" | "underline" | "bullet" | "number" | "link" | "code"
+  ) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = shortDescription.substring(start, end);
+    let replacement = "";
+
+    switch (type) {
+      case "bold":
+        replacement = `**${selected || "bold text"}**`;
+        break;
+      case "italic":
+        replacement = `*${selected || "italic text"}*`;
+        break;
+      case "underline":
+        replacement = `<u>${selected || "underlined text"}</u>`;
+        break;
+      case "bullet":
+        replacement = `\n• ${selected || "List item"}`;
+        break;
+      case "number":
+        replacement = `\n1. ${selected || "List item"}`;
+        break;
+      case "link":
+        replacement = `[${selected || "Link text"}](https://...)`;
+        break;
+      case "code":
+        replacement = `\`${selected || "code"}\``;
+        break;
+    }
+
+    const nextText =
+      shortDescription.substring(0, start) +
+      replacement +
+      shortDescription.substring(end);
+    setShortDescription(nextText);
+
+    setTimeout(() => {
+      textarea.focus();
+      const cursorOffset = start + replacement.length;
+      textarea.setSelectionRange(cursorOffset, cursorOffset);
+    }, 0);
+  };
 
   const handleAddFaq = () => {
+    setIsFaqsExpanded(true);
     setFaqs((prev) => [
       ...prev,
       {
@@ -140,9 +176,15 @@ export default function Step1CourseSetup({
     ]);
   };
 
-  const handleFaqChange = (index: number, field: "question" | "answer", value: string) => {
+  const handleFaqChange = (
+    index: number,
+    field: "question" | "answer",
+    value: string
+  ) => {
     setFaqs((prev) =>
-      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
+      prev.map((item, idx) =>
+        idx === index ? { ...item, [field]: value } : item
+      )
     );
   };
 
@@ -154,29 +196,17 @@ export default function Step1CourseSetup({
     );
   };
 
-  const handleMoveFaq = (index: number, direction: "UP" | "DOWN") => {
-    const targetIndex = direction === "UP" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= faqs.length) return;
-
-    setFaqs((prev) => {
-      const item1 = prev[index];
-      const item2 = prev[targetIndex];
-      if (!item1 || !item2) return prev;
-      const copy = [...prev];
-      copy[index] = item2;
-      copy[targetIndex] = item1;
-      return copy.map((item, idx) => ({ ...item, sortOrder: idx }));
-    });
-  };
-
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMsg("File size exceeds 5MB limit. Please upload a smaller image.");
+      return;
+    }
+
     setIsUploadingImage(true);
+    setErrorMsg(null);
     try {
       const url = await uploadFile(file);
       setThumbnailUrl(url);
@@ -192,26 +222,21 @@ export default function Step1CourseSetup({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
-      setErrorMsg("Course Title is required.");
+      setErrorMsg("Program Title is required.");
       return;
     }
     setErrorMsg(null);
 
-    const activeBasePrice =
-      currency === "USD"
-        ? Number(priceUSD) || 0
-        : currency === "AED"
-        ? Number(priceAED) || 0
-        : Number(priceINR) || 0;
-
-    // Edge case check: Prevent saving an FAQ item with an empty question or empty answer
+    // Validate FAQs
     for (let i = 0; i < faqs.length; i++) {
       const item = faqs[i];
       if (!item) continue;
       const q = item.question.trim();
       const a = item.answer.trim();
       if (!q && !a) {
-        setErrorMsg(`FAQ Item #${i + 1} has an empty question and answer. Please complete it or remove it.`);
+        setErrorMsg(
+          `FAQ Item #${i + 1} has an empty question and answer. Please complete it or remove it.`
+        );
         return;
       }
       if (!q) {
@@ -233,19 +258,19 @@ export default function Step1CourseSetup({
 
     await onSaveAndContinue({
       title: title.trim(),
-      description: description.trim(),
+      description: description.trim() || shortDescription.trim(),
       shortDescription: shortDescription.trim(),
       thumbnailUrl,
       category,
       level,
-      price: activeBasePrice,
+      price: programData?.price || 0,
       currency,
-      priceUSD: priceUSD ? Number(priceUSD) : undefined,
-      priceAED: priceAED ? Number(priceAED) : undefined,
-      priceINR: priceINR ? Number(priceINR) : undefined,
-      earlyBirdPrice: hasEarlyBird && earlyBirdPrice ? Number(earlyBirdPrice) : null,
-      earlyBirdCurrency: hasEarlyBird ? earlyBirdCurrency : null,
-      earlyBirdDeadline: hasEarlyBird && earlyBirdDeadline ? earlyBirdDeadline : null,
+      priceUSD,
+      priceAED,
+      priceINR,
+      earlyBirdPrice,
+      earlyBirdCurrency,
+      earlyBirdDeadline,
       hasCertificate,
       faqs: cleanedFaqs,
     });
@@ -253,18 +278,37 @@ export default function Step1CourseSetup({
 
   return (
     <section className={styles.cardSurface}>
-      {/* Header */}
+      {/* Screen 1 Header */}
       <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          <span>STEP 1: COURSE SETUP</span>
+        <div style={{ marginBottom: "0.5rem" }}>
+          <Link
+            href="/programs"
+            className={styles.backLink}
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+            <span>Back to Programs</span>
+          </Link>
         </div>
-        <h2 className={styles.stepTitle}>Course Basic Details</h2>
+
+        <h2 className={styles.stepTitle}>
+          {programData?.id ? "Edit Program Track" : "Create New Program Track"}
+        </h2>
         <p className={styles.stepSubtitle}>
-          Enter the core title, cover imagery, classification, and credentials for your curriculum track.
+          Set up your program with basic information. You can add curriculum, pricing, and publish later.
         </p>
       </div>
 
@@ -284,7 +328,17 @@ export default function Step1CourseSetup({
             gap: "0.5rem",
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -294,43 +348,152 @@ export default function Step1CourseSetup({
       )}
 
       <form onSubmit={handleSubmit}>
-        <div className={styles.twoColLayout}>
+        {/* 2-Column Layout (Left 65% Basic Information | Right 35% Cover Image) */}
+        <div className={styles.studioBasicGrid}>
           {/* =========================================================
-              Left Column: Form Fields
+              Left Column (65%): Basic Information
               ========================================================= */}
           <div>
-            {/* Panel 1: General Course Info */}
-            <div className={styles.formSectionPanel}>
+            <div className={styles.formSectionPanel} style={{ marginBottom: "1.5rem" }}>
               <h3 className={styles.sectionPanelTitle}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #c97a1e)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#D97706"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                 </svg>
-                <span>General Course Information</span>
+                <span>Basic Information</span>
               </h3>
               <p className={styles.sectionPanelSubtitle}>
-                Primary identifiers displayed across learner portals, searches, and enrollment catalogues.
+                Primary identifiers and summary presented across learner catalog cards.
               </p>
 
+              {/* Program Title */}
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>
                   <span>
-                    Course Title <span style={{ color: "#dc2626" }}>*</span>
+                    Program Title <span style={{ color: "#dc2626" }}>*</span>
                   </span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. One-Day Corporate Workshop"
+                  placeholder="e.g. Sigma 1 - Web Development"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className={styles.formInput}
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.35rem" }}>
+              {/* Short Description with Formatting Toolbar */}
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>
+                  <span>
+                    Short Description <span style={{ color: "#dc2626" }}>*</span>
+                  </span>
+                </label>
+
+                {/* Toolbar */}
+                <div className={styles.editorToolbar}>
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("bold")}
+                    title="Bold"
+                    aria-label="Bold"
+                  >
+                    <strong>B</strong>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("italic")}
+                    title="Italic"
+                    aria-label="Italic"
+                  >
+                    <em>I</em>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("underline")}
+                    title="Underline"
+                    aria-label="Underline"
+                  >
+                    <u>U</u>
+                  </button>
+                  <div className={styles.editorToolbarSep} />
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("bullet")}
+                    title="Bullet List"
+                    aria-label="Bullet List"
+                  >
+                    • List
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("number")}
+                    title="Numbered List"
+                    aria-label="Numbered List"
+                  >
+                    1. List
+                  </button>
+                  <div className={styles.editorToolbarSep} />
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("link")}
+                    title="Add Link"
+                    aria-label="Add Link"
+                  >
+                    🔗 Link
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.editorToolbarBtn}
+                    onClick={() => applyFormat("code")}
+                    title="Code"
+                    aria-label="Code"
+                  >
+                    &lt;/&gt;
+                  </button>
+                </div>
+
+                <textarea
+                  ref={textareaRef}
+                  required
+                  rows={4}
+                  placeholder="A short overview of the program, target outcomes, and core curriculum highlights..."
+                  value={shortDescription}
+                  onChange={(e) => setShortDescription(e.target.value)}
+                  className={styles.editorTextarea}
+                />
+              </div>
+
+              {/* 2-Column Row: Category | Skill Level */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "1rem",
+                  marginTop: "1.25rem",
+                }}
+              >
                 <div>
-                  <label className={styles.formLabel}>Category</label>
+                  <label className={styles.formLabel}>
+                    Category <span style={{ color: "#dc2626" }}>*</span>
+                  </label>
                   <CustomSelect
                     value={category}
                     onChange={setCategory}
@@ -357,621 +520,283 @@ export default function Step1CourseSetup({
                       { value: "Beginner", label: "Beginner" },
                       { value: "Intermediate", label: "Intermediate" },
                       { value: "Advanced", label: "Advanced" },
-                      { value: "All Levels", label: "All Levels" },
                     ]}
                   />
                 </div>
               </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  <span>Short Description</span>
-                  <span className={styles.formLabelOptional}>{shortDescription.length}/140 chars</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="A concise summary of what this curriculum delivers..."
-                  value={shortDescription}
-                  onChange={(e) => setShortDescription(e.target.value)}
-                  className={styles.formInput}
-                  maxLength={160}
-                />
-                <p className={styles.formHelperText}>
-                  Shown on course cards and catalog listings. Keep it punchy and engaging.
-                </p>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  <span>Full Description &amp; Syllabus Overview</span>
-                </label>
-                <textarea
-                  rows={5}
-                  placeholder="Detail the curriculum structure, prerequisites, takeaways, and outcomes..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className={styles.formTextarea}
-                />
-              </div>
             </div>
 
-            {/* Panel 2: Multi-Currency Pricing & Certification */}
+            {/* Collapsible Course FAQs Repeater */}
             <div className={styles.formSectionPanel}>
-              <h3 className={styles.sectionPanelTitle}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #c97a1e)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="8" r="7" />
-                  <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
-                </svg>
-                <span>Multi-Currency Pricing &amp; Certification</span>
-              </h3>
-              <p className={styles.sectionPanelSubtitle}>
-                Configure tuition rates across USD, AED, and INR along with early-bird discounts and completion credentials.
-              </p>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1.25rem" }}>
-                {/* Default / Primary Currency */}
-                <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>
-                    <span>Primary Store Currency</span>
-                  </label>
-                  <CustomSelect
-                    value={currency}
-                    onChange={(val) => setCurrency(val as "USD" | "AED" | "INR")}
-                    options={[
-                      { value: "USD", label: "USD ($) — International / US" },
-                      { value: "AED", label: "AED (AED) — United Arab Emirates (VAT 5%)" },
-                      { value: "INR", label: "INR (₹) — India (GST 18%)" },
-                    ]}
-                    ariaLabel="Primary Store Currency"
-                  />
-                  <p className={styles.formHelperText}>
-                    Selected currency will be the default checkout currency presented to learners.
-                  </p>
-                </div>
-
-                {/* 3 Multi-Currency Pricing Inputs */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1rem" }}>
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Tuition (USD)</label>
-                    <div className={styles.priceInputWrap}>
-                      <span className={styles.currencyPrefix}>$</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={priceUSD}
-                        onChange={(e) => setPriceUSD(e.target.value)}
-                        className={`${styles.formInput} ${styles.priceInput}`}
-                        placeholder="199"
-                      />
-                    </div>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Tuition (AED)</label>
-                    <div className={styles.priceInputWrap}>
-                      <span className={styles.currencyPrefix}>AED</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={priceAED}
-                        onChange={(e) => setPriceAED(e.target.value)}
-                        className={`${styles.formInput} ${styles.priceInput}`}
-                        placeholder="749"
-                      />
-                    </div>
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label className={styles.formLabel}>Tuition (INR)</label>
-                    <div className={styles.priceInputWrap}>
-                      <span className={styles.currencyPrefix}>₹</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={priceINR}
-                        onChange={(e) => setPriceINR(e.target.value)}
-                        className={`${styles.formInput} ${styles.priceInput}`}
-                        placeholder="14999"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Early-Bird Discount Card */}
-                <div
-                  style={{
-                    border: "1px solid var(--border-light, #e7e0d6)",
-                    borderRadius: "12px",
-                    padding: "1.25rem",
-                    background: hasEarlyBird ? "rgba(184, 107, 17, 0.04)" : "var(--bg-surface, #ffffff)",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => setHasEarlyBird(!hasEarlyBird)}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, color: "var(--text-primary, #1c1917)", fontSize: "0.95rem" }}>
-                        Early-Bird Discount Pricing
-                      </div>
-                      <div style={{ fontSize: "0.82rem", color: "var(--text-muted, #78716a)", marginTop: "2px" }}>
-                        Offer a promotional discounted rate with an automated expiration date.
-                      </div>
-                    </div>
-                    <div className={styles.toggleSwitch}>
-                      <input
-                        type="checkbox"
-                        checked={hasEarlyBird}
-                        onChange={(e) => setHasEarlyBird(e.target.checked)}
-                        tabIndex={-1}
-                        aria-hidden="true"
-                      />
-                      <span className={styles.toggleSlider}></span>
-                    </div>
-                  </div>
-
-                  {hasEarlyBird && (
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr 1fr",
-                        gap: "1rem",
-                        marginTop: "1.25rem",
-                        paddingTop: "1.25rem",
-                        borderTop: "1px dashed var(--border-light, #e7e0d6)",
-                      }}
-                    >
-                      <div className={styles.formGroup}>
-                        <label className={styles.formLabel}>Early-Bird Price</label>
-                        <input
-                          type="number"
-                          min={0}
-                          value={earlyBirdPrice}
-                          onChange={(e) => setEarlyBirdPrice(e.target.value)}
-                          className={styles.formInput}
-                          placeholder="99"
-                        />
-                      </div>
-
-                      <div className={styles.formGroup}>
-                        <label className={styles.formLabel}>Currency</label>
-                        <CustomSelect
-                          value={earlyBirdCurrency}
-                          onChange={(val) => setEarlyBirdCurrency(val as "USD" | "AED" | "INR")}
-                          options={[
-                            { value: "USD", label: "USD ($)" },
-                            { value: "AED", label: "AED" },
-                            { value: "INR", label: "INR (₹)" },
-                          ]}
-                          ariaLabel="Early-Bird Currency"
-                        />
-                      </div>
-
-                      <div className={styles.formGroup}>
-                        <label className={styles.formLabel}>Offer Valid Until</label>
-                        <input
-                          type="date"
-                          value={earlyBirdDeadline}
-                          onChange={(e) => setEarlyBirdDeadline(e.target.value)}
-                          className={styles.formInput}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Certificate Award Card */}
-                <div
-                  className={`${styles.certCard} ${hasCertificate ? styles.certCardActive : ""}`}
-                  onClick={() => setHasCertificate(!hasCertificate)}
-                  role="checkbox"
-                  aria-checked={hasCertificate}
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === " " || e.key === "Enter") {
-                      e.preventDefault();
-                      setHasCertificate(!hasCertificate);
-                    }
-                  }}
-                >
-                  <div className={styles.certCardLeft}>
-                    <div className={styles.certIconBox}>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="8" r="6" />
-                        <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                      </svg>
-                    </div>
-                    <div className={styles.certTextCol}>
-                      <span className={styles.certTitle}>Official Completion Certificate</span>
-                      <span className={styles.certDesc}>
-                        Automatically issues an accredited PDF certificate upon 100% curriculum completion.
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className={styles.toggleSwitch}>
-                    <input
-                      type="checkbox"
-                      checked={hasCertificate}
-                      onChange={(e) => setHasCertificate(e.target.checked)}
-                      tabIndex={-1}
-                      aria-hidden="true"
-                    />
-                    <span className={styles.toggleSlider}></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Panel 5: Course-Specific FAQs */}
-            <div className={styles.formSectionPanel}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "0.5rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                }}
+                onClick={() => setIsFaqsExpanded((prev) => !prev)}
+              >
                 <div>
-                  <h3 className={styles.sectionPanelTitle} style={{ marginBottom: "0.25rem" }}>
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #c97a1e)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <h3 className={styles.sectionPanelTitle} style={{ margin: 0 }}>
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#D97706"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
                       <circle cx="12" cy="12" r="10" />
                       <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
                       <line x1="12" y1="17" x2="12.01" y2="17" />
                     </svg>
-                    <span>Course-Specific FAQs</span>
+                    <span>Course FAQs ({faqs.length})</span>
                   </h3>
-                  <p className={styles.sectionPanelSubtitle} style={{ margin: 0 }}>
-                    Repeatable question and answer pairs displayed in an accordion on this course&apos;s public landing page.
+                  <p className={styles.sectionPanelSubtitle} style={{ margin: "2px 0 0" }}>
+                    Frequently asked questions displayed in the public course accordion.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddFaq}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    padding: "7px 14px",
-                    borderRadius: "8px",
-                    background: "var(--accent-primary, #c97a1e)",
-                    color: "#ffffff",
-                    fontSize: "0.82rem",
-                    fontWeight: 700,
-                    border: "none",
-                    cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                  <span>Add FAQ Item</span>
-                </button>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className={styles.secondaryActionBtn}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddFaq();
+                    }}
+                    style={{ fontSize: "0.82rem", height: 32 }}
+                  >
+                    + Add FAQ
+                  </button>
+                  <span style={{ color: "#78716a", fontSize: "0.85rem" }}>
+                    {isFaqsExpanded ? "▲" : "▼"}
+                  </span>
+                </div>
               </div>
 
-              {faqs.length === 0 ? (
-                <div style={{
-                  padding: "24px 20px",
-                  borderRadius: "12px",
-                  background: "var(--bg-soft, #fdfbf7)",
-                  border: "1px dashed var(--border-light, #e7dfd5)",
-                  textAlign: "center",
-                  marginTop: "1rem",
-                }}>
-                  <p style={{ margin: "0 0 6px", fontSize: "0.9rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
-                    No course-specific FAQs added yet.
-                  </p>
-                  <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted, #78716a)" }}>
-                    Click &ldquo;Add FAQ Item&rdquo; above to add questions about prerequisites, scheduling, or materials.
-                  </p>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "1rem" }}>
-                  {faqs.map((faq, index) => (
+              {isFaqsExpanded && (
+                <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+                  {faqs.length === 0 ? (
                     <div
-                      key={faq.id || index}
                       style={{
-                        padding: "16px 18px",
-                        borderRadius: "12px",
-                        background: "#ffffff",
-                        border: "1px solid var(--border-light, #e7dfd5)",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                        padding: "1.5rem",
+                        textAlign: "center",
+                        background: "#faf7f2",
+                        borderRadius: 10,
+                        border: "1px dashed #ece6dd",
+                        color: "#78716a",
+                        fontSize: "0.88rem",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{
-                            display: "inline-flex",
+                      No FAQs added yet. Click &ldquo;+ Add FAQ&rdquo; to address common learner questions.
+                    </div>
+                  ) : (
+                    faqs.map((faq, idx) => (
+                      <div
+                        key={faq.id}
+                        style={{
+                          background: "#ffffff",
+                          border: "1px solid #ece6dd",
+                          borderRadius: 10,
+                          padding: "1rem",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
-                            width: "24px",
-                            height: "24px",
-                            borderRadius: "50%",
-                            background: "var(--bg-soft, #f5ece1)",
-                            color: "var(--accent-primary, #c97a1e)",
-                            fontSize: "0.78rem",
-                            fontWeight: 800,
-                          }}>
-                            {index + 1}
+                            justifyContent: "space-between",
+                            marginBottom: "0.6rem",
+                          }}
+                        >
+                          <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#d97706" }}>
+                            Question #{idx + 1}
                           </span>
-                          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-primary, #14110f)" }}>
-                            FAQ Item #{index + 1}
-                          </span>
-                        </div>
-
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                           <button
                             type="button"
-                            disabled={index === 0}
-                            onClick={() => handleMoveFaq(index, "UP")}
-                            title="Move Question Up"
-                            aria-label="Move Question Up"
+                            onClick={() => handleDeleteFaq(idx)}
                             style={{
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              border: "1px solid #e7dfd5",
-                              background: "#ffffff",
-                              cursor: index === 0 ? "not-allowed" : "pointer",
-                              opacity: index === 0 ? 0.4 : 1,
-                              display: "inline-flex",
-                              alignItems: "center",
-                            }}
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="18 15 12 9 6 15" />
-                            </svg>
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={index === faqs.length - 1}
-                            onClick={() => handleMoveFaq(index, "DOWN")}
-                            title="Move Question Down"
-                            aria-label="Move Question Down"
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              border: "1px solid #e7dfd5",
-                              background: "#ffffff",
-                              cursor: index === faqs.length - 1 ? "not-allowed" : "pointer",
-                              opacity: index === faqs.length - 1 ? 0.4 : 1,
-                              display: "inline-flex",
-                              alignItems: "center",
-                            }}
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="6 9 12 15 18 9" />
-                            </svg>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFaq(index)}
-                            title="Delete FAQ Item"
-                            aria-label="Delete FAQ Item"
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              border: "1px solid #fee2e2",
-                              background: "#fef2f2",
+                              background: "transparent",
+                              border: "none",
                               color: "#dc2626",
+                              fontSize: "0.78rem",
+                              fontWeight: 600,
                               cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              marginLeft: "4px",
                             }}
                           >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
+                            Remove
                           </button>
                         </div>
-                      </div>
 
-                      <div className={styles.formGroup} style={{ marginBottom: "10px" }}>
-                        <label className={styles.formLabel} style={{ fontSize: "0.8rem", marginBottom: "4px" }}>
-                          Question <span style={{ color: "#dc2626" }}>*</span>
-                        </label>
                         <input
                           type="text"
+                          placeholder="e.g. Do I get lifetime access to all course recordings?"
                           value={faq.question}
-                          onChange={(e) => handleFaqChange(index, "question", e.target.value)}
-                          placeholder="e.g. Do I receive a certificate upon finishing?"
+                          onChange={(e) => handleFaqChange(idx, "question", e.target.value)}
                           className={styles.formInput}
-                          style={{ fontSize: "0.88rem" }}
+                          style={{ marginBottom: "0.6rem" }}
                         />
-                      </div>
 
-                      <div className={styles.formGroup} style={{ marginBottom: 0 }}>
-                        <label className={styles.formLabel} style={{ fontSize: "0.8rem", marginBottom: "4px" }}>
-                          Answer <span style={{ color: "#dc2626" }}>*</span>
-                        </label>
                         <textarea
-                          rows={3}
+                          rows={2}
+                          placeholder="Answer details..."
                           value={faq.answer}
-                          onChange={(e) => handleFaqChange(index, "answer", e.target.value)}
-                          placeholder="e.g. Yes! Once all 11 steps and final exam are submitted, an accredited PDF certificate is generated automatically."
+                          onChange={(e) => handleFaqChange(idx, "answer", e.target.value)}
                           className={styles.formTextarea}
-                          style={{ fontSize: "0.88rem", minHeight: "72px" }}
+                          style={{ minHeight: 70 }}
                         />
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               )}
             </div>
           </div>
 
           {/* =========================================================
-              Right Column: Media & Live Card Preview
+              Right Column (35%): Program Cover Image
               ========================================================= */}
-          <div className={styles.stickySidebar}>
-            {/* 1. Cover Image Upload Box */}
-            <div className={styles.sidebarCard}>
-              <div className={styles.sidebarCardHeader}>
-                <h4 className={styles.sidebarCardTitle}>Course Cover Image</h4>
-                <span className={styles.sidebarBadge}>16:9 Ratio</span>
-              </div>
+          <div>
+            <div className={styles.coverDropzoneCard}>
+              <h3 className={styles.sectionPanelTitle} style={{ fontSize: "0.95rem", marginBottom: "0.25rem" }}>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#D97706"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+                <span>Program Cover Image</span>
+              </h3>
+              <p className={styles.sectionPanelSubtitle} style={{ marginBottom: "0.75rem" }}>
+                16:9 banner thumbnail displayed across catalogs and learner dashboards.
+              </p>
 
-              <label className={styles.coverUploadBox}>
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png, image/jpeg, image/webp"
+                style={{ display: "none" }}
+                onChange={handleImageUpload}
+              />
+
+              {/* Dropzone Card */}
+              <div
+                className={styles.dropzoneArea}
+                onClick={() => fileInputRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    fileInputRef.current?.click();
+                  }
+                }}
+              >
                 {thumbnailUrl ? (
                   <>
                     <Image
                       src={thumbnailUrl}
-                      alt="Course Cover Preview"
-                      width={320}
-                      height={180}
-                      quality={80}
-                      loading="lazy"
+                      alt="Program Cover Preview"
+                      fill
+                      style={{ objectFit: "cover" }}
                       unoptimized={!thumbnailUrl.startsWith("/")}
-                      className={styles.coverPreviewImg}
-                      onError={() => setThumbnailUrl("")}
                     />
                     <div className={styles.coverOverlay}>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>Cover Image Selected</span>
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <span className={styles.coverActionBtn}>Change Image</span>
-                        <button
-                          type="button"
-                          className={styles.coverActionBtn}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setThumbnailUrl("");
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
+                      <span>Click to Change Image</span>
                     </div>
                   </>
                 ) : (
                   <>
                     <div className={styles.uploadIconWrap}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
                       </svg>
                     </div>
-                    <div className={styles.uploadTitle}>
-                      {isUploadingImage ? "Uploading..." : "Click or drag to upload"}
-                    </div>
-                    <div className={styles.uploadHint}>PNG, JPG or WebP (max 5MB)</div>
+                    <span className={styles.uploadTitle}>
+                      {isUploadingImage ? "Uploading Image..." : "Upload program image"}
+                    </span>
+                    <span className={styles.uploadHint}>PNG, JPG (Max 5MB)</span>
                   </>
                 )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  style={{ display: "none" }}
-                />
-              </label>
-            </div>
-
-            {/* 2. Live Student Catalog Preview */}
-            <div className={styles.livePreviewWrap}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted, #78716a)" }}>
-                  Learner Catalog Preview
-                </span>
-                <span className={styles.liveBadgePulse}>
-                  <span className={styles.pulseDot}></span>
-                  <span>Live</span>
-                </span>
               </div>
 
-              <div className={styles.mockCourseCard}>
-                <div className={styles.mockCoverWrap}>
-                  {thumbnailUrl ? (
-                    <Image
-                      src={thumbnailUrl}
-                      alt="Catalog preview"
-                      width={280}
-                      height={150}
-                      quality={80}
-                      loading="lazy"
-                      unoptimized={!thumbnailUrl.startsWith("/")}
-                      className={styles.mockCoverImg}
-                    />
-                  ) : (
-                    <div className={styles.mockCoverFallback}>
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "6px" }} aria-hidden="true">
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                      </svg>
-                      <span>{title || "Course Cover"}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className={styles.mockCardBody}>
-                  <div className={styles.mockTagRow}>
-                    <span className={styles.mockCategoryPill}>{category}</span>
-                    <span className={styles.mockLevelPill}>{level}</span>
-                  </div>
-
-                  <h5 className={styles.mockTitle}>
-                    {title || "Course Title"}
-                  </h5>
-
-                  <p className={styles.mockSummary}>
-                    {shortDescription || description?.slice(0, 100) || "No summary provided yet."}
-                  </p>
-
-                  <div className={styles.mockFooter}>
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      <span className={styles.mockPrice}>
-                        {currency === "USD"
-                          ? Number(priceUSD) > 0 ? `$${Number(priceUSD).toLocaleString()}` : "Free"
-                          : currency === "AED"
-                          ? Number(priceAED) > 0 ? `AED ${Number(priceAED).toLocaleString()}` : "Free"
-                          : Number(priceINR) > 0 ? `₹${Number(priceINR).toLocaleString("en-IN")}` : "Free"}
-                      </span>
-                      {hasEarlyBird && earlyBirdPrice && (
-                        <span style={{ fontSize: "0.72rem", color: "#b86b11", fontWeight: 600 }}>
-                          Early Bird: {earlyBirdCurrency === "USD" ? `$${earlyBirdPrice}` : earlyBirdCurrency === "AED" ? `AED ${earlyBirdPrice}` : `₹${earlyBirdPrice}`}
-                        </span>
-                      )}
-                    </div>
-                    {hasCertificate && (
-                      <span className={styles.mockCertTag}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                        <span>Certificate</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Action Box */}
-            <div className={styles.sidebarCard}>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className={styles.btnPrimary}
-              >
-                {isSaving ? (
-                  <span>Saving Changes...</span>
-                ) : (
-                  <>
-                    <span>Save &amp; Continue to Modules</span>
-                    <span aria-hidden="true">&rarr;</span>
-                  </>
-                )}
-              </button>
-              <div style={{ textAlign: "center", marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted, #78716a)" }}>
-                Changes are automatically synced to the cloud.
+              <div style={{ marginTop: "1rem", display: "flex", justifyContent: "center" }}>
+                <button
+                  type="button"
+                  className={styles.secondaryActionBtn}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingImage}
+                  style={{ width: "100%", justifyContent: "center" }}
+                >
+                  {isUploadingImage ? "Uploading..." : thumbnailUrl ? "Change Image" : "Choose Image"}
+                </button>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Bottom Bar: Cancel on Left, Warm-Orange Save & Continue on Right */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: "2.5rem",
+            paddingTop: "1.5rem",
+            borderTop: "1px solid #ece6dd",
+          }}
+        >
+          {onCancel ? (
+            <button
+              type="button"
+              className={styles.secondaryActionBtn}
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+          ) : (
+            <Link
+              href="/programs"
+              className={styles.secondaryActionBtn}
+              style={{ textDecoration: "none" }}
+            >
+              Cancel
+            </Link>
+          )}
+
+          <button
+            type="submit"
+            className={styles.btnPrimary}
+            disabled={isSaving}
+          >
+            {isSaving ? "Saving Details..." : "Save & Continue ->"}
+          </button>
         </div>
       </form>
     </section>

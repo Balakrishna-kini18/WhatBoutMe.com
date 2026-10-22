@@ -14,6 +14,14 @@ export type StatusTone =
   | "comprehension"
   | "online"
   | "physical"
+  | "inProgress"
+  | "notStarted"
+  | "locked"
+  | "passed"
+  | "failed"
+  | "availableNext"
+  | "optional"
+  | "required"
   | "roleSuperAdmin"
   | "roleAdmin"
   | "roleManager"
@@ -35,9 +43,19 @@ function resolveTone(rawStatus: string): StatusTone {
   if (normalized === "AFTER_VIDEO" || normalized === "COMPREHENSION") return "comprehension";
   if (normalized === "ONLINE" || normalized === "VIRTUAL") return "online";
   if (normalized === "PHYSICAL" || normalized === "IN_PERSON") return "physical";
+
+  // Standardized Learner Status Labels
+  if (normalized === "IN_PROGRESS" || normalized === "INPROGRESS") return "inProgress";
+  if (normalized === "NOT_STARTED" || normalized === "NOTSTARTED") return "notStarted";
+  if (normalized === "LOCKED") return "locked";
+  if (normalized === "PASSED") return "passed";
+  if (normalized === "FAILED") return "failed";
+  if (normalized === "AVAILABLE_NEXT" || normalized === "AVAILABLENEXT") return "availableNext";
+  if (normalized === "OPTIONAL") return "optional";
+  if (normalized === "REQUIRED") return "required";
+
   if (
     normalized === "COMPLETED" ||
-    normalized === "PASSED" ||
     normalized === "PAID" ||
     normalized === "SIGNED"
   ) {
@@ -56,7 +74,6 @@ function resolveTone(rawStatus: string): StatusTone {
   if (normalized === "WAITLIST") return "info";
   if (normalized === "INACTIVE" || normalized === "ARCHIVED") return "inactive";
   if (
-    normalized === "FAILED" ||
     normalized === "CANCELLED" ||
     normalized === "REJECTED" ||
     normalized === "REVOKED" ||

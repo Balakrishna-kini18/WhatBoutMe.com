@@ -505,3 +505,469 @@
   border-top: 1px solid #f1f5f9;
   padding-top: 8px;
 }
+
+/* =========================================================================
+   Learner Portal Shell: Left Sidebar (240px) & Top Header Bar
+   ========================================================================= */
+
+.portalShell {
+  display: flex;
+  min-height: 100vh;
+  background-color: #faf7f2;
+  color: #1c1917;
+  width: 100%;
+  position: relative;
+}
+
+/* 240px Fixed Left Sidebar */
+.portalSidebar {
+  width: 240px;
+  min-width: 240px;
+  background: #ffffff;
+  border-right: 1px solid #ece6dd;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 50;
+  box-sizing: border-box;
+  transition: transform 0.25s ease;
+}
+
+.sidebarBackdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .portalSidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(28, 25, 23, 0.15);
+  }
+
+  .portalSidebarOpen {
+    transform: translateX(0);
+  }
+
+  .sidebarBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(28, 25, 23, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 45;
+  }
+}
+
+.sidebarBrand {
+  padding: 1.25rem 1.25rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #ece6dd;
+}
+
+.brandLogoGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.brandHeartIcon {
+  width: 24px;
+  height: 24px;
+  color: #d97706;
+}
+
+.brandText {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1c1917;
+  letter-spacing: -0.02em;
+}
+
+.brandLmsBadge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: #fff7ed;
+  color: #d97706;
+  border: 1px solid #fed7aa;
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+/* Learner Profile Summary */
+.learnerProfileSummary {
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fdfbf7;
+  border-bottom: 1px solid #ece6dd;
+}
+
+.profileAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #d97706;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25);
+}
+
+.profileInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.profileName {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #1c1917;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profileCohort {
+  font-size: 0.72rem;
+  color: #78716c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Nav Sections */
+.sidebarNav {
+  flex: 1;
+  padding: 0.75rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  overflow-y: auto;
+}
+
+.navSectionGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navSectionTitle {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #a8a29e;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 0.65rem 0.35rem;
+}
+
+.navLinkItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #57534e;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+}
+
+.navLinkItem:hover {
+  background: #fdfbf7;
+  color: #1c1917;
+}
+
+.navLinkItemActive {
+  background: #fff7ed !important;
+  color: #d97706 !important;
+  font-weight: 800;
+  border-color: #fed7aa !important;
+}
+
+.navLinkIcon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+/* Sidebar Footer */
+.sidebarFooter {
+  padding: 0.75rem 0.75rem 1rem;
+  border-top: 1px solid #ece6dd;
+}
+
+.signOutBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #78716c;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.signOutBtn:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* Portal Main Container */
+.portalMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Top Header Bar */
+.portalTopHeader {
+  height: 64px;
+  background: #ffffff;
+  border-bottom: 1px solid #ece6dd;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  box-sizing: border-box;
+}
+
+.headerLeftCluster {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  max-width: 480px;
+}
+
+.hamburgerBtn {
+  display: none;
+  background: none;
+  border: none;
+  color: #1c1917;
+  padding: 6px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+@media (max-width: 900px) {
+  .hamburgerBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.headerSearchBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fdfbf7;
+  border: 1px solid #ece6dd;
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.headerSearchInput {
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  color: #1c1917;
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+}
+
+.headerSearchInput::placeholder {
+  color: #a8a29e;
+}
+
+.headerRightCluster {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Mode Switcher Pill */
+.modeSwitcherPill {
+  display: inline-flex;
+  align-items: center;
+  background: #fdfbf7;
+  border: 1px solid #ece6dd;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.modeOptionBtn {
+  background: transparent;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #78716c;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.modeOptionBtnActive {
+  background: #fff7ed;
+  color: #d97706;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(217, 119, 6, 0.1);
+}
+
+.headerIconBtn {
+  position: relative;
+  background: transparent;
+  border: 1px solid #ece6dd;
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #57534e;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.headerIconBtn:hover {
+  background: #fdfbf7;
+  color: #1c1917;
+  border-color: #d97706;
+}
+
+.notificationBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+}
+
+.headerUserMenuBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid #ece6dd;
+  border-radius: 20px;
+  padding: 3px 10px 3px 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.headerUserMenuBtn:hover {
+  border-color: #d97706;
+  background: #fdfbf7;
+}
+
+.headerAvatarMini {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #d97706;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.headerUserName {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.portalContentArea {
+  flex: 1;
+  padding: 1.5rem 2rem 5rem;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .portalContentArea {
+    padding: 1rem 1rem 6rem;
+  }
+}
+
+.shellToastBanner {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #1c1917;
+  color: #ffffff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: fadeInToast 0.2s ease-out;
+}
+
+@keyframes fadeInToast {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

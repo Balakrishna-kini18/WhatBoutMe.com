@@ -28,3 +28,6 @@ export type { TableSkeletonProps } from "./TableSkeleton";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 
+export { default as LearnerPortalFlow } from "./LearnerPortalFlow";
+export type { LearnerPortalFlowProps, LearnerStepView, StepModule, Lesson } from "./LearnerPortalFlow";
+

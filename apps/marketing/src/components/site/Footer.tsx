@@ -103,6 +103,7 @@ export default async function Footer() {
           <strong className="font-semibold text-ink">Disclaimer.</strong> {DISCLAIMER}
         </p>
 
+        {/* Commented out from UI per user request:
         <p className="border-t border-line py-4 text-center text-xs text-ink-soft">
           Developed by{" "}
           <a
@@ -114,6 +115,7 @@ export default async function Footer() {
             Foxwel AI
           </a>
         </p>
+        */}
       </footer>
       {/* keeps the end of the page clear of the phone tab bar */}
       <div aria-hidden className="h-[calc(60px+env(safe-area-inset-bottom))] sm:hidden" />

@@ -4,8 +4,8 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import leadStyles from "./leads.module.css";
-import { API_URL, cachedFetch } from "../lib/api";
-import { CustomSelect, ActionMenu, ConfirmDialog, Modal, useToast } from "../components";
+import { API_URL, cachedFetch, generateLeadCheckoutPaymentLink, type SupportedCurrency } from "../lib/api";
+import { CustomSelect, ActionMenu, ConfirmDialog, Modal, useToast, TableSkeleton } from "../components";
 
 interface Lead {
   id: string;
@@ -161,7 +161,7 @@ function LeadsContent() {
   const [leadToConvert, setLeadToConvert] = useState<Lead | null>(null);
   const [targetProgramId, setTargetProgramId] = useState("");
   const [targetBatchId, setTargetBatchId] = useState("");
-  const [targetCurrency, setTargetCurrency] = useState<"USD" | "AED" | "INR">("USD");
+  const [targetCurrency, setTargetCurrency] = useState<SupportedCurrency>("USD");
   const [adminNote, setAdminNote] = useState("");
   const [isConverting, setIsConverting] = useState(false);
   const [conversionResult, setConversionResult] = useState<{ checkoutUrl: string; emailSent: boolean } | null>(null);
@@ -170,9 +170,9 @@ function LeadsContent() {
   const load = async () => {
     try {
       const [leadsRes, progsRes, batchesRes] = await Promise.all([
-        fetch(`${API_URL}/leads`),
-        fetch(`${API_URL}/programs`).catch(() => null),
-        fetch(`${API_URL}/batches`).catch(() => null),
+        cachedFetch(`${API_URL}/leads`),
+        cachedFetch(`${API_URL}/programs`).catch(() => null),
+        cachedFetch(`${API_URL}/batches`).catch(() => null),
       ]);
       if (leadsRes.ok) setLeads(await leadsRes.json());
       if (progsRes && progsRes.ok) {
@@ -270,28 +270,15 @@ function LeadsContent() {
     setIsConverting(true);
 
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/leads/${leadToConvert.id}/convert-and-send-link`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          courseId: targetProgramId || undefined,
-          batchId: targetBatchId || undefined,
-          currency: targetCurrency,
-          note: adminNote.trim() || undefined,
-        }),
+      const linkResult = await generateLeadCheckoutPaymentLink({
+        leadId: leadToConvert.id,
+        courseId: targetProgramId,
+        batchId: targetBatchId || undefined,
+        currency: targetCurrency,
+        note: adminNote.trim() || undefined,
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.message || "Failed to convert lead and generate payment link.");
-      }
-
-      const data = await res.json();
-      setConversionResult({ checkoutUrl: data.checkoutUrl, emailSent: data.emailSent });
+      setConversionResult({ checkoutUrl: linkResult.checkoutUrl, emailSent: linkResult.emailSent });
 
       // Optimistically update lead status to CONVERTED
       setLeads((all) =>
@@ -302,8 +289,8 @@ function LeadsContent() {
       load();
 
       // Copy link to clipboard automatically
-      if (data.checkoutUrl && navigator.clipboard) {
-        await navigator.clipboard.writeText(data.checkoutUrl).catch(() => {});
+      if (linkResult.checkoutUrl && navigator.clipboard) {
+        await navigator.clipboard.writeText(linkResult.checkoutUrl).catch(() => {});
       }
 
       toast.success(
@@ -336,7 +323,7 @@ function LeadsContent() {
     const previous = leads;
     setLeads((all) => all.map((l) => (l.id === id ? { ...l, status: nextStatus } : l)));
     try {
-      const res = await fetch(`${API_URL}/leads/${id}`, {
+      const res = await cachedFetch(`${API_URL}/leads/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus }),
@@ -501,13 +488,7 @@ function LeadsContent() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6}>
-                    <div className={leadStyles.emptyContainer}>
-                      <div className={leadStyles.emptySubtitle}>Loading enquiries...</div>
-                    </div>
-                  </td>
-                </tr>
+                <TableSkeleton columns={6} rows={5} />
               ) : visible.length === 0 ? (
                 <tr>
                   <td colSpan={6}>
@@ -1085,13 +1066,19 @@ function LeadsContent() {
                       fontWeight: 700,
                       cursor: isConverting || !targetProgramId ? "not-allowed" : "pointer",
                       opacity: isConverting || !targetProgramId ? 0.6 : 1,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
                     }}
                   >
-                    {isConverting
-                      ? "Generating Link & Dispatching..."
-                      : leadToConvert.status === "CONVERTED"
-                      ? "Resend Payment Link"
-                      : "Convert & Send Payment Link"}
+                    {isConverting && <span className="spinner" />}
+                    <span>
+                      {isConverting
+                        ? "Generating Link & Dispatching..."
+                        : leadToConvert.status === "CONVERTED"
+                        ? "Resend Payment Link"
+                        : "Convert & Send Payment Link"}
+                    </span>
                   </button>
                 </div>
               </div>

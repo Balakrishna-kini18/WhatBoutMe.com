@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
+import {
+  API_URL,
+  errorMessage,
+  cachedFetch,
+  issueSequentialFzeInvoice,
+  resendInvoice,
+  type SupportedCurrency,
+} from "../lib/api";
+import { CustomSelect, useToast, TableSkeleton, EmptyState } from "../components";
 import styles from "../page.module.css";
-import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, useToast } from "../components";
 
 interface Invoice {
   id: string;
@@ -36,7 +43,7 @@ export default function InvoicesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [enrolments, setEnrolments] = useState<EnrolmentItem[]>([]);
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState("");
-  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">("USD");
+  const [currency, setCurrency] = useState<SupportedCurrency>("USD");
   const [amount, setAmount] = useState("199");
   const [status, setStatus] = useState("PAID");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,11 +59,7 @@ export default function InvoicesPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/invoices`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal,
-      });
+      const res = await cachedFetch(`${API_URL}/invoices`, { signal });
       if (res.ok) {
         const data = await res.json();
         setInvoices(data);
@@ -75,10 +78,7 @@ export default function InvoicesPage() {
 
   const fetchEnrolmentsForModal = async () => {
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/admin/enrolments?limit=100`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await cachedFetch(`${API_URL}/admin/enrolments?limit=100`);
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : data?.data || [];
@@ -125,38 +125,29 @@ export default function InvoicesPage() {
     setIsSubmitting(true);
     setFormError("");
 
+    const match = enrolments.find((e) => e.id === selectedEnrolmentId);
+    const clientName = match?.user?.name || match?.user?.email || "Enrolled Learner";
+    const clientEmail = match?.user?.email || "";
+
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/invoices`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          enrolmentId: selectedEnrolmentId,
-          amount: numAmount,
-          currency,
-          status,
-        }),
+      const createdInvoice = await issueSequentialFzeInvoice({
+        enrolmentId: selectedEnrolmentId,
+        clientName,
+        clientEmail,
+        baseAmount: numAmount,
+        currency,
+        status: status as any,
       });
 
-      if (res.ok) {
-        const createdData = await res.json().catch(() => null);
-        toastSuccess(
-          `Invoice ${createdData?.invoiceNumber || ""} created successfully.`,
-          "Invoice Created"
-        );
-        closeCreateModal();
-        fetchInvoices();
-      } else {
-        const data = await res.json().catch(() => null);
-        const msg = data?.error?.message || data?.message || `Failed to create invoice (HTTP ${res.status}).`;
-        setFormError(Array.isArray(msg) ? msg.join(", ") : msg);
-      }
-    } catch (err) {
+      toastSuccess(
+        `Invoice ${createdInvoice.invoiceNumber} created successfully.`,
+        "Invoice Created"
+      );
+      closeCreateModal();
+      fetchInvoices();
+    } catch (err: any) {
       console.error("Invoice creation error", err);
-      setFormError("Could not reach the server. Check that the API is running.");
+      setFormError(err?.message || "Could not reach the server. Check that the API is running.");
     } finally {
       setIsSubmitting(false);
     }
@@ -170,19 +161,11 @@ export default function InvoicesPage() {
 
   const handleResendInvoice = async (inv: Invoice) => {
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/invoices/${inv.id}/resend`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      if (res.ok) {
+      const res = await resendInvoice(inv.id);
+      if (res.success) {
         toastSuccess(`Invoice ${inv.invoiceNumber} resent to ${inv.clientEmail || inv.client}.`, "Invoice Resent");
       } else {
-        const data = await res.json().catch(() => null);
-        toastWarning(data?.message || `Failed to resend invoice (HTTP ${res.status}).`, "Resend Error");
+        toastWarning(res.message || "Failed to resend invoice.", "Resend Error");
       }
     } catch {
       toastWarning("Unable to connect to invoice mail service.", "Network Error");
@@ -226,9 +209,7 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>Loading invoices...</td>
-                </tr>
+                <TableSkeleton columns={6} rows={5} />
               ) : fetchError ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--status-error, #dc2626)" }}>
@@ -240,7 +221,14 @@ export default function InvoicesPage() {
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>No invoices found.</td>
+                  <td colSpan={6} style={{ padding: "1rem" }}>
+                    <EmptyState
+                      title="No invoices found"
+                      description="Official WhatBoutMe FZE automated PDF invoices generated upon course enrolment or event checkout will appear here."
+                      actionLabel="Create New Invoice"
+                      onAction={openCreateModal}
+                    />
+                  </td>
                 </tr>
               ) : invoices.map((inv) => {
                 const curr = (inv.currency || "USD").toUpperCase();
@@ -414,8 +402,10 @@ export default function InvoicesPage() {
                   type="submit"
                   className={styles.primaryBtn}
                   disabled={isSubmitting || enrolments.length === 0}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
                 >
-                  {isSubmitting ? "Creating Invoice..." : "Create Invoice"}
+                  {isSubmitting && <span className="spinner" />}
+                  <span>{isSubmitting ? "Creating Invoice..." : "Create Invoice"}</span>
                 </button>
               </div>
             </form>

@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { onThisHost } from "./lib/host";
-import { API_URL, cachedFetch, autoInvalidateOnMutation, clearApiCache, renewOnce } from "./lib/api";
+import { API_URL, cachedFetch, autoInvalidateOnMutation, clearApiCache, clearApiCacheOnLogout, renewOnce } from "./lib/api";
 
 export interface UserData {
   id: string;
@@ -135,7 +135,7 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
 
         if (code === "SESSION_REVOKED") {
           localStorage.clear();
-          clearApiCache();
+          clearApiCacheOnLogout();
           alert("You were signed out because your account was used on another device.");
           window.location.href = "/login";
           return response;
@@ -143,7 +143,7 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
           const renewed = await renewOnce(originalFetch, token as string);
           if (renewed === "signed-out") {
             localStorage.clear();
-            clearApiCache();
+            clearApiCacheOnLogout();
             window.location.href = "/login";
           } else if (renewed) {
             const newHeaders = new Headers(init?.headers);
@@ -153,14 +153,14 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
         } else {
           if (localStorage.getItem("token")) {
             localStorage.clear();
-            clearApiCache();
+            clearApiCacheOnLogout();
             window.location.href = "/login";
           }
         }
       } catch {
         if (localStorage.getItem("token")) {
           localStorage.clear();
-          clearApiCache();
+          clearApiCacheOnLogout();
           window.location.href = "/login";
         }
       }
@@ -184,7 +184,7 @@ export function useAuth(): AuthContextType {
       logout: async () => {
         if (typeof window !== "undefined") {
           localStorage.clear();
-          clearApiCache();
+          clearApiCacheOnLogout();
           window.location.href = "/login";
         }
       },
@@ -244,7 +244,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
           localStorage.removeItem("user");
-          clearApiCache();
+          clearApiCacheOnLogout();
           setUser(null);
           setToken(null);
           if (pathname !== "/login" && typeof window !== "undefined") {
@@ -278,7 +278,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       localStorage.removeItem("token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("user");
-      clearApiCache();
+      clearApiCacheOnLogout();
       setUser(null);
       setToken(null);
       lastVerifiedAtRef.current = 0;

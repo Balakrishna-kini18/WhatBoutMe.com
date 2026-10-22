@@ -9,6 +9,7 @@ import {
   getAuthHeaders,
   parseApiError,
   getLockMessage,
+  invalidateCache,
   EnrolmentProgressionResponse,
   StepProgressionItem,
   ActiveQuizAttempt,
@@ -35,6 +36,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
   const [targetSeekTime, setTargetSeekTime] = useState<number | null>(null);
   const lastHeartbeatTimeRef = useRef<number>(0);
+  const isHeartbeatInFlightRef = useRef<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Quiz engine state
@@ -202,7 +204,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 setQuestions(attemptData.questions || []);
               } else {
                 setLastResult(attemptData);
+                setActiveAttempt(null);
               }
+            } else {
+              setActiveAttempt(null);
             }
           }
         } catch (quizErr) {
@@ -267,9 +272,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setIsSubmittingQuiz(true);
 
     try {
+      const targetAttemptId = activeAttempt.attemptId || (activeAttempt as any).id;
       // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId, optionIds, textAnswer }] }
       const submissionDto = {
-        attemptId: activeAttempt.attemptId,
+        attemptId: targetAttemptId,
+        id: targetAttemptId,
         answers: questions.map((q) => {
           const val = answers[q.id];
           const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
@@ -301,10 +308,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         body: JSON.stringify(submissionDto),
       });
 
-      const data: QuizSubmissionResult = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
 
       if (!res.ok) {
-        throw new Error((data as any)?.message || "Failed to submit quiz attempt");
+        const errorMsg =
+          data?.error?.message ||
+          data?.message ||
+          "Failed to submit quiz attempt";
+        // If attempt was already finalized/passed on server, reconcile immediately
+        if (
+          errorMsg.toLowerCase().includes("already finalized") ||
+          errorMsg.toLowerCase().includes("already passed") ||
+          res.status === 400 ||
+          res.status === 409
+        ) {
+          await fetchStepAndProgression();
+          return;
+        }
+        throw new Error(errorMsg);
       }
 
       setLastResult(data);
@@ -313,10 +339,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       // If learner passed, re-fetch authoritative progression to unlock next step
       if (data.passed && step.programId) {
+        invalidateCache("/progression");
+        invalidateCache("/progress");
+        invalidateCache("/auth");
+        invalidateCache("/certificates");
         fetchStepAndProgression();
       }
     } catch (err: any) {
       setQuizError(err.message || "Failed to submit quiz");
+      fetchStepAndProgression().catch(() => {});
     } finally {
       setIsSubmittingQuiz(false);
     }
@@ -325,6 +356,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   // D1-035: Video/Audio media playback heartbeat
   const sendMediaHeartbeat = useCallback(
     async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number, deltaWatchedSec?: number) => {
+      // Guard against overlapping concurrent heartbeat network requests
+      if (isHeartbeatInFlightRef.current && !isEnded) {
+        return;
+      }
+      isHeartbeatInFlightRef.current = true;
+
       try {
         const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
         const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
@@ -342,45 +379,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           const data = await res.json();
           setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
           if (data.isCompleted || isEnded) {
+            invalidateCache("/progression");
+            invalidateCache("/progress");
+            invalidateCache("/auth");
+            invalidateCache("/certificates");
             fetchStepAndProgression();
           }
         }
       } catch (err) {
         console.warn("Heartbeat error:", err);
+      } finally {
+        isHeartbeatInFlightRef.current = false;
       }
     },
     [fetchStepAndProgression]
   );
 
-  // Send keepalive heartbeat on pagehide / tab switch (Edge Case 6)
-  useEffect(() => {
-    const handleVisibilityOrHide = () => {
-      const activeVideo = videoRef.current;
-      const mediaId = selectedMediaId || (step?.lessons?.find((l: any) => l.type === "VIDEO" || l.type === "AUDIO")?.id);
-      if (activeVideo && mediaId && (document.visibilityState === "hidden" || !document.hasFocus())) {
-        const currentSec = Math.floor(activeVideo.currentTime);
-        if (currentSec > 0) {
-          const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-          fetch(`${API_URL}/progress/lessons/${mediaId}/heartbeat`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ positionSec: currentSec }),
-            keepalive: true,
-          }).catch(() => {});
-        }
-      }
-    };
-
-    window.addEventListener("pagehide", handleVisibilityOrHide);
-    document.addEventListener("visibilitychange", handleVisibilityOrHide);
-    return () => {
-      window.removeEventListener("pagehide", handleVisibilityOrHide);
-      document.removeEventListener("visibilitychange", handleVisibilityOrHide);
-    };
-  }, [selectedMediaId, step]);
+  // Note: Tab hide/pagehide keepalive heartbeat is handled cleanly by CompulsoryVideoPlayer via onHeartbeat callback
 
   // D1-035: PDF or text lesson completion
   const handleCompleteDocument = async (lessonId: string) => {
@@ -393,6 +408,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       if (res.ok) {
         const data = await res.json();
         setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
+        invalidateCache("/progression");
+        invalidateCache("/progress");
+        invalidateCache("/auth");
+        invalidateCache("/certificates");
         fetchStepAndProgression();
       }
     } catch (err) {
@@ -401,12 +420,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   };
 
   const openPdfModal = (doc: any) => {
-    let url = doc.mediaUrl || "";
-    if (url.startsWith("upload:")) {
-      const publicId = url.replace("upload:", "");
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      url = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const url = `${API_URL}/media/document/${doc.id}${token ? `?token=${encodeURIComponent(token)}` : ""}#toolbar=0&navpanes=0`;
     setViewingPdf({ id: doc.id, title: doc.title, url });
     if (!lessonProgress[doc.id]?.isCompleted) {
       handleCompleteDocument(doc.id);
@@ -419,6 +434,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         method: "POST",
         headers: getAuthHeaders(),
       });
+      invalidateCache("/progression");
+      invalidateCache("/progress");
+      invalidateCache("/auth");
+      invalidateCache("/certificates");
+      fetchStepAndProgression();
     } catch (err) {
       console.warn("Failed to mark lesson complete:", err);
     }
@@ -850,6 +870,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             lastPositionSec: currentMedia.durationSec,
                           },
                         }));
+                        invalidateCache("/progression");
+                        invalidateCache("/progress");
+                        invalidateCache("/auth");
+                        invalidateCache("/certificates");
                         fetchStepAndProgression();
                       }}
                     />
@@ -903,6 +927,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                               headers: getAuthHeaders(),
                             });
                           } catch {}
+                          invalidateCache("/progression");
+                          invalidateCache("/progress");
+                          invalidateCache("/auth");
+                          invalidateCache("/certificates");
                           fetchStepAndProgression();
                         }}
                         className={styles.secondaryBtn}
@@ -977,12 +1005,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
                 {documents.map((doc: any) => {
                   const isDocCompleted = lessonProgress[doc.id]?.isCompleted || lessonProgress[doc.id]?.viewed;
-                  let resolvedPdfUrl = doc.mediaUrl || "";
-                  if (resolvedPdfUrl.startsWith("upload:")) {
-                    const publicId = resolvedPdfUrl.replace("upload:", "");
-                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                    resolvedPdfUrl = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                  }
 
                   return (
                     <li
@@ -1023,28 +1045,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           <polyline points="10 9 9 9 8 9" />
                         </svg>
                         <span>{doc.title}</span>
-                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.8rem", marginLeft: "4px" }}>
+                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.82rem", marginLeft: "6px", fontWeight: 700 }}>
                           (View PDF &rarr;)
                         </span>
                       </button>
 
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <a
-                          href={resolvedPdfUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={() => handleCompleteDocument(doc.id)}
-                          style={{
-                            fontSize: "0.82rem",
-                            color: "var(--text-secondary, #64748b)",
-                            textDecoration: "none",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          New tab ↗
-                        </a>
                         {isDocCompleted ? (
                           <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "4px 10px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
                             ✓ Read
@@ -1573,38 +1579,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <a
-                  href={viewingPdf.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: "var(--accent-primary, #0284c7)",
-                    textDecoration: "none",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <span>Open in New Tab</span>
-                  <span>↗</span>
-                </a>
                 <button
                   type="button"
                   onClick={() => setViewingPdf(null)}
                   style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "1.4rem",
-                    color: "#64748b",
+                    background: "rgba(241, 245, 249, 0.9)",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "6px",
+                    fontSize: "1.2rem",
+                    color: "#475569",
                     cursor: "pointer",
-                    padding: "0 4px",
+                    padding: "4px 10px",
                     lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                   aria-label="Close PDF Viewer"
                 >
@@ -1613,12 +1602,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
             </div>
 
-            {/* Modal Body: Embedded PDF iframe */}
-            <div style={{ flex: 1, width: "100%", height: "100%", background: "#525659" }}>
+            {/* Modal Body: Embedded PDF viewer iframe (Protected, Inline Stream) */}
+            <div
+              style={{
+                flex: 1,
+                width: "100%",
+                height: "100%",
+                background: "#1e293b",
+                position: "relative",
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+            >
               <iframe
                 src={viewingPdf.url}
                 title={viewingPdf.title}
-                style={{ width: "100%", height: "100%", border: "none" }}
+                style={{ width: "100%", height: "100%", border: "none", display: "block" }}
               />
             </div>
           </div>

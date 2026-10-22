@@ -29,7 +29,15 @@ export class AdminDashboardController {
           ],
         };
 
-        const [totalBatches, enrolledLearners, totalCertificates, recentEnrolmentsList, allEnrolments] = await Promise.all([
+        const [
+          totalBatches,
+          enrolledLearners,
+          totalCertificates,
+          pendingCertificates,
+          unmatchedAttendance,
+          recentEnrolmentsList,
+          allEnrolments,
+        ] = await Promise.all([
           this.prisma.batch.count({ where: batchWhere }),
           this.prisma.enrolment.findMany({
             where: { batch: batchWhere },
@@ -39,6 +47,15 @@ export class AdminDashboardController {
           this.prisma.certificate.count({
             where: { enrolment: { batch: batchWhere } },
           }),
+          this.prisma.certificate.count({
+            where: { status: 'PENDING', enrolment: { batch: batchWhere } },
+          }).catch(() => 0),
+          (this.prisma.unmatchedAttendance?.count
+            ? this.prisma.unmatchedAttendance.count({
+                where: { status: 'UNMATCHED', session: { batch: batchWhere } },
+              })
+            : Promise.resolve(0)
+          ).catch(() => 0),
           this.prisma.enrolment.findMany({
             where: { batch: batchWhere },
             take: 5,
@@ -97,6 +114,8 @@ export class AdminDashboardController {
           totalBatches,
           totalCertificates,
           certificatesIssued: totalCertificates,
+          pendingCertificatesCount: pendingCertificates,
+          unmatchedAttendanceCount: unmatchedAttendance,
           recentEnrolments,
           programDistribution,
           totalRevenue: null,
@@ -105,10 +124,24 @@ export class AdminDashboardController {
       }
 
       // Super Admin / Admin
-      const [totalLearners, totalBatches, totalCertificates, paidInvoices, recentEnrolmentsList, allEnrolments] = await Promise.all([
+      const [
+        totalLearners,
+        totalBatches,
+        totalCertificates,
+        pendingCertificates,
+        unmatchedAttendance,
+        paidInvoices,
+        recentEnrolmentsList,
+        allEnrolments,
+      ] = await Promise.all([
         this.prisma.user.count({ where: { role: Role.USER } }),
         this.prisma.batch.count(),
         this.prisma.certificate.count(),
+        this.prisma.certificate.count({ where: { status: 'PENDING' } }).catch(() => 0),
+        (this.prisma.unmatchedAttendance?.count
+          ? this.prisma.unmatchedAttendance.count({ where: { status: 'UNMATCHED' } })
+          : Promise.resolve(0)
+        ).catch(() => 0),
         this.prisma.invoice.findMany({
           where: {
             status: { in: [InvoiceStatus.PAID, InvoiceStatus.REFUNDED] },
@@ -202,6 +235,8 @@ export class AdminDashboardController {
         totalBatches,
         totalCertificates,
         certificatesIssued: totalCertificates,
+        pendingCertificatesCount: pendingCertificates,
+        unmatchedAttendanceCount: unmatchedAttendance,
         totalRevenue: formattedRevenue,
         revenueSubtitle,
         currencies: byCurrency,

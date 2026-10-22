@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -64,7 +64,7 @@ function Courses() {
   const [daysPresent, setDaysPresent] = useState<number | null>(null);
   const [certificates, setCertificates] = useState<number | null>(null);
 
-  useEffect(() => {
+  const loadCourses = useCallback(async (isInitial = false) => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/login");
@@ -83,25 +83,41 @@ function Courses() {
       .then((res) => (res.ok ? res.json() : []))
       .catch(() => []);
 
-    Promise.all([authPromise, attPromise, certPromise])
-      .then(([profile, attData, certData]) => {
-        if (profile) {
-          setCourses(profile.enrolledPrograms || []);
-        } else {
-          setError("We could not load your courses. Please try again in a moment.");
-        }
-        setDaysPresent(Array.isArray(attData?.days) ? attData.days.length : 0);
-        setCertificates(
-          Array.isArray(certData)
-            ? certData.filter((c: { status?: string }) => c.status === "APPROVED" || c.status === "ISSUED").length
-            : 0
-        );
-      })
-      .catch(() => {
+    try {
+      const [profile, attData, certData] = await Promise.all([authPromise, attPromise, certPromise]);
+      if (profile) {
+        setCourses(profile.enrolledPrograms || []);
+      } else if (isInitial) {
         setError("We could not load your courses. Please try again in a moment.");
-      })
-      .finally(() => setLoading(false));
+      }
+      setDaysPresent(Array.isArray(attData?.days) ? attData.days.length : 0);
+      setCertificates(
+        Array.isArray(certData)
+          ? certData.filter((c: { status?: string }) => c.status === "APPROVED" || c.status === "ISSUED").length
+          : 0
+      );
+    } catch {
+      if (isInitial) setError("We could not load your courses. Please try again in a moment.");
+    } finally {
+      if (isInitial) setLoading(false);
+    }
   }, [router]);
+
+  useEffect(() => {
+    loadCourses(true);
+
+    const onFocus = () => loadCourses(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadCourses(false);
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadCourses]);
 
   const hit = (...text: string[]) => text.some((t) => t.toLowerCase().includes(query));
   // a course is shown when its name or cohort matches, or any item left in it

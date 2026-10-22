@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -145,6 +146,7 @@ export interface EnrolmentProgressionResponse {
 
 @Injectable()
 export class ProgressionService {
+  private readonly logger = new Logger(ProgressionService.name);
   private readonly localShareCache = new Map<string, any>();
 
   constructor(
@@ -400,10 +402,11 @@ export class ProgressionService {
     enrolmentId: string,
     stepId: string,
     user?: any,
+    options?: { skipEvaluateTreeIfUnlocked?: boolean },
   ): Promise<boolean> {
     const step = await this.prisma.step.findUnique({
       where: { id: stepId },
-      select: { id: true, programId: true, status: true },
+      select: { id: true, programId: true, status: true, sequence: true },
     });
 
     if (!step) {
@@ -445,6 +448,28 @@ export class ProgressionService {
 
     if (user) {
       this.assertUserAuthorizedForEnrolment(user, enrolment);
+    }
+
+    // Fast-path: if step is already confirmed unlocked in DB, avoid heavy 11-step tree re-evaluation
+    if (options?.skipEvaluateTreeIfUnlocked) {
+      const sp = await this.prisma.stepProgress.findUnique({
+        where: {
+          enrolmentId_stepId: {
+            enrolmentId: enrolment.id,
+            stepId,
+          },
+        },
+      });
+
+      if (sp?.overrideState === StepOverrideState.MANUAL_UNLOCKED) {
+        return true;
+      }
+      if (sp?.overrideState === StepOverrideState.MANUAL_LOCKED) {
+        throw new ForbiddenException('Step is locked: MANUAL_LOCKED');
+      }
+      if (sp?.isUnlocked) {
+        return true;
+      }
     }
 
     const tree = await this.evaluateProgression(enrolment, { persist: true });
@@ -1354,8 +1379,8 @@ export class ProgressionService {
       throw new ForbiddenException('Access denied: Enrolment is not ACTIVE');
     }
 
-    // Call D1-033/D1-034 step access gate
-    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor);
+    // Call D1-033/D1-034 step access gate with fast-path if already confirmed unlocked
+    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor, { skipEvaluateTreeIfUnlocked: true });
 
     // Configurable Quiz Placement Gate: When BEFORE_VIDEO, pre-video assessment must be passed
     const stepQuiz = lesson.step.quiz;
@@ -1465,14 +1490,23 @@ export class ProgressionService {
       },
     });
 
-    // Progression evaluation trigger if lesson newly transitioned to viewed
+    // Progression evaluation trigger whenever viewed changes or is completed or ended
     const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
-    if (transitionToCompleted) {
-      await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
-      if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
-        await this.cacheHelper.invalidateNamespace('users');
-      }
+    const shouldInvalidate = transitionToCompleted || viewed || Boolean(isEnded) || newProgressPercent >= 90;
+
+    if (shouldInvalidate && this.cacheHelper) {
+      await Promise.allSettled([
+        this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`),
+        this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
+        this.cacheHelper.invalidateNamespace('users'),
+      ]);
+    }
+
+    if (transitionToCompleted || Boolean(isEnded)) {
+      // Fire-and-forget progression evaluation in background so heartbeat responds in <100ms
+      this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true }).catch((err) => {
+        this.logger.error(`Background progression evaluation failed: ${err.message}`);
+      });
     }
 
     return {
@@ -1594,12 +1628,19 @@ export class ProgressionService {
     });
 
     const transitionToCompleted = !(existingProgress?.viewed ?? false);
+    if (this.cacheHelper) {
+      await Promise.allSettled([
+        this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`),
+        this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
+        this.cacheHelper.invalidateNamespace('users'),
+      ]);
+    }
+
     if (transitionToCompleted) {
-      await this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true });
-      if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`);
-        await this.cacheHelper.invalidateNamespace('users');
-      }
+      // Fire-and-forget progression evaluation in background so complete responds in <100ms
+      this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true }).catch((err) => {
+        this.logger.error(`Background progression evaluation failed: ${err.message}`);
+      });
     }
 
     return {

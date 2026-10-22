@@ -652,8 +652,14 @@ export default function WebsiteAdminPage() {
 
           {/* Gallery Items Grid */}
           {isGalleryLoading ? (
-            <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748b" }}>
-              <p>Loading photo gallery...</p>
+            <div className={styles.galleryGrid}>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                <div
+                  key={i}
+                  className="skeletonCard"
+                  style={{ height: 260, borderRadius: 12 }}
+                />
+              ))}
             </div>
           ) : filteredGallery.length === 0 ? (
             <div className={styles.emptyState}>
@@ -1035,8 +1041,11 @@ export default function WebsiteAdminPage() {
           ========================================================================= */}
       {activeTab === "content" && (
         isContentLoading ? (
-          <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#64748b" }}>
-            <p>Loading website content...</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            <div className="skeleton" style={{ width: "240px", height: "32px", borderRadius: 8 }} />
+            <div className="skeletonCard" style={{ height: 220, borderRadius: 12 }} />
+            <div className="skeletonCard" style={{ height: 260, borderRadius: 12 }} />
+            <div className="skeletonCard" style={{ height: 200, borderRadius: 12 }} />
           </div>
         ) : (
           <form onSubmit={handleSaveContent}>

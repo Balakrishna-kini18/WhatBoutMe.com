@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -41,24 +41,42 @@ export default function CertificatesPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
 
-  useEffect(() => {
+  const loadCertificates = useCallback(async (isInitial = false) => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/login");
       return;
     }
     const headers = { Authorization: `Bearer ${token}` };
-    Promise.all([
-      fetch(`${API_URL}/auth/me`, { headers }).then((res) => (res.ok ? res.json() : { enrolledPrograms: [] })),
-      fetch(`${API_URL}/certificates/mine`, { headers }).then((res) => (res.ok ? res.json() : [])),
-    ])
-      .then(([profile, certs]) => {
-        setCourses(profile.enrolledPrograms || []);
-        setCertificates(Array.isArray(certs) ? certs : []);
-      })
-      .catch(() => setNotice("Could not reach the server. Please try again in a moment."))
-      .finally(() => setLoading(false));
+    try {
+      const [profile, certs] = await Promise.all([
+        fetch(`${API_URL}/auth/me`, { headers }).then((res) => (res.ok ? res.json() : { enrolledPrograms: [] })),
+        fetch(`${API_URL}/certificates/mine`, { headers }).then((res) => (res.ok ? res.json() : [])),
+      ]);
+      setCourses(profile.enrolledPrograms || []);
+      setCertificates(Array.isArray(certs) ? certs : []);
+    } catch {
+      if (isInitial) setNotice("Could not reach the server. Please try again in a moment.");
+    } finally {
+      if (isInitial) setLoading(false);
+    }
   }, [router]);
+
+  useEffect(() => {
+    loadCertificates(true);
+
+    const onFocus = () => loadCertificates(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadCertificates(false);
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadCertificates]);
 
   const request = async (enrolmentId: string) => {
     setNotice("");

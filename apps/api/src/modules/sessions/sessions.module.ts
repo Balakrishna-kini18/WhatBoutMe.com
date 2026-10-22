@@ -37,9 +37,9 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
     forwardRef(() => CertificatesModule),
   ],
   controllers: [
-    SessionsController,
     DiscoveryController,
     SessionsDiscoveryController,
+    SessionsController,
     AttendanceController,
     BatchAttendanceController,
     BatchSessionsController,

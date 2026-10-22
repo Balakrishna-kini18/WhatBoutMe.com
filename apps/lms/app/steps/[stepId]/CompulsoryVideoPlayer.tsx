@@ -17,19 +17,12 @@ export interface CompulsoryVideoPlayerProps {
   seekToTime?: number | null;
 }
 
-function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || isNaN(seconds) || seconds < 0) {
-    return "00:00";
-  }
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  }
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
+import {
+  formatTime,
+  validateSeek,
+  calculateRewindTarget,
+  calculateTimelineSeekTime,
+} from "./videoPlayerLogic";
 
 export default function CompulsoryVideoPlayer({
   lessonId,
@@ -59,6 +52,7 @@ export default function CompulsoryVideoPlayer({
   const [showControls, setShowControls] = useState(true);
   const [seekWarning, setSeekWarning] = useState<string | null>(null);
   const [resumedNotice, setResumedNotice] = useState<number | null>(null);
+  const [hasEnded, setHasEnded] = useState(false);
 
   // Anti-skip enforcement refs
   const maxWatchedSecRef = useRef<number>(initialPositionSec || 0);
@@ -81,14 +75,50 @@ export default function CompulsoryVideoPlayer({
     }, 2800);
   }, []);
 
-  // Keyboard navigation lockdown: disable ArrowLeft, ArrowRight, J, L
+  // Rewind helper: jump back by seconds (safe and non-destructive to watched progress)
+  const handleRewind = useCallback((seconds = 10) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const target = calculateRewindTarget(video.currentTime, seconds);
+    video.currentTime = target;
+    setCurrentTime(target);
+    lastValidTimeRef.current = target;
+    setHasEnded(false);
+  }, []);
+
+  // Keyboard navigation: Allow rewinding (ArrowLeft, J, Home, 0), block forward skipping into unwatched content
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const seekKeys = ["ArrowLeft", "ArrowRight", "KeyJ", "KeyL", "j", "l", "J", "L"];
-      if (seekKeys.includes(e.code) || seekKeys.includes(e.key)) {
+      // Rewind keys: ArrowLeft, KeyJ (10s back)
+      if (e.code === "ArrowLeft" || e.code === "KeyJ" || e.key === "j" || e.key === "J") {
         e.preventDefault();
         e.stopPropagation();
-        triggerSeekWarning("Skipping is strictly disabled. You must watch the lesson in full.");
+        handleRewind(10);
+        return;
+      }
+
+      // Rewatch from start: Home or 0
+      if (e.code === "Home" || e.code === "Digit0") {
+        e.preventDefault();
+        e.stopPropagation();
+        handleRestart();
+        return;
+      }
+
+      // Fast-forward keys: ArrowRight, KeyL (only allowed within previously watched territory)
+      if (e.code === "ArrowRight" || e.code === "KeyL" || e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        e.stopPropagation();
+        const video = videoRef.current;
+        const isCompleted = hasCompletedRef.current || (duration > 0 && maxWatchedSecRef.current >= duration * 0.95);
+        if (video && (video.currentTime + 5 <= maxWatchedSecRef.current || isCompleted)) {
+          const target = Math.min(isCompleted ? duration : maxWatchedSecRef.current, video.currentTime + 5);
+          video.currentTime = target;
+          setCurrentTime(target);
+          lastValidTimeRef.current = target;
+        } else {
+          triggerSeekWarning("Fast-forwarding is locked. You can rewind or rewatch, but forward skip is disabled.");
+        }
         return;
       }
 
@@ -109,7 +139,7 @@ export default function CompulsoryVideoPlayer({
         handleToggleFullscreen();
       }
     },
-    [triggerSeekWarning]
+    [triggerSeekWarning, handleRewind, duration]
   );
 
   // Synchronize mute with video element
@@ -177,20 +207,27 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Anti-skip seeking interceptor
+  // Anti-skip seeking interceptor: allows rewind and rewatch; blocks skipping ahead past watched point
   const handleSeeking = () => {
     const video = videoRef.current;
     if (!video) return;
 
-    const target = video.currentTime;
-    const lastValid = lastValidTimeRef.current;
-    const maxWatched = maxWatchedSecRef.current;
+    const validation = validateSeek(
+      video.currentTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
 
-    // If attempting to skip ahead beyond watched seconds + threshold
-    if (target > maxWatched + 1.5 || Math.abs(target - lastValid) > 1.5) {
-      video.currentTime = lastValid;
-      triggerSeekWarning("Seeking ahead is locked. Forward skip buttons are disabled.");
+    if (!validation.allowed) {
+      video.currentTime = validation.effectiveTime;
+      triggerSeekWarning(validation.reason);
+      return;
     }
+
+    lastValidTimeRef.current = validation.effectiveTime;
+    setCurrentTime(validation.effectiveTime);
   };
 
   // Playback rate lock: strictly force 1.0x
@@ -199,6 +236,34 @@ export default function CompulsoryVideoPlayer({
     if (video && video.playbackRate !== 1.0) {
       video.playbackRate = 1.0;
     }
+  };
+
+  // Interactive timeline click handler: allows rewinding / rewatching up to max watched position
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    if (!video || !duration || duration <= 0) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const targetTime = calculateTimelineSeekTime(clickX, rect.width, duration);
+
+    const validation = validateSeek(
+      targetTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      return;
+    }
+
+    video.currentTime = validation.effectiveTime;
+    setCurrentTime(validation.effectiveTime);
+    lastValidTimeRef.current = validation.effectiveTime;
+    setHasEnded(false);
   };
 
   // Time update loop & Heartbeats
@@ -218,9 +283,9 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send 10-second periodic heartbeat
+    // Send 15-second periodic heartbeat (reduces connection churn while preserving accreditation)
     const now = Date.now();
-    if (now - lastHeartbeatTimeRef.current >= 10000) {
+    if (now - lastHeartbeatTimeRef.current >= 15000) {
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = current;
@@ -229,22 +294,23 @@ export default function CompulsoryVideoPlayer({
 
     // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95
     if (dur > 0 && current >= dur * 0.95 && !hasCompletedRef.current) {
-      // Near end check
-      if (current >= dur - 2) {
-        hasCompletedRef.current = true;
-        onHeartbeat(dur, true, dur);
-        onComplete();
-      }
+      hasCompletedRef.current = true;
+      setHasEnded(true);
+      onHeartbeat(dur, true, dur);
+      onComplete();
     }
   };
 
-  // onEnded event
+  // onEnded event: triggers completion and enables full rewatch capability
   const handleEnded = () => {
     setIsPlaying(false);
+    setHasEnded(true);
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
-    hasCompletedRef.current = true;
-    onHeartbeat(dur, true, dur);
-    onComplete();
+    if (!hasCompletedRef.current) {
+      hasCompletedRef.current = true;
+      onHeartbeat(dur, true, dur);
+      onComplete();
+    }
   };
 
   // Auto-hide controls when playing and idle
@@ -289,14 +355,14 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Restart video from beginning
+  // Restart / Rewatch video from beginning (preserves maxWatched progress)
   const handleRestart = () => {
     const video = videoRef.current;
     if (video) {
       video.currentTime = 0;
       lastValidTimeRef.current = 0;
-      maxWatchedSecRef.current = 0;
       setCurrentTime(0);
+      setHasEnded(false);
       setResumedNotice(null);
       video.play().catch(() => {});
     }
@@ -477,8 +543,46 @@ export default function CompulsoryVideoPlayer({
         </div>
       )}
 
-      {/* 5. Center Big Play / Pause Overlay when Paused */}
-      {!isPlaying && !videoError && (
+      {/* 5. Center Big Play / Rewatch Overlay */}
+      {hasEnded && !videoError ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            zIndex: 36,
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleRestart}
+            aria-label="Rewatch Lesson"
+            style={{
+              padding: "12px 26px",
+              background: "linear-gradient(135deg, #c97a1e, #d97706)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "9999px",
+              fontWeight: 700,
+              fontSize: "0.95rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              boxShadow: "0 10px 25px rgba(201, 122, 30, 0.45)",
+              transition: "transform 0.15s ease",
+            }}
+          >
+            <RotateCcw size={18} />
+            <span>Rewatch Lesson</span>
+          </button>
+        </div>
+      ) : !isPlaying && !videoError ? (
         <button
           type="button"
           onClick={togglePlay}
@@ -506,7 +610,7 @@ export default function CompulsoryVideoPlayer({
         >
           <Play size={28} fill="#ffffff" style={{ marginLeft: "4px" }} />
         </button>
-      )}
+      ) : null}
 
       {/* 6. Custom Stripped-Down Compulsory Player Control Bar */}
       <div
@@ -526,22 +630,22 @@ export default function CompulsoryVideoPlayer({
           zIndex: 50,
         }}
       >
-        {/* Compulsory Timeline Bar (Scrubbing Strictly Disabled) */}
+        {/* Compulsory Timeline Bar (Rewind / Rewatch Allowed, Fast-forward to unwatched locked) */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <div
-            title="Timeline scrub bar is locked on compulsory lessons"
+            onClick={handleTimelineClick}
+            title="Click anywhere in watched progress to rewind or rewatch (Forward skipping to unwatched content is locked)"
             style={{
               position: "relative",
               flex: 1,
-              height: "6px",
+              height: "8px",
               background: "rgba(255, 255, 255, 0.22)",
               borderRadius: "4px",
               overflow: "hidden",
-              cursor: "not-allowed",
-              pointerEvents: "none", // Prevent clicks or drags
+              cursor: "pointer",
             }}
           >
-            {/* Furthest Watched Track (Subtle guide) */}
+            {/* Furthest Watched Track (Permitted Seek Zone) */}
             <div
               style={{
                 position: "absolute",
@@ -549,7 +653,7 @@ export default function CompulsoryVideoPlayer({
                 bottom: 0,
                 left: 0,
                 width: `${maxWatchedPercent}%`,
-                background: "rgba(255, 255, 255, 0.25)",
+                background: "rgba(245, 158, 11, 0.25)",
               }}
             />
             {/* Active Current Time Progress Track */}
@@ -587,9 +691,9 @@ export default function CompulsoryVideoPlayer({
           </div>
         </div>
 
-        {/* Lower Control Actions (NO 10s Skip Buttons) */}
+        {/* Lower Control Actions (Rewind 10s & Rewatch enabled, Forward Skip disabled) */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* Play/Pause Button */}
             <button
               type="button"
@@ -606,6 +710,55 @@ export default function CompulsoryVideoPlayer({
               }}
             >
               {isPlaying ? <Pause size={20} fill="#ffffff" /> : <Play size={20} fill="#ffffff" />}
+            </button>
+
+            {/* Rewind 10s Button */}
+            <button
+              type="button"
+              onClick={() => handleRewind(10)}
+              aria-label="Rewind 10 seconds"
+              title="Rewind 10 seconds (Left Arrow or J)"
+              style={{
+                background: "none",
+                border: "none",
+                color: "#e2e8f0",
+                cursor: "pointer",
+                padding: "4px",
+                display: "flex",
+                alignItems: "center",
+                gap: "2px",
+                fontSize: "0.74rem",
+                fontWeight: 700,
+                transition: "color 0.15s ease",
+              }}
+            >
+              <RotateCcw size={17} />
+              <span>10s</span>
+            </button>
+
+            {/* Rewatch / Replay Button */}
+            <button
+              type="button"
+              onClick={handleRestart}
+              aria-label="Rewatch video from start"
+              title="Rewatch from start (Key 0 or Home)"
+              style={{
+                background: "rgba(255, 255, 255, 0.12)",
+                border: "1px solid rgba(255, 255, 255, 0.22)",
+                color: "#ffffff",
+                borderRadius: "6px",
+                cursor: "pointer",
+                padding: "3px 9px",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <RotateCcw size={13} />
+              <span>Rewatch</span>
             </button>
 
             {/* Volume & Mute */}

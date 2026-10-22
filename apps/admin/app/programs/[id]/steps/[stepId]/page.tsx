@@ -13,12 +13,12 @@ export default function StepLessonsPage({
   params: Promise<{ id: string; stepId: string }>;
 }) {
   const resolvedParams = use(params);
-  const { id: programId } = resolvedParams;
+  const { id: programId, stepId } = resolvedParams;
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(`/programs/${programId}`);
-  }, [programId, router]);
+    router.replace(`/programs/${programId}?step=${stepId}`);
+  }, [programId, stepId, router]);
 
   return (
     <div style={{ padding: "40px 20px", maxWidth: "900px", margin: "0 auto" }}>

@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import Image from "next/image";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
-import { Modal, StatusBadge, CustomSelect } from "../../../../../components";
+import { Modal, StatusBadge, CustomSelect, TableSkeleton, EmptyState } from "../../../../../components";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -428,15 +428,15 @@ export default function SessionAttendancePage({
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: "var(--text-secondary)" }}>
-                    Loading attendance records...
-                  </td>
-                </tr>
+                <TableSkeleton columns={5} rows={6} />
               ) : !data || data.learners.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: "30px", color: "var(--text-secondary)" }}>
-                    No learners currently enrolled in this batch.
+                  <td colSpan={5} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="users"
+                      title="No learners enrolled"
+                      description="No learners are currently assigned to this batch to mark attendance for."
+                    />
                   </td>
                 </tr>
               ) : (

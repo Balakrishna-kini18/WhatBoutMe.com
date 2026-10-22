@@ -15,6 +15,7 @@ export class CreateUserDto {
   @IsOptional() @IsArray() permissions?: string[];
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsArray() batchIds?: string[];
   @IsOptional() @IsString() cohort?: string;
   @IsOptional() @IsString() timezone?: string;
   @IsOptional() @IsString() country?: string;
@@ -29,6 +30,7 @@ export class UpdateUserDto {
   @IsOptional() @IsArray() permissions?: string[];
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsArray() batchIds?: string[];
   @IsOptional() @IsString() cohort?: string;
   @IsOptional() @IsString() enrolmentId?: string;
   @IsOptional() @IsString() timezone?: string;

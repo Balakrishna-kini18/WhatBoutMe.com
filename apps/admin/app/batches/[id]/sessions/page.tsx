@@ -29,6 +29,8 @@ import {
   InputDialog,
   ActionMenu,
   useToast,
+  TableSkeleton,
+  EmptyState,
 } from "../../../components";
 
 interface Session {
@@ -532,11 +534,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-secondary)" }}>
-                    Loading sessions...
-                  </td>
-                </tr>
+                <TableSkeleton columns={7} rows={5} />
               ) : loadError ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: "center", padding: "36px 24px", color: "#b91c1c" }}>
@@ -562,18 +560,14 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "48px 24px" }}>
-                    <div style={{ color: "var(--text-secondary)", marginBottom: "16px", fontSize: "0.95rem" }}>
-                      No sessions scheduled yet for this cohort.
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.primaryBtn}
-                      onClick={openCreateModal}
-                      style={{ fontSize: "0.875rem", padding: "0.45rem 1rem" }}
-                    >
-                      + Schedule Session
-                    </button>
+                  <td colSpan={7} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="calendar"
+                      title="No sessions scheduled yet"
+                      description="Create the live curriculum schedule for this cohort batch."
+                      actionLabel="Schedule First Session"
+                      onAction={openCreateModal}
+                    />
                   </td>
                 </tr>
               ) : (

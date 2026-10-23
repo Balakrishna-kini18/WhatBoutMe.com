@@ -451,9 +451,9 @@ export default function EditQuizPage({
           <h1 className={styles.title}>
             {quiz?.step?.title ? `Assessment: ${quiz.step.title}` : "Visual Question Bank"}
           </h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Step {quiz?.step?.sequence ?? "?"} Knowledge Check • Visual image questions, multi-select checkboxes, and written reflection evaluation
-          </p>
+          </p> */}
         </div>
       </header>
 

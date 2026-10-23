@@ -411,9 +411,9 @@ export default function UsersPage() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Users & Enrolments</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             {isManager ? "Learners enrolled in your assigned cohorts." : "Manage all learners across your programs."}
-          </p>
+          </p> */}
         </div>
         {!isManager && (
           <div className={styles.headerActions}>

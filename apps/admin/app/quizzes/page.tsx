@@ -160,9 +160,9 @@ export default function QuizzesPage() {
               </span>
             )}
           </div>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Manage knowledge-check quizzes, question pools, retries, and cooldown parameters for each step.
-          </p>
+          </p> */}
         </div>
         <div className={styles.headerActions}>
           <button

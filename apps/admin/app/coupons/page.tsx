@@ -455,9 +455,9 @@ export default function CouponsPage() {
       <header className={styles.header}>
         <div className={styles.titleArea}>
           <h1>Coupons Management</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Create promo codes, multi-currency discounts (INR / AED / USD), usage limits, and checkout rules.
-          </p>
+          </p> */}
         </div>
         <div className={styles.headerActions}>
           <button

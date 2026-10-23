@@ -78,7 +78,7 @@ export default function CertificatesQueue() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Certificate Approval Queue</h1>
-          <p className={styles.subtitle}>Review and approve pending certificate requests from learners.</p>
+          {/* <p className={styles.subtitle}>Review and approve pending certificate requests from learners.</p> */}
         </div>
         <div className={styles.headerActions}>
           <Link href="/certificates/issue" className={styles.primaryBtn}>

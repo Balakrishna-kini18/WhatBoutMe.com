@@ -394,7 +394,7 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
             </h3>
             {isOnline ? (
               <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                This session will be hosted live online via secure video conference (Zoom / Google Meet).
+                This session will be hosted live online via secure video conference (Zoom).
                 Your private meeting access room link and calendar invite will be automatically dispatched
                 to your registered email address upon payment confirmation.
               </p>

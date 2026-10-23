@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldAlert } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField, { FIELD } from "@/components/site/PasswordField";
-import GoogleButton, { GOOGLE_NOT_READY } from "@/components/site/GoogleButton";
 import { continueToPortal, signIn, signOut } from "@/lib/auth";
 
 type Method = "email" | "mobile";
@@ -195,9 +194,7 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <GoogleButton onClick={() => setError(GOOGLE_NOT_READY)} />
-
-      <p className="mt-5 text-center text-sm text-ink-soft">
+      <p className="mt-6 text-center text-sm text-ink-soft">
         Don&apos;t have an account?{" "}
         <Link href="/signup" className="font-semibold text-gold-deep hover:underline">
           Sign up

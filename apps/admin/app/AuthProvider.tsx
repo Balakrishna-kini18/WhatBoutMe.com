@@ -57,6 +57,30 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
     const token = localStorage.getItem("token");
     let newInit = init;
 
+    const urlStr =
+      typeof input === "string"
+        ? input
+        : input instanceof Request
+        ? input.url
+        : input.toString();
+
+    // Only intercept backend API requests (e.g. localhost:4000, API_URL, or /api/)
+    // Never intercept Next.js internal router navigations, RSC prefetch streams,
+    // or relative page navigations, which would block on cachedFetch stream reading and cause timeouts.
+    const isApiRequest =
+      urlStr.includes(API_URL) ||
+      urlStr.includes(":4000") ||
+      (typeof window !== "undefined" && urlStr.startsWith("/api/"));
+
+    const isNextInternal =
+      urlStr.includes("/_next/") ||
+      Boolean(init?.headers && new Headers(init.headers).has("RSC")) ||
+      (!isApiRequest && !urlStr.startsWith("http://") && !urlStr.startsWith("https://") && !urlStr.startsWith("/api"));
+
+    if (!isApiRequest || isNextInternal) {
+      return originalFetch(input, init);
+    }
+
     if (token && typeof input === "string" && input.includes(API_URL)) {
       const headers = new Headers(init?.headers);
       if (!headers.has("Authorization")) {

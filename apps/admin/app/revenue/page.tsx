@@ -105,9 +105,9 @@ export default function RevenuePage() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Revenue &amp; Finance</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Multi-currency financial analytics across USD, AED, and INR cohorts and verified transactions.
-          </p>
+          </p> */}
         </div>
         <div className={styles.headerActions}>
           <button

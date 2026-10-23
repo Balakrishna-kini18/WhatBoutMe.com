@@ -343,7 +343,6 @@ export default function ProgramsPage() {
       <div className={pstyles.headerWrap}>
         <div className={pstyles.titleArea}>
           <h1>Programs &amp; Curriculum Studio</h1>
-          <p>Create, manage, and monitor all your programs.</p>
         </div>
 
         <div className={pstyles.headerActions}>

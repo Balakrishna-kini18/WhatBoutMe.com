@@ -97,7 +97,6 @@ export default function CreateProgramPage() {
       setIsSubmitting(false);
     }
   }
-
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "1.5rem 2rem 4rem" }}>
       {/* 4-Step Horizontal Wizard Bar */}

@@ -520,6 +520,7 @@ export class CertificatesService {
           enrolment: {
             include: {
               user: { select: { name: true } },
+              signedAgreement: { select: { typedName: true } },
               program: { select: { title: true } },
             },
           },
@@ -539,11 +540,15 @@ export class CertificatesService {
       const issueMonth = issueDate.getMonth() + 1;
       const appUrl = process.env.APP_URL || 'https://whatboutme.com';
       const certCode = certificate.certificateCode || certificate.certificateNumber || cleanCode;
+      const recipientName =
+        (certificate.enrolment as any)?.signedAgreement?.typedName ||
+        certificate.enrolment.user.name ||
+        'Learner';
 
       return {
         valid: !certificate.revokedAt,
         certificateCode: certCode,
-        recipientName: certificate.enrolment.user.name,
+        recipientName,
         programName: certificate.enrolment.program.title,
         certificateType: certificate.certificateType,
         issueDate: issueDate.toISOString(),

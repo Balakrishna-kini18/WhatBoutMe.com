@@ -210,6 +210,19 @@ export class AdminAgreementTemplatesController {
 // 2. LEARNER AGREEMENTS CONTROLLER
 // ─────────────────────────────────────────────────────────────────────────────
 
+function extractClientIp(req: any): string {
+  const forwarded = req.headers?.['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    const firstIp = forwarded.split(',')[0].trim();
+    if (firstIp) return firstIp;
+  }
+  const realIp = req.headers?.['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.trim();
+  }
+  return req.ip ?? req.socket?.remoteAddress ?? '127.0.0.1';
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller(['agreements/templates', 'agreements'])
 export class LearnerAgreementsController {
@@ -262,7 +275,7 @@ export class LearnerAgreementsController {
     @Request() req: any,
   ) {
     const userId = req.user?.sub ?? req.user?.id;
-    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    const ip = extractClientIp(req);
     const userAgent = req.headers?.['user-agent'] ?? 'unknown';
     return this.agreementsService.updateLearnerSavedSignature(
       userId,
@@ -277,7 +290,7 @@ export class LearnerAgreementsController {
   @Delete('saved-signature')
   async removeSavedSignature(@Request() req: any) {
     const userId = req.user?.sub ?? req.user?.id;
-    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    const ip = extractClientIp(req);
     const userAgent = req.headers?.['user-agent'] ?? 'unknown';
     return this.agreementsService.removeLearnerSavedSignature(userId, ip, userAgent);
   }
@@ -289,7 +302,7 @@ export class LearnerAgreementsController {
     @Request() req: any,
   ) {
     const user = req.user;
-    const ip = req.ip ?? req.headers?.['x-forwarded-for'] ?? req.socket?.remoteAddress;
+    const ip = extractClientIp(req);
     const userAgent = req.headers?.['user-agent'] ?? 'unknown';
     return this.agreementsService.signAgreement(dto, user, ip, userAgent);
   }

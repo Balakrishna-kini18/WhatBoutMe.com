@@ -36,6 +36,7 @@ export default function Step8ModulePreview({
       onBackToEdit={onBackToEdit}
       onContinueToReview={onContinueToReview}
       isSimulatorMode={false}
+      showShell={false}
     />
   );
 }

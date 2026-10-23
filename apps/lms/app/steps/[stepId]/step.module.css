@@ -1,280 +1,1333 @@
+/* =========================================================================
+   WhatBoutMe LMS - Complete 9-Screen Learner Step & Course Workspace
+   Palette: Warm Cream (#FAF7F2), White (#FFFFFF), Amber/Orange (#D97706),
+   Dark Charcoal (#1C1917), Success Green (#16A34A), Soft Lavender (#EEF2FF)
+   ========================================================================= */
+
 .container {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  /* same page frame as the dashboard */
+  gap: 1.5rem;
   width: 100%;
-  max-width: 1440px;
+  max-width: 1360px;
   margin: 0 auto;
-  padding: 0.5rem 2.5rem 3rem;
+  padding: 1.25rem 2rem 3rem;
   box-sizing: border-box;
-  animation: fadeIn 0.3s ease-in-out;
+  animation: fadeIn 0.25s ease-in-out;
+  color: #1c1917;
+  font-family: var(--font-dm-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.header {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+@keyframes scaleUp {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
-.backBtn {
-  color: var(--accent-primary);
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* -------------------------------------------------------------------------
+   HEADER & BREADCRUMBS
+   ------------------------------------------------------------------------- */
+.pageHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.breadcrumbBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #d97706;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.35rem;
   text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.breadcrumbBack:hover {
+  color: #b45309;
+  text-decoration: underline;
+}
+
+.pageMainTitle {
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.pageSubtitle {
+  font-size: 0.88rem;
+  color: #78716c;
+  margin: 0;
+}
+
+.headerActionCluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.viewToggleGroup {
+  display: flex;
+  align-items: center;
+  background: #f3efe8;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.viewToggleBtn {
+  background: transparent;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #78716c;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.viewToggleBtnActive {
+  background: #ffffff;
+  color: #d97706;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 2: MODULE / STEP OVERVIEW CARD
+   ------------------------------------------------------------------------- */
+.moduleDetailCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.moduleProgressHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
   font-size: 0.9rem;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.moduleProgressBar {
+  height: 8px;
+  background: #f3efe8;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.moduleProgressFill {
+  height: 100%;
+  background: #d97706;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.lessonCardsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lessonCardRow {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lessonCardRow:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 3px 10px rgba(217, 119, 6, 0.08);
+}
+
+.lessonCardActive {
+  background: #fffdf9 !important;
+  border: 2px solid #f59e0b !important;
+}
+
+.lessonCardLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.lessonPlayCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.lessonPlayCircleDone {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.lessonPlayCircleActive {
+  background: #fff7ed;
+  color: #d97706;
+  border: 1.5px solid #f59e0b;
+}
+
+.lessonPlayCircleLocked {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.lessonTitleMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lessonRowTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 0;
+}
+
+.lessonRowMeta {
+  font-size: 0.78rem;
+  color: #78716c;
+  margin: 0;
+}
+
+.lessonDoneCheck {
+  color: #16a34a;
+  font-weight: 800;
+  font-size: 1.15rem;
+}
+
+.moduleFooterNav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ece6dd;
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 3+: 5-TAB LEARNING WORKSPACE
+   ------------------------------------------------------------------------- */
+.learningToolsStrip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.learningToolsStrip::-webkit-scrollbar {
+  display: none;
+}
+
+.learningTabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  font-size: 0.86rem;
   font-weight: 600;
+  color: #57534e;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.learningTabBtn:hover {
+  background: #fdfbf7;
+  color: #d97706;
+}
+
+.learningTabBtnActive {
+  background: #d97706 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25);
+}
+
+.learningTabCount {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.74rem;
+}
+
+.learningTabBtnActive .learningTabCount {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* -------------------------------------------------------------------------
+   WORKSPACE 2-COLUMN GRID (Video on left, Notes/About on right)
+   ------------------------------------------------------------------------- */
+.lessonWorkspaceGrid {
+  display: grid;
+  grid-template-columns: 65% 35%;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1040px) {
+  .lessonWorkspaceGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.videoLeftColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.videoTheatreCard {
+  background: #000000;
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+  aspect-ratio: 16 / 9;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.lessonDetailsCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.lessonDetailsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lessonDetailsTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+}
+
+.watchedPill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  transition: opacity 0.15s ease;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
-.backBtn:hover {
-  opacity: 0.85;
+.lessonParagraph {
+  font-size: 0.88rem;
+  color: #57534e;
+  line-height: 1.6;
+  margin: 0 0 1rem;
 }
 
-.title {
-  font-size: 2.25rem;
-  margin: 0;
+.objectivesBox {
+  background: #fffdf9;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.objectivesTitle {
+  font-size: 0.82rem;
   font-weight: 800;
-  color: var(--text-primary);
-  line-height: 1.2;
-  word-break: break-word;
+  color: #9a3412;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
 }
 
-.subtitle {
-  color: var(--text-secondary);
-  font-size: 1.05rem;
+.objectivesList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.objectiveItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: #44403c;
+}
+
+.objectiveIcon {
+  color: #d97706;
+  font-weight: 800;
+}
+
+/* Right Column: Notes companion widget & About step */
+.notesRightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.notesCompanionCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.notesCompanionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.notesCompanionTitle {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+}
+
+.notesCompanionMeta {
+  font-size: 0.74rem;
+  color: #78716c;
+}
+
+.noteTextarea {
+  width: 100%;
+  min-height: 90px;
+  border: 1px solid #e7e0d6;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  color: #1c1917;
+  font-family: inherit;
+  box-sizing: border-box;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.noteTextarea:focus {
+  border-color: #f59e0b;
+}
+
+.noteToolbarRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.noteToolsGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.noteToolBtn {
+  background: transparent;
+  border: 1px solid #ece6dd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #57534e;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.noteToolBtn:hover {
+  background: #fdfbf7;
+  border-color: #f59e0b;
+  color: #d97706;
+}
+
+.aboutStepCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.1rem 1.25rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aboutStepTitle {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+}
+
+.aboutStepText {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 4: QUIZ TAB WORKSPACE
+   ------------------------------------------------------------------------- */
+.knowledgeCheckBanner {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.knowledgeCheckIcon {
+  color: #4f46e5;
+  flex-shrink: 0;
+}
+
+.knowledgeCheckText {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1e1b4b;
+  margin: 0;
+}
+
+.quizGrid {
+  display: grid;
+  grid-template-columns: 68% 32%;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 1040px) {
+  .quizGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.questionCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.75rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.questionNumberLabel {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #78716c;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.questionPrompt {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1c1917;
+  line-height: 1.4;
+  margin: 0 0 1.5rem;
+}
+
+.optionsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.optionCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 1rem 1.25rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.optionCard:hover {
+  border-color: #f59e0b;
+  background: #fffdf9;
+}
+
+.optionCardSelected {
+  border: 2px solid #d97706 !important;
+  background: #fff7ed !important;
+}
+
+.optionRadioCircle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.optionCardSelected .optionRadioCircle {
+  border-color: #d97706;
+  background: #d97706;
+}
+
+.optionRadioInnerDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.optionText {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #1c1917;
+}
+
+.questionNavCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.questionNavTitle {
+  font-size: 0.96rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0 0 1rem;
+}
+
+.questionNumGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 1.25rem;
+}
+
+.qNumCircle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #4b5563;
+}
+
+.qNumCurrent {
+  background: #d97706 !important;
+  color: #ffffff !important;
+  border-color: #d97706 !important;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25);
+}
+
+.qNumAnswered {
+  background: #1c1917 !important;
+  color: #ffffff !important;
+  border-color: #1c1917 !important;
+}
+
+.quizLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  border-top: 1px solid #f3efe8;
+  padding-top: 0.75rem;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 5: DEDICATED NOTES TAB
+   ------------------------------------------------------------------------- */
+.notesTabStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.noteEditorCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.yourNotesHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.yourNotesCountTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+}
+
+.notesFilterGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notesListStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.savedNoteCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease;
+}
+
+.savedNoteCard:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 3px 10px rgba(217, 119, 6, 0.06);
+}
+
+.savedNoteLeft {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex: 1;
+}
+
+.noteIconSquare {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.savedNoteContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.savedNoteTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 0;
+}
+
+.savedNoteBody {
+  font-size: 0.85rem;
+  color: #57534e;
   line-height: 1.5;
   margin: 0;
 }
 
-.contentGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.85fr) minmax(320px, 1.15fr);
-  gap: 2rem;
-  align-items: start;
+.savedNoteTime {
+  font-size: 0.74rem;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+.savedNoteActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionIconBtn {
+  background: transparent;
+  border: none;
+  color: #78716c;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.actionIconBtn:hover {
+  background: #f3efe8;
+  color: #1c1917;
+}
+
+.actionIconBtnDelete:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 6: LEARNING MATERIALS TAB
+   ------------------------------------------------------------------------- */
+.materialsTabStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.materialsSearchCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+}
+
+.searchBarContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fdfbf7;
+  border: 1px solid #e7e0d6;
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
   width: 100%;
   box-sizing: border-box;
 }
 
-.videoColumn {
-  min-width: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.sideColumn,
-.quizColumn {
-  min-width: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.videoContainer {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 20px;
-  overflow: hidden;
-  aspect-ratio: 16/9;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 2rem;
-  box-shadow: var(--shadow-sm);
-}
-
-.videoPlaceholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  color: var(--text-secondary);
-}
-
-.playButton {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 2rem;
-  color: white;
-  cursor: pointer;
-  transition: transform 0.3s ease;
-}
-
-.playButton:hover {
-  transform: scale(1.1);
-  background: var(--accent-primary-hover);
-}
-
-.descriptionCard, .quizCard, .resourceCard {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  padding: 2rem;
-  border-radius: 20px;
-  margin-bottom: 2rem;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.02);
-}
-
-.quizDesc {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.question p {
-  font-weight: 600;
-  margin-bottom: 1rem;
-  color: var(--text-primary);
-}
-
-.options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  margin-bottom: 2rem;
-}
-
-.option {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  padding: 1rem;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.option:hover {
-  background: var(--accent-highlight);
-  border-color: var(--accent-secondary);
-}
-
-.submitBtn {
-  width: 100%;
-  background: var(--accent-primary);
-  color: white;
+.searchInput {
   border: none;
-  padding: 1rem;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  font-size: 0.85rem;
+  color: #1c1917;
+}
+
+.materialsListStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.materialRowCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
   border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: all 0.15s ease;
+}
+
+.materialRowCard:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.05);
+}
+
+.materialLeftGroup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.materialTypeBadge {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.badgePdf {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.badgeZip {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.badgeGeneric {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.materialTitle {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 0 0 2px;
+}
+
+.materialMeta {
+  font-size: 0.76rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 7: DISCUSSIONS TAB
+   ------------------------------------------------------------------------- */
+.discussionsTabStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.discussionComposerCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.composerTextarea {
+  width: 100%;
+  min-height: 80px;
+  border: 1px solid #e7e0d6;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.86rem;
+  color: #1c1917;
+  font-family: inherit;
+  box-sizing: border-box;
+  resize: vertical;
+  outline: none;
+}
+
+.composerTextarea:focus {
+  border-color: #f59e0b;
+}
+
+.composerActionRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.discussionFiltersRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.discussionTabsGroup {
+  display: flex;
+  gap: 1rem;
+}
+
+.discFilterTab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 0.88rem;
   font-weight: 600;
-  font-size: 1rem;
+  color: #78716c;
+  padding: 4px 2px;
   cursor: pointer;
-  transition: transform 0.2s ease;
 }
 
-.submitBtn:hover {
-  transform: translateY(-2px);
-  background: var(--accent-primary-hover);
+.discFilterTabActive {
+  color: #d97706;
+  border-bottom-color: #d97706;
+  font-weight: 700;
 }
 
-.resourceLink {
-  display: block;
-  color: var(--accent-primary);
-  text-decoration: none;
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
+.discussionPostCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.postAuthorRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.authorAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #f3efe8;
+  color: #78716c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.authorName {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.postTime {
+  font-size: 0.74rem;
+  color: #a8a29e;
+}
+
+.postBodyText {
+  font-size: 0.88rem;
+  color: #44403c;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.postActionsBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 6px;
+  border-top: 1px solid #f9f7f4;
+}
+
+.postActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #78716c;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.15s ease;
+}
+
+.postActionBtn:hover {
+  color: #d97706;
+}
+
+.postActionBtnLiked {
+  color: #d97706 !important;
+  font-weight: 700;
+}
+
+/* -------------------------------------------------------------------------
+   SCREEN 8: CELEBRATION MODAL
+   ------------------------------------------------------------------------- */
+.celebrationModalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 25, 23, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
   padding: 1rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.celebrationModalCard {
+  background: #ffffff;
+  border-radius: 18px;
+  width: 100%;
+  max-width: 520px;
+  padding: 2.25rem 2rem;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+  animation: scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.confettiWrapper {
+  display: inline-flex;
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.celebrationCheckCircle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #16a34a;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  box-shadow: 0 4px 16px rgba(22, 163, 74, 0.3);
+}
+
+.celebrationHeading {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0 0 6px;
+}
+
+.celebrationSubtitle {
+  font-size: 0.92rem;
+  color: #6b7280;
+  margin: 0 0 1.75rem;
+}
+
+.celebrationButtonsRow {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 1.75rem;
+}
+
+.nextUpLessonBox {
+  background: #fffdf9;
+  border: 1px solid #fed7aa;
   border-radius: 12px;
-  margin-bottom: 0.5rem;
-  transition: all 0.2s ease;
-  font-weight: 500;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  text-align: left;
 }
 
-.resourceLink:hover {
-  background: var(--accent-highlight);
-  border-color: var(--accent-secondary);
+.nextUpLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* Tablet (max-width: 1100px): stack cards cleanly below the video */
-@media (max-width: 1100px) {
-  .container {
-    gap: 1.5rem;
-    padding: 0.75rem 1.5rem 2.5rem;
-  }
-
-  .title {
-    font-size: 2rem;
-  }
-
-  .contentGrid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.5rem;
-  }
+/* -------------------------------------------------------------------------
+   SCREEN 9: SLIDE-OVER MODULE LESSON DRAWER
+   ------------------------------------------------------------------------- */
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 25, 23, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+  animation: fadeIn 0.2s ease-out;
 }
 
-/* Mobile (max-width: 768px): full-width touch friendly layout */
-@media (max-width: 768px) {
-  .container {
-    gap: 1.25rem;
-    padding: 0.75rem 1rem calc(72px + env(safe-area-inset-bottom));
-  }
+.slideOverDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 400px;
+  background: #ffffff;
+  box-shadow: -6px 0 30px rgba(0, 0, 0, 0.15);
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem;
+  box-sizing: border-box;
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
-  .title {
-    font-size: 1.5rem;
-    line-height: 1.25;
-  }
+.drawerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
 
-  .subtitle {
-    font-size: 0.95rem;
-    line-height: 1.45;
-  }
+.drawerTitle {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0 0 4px;
+}
 
-  .backBtn {
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-    min-height: 36px;
-  }
+.drawerSubtitle {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0;
+}
 
-  .contentGrid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.25rem;
-  }
+.drawerCloseBtn {
+  background: transparent;
+  border: none;
+  color: #78716c;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  font-size: 1.2rem;
+}
 
-  .descriptionCard,
-  .quizCard,
-  .resourceCard {
-    padding: 1.25rem 1rem;
-    border-radius: 14px;
-    margin-bottom: 1.25rem;
-  }
+.drawerProgressBar {
+  height: 6px;
+  background: #f3efe8;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
 
-  .videoContainer {
-    border-radius: 14px;
-    margin-bottom: 1.25rem;
-  }
+.drawerLessonList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
 
-  .option {
-    padding: 0.85rem;
-    font-size: 0.875rem;
-    border-radius: 10px;
-  }
+/* -------------------------------------------------------------------------
+   BUTTONS & REUSABLE UTILITIES
+   ------------------------------------------------------------------------- */
+.btnPrimaryOrange {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #d97706;
+  color: #ffffff;
+  border: 1px solid #d97706;
+  border-radius: 8px;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
 
-  .submitBtn {
-    padding: 0.85rem;
-    font-size: 0.95rem;
-    border-radius: 10px;
-    min-height: 44px;
-  }
+.btnPrimaryOrange:hover {
+  background: #b45309;
+  border-color: #b45309;
+}
+
+.btnSecondaryOutline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #44403c;
+  border: 1px solid #ece6dd;
+  border-radius: 8px;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btnSecondaryOutline:hover {
+  background: #fff7ed;
+  border-color: #f59e0b;
+  color: #d97706;
 }
 
 /* Locked step UI */
 .lockCard {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  background: #ffffff;
+  border: 1px solid #ece6dd;
   border-radius: 20px;
   padding: 3rem 2rem;
   text-align: center;
@@ -299,139 +1352,23 @@
 .lockTitle {
   font-size: 1.75rem;
   font-weight: 800;
-  color: var(--text-primary);
+  color: #1c1917;
   margin: 0 0 0.75rem;
 }
 
 .lockMessage {
-  color: var(--text-secondary);
+  color: #6b7280;
   font-size: 1rem;
   line-height: 1.6;
   margin: 0 0 1.5rem;
 }
 
-.lockDetailBox {
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  padding: 1rem;
-  margin-bottom: 2rem;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  text-align: left;
-}
-
-/* Quiz UI Components */
-.quizMetaBar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  background: var(--bg-soft);
-  border-radius: 10px;
-  margin-bottom: 1.25rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.quizBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.quizResultSuccess {
-  padding: 16px;
-  border-radius: 12px;
-  margin-bottom: 1.5rem;
-  background-color: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #065f46;
-}
-
-.quizResultFail {
-  padding: 16px;
-  border-radius: 12px;
-  margin-bottom: 1.5rem;
-  background-color: #fff1f2;
-  border: 1px solid #fecdd3;
-  color: #9f1239;
-}
-
-.cooldownBox {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  color: #92400e;
-  padding: 14px 16px;
-  border-radius: 10px;
-  margin-bottom: 1.25rem;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.revisitBox {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
-  padding: 14px 16px;
-  border-radius: 10px;
-  margin-bottom: 1.25rem;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.guidanceBox {
-  background: var(--bg-soft);
-  border: 1px solid var(--border-light);
-  color: var(--text-primary);
-  padding: 12px 14px;
-  border-radius: 10px;
-  margin-bottom: 1.25rem;
-  font-size: 0.88rem;
-}
-
-.errorBanner {
-  background: #fef2f2;
-  border: 1px solid #fca5a5;
-  color: #b91c1c;
-  padding: 12px 14px;
-  border-radius: 10px;
-  margin-bottom: 1.25rem;
-  font-size: 0.9rem;
-}
-
-.videoContainer {
-  position: relative;
-  width: 100%;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #000;
-  background: #000;
-}
-
-.videoContainer video {
-  width: 100%;
-  display: block;
-}
-
-.movingWatermark {
-  position: absolute;
-  pointer-events: none;
-  font-size: 1.1rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.3);
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
-  z-index: 50;
-  animation: moveWatermark 240s steps(1, end) infinite;
-  white-space: nowrap;
-}
-
-@keyframes moveWatermark {
-  0%   { top: 10%; left: 10%; }
-  25%  { top: 10%; left: 50%; }
-  50%  { top: 75%; left: 50%; }
-  75%  { top: 75%; left: 10%; }
-  100% { top: 10%; left: 10%; }
+.emptyStateCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: #78716c;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
 }

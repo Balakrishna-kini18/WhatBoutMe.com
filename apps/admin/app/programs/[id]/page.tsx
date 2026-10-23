@@ -731,7 +731,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
             setActiveProgramTab("MODULES");
             setWizardStep("MODULE_PREVIEW");
           }}
-          title="Open full learner experience simulator"
+          title="Preview module as learner"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />

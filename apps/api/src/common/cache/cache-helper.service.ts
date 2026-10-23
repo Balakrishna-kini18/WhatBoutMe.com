@@ -359,7 +359,7 @@ export class CacheHelperService {
       let version = (await this.redis.get(`ns_version:${namespace}`)) as number;
       if (!version) {
         version = 1;
-        await this.redis.set(`ns_version:${namespace}`, 1);
+        if (this.redis) await this.redis.set(`ns_version:${namespace}`, 1);
       }
 
       this.nsVersionCache.set(namespace, { value: version, expiresAt: now + 5000 });

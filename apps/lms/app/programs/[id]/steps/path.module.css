@@ -235,7 +235,7 @@
 
 /* Dark connector for completed step advancing to next */
 .stepDone:not(:last-child)::before {
-  background: var(--text-primary, #14110f);
+  background: var(--status-success, #15803d);
 }
 
 /* Step Marker (Circle) */
@@ -259,8 +259,8 @@
 
 /* Marker States */
 .stepDone .marker {
-  border-color: var(--text-primary, #14110f);
-  background: var(--text-primary, #14110f);
+  border-color: var(--status-success, #15803d);
+  background: var(--status-success, #15803d);
   color: #ffffff;
 }
 

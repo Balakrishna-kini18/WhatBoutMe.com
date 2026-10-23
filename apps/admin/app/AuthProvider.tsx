@@ -154,9 +154,18 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
         const code = typeof errorData.error === "string" ? errorData.error : errorData.error?.code;
 
         if (code === "SESSION_REVOKED") {
+          const reason = errorData.reason || errorData.error?.reason;
           localStorage.clear();
           clearApiCacheOnLogout();
-          alert("You were signed out because your account was used on another device.");
+          if (reason === "DEVICE_LIMIT_EXCEEDED") {
+            alert("You were signed out because your account was logged into on another device.");
+          } else if (reason === "TOKEN_REUSED") {
+            alert("You were signed out for security reasons (token reuse detected). Please sign in again.");
+          } else if (reason === "EXPIRED") {
+            alert("Your session has expired. Please sign in again.");
+          } else {
+            alert("Your session has ended or been revoked. Please sign in again.");
+          }
           window.location.href = "/login";
           return response;
         } else if (code === "TOKEN_EXPIRED" || code === "UNAUTHORIZED") {
@@ -261,6 +270,29 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           localStorage.setItem("user", JSON.stringify(verifiedUser));
           return verifiedUser;
         } else if (res.status === 401) {
+          // If access token expired but refresh token exists, attempt renewal before signing out
+          const refreshToken = localStorage.getItem("refresh_token");
+          if (refreshToken) {
+            const renewed = await renewOnce(rawFetch, currentToken);
+            if (renewed && renewed !== "signed-out") {
+              const retryRes = await rawFetch(`${API_URL}/auth/me`, {
+                headers: { Authorization: `Bearer ${renewed}` },
+              });
+              if (retryRes.ok) {
+                const verifiedUser: UserData = await retryRes.json();
+                lastVerifiedAtRef.current = Date.now();
+                setUser(verifiedUser);
+                setToken(renewed);
+                localStorage.setItem("user", JSON.stringify(verifiedUser));
+                return verifiedUser;
+              }
+            } else if (renewed === null) {
+              // Server unreachable / network blip: do NOT log the user out!
+              console.warn("[AuthProvider] Token renewal unreachable due to transient network error; retaining cached session");
+              return user;
+            }
+          }
+
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
           localStorage.removeItem("user");

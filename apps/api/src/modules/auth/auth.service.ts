@@ -774,7 +774,7 @@ export class AuthService {
         }
 
         if (!targetSessionId) {
-          throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
+          throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED', reason: 'SESSION_REVOKED' });
         }
       }
 
@@ -794,25 +794,25 @@ export class AuthService {
           session.revokedAt !== null ||
           (session.expiresAt && session.expiresAt <= new Date())
         ) {
-          throw new UnauthorizedException({
-            message: 'Session has expired or been revoked',
-            error: 'SESSION_REVOKED',
-          });
+          return {
+            status: 'SESSION_REVOKED' as const,
+            reason: session?.revokedReason || (session?.expiresAt && session.expiresAt <= new Date() ? 'EXPIRED' : 'SESSION_REVOKED'),
+          };
         }
 
         // Verify token hash against the current, locked session token
         const isValid = await bcrypt.compare(refreshTokenStr, session.token);
         if (!isValid) {
-          // Reuse detected! Revoke the session immediately to protect against token theft
+          // Reuse detected! Revoke the session immediately to protect against token theft.
+          // We commit this update inside the transaction boundary so it is permanently written to PostgreSQL.
           await tx.userSession.update({
             where: { id: session.id },
             data: { revokedAt: new Date(), revokedReason: 'TOKEN_REUSED' },
           });
-          forgetSessions();
-          throw new UnauthorizedException({
-            message: 'Session revoked due to token reuse',
-            error: 'SESSION_REVOKED',
-          });
+          return {
+            status: 'TOKEN_REUSED' as const,
+            reason: 'TOKEN_REUSED' as const,
+          };
         }
 
         // Generate rotated tokens
@@ -847,10 +847,33 @@ export class AuthService {
 
         const accessToken = this.jwtService.sign(newPayload, { expiresIn: '15m' });
 
-        return { access_token: accessToken, refresh_token: newRefreshToken };
+        return {
+          status: 'SUCCESS' as const,
+          tokens: { access_token: accessToken, refresh_token: newRefreshToken },
+        };
       });
 
-      return result;
+      if (result.status === 'TOKEN_REUSED') {
+        forgetSessions();
+        await this.cacheHelper.invalidateNamespace(`auth_user:${user.id}`);
+        throw new UnauthorizedException({
+          message: 'Session revoked due to token reuse',
+          error: 'SESSION_REVOKED',
+          reason: 'TOKEN_REUSED',
+        });
+      }
+
+      if (result.status === 'SESSION_REVOKED') {
+        throw new UnauthorizedException({
+          message: result.reason === 'DEVICE_LIMIT_EXCEEDED'
+            ? 'You were logged out because this account was logged in from another device'
+            : 'Session has expired or been revoked',
+          error: 'SESSION_REVOKED',
+          reason: result.reason,
+        });
+      }
+
+      return result.tokens;
     } catch (e: any) {
       if (e instanceof UnauthorizedException) {
         throw e;

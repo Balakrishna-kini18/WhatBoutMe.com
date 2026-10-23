@@ -155,7 +155,8 @@ export default function CertificatesPage() {
                       />
                       <div className={dash.rowMain}>
                         <p className={dash.rowTitle}>
-                          {course.programTitle} <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
+                          <span>{course.programTitle}</span>
+                          <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
                         </p>
                         <p className={dash.muted}>
                           {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : "In Progress"}

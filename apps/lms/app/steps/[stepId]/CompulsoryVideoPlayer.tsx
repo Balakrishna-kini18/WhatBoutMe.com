@@ -67,6 +67,29 @@ export default function CompulsoryVideoPlayer({
   const [seekWarning, setSeekWarning] = useState<string | null>(null);
   const [resumedNotice, setResumedNotice] = useState<number | null>(null);
   const [hasEnded, setHasEnded] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
+  const speedMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close speed menu on outside click
+  useEffect(() => {
+    if (!showSpeedMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
+        setShowSpeedMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSpeedMenu]);
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed;
+    }
+    setShowSpeedMenu(false);
+  };
 
   // Reset error when lesson or video source changes
   useEffect(() => {
@@ -125,19 +148,20 @@ export default function CompulsoryVideoPlayer({
         return;
       }
 
-      // Fast-forward keys: ArrowRight, KeyL (only allowed within previously watched territory)
+      // Fast-forward keys: ArrowRight, KeyL (10s forward)
       if (e.code === "ArrowRight" || e.code === "KeyL" || e.key === "l" || e.key === "L") {
         e.preventDefault();
         e.stopPropagation();
         const video = videoRef.current;
-        const isCompleted = hasCompletedRef.current || (duration > 0 && maxWatchedSecRef.current >= duration * 0.95);
-        if (video && (video.currentTime + 5 <= maxWatchedSecRef.current || isCompleted)) {
-          const target = Math.min(isCompleted ? duration : maxWatchedSecRef.current, video.currentTime + 5);
+        if (video) {
+          const effectiveDur = duration > 0 ? duration : (video.duration || 0);
+          const target = Math.min(effectiveDur > 0 ? effectiveDur : video.currentTime + 10, video.currentTime + 10);
           video.currentTime = target;
           setCurrentTime(target);
           lastValidTimeRef.current = target;
-        } else {
-          triggerSeekWarning("Fast-forwarding is locked. You can rewind or rewatch, but forward skip is disabled.");
+          if (target > maxWatchedSecRef.current) {
+            maxWatchedSecRef.current = target;
+          }
         }
         return;
       }
@@ -227,62 +251,40 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Anti-skip seeking interceptor: allows rewind and rewatch; blocks skipping ahead past watched point
+  // Seeking handler: update current time and progress
   const handleSeeking = () => {
     const video = videoRef.current;
     if (!video) return;
-
-    const validation = validateSeek(
-      video.currentTime,
-      lastValidTimeRef.current,
-      maxWatchedSecRef.current,
-      duration,
-      hasCompletedRef.current
-    );
-
-    if (!validation.allowed) {
-      video.currentTime = validation.effectiveTime;
-      triggerSeekWarning(validation.reason);
-      return;
+    lastValidTimeRef.current = video.currentTime;
+    setCurrentTime(video.currentTime);
+    if (video.currentTime > maxWatchedSecRef.current) {
+      maxWatchedSecRef.current = video.currentTime;
     }
-
-    lastValidTimeRef.current = validation.effectiveTime;
-    setCurrentTime(validation.effectiveTime);
   };
 
-  // Playback rate lock: strictly force 1.0x
+  // Playback rate: ensure video adheres to selected speed
   const handleRateChange = () => {
     const video = videoRef.current;
-    if (video && video.playbackRate !== 1.0) {
-      video.playbackRate = 1.0;
+    if (video && video.playbackRate !== playbackSpeed) {
+      video.playbackRate = playbackSpeed;
     }
   };
 
-  // Interactive timeline click handler: allows rewinding / rewatching up to max watched position
+  // Interactive timeline click handler: seek directly to clicked position
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     if (!video || !duration || duration <= 0) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const targetTime = calculateTimelineSeekTime(clickX, rect.width, duration);
+    const targetTime = Math.max(0, Math.min(duration, (clickX / rect.width) * duration));
 
-    const validation = validateSeek(
-      targetTime,
-      lastValidTimeRef.current,
-      maxWatchedSecRef.current,
-      duration,
-      hasCompletedRef.current
-    );
-
-    if (!validation.allowed) {
-      triggerSeekWarning(validation.reason);
-      return;
+    video.currentTime = targetTime;
+    setCurrentTime(targetTime);
+    lastValidTimeRef.current = targetTime;
+    if (targetTime > maxWatchedSecRef.current) {
+      maxWatchedSecRef.current = targetTime;
     }
-
-    video.currentTime = validation.effectiveTime;
-    setCurrentTime(validation.effectiveTime);
-    lastValidTimeRef.current = validation.effectiveTime;
     setHasEnded(false);
   };
 
@@ -650,32 +652,27 @@ export default function CompulsoryVideoPlayer({
           zIndex: 50,
         }}
       >
-        {/* Compulsory Timeline Bar (Rewind / Rewatch Allowed, Fast-forward to unwatched locked) */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        {/* Timeline Bar (Full-width YouTube style) */}
+        <div style={{ display: "flex", alignItems: "center", width: "100%", padding: "4px 0" }}>
           <div
             onClick={handleTimelineClick}
-            title="Click anywhere in watched progress to rewind or rewatch (Forward skipping to unwatched content is locked)"
             style={{
               position: "relative",
               flex: 1,
-              height: "8px",
+              height: "6px",
               background: "rgba(255, 255, 255, 0.22)",
               borderRadius: "4px",
               overflow: "hidden",
               cursor: "pointer",
+              transition: "height 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.height = "8px";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.height = "6px";
             }}
           >
-            {/* Furthest Watched Track (Permitted Seek Zone) */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                bottom: 0,
-                left: 0,
-                width: `${maxWatchedPercent}%`,
-                background: "rgba(245, 158, 11, 0.25)",
-              }}
-            />
             {/* Active Current Time Progress Track */}
             <div
               style={{
@@ -686,32 +683,13 @@ export default function CompulsoryVideoPlayer({
                 width: `${watchedPercent}%`,
                 background: "linear-gradient(90deg, #c97a1e, #f59e0b)",
                 boxShadow: "0 0 8px rgba(245, 158, 11, 0.5)",
+                borderRadius: "4px",
               }}
             />
           </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              fontSize: "0.72rem",
-              color: "#fbbf24",
-              fontWeight: 700,
-              background: "rgba(245, 158, 11, 0.12)",
-              border: "1px solid rgba(245, 158, 11, 0.3)",
-              padding: "2px 6px",
-              borderRadius: "4px",
-              letterSpacing: "0.03em",
-              flexShrink: 0,
-            }}
-          >
-            <Lock size={10} />
-            <span>Anti-Skip</span>
-          </div>
         </div>
 
-        {/* Lower Control Actions (Rewind 10s & Rewatch enabled, Forward Skip disabled) */}
+        {/* Lower Control Actions */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* Play/Pause Button */}
@@ -756,31 +734,6 @@ export default function CompulsoryVideoPlayer({
               <span>10s</span>
             </button>
 
-            {/* Rewatch / Replay Button */}
-            <button
-              type="button"
-              onClick={handleRestart}
-              aria-label="Rewatch video from start"
-              title="Rewatch from start (Key 0 or Home)"
-              style={{
-                background: "rgba(255, 255, 255, 0.12)",
-                border: "1px solid rgba(255, 255, 255, 0.22)",
-                color: "#ffffff",
-                borderRadius: "6px",
-                cursor: "pointer",
-                padding: "3px 9px",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                fontSize: "0.72rem",
-                fontWeight: 600,
-                transition: "all 0.15s ease",
-              }}
-            >
-              <RotateCcw size={13} />
-              <span>Rewatch</span>
-            </button>
-
             {/* Volume & Mute */}
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <button
@@ -821,25 +774,112 @@ export default function CompulsoryVideoPlayer({
 
             {/* Timestamp Readout */}
             <span style={{ fontSize: "0.82rem", color: "#e2e8f0", fontFamily: "monospace", letterSpacing: "0.04em" }}>
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {formatTime(currentTime)}
             </span>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* Speed Lock Badge */}
-            <span
-              title="Speed is locked to 1.0x for compulsory accreditation tracking"
-              style={{
-                fontSize: "0.75rem",
-                color: "#94a3b8",
-                border: "1px solid rgba(255,255,255,0.18)",
-                padding: "2px 8px",
-                borderRadius: "4px",
-                fontFamily: "monospace",
-              }}
-            >
-              1.0x (Locked)
-            </span>
+            {/* Speed Selector (1, 1.5, 1.75, 2) */}
+            <div ref={speedMenuRef} style={{ position: "relative" }}>
+              {showSpeedMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    right: 0,
+                    background: "rgba(15, 23, 42, 0.96)",
+                    backdropFilter: "blur(10px)",
+                    border: "1px solid rgba(255, 255, 255, 0.15)",
+                    borderRadius: "8px",
+                    padding: "6px 0",
+                    minWidth: "120px",
+                    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.5)",
+                    zIndex: 100,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "4px 12px 6px",
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Speed
+                  </div>
+                  {[1, 1.5, 1.75, 2].map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => handleSpeedChange(spd)}
+                      style={{
+                        background: playbackSpeed === spd ? "rgba(245, 158, 11, 0.2)" : "transparent",
+                        color: playbackSpeed === spd ? "#fbbf24" : "#f1f5f9",
+                        border: "none",
+                        padding: "7px 14px",
+                        textAlign: "left",
+                        fontSize: "0.8rem",
+                        fontWeight: playbackSpeed === spd ? 700 : 500,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        transition: "background 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (playbackSpeed !== spd) {
+                          e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (playbackSpeed !== spd) {
+                          e.currentTarget.style.background = "transparent";
+                        }
+                      }}
+                    >
+                      <span>{spd === 1 ? "1x (Normal)" : `${spd}x`}</span>
+                      {playbackSpeed === spd && <span style={{ fontSize: "0.75rem" }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowSpeedMenu((prev) => !prev)}
+                aria-label="Playback speed"
+                title="Playback speed"
+                style={{
+                  background: "rgba(255, 255, 255, 0.12)",
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  color: "#ffffff",
+                  padding: "3px 9px",
+                  borderRadius: "5px",
+                  fontSize: "0.76rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontFamily: "monospace",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.12)";
+                }}
+              >
+                <span>{playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`}</span>
+              </button>
+            </div>
 
             {/* Fullscreen Button */}
             <button

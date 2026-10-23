@@ -44,9 +44,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // View state: "overview" (Screen 2) vs "workspace" (Screen 3, 4, 5, 6, 7)
-  const [viewMode, setViewMode] = useState<"overview" | "workspace">("workspace");
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("video");
+  const [viewMode, setViewMode] = useState<"overview" | "workspace">("workspace");
 
   // Active lesson state
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
@@ -280,6 +279,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     }
   }, [currentMedia?.id, loadNotesForLesson]);
 
+  // Proactively pre-warm quiz attempt in background when user views quiz tab
+  useEffect(() => {
+    if (activeTab === "quiz" && step?.quiz?.id && !activeAttemptId && !lastQuizResult?.passed) {
+      fetch(`${API_URL}/quizzes/${step.quiz.id}/start`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.attemptId || data?.id) {
+            setActiveAttemptId(data.attemptId || data.id);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeTab, step?.quiz?.id, activeAttemptId, lastQuizResult?.passed]);
+
   // Handle Save Note
   const handleSaveNote = async () => {
     if (!noteInput.trim() || !currentMedia?.id) return;
@@ -455,27 +471,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setIsSubmittingQuiz(true);
     setQuizError(null);
 
-    // Resolve or auto-start attempt if needed
-    let currentAttemptId = activeAttemptId;
-    if (!currentAttemptId) {
-      try {
-        const startRes = await fetch(`${API_URL}/quizzes/${step.quiz.id}/start`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-        });
-        if (startRes.ok) {
-          const startData = await startRes.json();
-          currentAttemptId = startData.attemptId || startData.id;
-          setActiveAttemptId(currentAttemptId);
-        }
-      } catch (e) {
-        console.warn("Could not start quiz attempt:", e);
-      }
-    }
-
     const questionsList: QuizQuestion[] = quizQuestions || [];
     const submissionDto: any = {
-      attemptId: currentAttemptId || undefined,
+      attemptId: activeAttemptId || undefined,
       answers: questionsList.map((q) => ({
         questionId: q.id,
         selectedOptionId: quizAnswers[q.id] || undefined,
@@ -679,24 +677,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   return (
     <div className={styles.container}>
       {/* =====================================================================
-          TOP HEADER & VIEW SWITCHER
+          TOP HEADER
           ===================================================================== */}
       <div className={styles.pageHeaderRow}>
         <div>
-          {viewMode === "workspace" ? (
-            <button
-              type="button"
-              onClick={() => setViewMode("overview")}
-              className={styles.breadcrumbBack}
-              title="Return to Module Overview"
-            >
-              &larr; Back to Module Overview
-            </button>
-          ) : (
-            <Link href={`/programs/${step?.programId}/steps`} className={styles.breadcrumbBack}>
-              &larr; Back to Learning Path
-            </Link>
-          )}
+          <Link href={`/programs/${step?.programId}/steps`} className={styles.breadcrumbBack}>
+            &larr; Back to Learning Path
+          </Link>
 
           <h1 className={styles.pageMainTitle}>
             Step {step?.sequence}: {step?.title}
@@ -705,157 +692,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             {step?.title} • {completedLessonsCount} of {totalLessonsCount} lessons completed
           </p>
         </div>
-
-        <div className={styles.headerActionCluster}>
-          {/* View mode toggle pills */}
-          <div className={styles.viewToggleGroup}>
-            <button
-              type="button"
-              onClick={() => setViewMode("overview")}
-              className={`${styles.viewToggleBtn} ${viewMode === "overview" ? styles.viewToggleBtnActive : ""}`}
-            >
-              ☰ Module Overview
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("workspace")}
-              className={`${styles.viewToggleBtn} ${viewMode === "workspace" ? styles.viewToggleBtnActive : ""}`}
-            >
-              ▶ Lesson Workspace
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* =====================================================================
-          SCREEN 2: MODULE / STEP OVERVIEW (when viewMode === "overview")
+          4-TAB LESSON WORKSPACE
           ===================================================================== */}
-      {viewMode === "overview" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {/* Step Progress Card */}
-          <div className={styles.moduleDetailCard}>
-            <div className={styles.moduleProgressHeader}>
-              <span>Step Progress: {calculatedStepPercent}% ({completedLessonsCount} of {totalLessonsCount} lessons completed)</span>
-              <span style={{ color: "#d97706" }}>{calculatedStepPercent}%</span>
-            </div>
-            <div className={styles.moduleProgressBar}>
-              <div className={styles.moduleProgressFill} style={{ width: `${calculatedStepPercent}%` }} />
-            </div>
-          </div>
-
-          {/* Sequential Lesson Cards List */}
-          <div className={styles.lessonCardsList}>
-            {allLessons.map((l: any, idx: number) => {
-              const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
-              const isCurrent = currentMedia?.id === l.id;
-              const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
-
-              return (
-                <div
-                  key={l.id}
-                  onClick={() => {
-                    if (!isLocked) {
-                      setSelectedMediaId(l.id);
-                      setViewMode("workspace");
-                      setActiveTab("video");
-                    }
-                  }}
-                  className={`${styles.lessonCardRow} ${isCurrent ? styles.lessonCardActive : ""}`}
-                  style={{ cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.7 : 1 }}
-                >
-                  <div className={styles.lessonCardLeft}>
-                    <div
-                      className={`${styles.lessonPlayCircle} ${
-                        isDone
-                          ? styles.lessonPlayCircleDone
-                          : isCurrent
-                          ? styles.lessonPlayCircleActive
-                          : styles.lessonPlayCircleLocked
-                      }`}
-                    >
-                      {isDone ? "✓" : "▶"}
-                    </div>
-                    <div className={styles.lessonTitleMeta}>
-                      <h4 className={styles.lessonRowTitle}>{l.title}</h4>
-                      <span className={styles.lessonRowMeta}>
-                        {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "15 min"} • {l.type || "Video"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    {isDone ? (
-                      <span className={styles.lessonDoneCheck} title="Completed">✓</span>
-                    ) : isCurrent ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMediaId(l.id);
-                          setViewMode("workspace");
-                          setActiveTab("video");
-                        }}
-                        className={styles.btnPrimaryOrange}
-                      >
-                        Continue &rarr;
-                      </button>
-                    ) : isLocked ? (
-                      <span style={{ color: "#9ca3af", fontSize: "1.1rem" }} title="Locked">🔒</span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMediaId(l.id);
-                          setViewMode("workspace");
-                          setActiveTab("video");
-                        }}
-                        className={styles.btnSecondaryOutline}
-                      >
-                        Start
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Module Navigation Footer */}
-          <div className={styles.moduleFooterNav}>
-            {prevStep ? (
-              <Link href={`/steps/${prevStep.stepId || prevStep.id}`} className={styles.btnSecondaryOutline}>
-                &larr; Previous Module
-              </Link>
-            ) : (
-              <span />
-            )}
-            {nextStep && nextStepId ? (
-              <Link
-                href={`/steps/${nextStepId}`}
-                className={styles.btnPrimaryOrange}
-                style={{
-                  background: isStepCompleted ? "#d97706" : "#fef3c7",
-                  color: isStepCompleted ? "#ffffff" : "#b45309",
-                  borderColor: isStepCompleted ? "#d97706" : "#fde68a",
-                }}
-              >
-                Next Module ({nextStep.title}) &rarr;
-              </Link>
-            ) : (
-              <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
-                Course Roadmap &rarr;
-              </Link>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* =====================================================================
-          SCREENS 3 - 6: 4-TAB LESSON WORKSPACE (when viewMode === "workspace")
-          ===================================================================== */}
-      {viewMode === "workspace" && (
-        <div>
+      <div>
           {/* 4-Tab Learning Tools Navigation Strip */}
           <nav className={styles.learningToolsStrip} aria-label="Lesson Workspace Tabs">
             <button
@@ -1550,7 +1392,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             )}
           </div>
         </div>
-      )}
 
       {/* =====================================================================
           SCREEN 8: CELEBRATION MODAL (Lesson / Module Completed!)
@@ -1729,7 +1570,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     onClick={() => {
                       if (!isLocked) {
                         setSelectedMediaId(l.id);
-                        setViewMode("workspace");
                         setActiveTab("video");
                         setIsDrawerOpen(false);
                       }

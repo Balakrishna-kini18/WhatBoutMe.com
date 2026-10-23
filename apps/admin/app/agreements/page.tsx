@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, StatusBadge, TableSkeleton, EmptyState } from "../components";
+import { CustomSelect, StatusBadge, TableSkeleton, EmptyState, AgreementMarkdown } from "../components";
 
 interface AgreementTemplate {
   id: string;
@@ -53,6 +53,7 @@ export default function AdminAgreementsPage() {
   const [initialContent, setInitialContent] = useState("");
   const [initialChangelog, setInitialChangelog] = useState("Initial terms and conditions release");
   const [publishImmediately, setPublishImmediately] = useState(false);
+  const [contentTab, setContentTab] = useState<"edit" | "preview">("edit");
 
   useEffect(() => {
     fetchData();
@@ -182,6 +183,7 @@ export default function AdminAgreementsPage() {
     setInitialContent("");
     setInitialChangelog("Initial terms and conditions release");
     setPublishImmediately(false);
+    setContentTab("edit");
   };
 
   return (
@@ -594,23 +596,87 @@ export default function AdminAgreementsPage() {
 
                 {/* 6. Agreement Terms */}
                 <div className={styles.formGroup}>
-                  <label>
-                    Agreement Terms &amp; Conditions <span style={{ color: "var(--status-error)" }}>*</span>
-                  </label>
-                  <textarea
-                    rows={6}
-                    placeholder="Enter agreement terms that the learner must review and consent to before checkout..."
-                    value={initialContent}
-                    onChange={(e) => setInitialContent(e.target.value)}
-                    required
-                    style={{
-                      fontFamily: "var(--font-sans), system-ui, sans-serif",
-                      fontSize: "0.88rem",
-                      lineHeight: "1.6",
-                      padding: "0.75rem 1rem",
-                      minHeight: "130px",
-                    }}
-                  />
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <label style={{ margin: 0 }}>
+                      Agreement Terms &amp; Conditions <span style={{ color: "var(--status-error)" }}>*</span>
+                    </label>
+                    <div style={{ display: "inline-flex", background: "var(--bg-soft, #f7f3ec)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)" }}>
+                      <button
+                        type="button"
+                        onClick={() => setContentTab("edit")}
+                        style={{
+                          border: "none",
+                          background: contentTab === "edit" ? "#ffffff" : "transparent",
+                          color: contentTab === "edit" ? "var(--text-primary)" : "var(--text-secondary)",
+                          padding: "4px 10px",
+                          borderRadius: "4px",
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: contentTab === "edit" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                        }}
+                      >
+                        Edit Markdown
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setContentTab("preview")}
+                        style={{
+                          border: "none",
+                          background: contentTab === "preview" ? "#ffffff" : "transparent",
+                          color: contentTab === "preview" ? "var(--text-primary)" : "var(--text-secondary)",
+                          padding: "4px 10px",
+                          borderRadius: "4px",
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: contentTab === "preview" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                        }}
+                      >
+                        Preview
+                      </button>
+                    </div>
+                  </div>
+
+                  {contentTab === "edit" ? (
+                    <textarea
+                      rows={6}
+                      placeholder="Enter agreement terms in Markdown format (# Headings, - Bullets, **Bold**)..."
+                      value={initialContent}
+                      onChange={(e) => setInitialContent(e.target.value)}
+                      required
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: "0.85rem",
+                        lineHeight: "1.6",
+                        padding: "0.75rem 1rem",
+                        minHeight: "140px",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        background: "#ffffff",
+                        border: "1px solid var(--border-light, #E7E0D6)",
+                        borderRadius: "8px",
+                        padding: "1rem 1.25rem",
+                        minHeight: "140px",
+                        maxHeight: "240px",
+                        overflowY: "auto",
+                        fontSize: "0.88rem",
+                        lineHeight: 1.65,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {initialContent.trim() ? (
+                        <AgreementMarkdown content={initialContent} />
+                      ) : (
+                        <p style={{ color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                          No content entered yet. Switch to &ldquo;Edit Markdown&rdquo; to add agreement text.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* 7. Publication Status Lifecycle */}

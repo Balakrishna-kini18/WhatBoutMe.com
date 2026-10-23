@@ -409,21 +409,34 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
   describe('5. Duplicate Version Enforcement', () => {
     it('rejects creating a version tag that already exists for this template', async () => {
       prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
-      prismaMock.agreementTemplateVersion.findUnique.mockResolvedValue(mockVersion1);
+      prismaMock.agreementTemplateVersion.findFirst.mockResolvedValue(mockVersion1);
 
       await expect(
         service.createVersion(mockTemplate.id, {
           version: 'v1.0',
           content: 'Some other content',
         }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
 
       await expect(
         service.createVersion(mockTemplate.id, {
-          version: 'v1.0',
+          version: 'V1.0',
           content: 'Some other content',
         }),
-      ).rejects.toThrow(/already exists/i);
+      ).rejects.toThrow('This version already exists. Please enter a different version number.');
+    });
+
+    it('gracefully handles database P2002 duplicate key conflict', async () => {
+      prismaMock.agreementTemplate.findUnique.mockResolvedValue(mockTemplate);
+      prismaMock.agreementTemplateVersion.findFirst.mockResolvedValue(null);
+      prismaMock.agreementTemplateVersion.create.mockRejectedValue({ code: 'P2002' });
+
+      await expect(
+        service.createVersion(mockTemplate.id, {
+          version: 'v2.0',
+          content: 'Valid content for version 2',
+        }),
+      ).rejects.toThrow('This version already exists. Please enter a different version number.');
     });
   });
 
@@ -603,6 +616,7 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       enrolmentId: mockEnrolment.id,
       consentGiven: true,
       typedName: 'Jane Doe',
+      typedAcknowledgement: 'I AGREE',
       drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
     };
 
@@ -715,6 +729,78 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
           learnerUser,
         ),
       ).rejects.toThrow(/typed full name/i);
+    });
+
+    it('rejects signing when typedAcknowledgement is missing, empty, or incorrect with BadRequestException', async () => {
+      // 1. Missing / undefined
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, typedAcknowledgement: undefined },
+          learnerUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      // 2. Empty or whitespace
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, typedAcknowledgement: '   ' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/typed acknowledgement "I AGREE"/i);
+
+      // 3. Incorrect text
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, typedAcknowledgement: 'I DO NOT AGREE' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/typed acknowledgement "I AGREE"/i);
+
+      await expect(
+        service.signAgreement(
+          { ...validSignDto, typedAcknowledgement: 'YES' },
+          learnerUser,
+        ),
+      ).rejects.toThrow(/typed acknowledgement "I AGREE"/i);
+
+      // Verify no audit log is created on failed attempts
+      expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts case-insensitive and trimmed typedAcknowledgement ("i agree", "  I AGREE  ")', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+      });
+      prismaMock.agreementTemplate.findFirst.mockResolvedValue({
+        ...mockTemplate,
+        versions: [mockVersion2],
+      });
+      prismaMock.signedAgreement.create.mockResolvedValue({
+        id: 'signed-ag-uuid',
+        ...validSignDto,
+        status: AgreementStatus.SIGNED,
+        version: mockVersion2,
+        template: mockTemplate,
+      });
+      prismaMock.enrolment.update.mockResolvedValue({
+        ...mockEnrolment,
+        status: EnrolmentStatus.ACTIVE,
+      });
+      prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-1' });
+
+      // Lowercase "i agree"
+      const res1 = await service.signAgreement(
+        { ...validSignDto, typedAcknowledgement: 'i agree' },
+        learnerUser,
+      );
+      expect(res1.status).toBe(AgreementStatus.SIGNED);
+
+      // Whitespace padded "  I AGREE  "
+      const res2 = await service.signAgreement(
+        { ...validSignDto, typedAcknowledgement: '  I AGREE  ' },
+        learnerUser,
+      );
+      expect(res2.status).toBe(AgreementStatus.SIGNED);
     });
 
     it('rejects signing when drawnSignature is missing or too short with BadRequestException', async () => {
@@ -983,6 +1069,7 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       enrolmentId: mockEnrolment.id,
       consentGiven: true,
       typedName: 'Jane Doe',
+      typedAcknowledgement: 'I AGREE',
       drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
     };
 
@@ -1031,6 +1118,7 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
             versionId: mockVersion2.id,
             version: 'v2.0',
             typedName: 'Jane Doe',
+            typedAcknowledgement: 'I AGREE',
             userAgent: 'Safari/17.0 macOS',
             consentGiven: true,
             signedAt: expect.any(String),
@@ -1150,6 +1238,7 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       enrolmentId: mockEnrolment.id,
       consentGiven: true,
       typedName: 'Jane Margaret Doe',
+      typedAcknowledgement: 'I AGREE',
       drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
       signatureType: 'DRAWN' as const,
       consentVersion: 'v2.0',
@@ -1160,6 +1249,7 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       enrolmentId: mockEnrolment.id,
       consentGiven: true,
       typedName: 'Jane Margaret Doe',
+      typedAcknowledgement: 'I AGREE',
       signatureImage: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
       signatureType: 'UPLOADED' as const,
       consentVersion: 'v2.0',

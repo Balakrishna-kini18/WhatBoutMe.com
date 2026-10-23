@@ -32,6 +32,9 @@ export class CertificateGenProcessor extends WorkerHost {
           include: {
             user: true,
             program: true,
+            signedAgreement: {
+              select: { typedName: true },
+            },
             batch: {
               include: { program: true },
             },
@@ -53,6 +56,7 @@ export class CertificateGenProcessor extends WorkerHost {
     }
 
     const recipientName =
+      certificate.enrolment?.signedAgreement?.typedName ||
       certificate.enrolment?.user?.name ||
       certificate.user?.name ||
       certificate.enrolment?.user?.email ||

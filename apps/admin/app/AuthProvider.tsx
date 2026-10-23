@@ -77,7 +77,27 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
       Boolean(init?.headers && new Headers(init.headers).has("RSC")) ||
       (!isApiRequest && !urlStr.startsWith("http://") && !urlStr.startsWith("https://") && !urlStr.startsWith("/api"));
 
-    if (!isApiRequest || isNextInternal) {
+    // Binary file downloads (PDFs, octet-streams, media) must bypass cachedFetch stream buffering
+    // to prevent UTF-8 string conversion from corrupting raw bytes with U+FFFD replacement characters.
+    const isBinaryDownload =
+      urlStr.includes("/pdf") ||
+      urlStr.includes("/download") ||
+      Boolean(
+        init?.headers &&
+          (new Headers(init.headers).get("Accept")?.includes("application/pdf") ||
+            new Headers(init.headers).get("accept")?.includes("application/pdf") ||
+            new Headers(init.headers).get("Accept")?.includes("application/octet-stream") ||
+            new Headers(init.headers).get("accept")?.includes("application/octet-stream"))
+      );
+
+    if (!isApiRequest || isNextInternal || isBinaryDownload) {
+      if (token && typeof input === "string" && input.includes(API_URL)) {
+        const headers = new Headers(init?.headers);
+        if (!headers.has("Authorization")) {
+          headers.set("Authorization", `Bearer ${token}`);
+          return originalFetch(input, { ...init, headers });
+        }
+      }
       return originalFetch(input, init);
     }
 

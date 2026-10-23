@@ -155,6 +155,7 @@ describe('Reusable Digital Signature in Learner Profile Suite', () => {
         {
           enrolmentId: enrolment1.id,
           typedName: 'Ada Lovelace',
+          typedAcknowledgement: 'I AGREE',
           drawnSignature: sampleSignatureData,
           signatureType: 'DRAWN',
           consentGiven: true,
@@ -236,6 +237,7 @@ describe('Reusable Digital Signature in Learner Profile Suite', () => {
         {
           enrolmentId: enrolment2.id,
           typedName: 'Ada Lovelace',
+          typedAcknowledgement: 'I AGREE',
           useSavedSignature: true,
           consentGiven: true,
         },
@@ -266,6 +268,7 @@ describe('Reusable Digital Signature in Learner Profile Suite', () => {
           {
             enrolmentId: enrolment1.id,
             typedName: 'Ada Lovelace',
+            typedAcknowledgement: 'I AGREE',
             useSavedSignature: true,
             consentGiven: true,
           },
@@ -287,6 +290,7 @@ describe('Reusable Digital Signature in Learner Profile Suite', () => {
           {
             enrolmentId: enrolment2.id,
             typedName: 'Ada Lovelace',
+            typedAcknowledgement: 'I AGREE',
             useSavedSignature: true,
             consentGiven: false,
           },
@@ -308,6 +312,7 @@ describe('Reusable Digital Signature in Learner Profile Suite', () => {
           {
             enrolmentId: enrolment2.id,
             typedName: '',
+            typedAcknowledgement: 'I AGREE',
             useSavedSignature: true,
             consentGiven: true,
           },

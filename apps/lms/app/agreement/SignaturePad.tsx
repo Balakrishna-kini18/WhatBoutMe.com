@@ -276,7 +276,7 @@ export default function SignaturePad({
       return;
     }
 
-    // 2. Read image as Data URL
+    // 2. Read image as Data URL and normalize via canvas for consistent PDF embedding
     const reader = new FileReader();
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
@@ -284,10 +284,48 @@ export default function SignaturePad({
         setUploadError("Failed to parse image. Please select a valid image file.");
         return;
       }
-      setUploadedDataUrl(dataUrl);
-      setUploadedFileName(file.name);
-      setUploadedFileSize(`${(file.size / 1024).toFixed(1)} KB`);
-      emitSignature(dataUrl, "UPLOADED");
+
+      // Normalize uploaded image to clean PNG via offscreen canvas so all formats
+      // (PNG, JPEG, WebP) are consistently formatted and sized for PDF embedding.
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 1200;
+          let w = img.naturalWidth || img.width;
+          let h = img.naturalHeight || img.height;
+          if (w > maxDim || h > maxDim) {
+            const ratio = Math.min(maxDim / w, maxDim / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          const offscreen = document.createElement("canvas");
+          offscreen.width = w;
+          offscreen.height = h;
+          const ctx = offscreen.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, w, h);
+            const normalizedPng = offscreen.toDataURL("image/png");
+            setUploadedDataUrl(normalizedPng);
+            setUploadedFileName(file.name);
+            setUploadedFileSize(`${(file.size / 1024).toFixed(1)} KB`);
+            emitSignature(normalizedPng, "UPLOADED");
+            return;
+          }
+        } catch {
+          // Fallback to raw dataUrl if canvas operation fails
+        }
+        setUploadedDataUrl(dataUrl);
+        setUploadedFileName(file.name);
+        setUploadedFileSize(`${(file.size / 1024).toFixed(1)} KB`);
+        emitSignature(dataUrl, "UPLOADED");
+      };
+      img.onerror = () => {
+        setUploadedDataUrl(dataUrl);
+        setUploadedFileName(file.name);
+        setUploadedFileSize(`${(file.size / 1024).toFixed(1)} KB`);
+        emitSignature(dataUrl, "UPLOADED");
+      };
+      img.src = dataUrl;
     };
     reader.onerror = () => {
       setUploadError("An error occurred reading the selected file.");
@@ -425,19 +463,19 @@ export default function SignaturePad({
               <div
                 style={{
                   position: "absolute",
-                  top: "42%",
+                  top: "50%",
                   left: "50%",
                   transform: "translate(-50%, -50%)",
                   pointerEvents: "none",
-                  color: "#9A9084",
-                  fontSize: "0.86rem",
+                  color: "#A8A29E",
+                  fontSize: "0.95rem",
                   fontWeight: 500,
                   userSelect: "none",
                   textAlign: "center",
-                  width: "90%",
+                  letterSpacing: "0.02em",
                 }}
               >
-                Draw your signature in the box above using mouse, pen, or touch
+                Sign here
               </div>
             )}
           </div>
@@ -450,43 +488,44 @@ export default function SignaturePad({
               marginTop: "0.5rem",
               fontSize: "0.8rem",
               color: "#6B655D",
+              minHeight: "1.5rem",
             }}
           >
-            <span>
-              {hasDrawn ? (
+            <div>
+              {hasDrawn && (
                 <span style={{ color: "#15803D", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   Signature captured
                 </span>
-              ) : (
-                "Your signature is captured from what you draw here"
               )}
-            </span>
-            <button
-              type="button"
-              onClick={handleClearCanvas}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#8C531B",
-                cursor: "pointer",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                padding: "2px 6px",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.3rem",
-              }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 6h18" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span>Clear Signature</span>
-            </button>
+            </div>
+            {hasDrawn && (
+              <button
+                type="button"
+                onClick={handleClearCanvas}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#8C531B",
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  padding: "2px 6px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                <span>Clear Signature</span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -646,18 +685,6 @@ export default function SignaturePad({
             </div>
           )}
 
-          <div
-            style={{
-              marginTop: "0.5rem",
-              fontSize: "0.8rem",
-              color: uploadedDataUrl ? "#15803D" : "#78716A",
-              fontWeight: uploadedDataUrl ? 600 : 400,
-            }}
-          >
-            {uploadedDataUrl
-              ? "✓ Signature image ready for submission"
-              : "Upload a clean scan or photo of your handwritten signature"}
-          </div>
         </div>
       )}
     </div>

@@ -342,7 +342,7 @@ export default function LearnerPortalFlow({
   module,
   allModules,
   courseTitle = "Executive Leadership & Emotional Mastery (CPD 25h)",
-  cohortName = "Sigma 1 — Cohort 1",
+  cohortName = "",
   totalStepsCount,
   completedStepsCount,
   overallProgressPercentage,

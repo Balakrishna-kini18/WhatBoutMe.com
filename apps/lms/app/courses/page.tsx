@@ -318,7 +318,6 @@ function Courses() {
                             : `${course.completedItems ?? 0} of ${course.totalItems ?? 0} done`}
                         </span>
                       </p>
-                      <p className={dash.muted}>Cohort: {course.batchName}</p>
                       <div className={dash.progressLine}>
                         <div
                           className={dash.progress}

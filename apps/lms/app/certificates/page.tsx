@@ -158,7 +158,7 @@ export default function CertificatesPage() {
                           {course.programTitle} <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
                         </p>
                         <p className={dash.muted}>
-                          {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : `Cohort: ${course.batchName}`}
+                          {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : "In Progress"}
                         </p>
                         <div className={dash.progressLine}>
                           <div className={dash.progress} role="progressbar" aria-valuenow={course.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${course.programTitle} progress`}>

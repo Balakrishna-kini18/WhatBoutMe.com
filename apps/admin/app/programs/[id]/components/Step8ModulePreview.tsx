@@ -27,7 +27,6 @@ export default function Step8ModulePreview({
       module={module}
       allModules={allModules}
       courseTitle={courseTitle || "Executive Leadership & Emotional Mastery (CPD 25h)"}
-      cohortName="Sigma 1 — Cohort 1"
       totalStepsCount={allModules && allModules.length > 0 ? allModules.length : 12}
       completedStepsCount={3}
       overallProgressPercentage={25}

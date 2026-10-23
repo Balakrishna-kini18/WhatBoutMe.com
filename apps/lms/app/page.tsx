@@ -337,7 +337,6 @@ export default function LearnerDashboard() {
               {continueProg.progress > 0 ? "Continue Where You Left Off" : "Ready When You Are"}
             </p>
             <h2 className={styles.continueTitle}>{continueProg.programTitle}</h2>
-            <p className={styles.muted}>Cohort: {continueProg.batchName}</p>
             <div className={styles.progressLine}>
               <div className={styles.progress} role="progressbar" aria-valuenow={continueProg.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${continueProg.programTitle} progress`}>
                 <span style={{ width: `${continueProg.progress}%` }} />
@@ -388,7 +387,6 @@ export default function LearnerDashboard() {
 
                     <div className={styles.courseCardBody}>
                       <p className={styles.courseCardTitle}>{prog.programTitle}</p>
-                      <p className={styles.muted}>{prog.batchName}</p>
                     </div>
 
                     {compliance(prog)}

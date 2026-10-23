@@ -142,7 +142,6 @@ export default function LmsSidebar() {
 
   const userName = user?.name || user?.email || "Learner";
   const initials = userName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
-  const cohortName = user?.enrolledPrograms?.[0]?.batchName || "Not Enrolled";
 
   // phones get a bottom tab bar instead of the sidebar, the same five tabs in
   // the same order as the website's bar: Home, Explore, My Courses, Chat,
@@ -201,7 +200,6 @@ export default function LmsSidebar() {
         </span>
         <div className={styles.userInfo}>
           <h4>{userName}</h4>
-          <p>{cohortName}</p>
         </div>
       </Link>
 

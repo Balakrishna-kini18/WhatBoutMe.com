@@ -226,7 +226,6 @@ export default function SimulatorPage() {
           </div>
           <div className={styles.profileInfo}>
             <span className={styles.profileName}>Roweena Foxwel</span>
-            <span className={styles.profileCohort}>Sigma 1 - Cohort 1</span>
           </div>
         </div>
 
@@ -444,7 +443,7 @@ export default function SimulatorPage() {
             {/* User Avatar */}
             <div
               className={styles.headerUserMenuBtn}
-              onClick={() => triggerToast("Signed in as Roweena Foxwel (Sigma 1)")}
+              onClick={() => triggerToast("Signed in as Roweena Foxwel")}
               role="button"
               tabIndex={0}
             >
@@ -464,7 +463,6 @@ export default function SimulatorPage() {
             module={currentModule}
             allModules={sampleModules}
             courseTitle="Executive Leadership & Emotional Mastery (CPD 25h)"
-            cohortName="Sigma 1 — Cohort 1"
             totalStepsCount={12}
             completedStepsCount={3}
             overallProgressPercentage={25}

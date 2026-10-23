@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { API_URL, errorMessage } from "../../lib/api";
 import { formatCourseInfo, parseCourseInfo } from "../courseInfo";
+import CurriculumStepper from "../[id]/components/CurriculumStepper";
 import Step1CourseSetup from "../[id]/components/Step1CourseSetup";
 
 export default function CreateProgramPage() {
@@ -96,28 +97,16 @@ export default function CreateProgramPage() {
       setIsSubmitting(false);
     }
   }
-
   return (
-    <div className={styles.dashboard}>
-      <header className={styles.header}>
-        <div className={styles.headerText}>
-          <Link
-            href="/programs"
-            className={styles.secondaryBtnSmall}
-            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
-            <span>Back to Programs</span>
-          </Link>
-          <h1 className={styles.title}>Create New Program</h1>
-          {/* <p className={styles.subtitle}>
-            Define core program attributes, multi-currency pricing (USD, AED, INR), early-bird discounts, and course FAQs.
-          </p> */}
-        </div>
-      </header>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "1.5rem 2rem 4rem" }}>
+      {/* 4-Step Horizontal Wizard Bar */}
+      <CurriculumStepper
+        currentPhase={1}
+        onSelectPhase={() => {}}
+        isPhase1Done={false}
+        isPhase2Done={false}
+        isPhase3Done={false}
+      />
 
       {formError && (
         <div style={{

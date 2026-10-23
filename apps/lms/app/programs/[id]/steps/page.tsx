@@ -201,7 +201,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           {progression?.programTitle ? `${progression.programTitle} — Learning Path` : "Sigma 1 — Learning Path"}
         </h1>
         <p className={styles.subtitle}>
-          Cohort: {progression?.batchName || "Sigma 1 - Cohort 1"} • Complete each step to advance and unlock your certificate.
+          Complete each step to advance and unlock your certificate.
         </p>
       </header>
 

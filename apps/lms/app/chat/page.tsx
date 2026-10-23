@@ -67,7 +67,7 @@ export default function LearnerChatPage() {
       setCurrentUser(user);
 
       const enrolledBatch = user?.enrolledPrograms?.[0];
-      const batchName = enrolledBatch?.batchName || "Sigma 1 - Cohort 1";
+      const batchName = enrolledBatch?.batchName || "Cohort Support";
       const batchId = enrolledBatch?.batchId;
 
       // 2. Fetch conversations
@@ -325,7 +325,7 @@ export default function LearnerChatPage() {
                   <div>
                     <h3 className={styles.chatHeaderTitle}>{activeConv.participantName}</h3>
                     <p className={styles.chatHeaderSubtitle}>
-                      {activeConv.batchName || "Sigma 1 - Cohort 1"}
+                      {activeConv.batchName || "Cohort Support"}
                     </p>
                   </div>
                 </div>

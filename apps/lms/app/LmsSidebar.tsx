@@ -208,7 +208,6 @@ export default function LmsSidebar() {
 
   const displayName = (user?.name ? user.name.split(" ")[0] : null) || "sahyadri";
   const initial = (displayName.charAt(0) || "S").toUpperCase();
-  const cohortName = user?.enrolledPrograms?.[0]?.batchName || "Sigma 1 - Cohort 1";
 
   // Mobile Bottom Tab Bar
   const mobileTabs = [
@@ -281,7 +280,6 @@ export default function LmsSidebar() {
                   <Icons.Chevron />
                 </span>
               </h4>
-              <p className={styles.cohortText}>{cohortName}</p>
             </div>
           </div>
 

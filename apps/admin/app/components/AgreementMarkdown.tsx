@@ -221,7 +221,7 @@ export function AgreementMarkdown({ content, className, style }: AgreementMarkdo
         <h3
           key={`h3-${idx}`}
           style={{
-            fontFamily: "var(--font-serif), Georgia, serif",
+            fontFamily: "var(--font-sans)",
             fontSize: "1.25rem",
             fontWeight: 700,
             margin: "1.25rem 0 0.5rem",
@@ -240,7 +240,7 @@ export function AgreementMarkdown({ content, className, style }: AgreementMarkdo
         <h4
           key={`h4-${idx}`}
           style={{
-            fontFamily: "var(--font-serif), Georgia, serif",
+            fontFamily: "var(--font-sans)",
             fontSize: "1.08rem",
             fontWeight: 600,
             margin: "1rem 0 0.4rem",

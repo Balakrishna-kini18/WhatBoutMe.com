@@ -1940,7 +1940,7 @@
 }
 
 .modalTitle {
-  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-family: var(--font-sans);
   font-size: 1.35rem;
   font-weight: 700;
   margin: 0;

@@ -1159,17 +1159,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
           {activeTab === "quiz" && (
             <div>
-              <div className={styles.knowledgeCheckBanner}>
-                <span className={styles.knowledgeCheckIcon}>🛡️</span>
-                <div>
-                  <h4 className={styles.knowledgeCheckText}>
-                    Knowledge Check • Pass mark: 75% • {quizQuestions.length} questions • Multiple attempts allowed
-                  </h4>
-                  <span style={{ fontSize: "0.78rem", color: "#4338ca" }}>
-                    Answer all questions sequentially and submit to verify module comprehension.
-                  </span>
-                </div>
-              </div>
 
               {quizError && (
                 <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.86rem" }}>

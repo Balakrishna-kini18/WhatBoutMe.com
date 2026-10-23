@@ -572,28 +572,7 @@
 /* -------------------------------------------------------------------------
    SCREEN 4: QUIZ TAB WORKSPACE
    ------------------------------------------------------------------------- */
-.knowledgeCheckBanner {
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  border-radius: 12px;
-  padding: 0.85rem 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 1.5rem;
-}
 
-.knowledgeCheckIcon {
-  color: #4f46e5;
-  flex-shrink: 0;
-}
-
-.knowledgeCheckText {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: #1e1b4b;
-  margin: 0;
-}
 
 .quizGrid {
   display: grid;

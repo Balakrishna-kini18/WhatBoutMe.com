@@ -386,7 +386,7 @@ export default function Step1CourseSetup({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Sigma 1 - Web Development"
+                  placeholder="e.g. Executive Leadership & Mindset Mastery"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className={styles.formInput}

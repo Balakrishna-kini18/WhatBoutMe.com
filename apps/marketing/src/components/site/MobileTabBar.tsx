@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Compass, Home, MessageSquare, User } from "lucide-react";
+import { BookOpen, Compass, Home, User } from "lucide-react";
 import { LMS_URL } from "@/lib/api";
 import { openPortal, useUser } from "@/lib/auth";
 
-// Minimal bar: 60px tall, five equal columns, 22px icons with an 11px label
+// Minimal bar: 60px tall, four equal columns, 22px icons with an 11px label
 // 2px below, everything centred. The current tab is marked by one short line
 // under its label, nothing else. Attached to the bottom edge, not a floating pill.
 const TAB =
@@ -14,13 +14,12 @@ const TAB =
 const ICON = "h-[22px] w-[22px]";
 
 /**
- * Phone-only bottom bar, like an app. The same five tabs, in the same order
+ * Phone-only bottom bar, like an app. The same four tabs, in the same order
  * and with the same icons, as the learner portal's bar, so the bar does not
- * change when moving between the two: Home, Explore, My Courses, Chat,
- * Profile.
+ * change when moving between the two: Home, Explore, My Courses, Profile.
  * Hidden from 640px up, where the top pill has room for everything.
  *
- * My Courses, Chat and Profile live in the learner portal. Signed in, they open
+ * My Courses and Profile live in the learner portal. Signed in, they open
  * there directly, and a learner with no course yet still gets in: My Courses
  * then shows its empty state with an "Explore Courses" button. Signed out,
  * they lead to sign-in first and carry on to the same place afterwards.
@@ -60,12 +59,11 @@ export default function MobileTabBar() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-[108] grid grid-cols-5 border-t border-line bg-white pb-[env(safe-area-inset-bottom)] print:hidden sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-[108] grid grid-cols-4 border-t border-line bg-white pb-[env(safe-area-inset-bottom)] print:hidden sm:hidden"
     >
       {siteTab("/", "Home", Home, pathname === "/")}
       {siteTab("/courses", "Explore", Compass, pathname.startsWith("/courses"))}
       {portalTab("/courses", "My Courses", BookOpen)}
-      {portalTab("/chat", "Chat", MessageSquare)}
       {portalTab("/profile", "Profile", User)}
     </nav>
   );

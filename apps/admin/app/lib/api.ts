@@ -288,15 +288,13 @@ export function autoInvalidateOnMutation(url: string): void {
   }
 
   // Mutating a lead invalidates /leads, /meetings, /sessions, and /invoices
-  const isCrmOrMessages = /\/(leads|messages|conversations|contact)/.test(url);
+  const isCrmOrMessages = /\/(leads|contact)/.test(url);
   if (isCrmOrMessages) {
     invalidateCache("/leads");
     invalidateCache("/meetings");
     invalidateCache("/sessions");
     invalidateCache("/invoices");
     invalidateCache("/revenue");
-    invalidateCache("/messages");
-    invalidateCache("/messages/conversations");
     invalidateCache("/admin/dashboard");
     invalidateCache("/dashboard");
     return;
@@ -2537,3 +2535,535 @@ export function generateZoomMeetingLink(
     password: pwd,
   };
 }
+
+// =============================================================================
+// LEARNER PORTAL EXTENSIONS (NOTES, MATERIALS, DISCUSSIONS, RESUME STATE)
+// =============================================================================
+
+export interface LearnerNote {
+  id: string;
+  userId?: string;
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  title?: string;
+  content: string;
+  highlightSnippet?: string | null;
+  videoTimestampSec?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateLearnerNotePayload {
+  title?: string;
+  content: string;
+  programId?: string;
+  stepId?: string;
+  lessonId?: string;
+  videoTimestampSec?: number;
+  highlightSnippet?: string;
+}
+
+export interface UpdateLearnerNotePayload {
+  title?: string;
+  content?: string;
+  highlightSnippet?: string;
+  videoTimestampSec?: number;
+}
+
+export interface LessonMaterial {
+  id: string;
+  lessonId?: string;
+  title: string;
+  fileType: "PDF" | "ZIP" | "DOCX" | "AUDIO";
+  fileSizeLabel: string;
+  downloadUrl: string;
+  description?: string;
+}
+
+export interface LessonDiscussionReply {
+  id: string;
+  postId: string;
+  authorName: string;
+  authorAvatar?: string;
+  content: string;
+  createdAt: string;
+  likesCount: number;
+  isLiked?: boolean;
+}
+
+export interface LessonDiscussionPost {
+  id: string;
+  lessonId: string;
+  authorName: string;
+  authorAvatar?: string;
+  content: string;
+  createdAt: string;
+  likesCount: number;
+  isLiked?: boolean;
+  replies: LessonDiscussionReply[];
+}
+
+export interface LearnerResumeState {
+  programId: string;
+  moduleId: string;
+  lessonId: string;
+  activeTab: "video" | "quiz" | "notes" | "materials" | "discussions";
+  updatedAt: string;
+}
+
+// In-memory / localStorage fallback stores for demo and offline persistence
+const DEFAULT_LEARNER_MATERIALS: LessonMaterial[] = [
+  {
+    id: "mat-1",
+    lessonId: "les-3",
+    title: "Module 2 - Slides",
+    fileType: "PDF",
+    fileSizeLabel: "2.1 MB",
+    downloadUrl: "/docs/Executive_Leadership_Matrix.pdf",
+    description: "Slide deck covering learning management and core methodologies.",
+  },
+  {
+    id: "mat-2",
+    lessonId: "les-3",
+    title: "Exercise Files",
+    fileType: "ZIP",
+    fileSizeLabel: "5.4 MB",
+    downloadUrl: "#download-zip",
+    description: "Sample exercises, checklists, and template documents.",
+  },
+  {
+    id: "mat-3",
+    lessonId: "les-3",
+    title: "Reference Guide",
+    fileType: "PDF",
+    fileSizeLabel: "1.8 MB",
+    downloadUrl: "/docs/Executive_Leadership_Matrix.pdf",
+    description: "Comprehensive quick-reference manual for framework execution.",
+  },
+  {
+    id: "mat-4",
+    lessonId: "les-3",
+    title: "Cheat Sheet",
+    fileType: "PDF",
+    fileSizeLabel: "1.2 MB",
+    downloadUrl: "/docs/Executive_Leadership_Matrix.pdf",
+    description: "Single-page printable summary of key acronyms and decision models.",
+  },
+];
+
+const DEFAULT_LEARNER_DISCUSSIONS: LessonDiscussionPost[] = [
+  {
+    id: "disc-1",
+    lessonId: "les-3",
+    authorName: "Rahul Kumar",
+    authorAvatar: "R",
+    content: "Can someone explain the difference between Module and Lesson? When should we complete the quiz?",
+    createdAt: "2 hours ago",
+    likesCount: 4,
+    isLiked: false,
+    replies: [
+      {
+        id: "rep-1-1",
+        postId: "disc-1",
+        authorName: "Roweena Foxwel",
+        authorAvatar: "R",
+        content: "Great question! A module is a major curriculum milestone (e.g. Module 2), while lessons are individual topics within it. You can take the quiz once you've finished the core video lesson.",
+        createdAt: "1 hour ago",
+        likesCount: 2,
+        isLiked: true,
+      },
+    ],
+  },
+  {
+    id: "disc-2",
+    lessonId: "les-3",
+    authorName: "Priya Sharma",
+    authorAvatar: "P",
+    content: "The emotional regulation framework in section 3 is super applicable to crisis management. Has anyone tried applying the scorecard in team 1-on-1s?",
+    createdAt: "5 hours ago",
+    likesCount: 7,
+    isLiked: true,
+    replies: [],
+  },
+];
+
+export async function getLearnerNotes(params?: {
+  lessonId?: string;
+  search?: string;
+  sort?: "recent" | "oldest" | "lesson";
+}): Promise<LearnerNote[]> {
+  try {
+    const query = new URLSearchParams();
+    if (params?.lessonId) query.set("lessonId", params.lessonId);
+    if (params?.search) query.set("search", params.search);
+    const qs = query.toString();
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (token) {
+      const res = await fetch(`${API_URL}/notes${qs ? `?${qs}` : ""}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const raw = await res.json();
+        return raw.map((n: any) => ({
+          id: n.id,
+          userId: n.userId,
+          programId: n.programId,
+          stepId: n.stepId,
+          lessonId: n.lessonId,
+          title: n.highlightSnippet || "Key takeaway",
+          content: n.noteText,
+          videoTimestampSec: n.videoTimestampSeconds ?? null,
+          createdAt: n.createdAt,
+          updatedAt: n.updatedAt,
+        }));
+      }
+    }
+  } catch {
+    // fallback to local storage
+  }
+
+  // Local storage fallback for seamless preview & offline experience
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("wbm_learner_notes");
+      if (stored) {
+        let notes: LearnerNote[] = JSON.parse(stored);
+        if (params?.search) {
+          const q = params.search.toLowerCase();
+          notes = notes.filter(
+            (n) => n.content.toLowerCase().includes(q) || (n.title && n.title.toLowerCase().includes(q))
+          );
+        }
+        if (params?.sort === "oldest") {
+          notes.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        } else {
+          notes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+        return notes;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return [
+    {
+      id: "note-demo-1",
+      title: "Key takeaway - LMS Features",
+      content: "The LMS helps in managing courses, tracking progress, and engaging students effectively.",
+      videoTimestampSec: 145,
+      createdAt: "2026-10-23T10:25:00.000Z",
+      updatedAt: "2026-10-23T10:25:00.000Z",
+    },
+    {
+      id: "note-demo-2",
+      title: "Important point",
+      content: "Remember to check the analytics dashboard for detailed insights.",
+      videoTimestampSec: 280,
+      createdAt: "2026-10-23T10:10:00.000Z",
+      updatedAt: "2026-10-23T10:10:00.000Z",
+    },
+  ];
+}
+
+export async function createLearnerNote(payload: CreateLearnerNotePayload): Promise<LearnerNote> {
+  const newNote: LearnerNote = {
+    id: `note_${Date.now()}`,
+    programId: payload.programId,
+    stepId: payload.stepId,
+    lessonId: payload.lessonId,
+    title: payload.title || "Note",
+    content: payload.content,
+    videoTimestampSec: payload.videoTimestampSec,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (token) {
+      const res = await fetch(`${API_URL}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          programId: payload.programId,
+          stepId: payload.stepId,
+          lessonId: payload.lessonId,
+          noteText: payload.content,
+          highlightSnippet: payload.title,
+          videoTimestampSeconds: payload.videoTimestampSec,
+        }),
+      });
+      if (res.ok) {
+        const n = await res.json();
+        return {
+          id: n.id,
+          userId: n.userId,
+          programId: n.programId,
+          stepId: n.stepId,
+          lessonId: n.lessonId,
+          title: n.highlightSnippet || payload.title,
+          content: n.noteText,
+          videoTimestampSec: n.videoTimestampSeconds,
+          createdAt: n.createdAt,
+          updatedAt: n.updatedAt,
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Local storage save
+  if (typeof window !== "undefined") {
+    try {
+      const existing = await getLearnerNotes();
+      const updated = [newNote, ...existing];
+      localStorage.setItem("wbm_learner_notes", JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  }
+
+  return newNote;
+}
+
+export async function updateLearnerNote(
+  noteId: string,
+  payload: UpdateLearnerNotePayload
+): Promise<LearnerNote> {
+  try {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (token) {
+      await fetch(`${API_URL}/notes/${noteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          noteText: payload.content,
+          highlightSnippet: payload.title,
+          videoTimestampSeconds: payload.videoTimestampSec,
+        }),
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      const existing = await getLearnerNotes();
+      const updated = existing.map((n) =>
+        n.id === noteId
+          ? {
+              ...n,
+              title: payload.title !== undefined ? payload.title : n.title,
+              content: payload.content !== undefined ? payload.content : n.content,
+              updatedAt: new Date().toISOString(),
+            }
+          : n
+      );
+      localStorage.setItem("wbm_learner_notes", JSON.stringify(updated));
+      const found = updated.find((n) => n.id === noteId);
+      if (found) return found;
+    } catch {
+      // ignore
+    }
+  }
+
+  return {
+    id: noteId,
+    title: payload.title,
+    content: payload.content || "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function deleteLearnerNote(noteId: string): Promise<{ success: boolean; id: string }> {
+  try {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (token) {
+      await fetch(`${API_URL}/notes/${noteId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      const existing = await getLearnerNotes();
+      const updated = existing.filter((n) => n.id !== noteId);
+      localStorage.setItem("wbm_learner_notes", JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  }
+
+  return { success: true, id: noteId };
+}
+
+export async function getLessonMaterials(lessonId?: string, search?: string): Promise<LessonMaterial[]> {
+  let list = [...DEFAULT_LEARNER_MATERIALS];
+  if (lessonId) {
+    // Return materials or general items
+    const matching = list.filter((m) => m.lessonId === lessonId);
+    if (matching.length > 0) list = matching;
+  }
+  if (search && search.trim()) {
+    const q = search.toLowerCase();
+    list = list.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.fileType.toLowerCase().includes(q) ||
+        (m.description && m.description.toLowerCase().includes(q))
+    );
+  }
+  return list;
+}
+
+export async function getLessonDiscussions(
+  lessonId: string,
+  filter?: "all" | "my",
+  search?: string
+): Promise<LessonDiscussionPost[]> {
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem(`wbm_discussions_${lessonId}`);
+      if (stored) {
+        let items: LessonDiscussionPost[] = JSON.parse(stored);
+        if (filter === "my") {
+          items = items.filter((p) => p.authorName.toLowerCase().includes("sahyadri") || p.authorName.toLowerCase().includes("roweena"));
+        }
+        if (search && search.trim()) {
+          const q = search.toLowerCase();
+          items = items.filter((p) => p.content.toLowerCase().includes(q) || p.authorName.toLowerCase().includes(q));
+        }
+        return items;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return DEFAULT_LEARNER_DISCUSSIONS;
+}
+
+export async function createLessonDiscussionPost(
+  lessonId: string,
+  content: string,
+  authorName: string = "sahyadri"
+): Promise<LessonDiscussionPost> {
+  const newPost: LessonDiscussionPost = {
+    id: `disc_${Date.now()}`,
+    lessonId,
+    authorName,
+    authorAvatar: authorName.charAt(0).toUpperCase(),
+    content,
+    createdAt: "Just now",
+    likesCount: 0,
+    isLiked: false,
+    replies: [],
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      const current = await getLessonDiscussions(lessonId);
+      const updated = [newPost, ...current];
+      localStorage.setItem(`wbm_discussions_${lessonId}`, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  }
+  return newPost;
+}
+
+export async function replyToLessonDiscussion(
+  postId: string,
+  content: string,
+  authorName: string = "sahyadri",
+  lessonId: string = "les-3"
+): Promise<LessonDiscussionReply> {
+  const newReply: LessonDiscussionReply = {
+    id: `rep_${Date.now()}`,
+    postId,
+    authorName,
+    authorAvatar: authorName.charAt(0).toUpperCase(),
+    content,
+    createdAt: "Just now",
+    likesCount: 0,
+    isLiked: false,
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      const current = await getLessonDiscussions(lessonId);
+      const updated = current.map((p) => {
+        if (p.id === postId) {
+          return { ...p, replies: [...p.replies, newReply] };
+        }
+        return p;
+      });
+      localStorage.setItem(`wbm_discussions_${lessonId}`, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  }
+  return newReply;
+}
+
+export async function toggleDiscussionLike(
+  postId: string,
+  lessonId: string = "les-3"
+): Promise<{ postId: string; likesCount: number; isLiked: boolean }> {
+  let result = { postId, likesCount: 1, isLiked: true };
+  if (typeof window !== "undefined") {
+    try {
+      const current = await getLessonDiscussions(lessonId);
+      const updated = current.map((p) => {
+        if (p.id === postId) {
+          const isLiked = !p.isLiked;
+          const likesCount = isLiked ? p.likesCount + 1 : Math.max(0, p.likesCount - 1);
+          result = { postId, likesCount, isLiked };
+          return { ...p, isLiked, likesCount };
+        }
+        return p;
+      });
+      localStorage.setItem(`wbm_discussions_${lessonId}`, JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  }
+  return result;
+}
+
+export function saveLearnerResumeState(state: Partial<LearnerResumeState>): void {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = getLearnerResumeState();
+    const updated: LearnerResumeState = {
+      programId: state.programId || existing?.programId || "prog-1",
+      moduleId: state.moduleId || existing?.moduleId || "step-2",
+      lessonId: state.lessonId || existing?.lessonId || "les-3",
+      activeTab: state.activeTab || existing?.activeTab || "video",
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem("wbm_learner_resume_state", JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+}
+
+export function getLearnerResumeState(): LearnerResumeState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = localStorage.getItem("wbm_learner_resume_state");
+    if (stored) return JSON.parse(stored);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+

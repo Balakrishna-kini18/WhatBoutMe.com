@@ -152,9 +152,6 @@ function Courses() {
       <header className={dash.pageHeader}>
         <div>
           <h1 className={dash.pageTitle}>My Courses</h1>
-          <p className={dash.pageSubtitle}>
-            Your courses and what is left to do in each.
-          </p>
         </div>
       </header>
 
@@ -318,7 +315,6 @@ function Courses() {
                             : `${course.completedItems ?? 0} of ${course.totalItems ?? 0} done`}
                         </span>
                       </p>
-                      <p className={dash.muted}>Cohort: {course.batchName}</p>
                       <div className={dash.progressLine}>
                         <div
                           className={dash.progress}

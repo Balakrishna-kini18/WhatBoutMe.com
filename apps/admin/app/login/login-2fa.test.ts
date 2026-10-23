@@ -278,7 +278,7 @@ describe('Admin 2FA / TOTP Frontend Flows (D1-022)', () => {
 
       // MANAGER is batch-scoped: can only access batch sessions, attendance, and direct messaging
       if (user.role === 'MANAGER') {
-        const allowedPrefixes = ['/batches', '/sessions', '/attendance', '/messages'];
+        const allowedPrefixes = ['/batches', '/sessions', '/attendance'];
         const isRestrictedGlobal = ['/programs/create', '/revenue', '/settings', '/users'].some(p => route.startsWith(p));
         if (isRestrictedGlobal) return false;
         return allowedPrefixes.some(p => route.startsWith(p));

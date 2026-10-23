@@ -109,7 +109,6 @@ export default function CertificatesPage() {
       <header className={dash.pageHeader}>
         <div>
           <h1 className={dash.pageTitle}>My Certificates</h1>
-          <p className={dash.pageSubtitle}>Your verified credentials.</p>
         </div>
       </header>
 
@@ -155,10 +154,11 @@ export default function CertificatesPage() {
                       />
                       <div className={dash.rowMain}>
                         <p className={dash.rowTitle}>
-                          {course.programTitle} <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
+                          <span>{course.programTitle}</span>
+                          <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
                         </p>
                         <p className={dash.muted}>
-                          {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : `Cohort: ${course.batchName}`}
+                          {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : "In Progress"}
                         </p>
                         <div className={dash.progressLine}>
                           <div className={dash.progress} role="progressbar" aria-valuenow={course.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${course.programTitle} progress`}>

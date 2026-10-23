@@ -82,6 +82,21 @@ export class QuizzesController {
     return this.quizzesService.submitQuiz(id, req.user, dto);
   }
 
+  @Get('attempts/active')
+  getActiveAttemptByStep(
+    @Query('stepId') stepId: string,
+    @Query('quizId') quizId: string,
+    @Request() req: any,
+  ) {
+    if (quizId) {
+      return this.quizzesService.getActiveAttempt(quizId, req.user);
+    }
+    if (stepId) {
+      return this.quizzesService.getActiveAttemptByStepId(stepId, req.user);
+    }
+    return null;
+  }
+
   @Get(':id/attempt')
   getActiveAttempt(@Param('id') id: string, @Request() req: any) {
     return this.quizzesService.getActiveAttempt(id, req.user);

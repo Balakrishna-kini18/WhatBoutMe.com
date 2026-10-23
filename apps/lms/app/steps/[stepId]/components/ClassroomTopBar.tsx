@@ -49,7 +49,7 @@ export default function ClassroomTopBar({
     }
   };
 
-  const cohortName = batchName || programTitle || "Course Curriculum";
+  const cohortName = programTitle || batchName || "Course Curriculum";
   const displayLesson = currentLessonTitle || stepTitle;
 
   return (

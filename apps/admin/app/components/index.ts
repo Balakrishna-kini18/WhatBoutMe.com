@@ -28,3 +28,5 @@ export type { TableSkeletonProps } from "./TableSkeleton";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 
+export { AgreementMarkdown } from "./AgreementMarkdown";
+

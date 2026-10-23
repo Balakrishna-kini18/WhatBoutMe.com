@@ -67,11 +67,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Quiz state
   const [activeQuizIndex, setActiveQuizIndex] = useState(0);
+  const [attemptQuestions, setAttemptQuestions] = useState<QuizQuestion[] | null>(null);
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
+  const [isStartingQuiz, setIsStartingQuiz] = useState(false);
   const [lastQuizResult, setLastQuizResult] = useState<any>(null);
   const [quizError, setQuizError] = useState<string | null>(null);
   const [activeAttemptId, setActiveAttemptId] = useState<string | null>(null);
+  const isStartingQuizRef = useRef<boolean>(false);
+  const hasAttemptedQuizStartRef = useRef<Record<string, boolean>>({});
 
   // User state
   const [userName, setUserName] = useState<string>("Learner");
@@ -219,10 +223,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (attemptText) {
             const attemptData = JSON.parse(attemptText);
             if (attemptData) {
+              if (Array.isArray(attemptData.questions) && attemptData.questions.length > 0) {
+                setAttemptQuestions(attemptData.questions);
+              }
               if (attemptData.status === "IN_PROGRESS") {
                 setActiveAttemptId(attemptData.attemptId || attemptData.id || null);
               } else if (attemptData.score !== undefined && attemptData.status !== "IN_PROGRESS") {
-                setActiveAttemptId(attemptData.attemptId || attemptData.id || null);
+                setActiveAttemptId(null);
                 setLastQuizResult(attemptData);
               }
             }
@@ -279,22 +286,69 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     }
   }, [currentMedia?.id, loadNotesForLesson]);
 
-  // Proactively pre-warm quiz attempt in background when user views quiz tab
+  // Determine Current Step Progression & Quiz Unlocked Status
+  const currentStepProg = progression?.steps?.find((s: any) => s.stepId === stepId);
+  const effectiveQuizPlacement =
+    step?.quiz?.quizPlacement ||
+    (step as any)?.quizPlacement ||
+    (currentStepProg as any)?.quizPlacement ||
+    "AFTER_VIDEO";
+
+  const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
+  const isQuizAlreadyPassed = Boolean(lastQuizResult?.passed || (currentStepProg as any)?.quiz?.isPassed);
+  const mediaLessons = allLessons.filter((l: any) => l.type === "VIDEO" || l.type === "AUDIO" || !l.type);
+  const areAllVideosDone =
+    mediaLessons.length === 0 ||
+    mediaLessons.every((l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
+
+  const isQuizUnlocked = Boolean(
+    isManuallyUnlocked ||
+    isQuizAlreadyPassed ||
+    effectiveQuizPlacement === "BEFORE_VIDEO" ||
+    areAllVideosDone
+  );
+
+  // Proactively pre-warm quiz attempt in background when user views quiz tab AND quiz is unlocked
   useEffect(() => {
-    if (activeTab === "quiz" && step?.quiz?.id && !activeAttemptId && !lastQuizResult?.passed) {
-      fetch(`${API_URL}/quizzes/${step.quiz.id}/start`, {
+    const qId = step?.quiz?.id;
+    if (
+      activeTab === "quiz" &&
+      isQuizUnlocked &&
+      qId &&
+      !activeAttemptId &&
+      !lastQuizResult &&
+      !hasAttemptedQuizStartRef.current[qId] &&
+      !isStartingQuizRef.current
+    ) {
+      isStartingQuizRef.current = true;
+      hasAttemptedQuizStartRef.current[qId] = true;
+      fetch(`${API_URL}/quizzes/${qId}/start`, {
         method: "POST",
         headers: getAuthHeaders(),
       })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.attemptId || data?.id) {
-            setActiveAttemptId(data.attemptId || data.id);
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.attemptId || data?.id) {
+              setActiveAttemptId(data.attemptId || data.id);
+              if (Array.isArray(data.questions) && data.questions.length > 0) {
+                setAttemptQuestions(data.questions);
+              }
+            }
+          } else {
+            const errData = await res.json().catch(() => null);
+            if (errData?.message) {
+              const msg = Array.isArray(errData.message) ? errData.message.join(", ") : errData.message;
+              setQuizError(msg);
+            }
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          isStartingQuizRef.current = false;
+        });
     }
-  }, [activeTab, step?.quiz?.id, activeAttemptId, lastQuizResult?.passed]);
+  }, [activeTab, isQuizUnlocked, step?.quiz?.id, activeAttemptId, lastQuizResult]);
 
   // Handle Save Note
   const handleSaveNote = async () => {
@@ -423,10 +477,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   // Lesson Completion
   const handleLessonComplete = async (lessonId: string) => {
     try {
-      await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
+      const lesson = allLessons.find((l: any) => l.id === lessonId);
+      if (lesson && lesson.type !== "VIDEO" && lesson.type !== "AUDIO") {
+        await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+        });
+      }
       setLessonProgress((prev) => ({
         ...prev,
         [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true },
@@ -467,11 +524,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Quiz submission
   const handleQuizSubmit = async () => {
-    if (!step?.quiz?.id) return;
+    if (!step?.quiz?.id || isSubmittingQuiz) return;
+
+    const questionsList: QuizQuestion[] = (attemptQuestions && attemptQuestions.length > 0)
+      ? attemptQuestions
+      : (quizQuestions || []);
+
+    const unanswered = questionsList.some((q) => !quizAnswers[q.id]);
+    if (unanswered) {
+      setQuizError("Please select an answer for all questions before submitting.");
+      return;
+    }
+
     setIsSubmittingQuiz(true);
     setQuizError(null);
 
-    const questionsList: QuizQuestion[] = quizQuestions || [];
     const submissionDto: any = {
       attemptId: activeAttemptId || undefined,
       answers: questionsList.map((q) => ({
@@ -488,7 +555,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.message || "Failed to submit quiz");
+        const errorMsg = Array.isArray(data?.message) ? data.message.join(", ") : data?.message;
+        throw new Error(errorMsg || "Failed to submit quiz");
       }
       setLastQuizResult(data);
       setActiveAttemptId(null);
@@ -509,7 +577,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   };
 
   // Calculate Progress Percentages
-  const currentStepProg = progression?.steps?.find((s: any) => s.stepId === stepId);
   const isStepCompleted = currentStepProg?.isCompleted || step?.isCompleted;
   const isStepUnlocked = currentStepProg ? currentStepProg.isUnlocked : true;
 
@@ -522,6 +589,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     totalLessonsCount > 0
       ? Math.round((completedLessonsCount / totalLessonsCount) * 100)
       : currentStepProg?.progressPercent || 0;
+
+
 
   // Loading State
   if (loading && !step) {
@@ -585,7 +654,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     ],
   };
 
-  const quizQuestions: QuizQuestion[] = (step?.quiz?.questions && step.quiz.questions.length > 0)
+  const quizQuestions: QuizQuestion[] = (attemptQuestions && attemptQuestions.length > 0)
+    ? attemptQuestions
+    : (step?.quiz?.questions && step.quiz.questions.length > 0)
     ? step.quiz.questions
     : [
         defaultFallbackQuestion,
@@ -644,14 +715,26 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         >
           Next Part ({nextLesson.title}) &rarr;
         </button>
-      ) : step?.quiz ? (
-        <button
-          type="button"
-          onClick={() => setActiveTab("quiz")}
-          className={styles.btnPrimaryOrange}
-        >
-          Take Module Quiz &rarr;
-        </button>
+      ) : step?.quiz && !isQuizAlreadyPassed ? (
+        isQuizUnlocked ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab("quiz")}
+            className={styles.btnPrimaryOrange}
+          >
+            Take Module Quiz &rarr;
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled
+            className={styles.btnSecondaryOutline}
+            style={{ opacity: 0.6, cursor: "not-allowed" }}
+            title="Complete all video lessons in this module to unlock the quiz"
+          >
+            🔒 Complete all parts to unlock Quiz
+          </button>
+        )
       ) : nextStep && nextStepId ? (
         <button
           type="button"
@@ -714,16 +797,26 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
             <button
               type="button"
-              onClick={() => setActiveTab("quiz")}
-              className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""}`}
+              onClick={() => {
+                if (isQuizUnlocked) {
+                  setActiveTab("quiz");
+                }
+              }}
+              className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
+              title={
+                !isQuizUnlocked
+                  ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
+                  : "Take Module Quiz"
+              }
             >
-              <span>📝</span>
+              <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
               <span>Quiz</span>
-              {quizQuestions.length > 0 && (
+              {quizQuestions.length > 0 && isQuizUnlocked && (
                 <span className={styles.learningTabCount}>{quizQuestions.length}</span>
               )}
             </button>
 
+            {/* Notes Tab Button - hidden per user request
             <button
               type="button"
               onClick={() => setActiveTab("notes")}
@@ -733,6 +826,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               <span>Notes</span>
               {notes.length > 0 && <span className={styles.learningTabCount}>{notes.length}</span>}
             </button>
+            */}
 
             <button
               type="button"
@@ -1001,7 +1095,37 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
           {activeTab === "quiz" && (
             <div>
-
+              {!isQuizUnlocked ? (
+                <div className={styles.quizLockedCard}>
+                  <div className={styles.quizLockedIcon}>🔒</div>
+                  <h3 className={styles.quizLockedTitle}>Module Quiz Locked</h3>
+                  <p className={styles.quizLockedSubtitle}>
+                    {effectiveQuizPlacement === "AFTER_VIDEO"
+                      ? `This comprehension quiz unlocks automatically after you complete all video lessons in Step ${step?.sequence}.`
+                      : "Please complete the prerequisites to unlock this quiz."}
+                  </p>
+                  <div className={styles.quizLockedProgressWrap}>
+                    <div
+                      className={styles.quizLockedProgressBar}
+                      style={{
+                        width: `${Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <p className={styles.quizLockedCount}>
+                    {completedLessonsCount} of {totalLessonsCount} lessons watched ({Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("video")}
+                    className={styles.btnPrimaryOrange}
+                    style={{ marginTop: "1rem" }}
+                  >
+                    ▶ Watch Video Lessons
+                  </button>
+                </div>
+              ) : (
+                <>
               {quizError && (
                 <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.86rem" }}>
                   {quizError}
@@ -1031,26 +1155,43 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   {!lastQuizResult.passed && (
                     <button
                       type="button"
+                      disabled={isStartingQuiz}
                       onClick={async () => {
-                        setLastQuizResult(null);
+                        setQuizError(null);
                         setQuizAnswers({});
                         setActiveQuizIndex(0);
-                        setQuizError(null);
+                        setIsStartingQuiz(true);
+                        if (step?.quiz?.id) {
+                          hasAttemptedQuizStartRef.current[step.quiz.id] = false;
+                        }
                         try {
                           const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
                             method: "POST",
                             headers: getAuthHeaders(),
                           });
+                          const startData = await startRes.json();
                           if (startRes.ok) {
-                            const startData = await startRes.json();
+                            setLastQuizResult(null);
                             setActiveAttemptId(startData.attemptId || startData.id);
+                            if (Array.isArray(startData.questions) && startData.questions.length > 0) {
+                              setAttemptQuestions(startData.questions);
+                            }
+                          } else {
+                            const errorMsg = Array.isArray(startData?.message)
+                              ? startData.message.join(", ")
+                              : startData?.message;
+                            setQuizError(errorMsg || "Failed to start a new quiz attempt");
                           }
-                        } catch (e) {}
+                        } catch (e: any) {
+                          setQuizError(e.message || "Failed to start quiz attempt");
+                        } finally {
+                          setIsStartingQuiz(false);
+                        }
                       }}
                       className={styles.btnPrimaryOrange}
-                      style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: "pointer", marginRight: 8 }}
+                      style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: isStartingQuiz ? "wait" : "pointer", marginRight: 8 }}
                     >
-                      Try Again &rarr;
+                      {isStartingQuiz ? "Starting..." : "Try Again →"}
                     </button>
                   )}
                   {lastQuizResult.passed && nextStep && nextStepId && (
@@ -1182,13 +1323,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </div>
                 </div>
               </div>
+                </>
+              )}
             </div>
           )}
 
-          {/* TAB 3: DEDICATED NOTES MANAGER (SCREEN 5) */}
+          {/* TAB 3: DEDICATED NOTES MANAGER (SCREEN 5) - hidden per user request */}
+          {/*
           {activeTab === "notes" && (
             <div className={styles.notesTabStack}>
-              {/* Note Taking Card */}
               <div className={styles.noteEditorCard}>
                 <textarea
                   value={noteInput}
@@ -1235,7 +1378,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               </div>
 
-              {/* Your Notes Feed */}
               <div>
                 <div className={styles.yourNotesHeaderRow}>
                   <h3 className={styles.yourNotesCountTitle}>Your Notes ({notes.length})</h3>
@@ -1304,6 +1446,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
             </div>
           )}
+          */}
 
           {/* TAB 4: LEARNING MATERIALS (SCREEN 6) */}
           {activeTab === "materials" && (
@@ -1372,7 +1515,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             ) : (
               <span />
             )}
-            {nextStep && nextStepId ? (
+            {step?.quiz && !isQuizAlreadyPassed && !isStepCompleted ? (
+              isQuizUnlocked ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("quiz")}
+                  className={styles.btnPrimaryOrange}
+                >
+                  Take Module Quiz &rarr;
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className={styles.btnSecondaryOutline}
+                  style={{ opacity: 0.6, cursor: "not-allowed" }}
+                  title="Complete all video lessons in this module to unlock the quiz"
+                >
+                  🔒 Complete all parts to unlock Quiz
+                </button>
+              )
+            ) : nextStep && nextStepId ? (
               <button
                 type="button"
                 onClick={() => router.push(`/steps/${nextStepId}`)}

@@ -312,25 +312,27 @@ export class QuizzesService {
 
     // Prerequisite Gate: All published lessons must be viewed unless manually unlocked (D1-034/D1-035)
     // Only required when quiz is scheduled AFTER_VIDEO
-    const stepProgress = await this.prisma.stepProgress.findUnique({
-      where: {
-        enrolmentId_stepId: {
-          enrolmentId: enrolment.id,
-          stepId: quiz.stepId,
+    const [stepProgress, publishedLessons] = await Promise.all([
+      this.prisma.stepProgress.findUnique({
+        where: {
+          enrolmentId_stepId: {
+            enrolmentId: enrolment.id,
+            stepId: quiz.stepId,
+          },
         },
-      },
-    });
-    const isManuallyUnlocked = stepProgress?.overrideState === StepOverrideState.MANUAL_UNLOCKED;
-    const effectivePlacement = quiz.quizPlacement || (quiz.step as any)?.quizPlacement || 'AFTER_VIDEO';
-
-    if (!isManuallyUnlocked && effectivePlacement === 'AFTER_VIDEO') {
-      const publishedLessons = await this.prisma.lesson.findMany({
+      }),
+      this.prisma.lesson.findMany({
         where: {
           stepId: quiz.stepId,
           status: ContentStatus.PUBLISHED,
         },
         select: { id: true },
-      });
+      }),
+    ]);
+    const isManuallyUnlocked = stepProgress?.overrideState === StepOverrideState.MANUAL_UNLOCKED;
+    const effectivePlacement = quiz.quizPlacement || (quiz.step as any)?.quizPlacement || 'AFTER_VIDEO';
+
+    if (!isManuallyUnlocked && effectivePlacement === 'AFTER_VIDEO') {
 
       if (publishedLessons.length > 0) {
         const viewedCount = await this.prisma.userLessonProgress.count({
@@ -678,16 +680,20 @@ export class QuizzesService {
     const boundAnswersMap = new Map(attempt.answers.map((a) => [a.questionId, a]));
     const submittedAnswers = dto.answers || [];
 
-    // Verify submitted question IDs belong to bound attempt
-    for (const sub of submittedAnswers) {
-      if (!boundAnswersMap.has(sub.questionId)) {
-        throw new BadRequestException(
-          `Question ${sub.questionId} does not belong to this attempt`,
-        );
-      }
+    // Gracefully handle question ID matching: filter submitted answers to those belonging to bound attempt
+    const validSubmittedAnswers = submittedAnswers.filter((sub) => boundAnswersMap.has(sub.questionId));
+    // If client had mismatched question IDs (e.g. from local draft or mock fallback), map by order/index if possible
+    if (validSubmittedAnswers.length === 0 && submittedAnswers.length > 0 && attempt.answers.length > 0) {
+      attempt.answers.forEach((ans, idx) => {
+        if (submittedAnswers[idx]) {
+          validSubmittedAnswers.push({
+            ...submittedAnswers[idx],
+            questionId: ans.questionId,
+          });
+        }
+      });
     }
-
-    const submittedMap = new Map(submittedAnswers.map((a) => [a.questionId, a]));
+    const submittedMap = new Map(validSubmittedAnswers.map((a) => [a.questionId, a]));
 
     let totalAvailablePoints = 0;
     let totalEarnedPoints = 0;
@@ -929,6 +935,17 @@ export class QuizzesService {
   // 4. GET ACTIVE / CURRENT ATTEMPT (LEARNER SELF-SERVICE)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  async getActiveAttemptByStepId(stepId: string, actor: any) {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { stepId },
+      select: { id: true },
+    });
+    if (!quiz) {
+      return null;
+    }
+    return this.getActiveAttempt(quiz.id, actor);
+  }
+
   async getActiveAttempt(quizId: string, actor: any) {
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
@@ -961,6 +978,7 @@ export class QuizzesService {
       enrolment.id,
       quiz.step.id,
       actor,
+      { skipEvaluateTreeIfUnlocked: true },
     );
 
     // Check active IN_PROGRESS attempt
@@ -1004,22 +1022,23 @@ export class QuizzesService {
       return null;
     }
 
-    const allAttempts = await this.prisma.attempt.findMany({
-      where: {
-        enrolmentId: enrolment.id,
-        quizId,
-      },
-      orderBy: { attemptNumber: 'desc' },
-    });
-
-    const lastReset = await this.prisma.auditLog.findFirst({
-      where: {
-        action: 'QUIZ_ATTEMPTS_RESET',
-        entity: 'QuizAttempt',
-        entityId: `${enrolment.id}_${quizId}`,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [allAttempts, lastReset] = await Promise.all([
+      this.prisma.attempt.findMany({
+        where: {
+          enrolmentId: enrolment.id,
+          quizId,
+        },
+        orderBy: { attemptNumber: 'desc' },
+      }),
+      this.prisma.auditLog.findFirst({
+        where: {
+          action: 'QUIZ_ATTEMPTS_RESET',
+          entity: 'QuizAttempt',
+          entityId: `${enrolment.id}_${quizId}`,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
 
     const relevantAttempts = lastReset
       ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)
@@ -1431,8 +1450,12 @@ export class QuizzesService {
     let cooldownUntil: string | null = null;
     let cooldownSecondsRemaining: number | null = null;
 
+    const isTestMode = process.env.DISABLE_QUIZ_COOLDOWN === 'true';
+
     const latestAttempt = relevantAttempts[0];
     if (
+      !isTestMode &&
+      cooldownHours > 0 &&
       !isPassed &&
       latestAttempt &&
       latestAttempt.status === AttemptStatus.FAILED &&

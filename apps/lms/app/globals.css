@@ -67,6 +67,11 @@
   --topbar-h: 3rem;
 }
 
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 body {
   /* next/font sets --font-dm-sans etc. on body, so the font tokens must be
      declared here too; on :root those variables do not exist yet and the

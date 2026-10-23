@@ -152,9 +152,6 @@ function Courses() {
       <header className={dash.pageHeader}>
         <div>
           <h1 className={dash.pageTitle}>My Courses</h1>
-          <p className={dash.pageSubtitle}>
-            Your courses and what is left to do in each.
-          </p>
         </div>
       </header>
 

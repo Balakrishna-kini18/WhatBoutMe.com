@@ -193,16 +193,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     <div className={styles.container}>
       {/* Page Header */}
       <header className={styles.header}>
-        <Link href="/" className={styles.backLink}>
-          {ArrowLeft}
-          <span>Back to Dashboard</span>
+        <Link href="/" className={styles.backLink} title="Back">
+          <span className={styles.backIconWrap}>{ArrowLeft}</span>
+          <span className={styles.backText}>Back</span>
         </Link>
+        <span className={styles.headerDivider} aria-hidden="true" />
         <h1 className={styles.title}>
           {progression?.programTitle ? `${progression.programTitle} — Learning Path` : "Sigma 1 — Learning Path"}
         </h1>
-        <p className={styles.subtitle}>
-          Complete each step to advance and unlock your certificate.
-        </p>
       </header>
 
       {/* ENROLMENT STATUS ALERT (When Inactive / Pending) */}
@@ -301,9 +299,12 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
             <section className={styles.card} aria-labelledby="steps-heading">
               <div className={styles.cardHead}>
                 <h2 id="steps-heading" className={styles.cardTitle}>Steps</h2>
-                <span className={styles.cardMeta}>
-                  {loading ? "" : `${done} of ${total} completed`}
-                </span>
+                {!loading && total > 0 && (
+                  <span className={styles.cardMetaBadge}>
+                    <span className={styles.cardMetaDot} aria-hidden="true" />
+                    {done} of {total} completed
+                  </span>
+                )}
               </div>
 
               {loading ? (
@@ -367,19 +368,38 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   style={{ width: `${Math.min(100, Math.max(0, step.progressPercent))}%` }}
                                 />
                               </div>
-                              <span className={styles.stepProgressText}>
-                                {step.completedItems ?? 0} of {step.totalItems ?? 0} completed ({step.progressPercent}%)
-                              </span>
+                              <div className={styles.stepProgressMetaRow}>
+                                <span className={styles.stepProgressText}>
+                                  {step.completedItems ?? 0} of {step.totalItems ?? 0} completed
+                                </span>
+                                <span className={styles.stepProgressPercentText}>
+                                  {step.progressPercent}%
+                                </span>
+                              </div>
                             </div>
                           )}
 
-                          {/* Quiz Note */}
+                          {/* Quiz Note & Badges */}
                           {!isLocked && step.quiz && (
-                            <p className={styles.quizNote}>
-                              {step.quiz.isPassed
-                                ? `Quiz Passed (${step.quiz.bestScore}%)`
-                                : `Includes knowledge check (Pass mark: ${step.quiz.passMark}%)`}
-                            </p>
+                            <div className={styles.quizNoteWrap}>
+                              {step.quiz.isPassed ? (
+                                <span className={styles.quizPassedBadge}>
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                  Quiz Passed ({step.quiz.bestScore}%)
+                                </span>
+                              ) : (
+                                <span className={styles.quizRequiredBadge}>
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="12" y1="8" x2="12" y2="12" />
+                                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                                  </svg>
+                                  Knowledge Check (Pass mark: {step.quiz.passMark}%)
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -399,6 +419,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               title={formatLockReason(step)}
                               aria-disabled="true"
                             >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
+                                <rect x="4" y="11" width="16" height="10" rx="2" />
+                                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                              </svg>
                               Locked
                             </span>
                           )}

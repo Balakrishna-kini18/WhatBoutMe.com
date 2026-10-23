@@ -802,16 +802,16 @@ export class ProgressionService {
     // 1 & 2. Concurrently fetch published steps, learner evidence, and agreements
     const agreementPromise = enrolment.signedAgreement !== undefined || !this.prisma.signedAgreement?.findUnique
       ? Promise.resolve(enrolment.signedAgreement ?? null)
-      : this.prisma.signedAgreement.findUnique({
+      : Promise.resolve(this.prisma.signedAgreement.findUnique({
           where: { enrolmentId: enrolment.id },
-        }).catch(() => null);
+        })).catch(() => null);
 
     const templatePromise = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT || !this.prisma.agreementTemplate?.findFirst
       ? Promise.resolve(null)
-      : this.prisma.agreementTemplate.findFirst({
+      : Promise.resolve(this.prisma.agreementTemplate.findFirst({
           where: { programId: enrolment.programId },
           select: { id: true },
-        }).catch(() => null);
+        })).catch(() => null);
 
     const [
       publishedSteps,
@@ -1490,7 +1490,7 @@ export class ProgressionService {
 
     // Progression evaluation trigger whenever viewed changes or is completed or ended
     const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
-    const shouldInvalidate = transitionToCompleted || viewed || Boolean(isEnded) || newProgressPercent >= 90;
+    const shouldInvalidate = transitionToCompleted || Boolean(isEnded);
 
     if (shouldInvalidate && this.cacheHelper) {
       await Promise.allSettled([

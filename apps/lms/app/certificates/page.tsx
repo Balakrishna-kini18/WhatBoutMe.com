@@ -109,7 +109,6 @@ export default function CertificatesPage() {
       <header className={dash.pageHeader}>
         <div>
           <h1 className={dash.pageTitle}>My Certificates</h1>
-          <p className={dash.pageSubtitle}>Your verified credentials.</p>
         </div>
       </header>
 

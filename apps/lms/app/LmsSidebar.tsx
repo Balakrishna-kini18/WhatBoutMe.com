@@ -91,8 +91,7 @@ export default function LmsSidebar() {
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -125,24 +124,13 @@ export default function LmsSidebar() {
     }
   }, [pathname]);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!profileDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setProfileDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [profileDropdownOpen]);
+
 
   // Reset modal state on route change
   useEffect(() => {
     setShowSignOutConfirm(false);
     setIsLoggingOut(false);
     setLogoutError(null);
-    setProfileDropdownOpen(false);
   }, [pathname]);
 
   // Listen to open-signout-modal event dispatched from topbar or profile page
@@ -241,20 +229,12 @@ export default function LmsSidebar() {
           </Link>
         </div>
 
-        {/* 2. Integrated Profile / Avatar Section with dropdown chevron */}
-        <div ref={dropdownRef} style={{ position: "relative", width: "100%" }}>
-          <div
-            className={styles.userProfile}
-            onClick={() => setProfileDropdownOpen((prev) => !prev)}
-            title="Profile & Quick Links"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setProfileDropdownOpen((prev) => !prev);
-              }
-            }}
+        {/* 2. Integrated Profile / Avatar Section with direct link to /profile */}
+        <div style={{ position: "relative", width: "100%" }}>
+          <Link
+            href="/profile"
+            className={`${styles.userProfile} ${pathname === "/profile" ? styles.userProfileActive : ""}`}
+            title="My Profile"
           >
             <div className={styles.avatarWrap}>
               <div className={styles.avatar}>
@@ -270,124 +250,10 @@ export default function LmsSidebar() {
             <div className={styles.userInfo}>
               <h4 className={styles.userNameRow}>
                 <span>{displayName}</span>
-                <span style={{ color: "#64748B", display: "inline-flex", transform: profileDropdownOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }}>
-                  <Icons.Chevron />
-                </span>
               </h4>
+              <span className={styles.userProfileSubtext}>My Profile</span>
             </div>
-          </div>
-
-          {/* Profile Popover Menu (Houses "My Profile" per strict architectural rule) */}
-          {profileDropdownOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "100%",
-                left: 0,
-                right: 0,
-                background: "#ffffff",
-                border: "1px solid #ece6dd",
-                borderRadius: "12px",
-                boxShadow: "0 10px 25px -5px rgba(28, 25, 23, 0.12)",
-                padding: "6px",
-                zIndex: 60,
-              }}
-            >
-              <Link
-                href="/profile"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 10px",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  color: "#18181b",
-                  textDecoration: "none",
-                  fontWeight: 600,
-                }}
-                onClick={() => setProfileDropdownOpen(false)}
-              >
-                <span>My Profile</span>
-              </Link>
-              <Link
-                href="/live"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 10px",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  color: "#18181b",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                }}
-                onClick={() => setProfileDropdownOpen(false)}
-              >
-                <span>Live Sessions</span>
-              </Link>
-              <Link
-                href="/attendance"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 10px",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  color: "#18181b",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                }}
-                onClick={() => setProfileDropdownOpen(false)}
-              >
-                <span>Attendance</span>
-              </Link>
-              <Link
-                href="/certificates"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 10px",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  color: "#18181b",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                }}
-                onClick={() => setProfileDropdownOpen(false)}
-              >
-                <span>Certificates</span>
-              </Link>
-              <div style={{ height: "1px", background: "#ece6dd", margin: "4px 0" }} />
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileDropdownOpen(false);
-                  openSignOutConfirm();
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "8px 10px",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  color: "#dc2626",
-                  background: "transparent",
-                  border: "none",
-                  fontWeight: 600,
-                  width: "100%",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <span>Sign Out</span>
-              </button>
-            </div>
-          )}
+          </Link>
         </div>
 
         {/* 3. Navigation List (My Profile is deliberately excluded per Rule 2) */}
@@ -461,7 +327,7 @@ export default function LmsSidebar() {
           {/* GROUP: WEBSITE / FOOTER */}
           <div className={styles.navGroup} style={{ marginTop: "auto" }}>
             <div className={styles.navDivider} />
-            <p className={styles.navTitle} style={{ marginTop: "0.5rem" }}>WEBSITE</p>
+            <p className={styles.navTitle} style={{ marginTop: "0.2rem" }}>WEBSITE</p>
 
             <button
               type="button"

@@ -140,7 +140,6 @@ export default function LearnerDashboard() {
               <div className={styles.skeletonPulse} style={{ width: 340, height: 16, borderRadius: 6 }} />
             </div>
           </div>
-          <div className={styles.skeletonPulse} style={{ width: 140, height: 42, borderRadius: 8 }} />
         </div>
 
         {/* 2-Column Grid Skeleton */}
@@ -286,14 +285,6 @@ export default function LearnerDashboard() {
             </p>
           </div>
         </div>
-
-        <Link href="/courses" className={styles.browseCoursesBtn}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          <span>Browse Courses</span>
-        </Link>
       </section>
 
       {/* 2. MAIN DASHBOARD 2-COLUMN GRID (65% Left / 35% Right) */}

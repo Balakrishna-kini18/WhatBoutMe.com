@@ -234,8 +234,6 @@ export default function ProfilePage() {
   return (
     <div className={styles.frame}>
       <article className={styles.panel}>
-        <div className={styles.cover} />
-
         <header className={styles.head}>
           <span className={styles.avatarWrap}>
             <span className={styles.avatar}>{initials}</span>

@@ -1449,3 +1449,72 @@
 
 
 
+
+/* Quiz Locked Tab & Card Styles */
+.learningTabBtnLocked {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.learningTabBtnLocked:hover {
+  background: transparent !important;
+  color: #57534e !important;
+}
+
+.quizLockedCard {
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 640px;
+  margin: 1.5rem auto;
+}
+
+.quizLockedIcon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.quizLockedTitle {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 0 0 0.5rem;
+}
+
+.quizLockedSubtitle {
+  font-size: 0.95rem;
+  color: #78716c;
+  max-width: 480px;
+  line-height: 1.5;
+  margin: 0 0 1.25rem;
+}
+
+.quizLockedProgressWrap {
+  width: 100%;
+  max-width: 320px;
+  height: 8px;
+  background: #f5f5f4;
+  border-radius: 9999px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.quizLockedProgressBar {
+  height: 100%;
+  background: #d97706;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.quizLockedCount {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #a8a29e;
+  margin: 0;
+}

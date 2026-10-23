@@ -314,15 +314,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Coupons",
     keywords: ["coupons", "promo", "discount", "stripe", "vouchers", "sale", "pricing"],
   },
-  {
-    id: "messages",
-    title: "Messages & Inquiries",
-    description: "Direct communications with learners and instructors",
-    href: "/messages",
-    category: "Communication",
-    iconName: "Messages",
-    keywords: ["chat", "inbox", "support", "conversations"],
-  },
+  
   {
     id: "leads",
     title: "Enquiries (CRM & Leads)",
@@ -735,7 +727,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       title: "COMMUNICATION",
       permission: hasPermission("manage_operations"),
       items: [
-        { label: "Messages", href: "/messages", icon: <Icons.Messages />, perm: "manage_operations" },
+        
         { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
         { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
         { label: "Announcements", href: "/meetings", icon: <Icons.Announcements />, perm: "manage_operations" },

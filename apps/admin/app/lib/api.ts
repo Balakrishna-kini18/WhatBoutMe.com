@@ -288,15 +288,13 @@ export function autoInvalidateOnMutation(url: string): void {
   }
 
   // Mutating a lead invalidates /leads, /meetings, /sessions, and /invoices
-  const isCrmOrMessages = /\/(leads|messages|conversations|contact)/.test(url);
+  const isCrmOrMessages = /\/(leads|contact)/.test(url);
   if (isCrmOrMessages) {
     invalidateCache("/leads");
     invalidateCache("/meetings");
     invalidateCache("/sessions");
     invalidateCache("/invoices");
     invalidateCache("/revenue");
-    invalidateCache("/messages");
-    invalidateCache("/messages/conversations");
     invalidateCache("/admin/dashboard");
     invalidateCache("/dashboard");
     return;

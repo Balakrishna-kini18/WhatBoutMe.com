@@ -521,8 +521,8 @@ function Search() {
           setQuery(e.target.value);
           if (pathname === "/courses") router.replace(target(e.target.value));
         }}
-        placeholder="Search your courses"
-        aria-label="Search your courses"
+        placeholder="Search your courses..."
+        aria-label="Search your courses..."
         enterKeyHint="search"
       />
     </form>
@@ -554,7 +554,7 @@ function ProfileMenu() {
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
-  const initials = (name || "Learner").split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase();
+  const initials = (name?.trim()?.charAt(0) || "S").toUpperCase();
   const item: React.CSSProperties = { display: "block", width: "100%", padding: "10px 12px", borderRadius: "10px", border: "none", background: "transparent", textAlign: "left", font: "inherit", fontSize: "0.9rem", color: "var(--text-primary)", cursor: "pointer", textDecoration: "none" };
 
   const openSignOut = () => {
@@ -581,7 +581,7 @@ function ProfileMenu() {
           <Link href="/profile" style={item} onClick={() => setOpen(false)}>My Profile</Link>
           <Link href="/live" style={item} onClick={() => setOpen(false)}>Live Sessions</Link>
           <Link href="/events" style={item} onClick={() => setOpen(false)}>Events & Webinars</Link>
-          <Link href="/chat" style={item} onClick={() => setOpen(false)}>Messages</Link>
+          
           <Link href="/attendance" style={item} onClick={() => setOpen(false)}>Attendance</Link>
           <Link href="/certificates" style={item} onClick={() => setOpen(false)}>Certificates</Link>
           <a href={SITE_URL} style={item}>Back to Website</a>

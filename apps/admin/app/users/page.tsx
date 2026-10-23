@@ -79,12 +79,12 @@ const ROLE_CARDS = [
     title: "Manager",
     badgeLabel: "Manager",
     tone: "roleManager" as const,
-    purpose: "Handles assigned batches, attendance, sessions, chats, and announcements.",
-    summary: "Assigned batches only: attendance, sessions, chats, announcements & 1:1 bookings",
+    purpose: "Handles assigned batches, attendance, sessions, and announcements.",
+    summary: "Assigned batches only: attendance, sessions, announcements & 1:1 bookings",
     canDo: [
       "Manage assigned batches, attendance & session check-ins",
       "Host live Zoom/Meet sessions & conduct oral assessments",
-      "Participate in cohort chats & publish batch announcements",
+      "Publish batch announcements",
       "Grade quizzes & track progress for assigned learners",
     ],
     cannotDo: [
@@ -99,12 +99,12 @@ const ROLE_CARDS = [
     title: "User (Learner)",
     badgeLabel: "User (Learner)",
     tone: "roleUser" as const,
-    purpose: "Access scoped strictly to own dashboard, batch, unlocked steps, sessions, chat, invoices, and certificates.",
-    summary: "Own dashboard only: batch, unlocked steps, sessions, chat, invoices & certificates",
+    purpose: "Access scoped strictly to own dashboard, batch, unlocked steps, sessions, invoices, and certificates.",
+    summary: "Own dashboard only: batch, unlocked steps, sessions, invoices & certificates",
     canDo: [
       "Access own dashboard, assigned batch & unlocked steps",
       "Attend scheduled sessions & book 1:1 oral assessments",
-      "Participate in cohort group chat & direct messaging",
+      "View course curriculum and study materials",
       "View payment invoices & download earned certificates",
     ],
     cannotDo: [

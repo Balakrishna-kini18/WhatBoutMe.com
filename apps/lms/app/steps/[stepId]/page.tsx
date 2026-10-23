@@ -21,14 +21,16 @@ import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
 
 export type WorkspaceTab = "video" | "quiz" | "notes" | "materials" | "discussions";
 
-interface LocalDiscussionPost {
-  id: string;
-  authorName: string;
-  timeAgo: string;
-  content: string;
-  likesCount: number;
-  isLiked?: boolean;
-  repliesCount: number;
+function resolveVideoSrc(rawUrl?: string | null): string {
+  if (!rawUrl) return "";
+  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.startsWith("/")) {
+    return rawUrl;
+  }
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const isUpload = rawUrl.startsWith("upload:");
+  const rawKey = isUpload ? rawUrl.replace("upload:", "") : rawUrl;
+  const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
+  return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 }
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
@@ -50,6 +52,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
   const [isCelebrationOpen, setIsCelebrationOpen] = useState(false);
+  const [celebrationMode, setCelebrationMode] = useState<"lesson" | "module">("lesson");
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Notes state
@@ -61,29 +65,59 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   // Materials state
   const [materialsSearch, setMaterialsSearch] = useState("");
 
-  // Discussions state
-  const [discussions, setDiscussions] = useState<LocalDiscussionPost[]>([
+  // Discussions state (Screen 8)
+  const [discussionFilter, setDiscussionFilter] = useState<"all" | "my">("all");
+  const [discussionSearch, setDiscussionSearch] = useState("");
+  const [newPostContent, setNewPostContent] = useState("");
+  const [replyInputId, setReplyInputId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [discussions, setDiscussions] = useState<
+    {
+      id: string;
+      author: string;
+      avatar: string;
+      time: string;
+      content: string;
+      likes: number;
+      isLiked?: boolean;
+      replies: {
+        id: string;
+        author: string;
+        avatar: string;
+        time: string;
+        content: string;
+      }[];
+    }[]
+  >([
     {
       id: "disc-1",
-      authorName: "Rahul Kumar",
-      timeAgo: "2 hours ago",
-      content: "Can someone clarify how the sequence locks work across modules? Does passing the quiz immediately unlock the next module?",
-      likesCount: 4,
+      author: "Roweena Fox",
+      avatar: "R",
+      time: "2 hours ago",
+      content: "Welcome to this module! Remember to take active notes on how sustainable action transforms daily focus routines.",
+      likes: 12,
       isLiked: false,
-      repliesCount: 2,
+      replies: [
+        {
+          id: "rep-1",
+          author: "Sahyadri",
+          avatar: "S",
+          time: "1 hour ago",
+          content: "The breakdown of daily micro-commitments in Part 2 was really eye-opening!",
+        },
+      ],
     },
     {
       id: "disc-2",
-      authorName: "Priya Sharma",
-      timeAgo: "5 hours ago",
-      content: "The breakdown of mental models in this module was eye opening! Make sure to take notes on the second diagram.",
-      likesCount: 8,
-      isLiked: true,
-      repliesCount: 1,
+      author: "Kiran Rao",
+      avatar: "K",
+      time: "Yesterday",
+      content: "Does anyone have additional reading on the neural pathways discussed at 04:15 in the video?",
+      likes: 5,
+      isLiked: false,
+      replies: [],
     },
   ]);
-  const [newDiscussionContent, setNewDiscussionContent] = useState("");
-  const [discussionFilter, setDiscussionFilter] = useState<"all" | "mine">("all");
 
   // Quiz state
   const [activeQuizIndex, setActiveQuizIndex] = useState(0);
@@ -130,8 +164,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         setSelectedMediaId(paramLessonId);
         setViewMode("workspace");
       }
-      if (paramTab && ["video", "quiz", "notes", "materials", "discussions"].includes(paramTab)) {
-        setActiveTab(paramTab);
+      if (paramTab && ["video", "quiz", "notes", "materials"].includes(paramTab)) {
+        setActiveTab(paramTab as WorkspaceTab);
       }
       if (paramView === "overview") {
         setViewMode("overview");
@@ -364,6 +398,52 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     [fetchStepAndProgression]
   );
 
+  // Next / Prev step links
+  const stepsList: any[] = useMemo(() => {
+    if (progression?.steps && progression.steps.length > 0) {
+      return progression.steps;
+    }
+    if (step?.program?.steps && step.program.steps.length > 0) {
+      return step.program.steps.map((s: any) => ({
+        stepId: s.id,
+        id: s.id,
+        sequence: s.sequence,
+        title: s.title,
+      }));
+    }
+    return [];
+  }, [progression?.steps, step?.program?.steps]);
+
+  const currentStepIndex = stepsList.findIndex(
+    (s: any) => (s.stepId && s.stepId === stepId) || (s.id && s.id === stepId)
+  );
+  const prevStep = currentStepIndex > 0 ? stepsList[currentStepIndex - 1] : null;
+  const nextStep =
+    currentStepIndex >= 0 && currentStepIndex < stepsList.length - 1
+      ? stepsList[currentStepIndex + 1]
+      : null;
+  const nextStepId = nextStep?.stepId || nextStep?.id || null;
+
+  // Next lesson helper
+  const nextLesson = activeLessonIndex < allLessons.length - 1 ? allLessons[activeLessonIndex + 1] : null;
+
+  // Countdown timer for automatic module progression
+  useEffect(() => {
+    if (redirectCountdown === null) return;
+    if (redirectCountdown <= 0) {
+      if (nextStepId) {
+        setIsCelebrationOpen(false);
+        setRedirectCountdown(null);
+        router.push(`/steps/${nextStepId}`);
+      }
+      return;
+    }
+    const timer = setTimeout(() => {
+      setRedirectCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [redirectCountdown, nextStepId, router]);
+
   // Lesson Completion
   const handleLessonComplete = async (lessonId: string) => {
     try {
@@ -375,10 +455,36 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         ...prev,
         [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true },
       }));
-      setIsCelebrationOpen(true);
       invalidateCache("/progression");
       fetchStepAndProgression();
     } catch (e) {
+      // continue locally
+    }
+
+    const updatedProgress = {
+      ...lessonProgress,
+      [lessonId]: { ...lessonProgress[lessonId], isCompleted: true, viewed: true },
+    };
+    const areAllVideosDone = allLessons.every(
+      (l: any) => updatedProgress[l.id]?.isCompleted || updatedProgress[l.id]?.viewed
+    );
+
+    if (areAllVideosDone) {
+      if (step?.quiz && !lastQuizResult?.passed && !(currentStepProg as any)?.quizPassed && !currentStepProg?.isCompleted) {
+        // Videos are finished, quiz is required!
+        setCelebrationMode("lesson");
+        setIsCelebrationOpen(true);
+      } else {
+        // All videos done and quiz passed or no quiz -> Entire Module Completed!
+        setCelebrationMode("module");
+        setIsCelebrationOpen(true);
+        if (nextStepId) {
+          setRedirectCountdown(4);
+        }
+      }
+    } else {
+      // Single video part completed
+      setCelebrationMode("lesson");
       setIsCelebrationOpen(true);
     }
   };
@@ -411,43 +517,17 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       if (data.passed) {
         invalidateCache("/progression");
         fetchStepAndProgression();
+        setCelebrationMode("module");
+        setIsCelebrationOpen(true);
+        if (nextStepId) {
+          setRedirectCountdown(4);
+        }
       }
     } catch (err: any) {
       setQuizError(err.message || "Failed to submit quiz");
     } finally {
       setIsSubmittingQuiz(false);
     }
-  };
-
-  // Discussions handlers
-  const handleCreateDiscussionPost = () => {
-    if (!newDiscussionContent.trim()) return;
-    const newPost: LocalDiscussionPost = {
-      id: `disc-${Date.now()}`,
-      authorName: userName || "You",
-      timeAgo: "Just now",
-      content: newDiscussionContent.trim(),
-      likesCount: 0,
-      isLiked: false,
-      repliesCount: 0,
-    };
-    setDiscussions((prev) => [newPost, ...prev]);
-    setNewDiscussionContent("");
-  };
-
-  const handleToggleLike = (postId: string) => {
-    setDiscussions((prev) =>
-      prev.map((d) => {
-        if (d.id === postId) {
-          return {
-            ...d,
-            isLiked: !d.isLiked,
-            likesCount: d.isLiked ? d.likesCount - 1 : d.likesCount + 1,
-          };
-        }
-        return d;
-      })
-    );
   };
 
   // Calculate Progress Percentages
@@ -464,15 +544,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     totalLessonsCount > 0
       ? Math.round((completedLessonsCount / totalLessonsCount) * 100)
       : currentStepProg?.progressPercent || 0;
-
-  // Next / Prev step links
-  const stepsList = progression?.steps || [];
-  const currentStepIndex = stepsList.findIndex((s: any) => s.stepId === stepId);
-  const prevStep = currentStepIndex > 0 ? stepsList[currentStepIndex - 1] : null;
-  const nextStep = currentStepIndex >= 0 && currentStepIndex < stepsList.length - 1 ? stepsList[currentStepIndex + 1] : null;
-
-  // Next lesson helper
-  const nextLesson = activeLessonIndex < allLessons.length - 1 ? allLessons[activeLessonIndex + 1] : null;
 
   // Loading State
   if (loading && !step) {
@@ -729,15 +800,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {/* Module Navigation Footer */}
           <div className={styles.moduleFooterNav}>
             {prevStep ? (
-              <Link href={`/steps/${prevStep.stepId}`} className={styles.btnSecondaryOutline}>
+              <Link href={`/steps/${prevStep.stepId || prevStep.id}`} className={styles.btnSecondaryOutline}>
                 &larr; Previous Module
               </Link>
             ) : (
               <span />
             )}
-            {nextStep ? (
+            {nextStep && nextStepId ? (
               <Link
-                href={`/steps/${nextStep.stepId}`}
+                href={`/steps/${nextStepId}`}
                 className={styles.btnPrimaryOrange}
                 style={{
                   background: isStepCompleted ? "#d97706" : "#fef3c7",
@@ -745,7 +816,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   borderColor: isStepCompleted ? "#d97706" : "#fde68a",
                 }}
               >
-                Next Module &rarr;
+                Next Module ({nextStep.title}) &rarr;
               </Link>
             ) : (
               <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
@@ -757,11 +828,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       )}
 
       {/* =====================================================================
-          SCREENS 3 - 7: 5-TAB LESSON WORKSPACE (when viewMode === "workspace")
+          SCREENS 3 - 6: 4-TAB LESSON WORKSPACE (when viewMode === "workspace")
           ===================================================================== */}
       {viewMode === "workspace" && (
         <div>
-          {/* 5-Tab Learning Tools Navigation Strip */}
+          {/* 4-Tab Learning Tools Navigation Strip */}
           <nav className={styles.learningToolsStrip} aria-label="Lesson Workspace Tabs">
             <button
               type="button"
@@ -770,6 +841,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             >
               <span>▶</span>
               <span>Video Lesson</span>
+              {allLessons.length > 1 && (
+                <span className={styles.learningTabCount}>{allLessons.length} Parts</span>
+              )}
             </button>
 
             <button
@@ -817,13 +891,87 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
           {activeTab === "video" && (
             <div className={styles.lessonWorkspaceGrid}>
-              {/* Left Column: 16:9 Compulsory Player + Lesson Details */}
+              {/* Left Column: Multi-Video Selector + 16:9 Compulsory Player + Lesson Details */}
               <div className={styles.videoLeftColumn}>
+                {/* Multi-video parts selector (if step contains >1 video) */}
+                {allLessons.length > 1 && (
+                  <div className={styles.multiVideoPlaylistCard}>
+                    <div className={styles.multiVideoPlaylistHeader}>
+                      <div className={styles.multiVideoPlaylistHeaderLeft}>
+                        <span className={styles.multiVideoPlaylistBadge}>
+                          Module Playlist ({allLessons.length} Parts)
+                        </span>
+                        <span className={styles.multiVideoCurrentPart}>
+                          Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
+                        </span>
+                      </div>
+                      <span className={styles.multiVideoCounter}>
+                        {completedLessonsCount}/{totalLessonsCount} Completed
+                      </span>
+                    </div>
+
+                    <div className={styles.multiVideoTrackList} role="tablist">
+                      {allLessons.map((l: any, idx: number) => {
+                        const isSelected = currentMedia?.id === l.id;
+                        const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
+                        const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
+
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={isSelected}
+                            disabled={isLocked}
+                            onClick={() => {
+                              if (!isLocked) {
+                                setSelectedMediaId(l.id);
+                              }
+                            }}
+                            className={`${styles.multiVideoItemBtn} ${
+                              isSelected ? styles.multiVideoItemBtnActive : ""
+                            } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
+                              isLocked ? styles.multiVideoItemBtnLocked : ""
+                            }`}
+                            title={isLocked ? "Complete previous video part to unlock" : l.title}
+                          >
+                            <div className={styles.multiVideoItemLeft}>
+                              <span className={styles.multiVideoItemPartNum}>
+                                {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
+                              </span>
+                              <div className={styles.multiVideoItemMeta}>
+                                <strong className={styles.multiVideoItemTitle}>
+                                  Part {idx + 1}: {l.title || "Video Lesson"}
+                                </strong>
+                                <span className={styles.multiVideoItemDuration}>
+                                  {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
+                                  {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Locked" : " • Ready"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className={styles.multiVideoItemRight}>
+                              {isSelected ? (
+                                <span className={styles.playingTag}>Playing</span>
+                              ) : isDone ? (
+                                <span className={styles.completedTag}>Watched</span>
+                              ) : isLocked ? (
+                                <span className={styles.lockedTag}>Locked</span>
+                              ) : (
+                                <span className={styles.startTag}>Start</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {currentMedia?.mediaUrl ? (
                   <div className={styles.videoTheatreCard}>
                     <CompulsoryVideoPlayer
                       lessonId={currentMedia.id}
-                      videoSrc={currentMedia.mediaUrl}
+                      videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
                       userName={userName}
                       userEmail={userEmail}
                       durationSec={currentMedia.durationSec || 0}
@@ -835,7 +983,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     />
                   </div>
                 ) : (
-                  <div className={styles.videoTheatreCard} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e" }}>
+                  <div className={styles.videoTheatreCard} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ fontSize: "2rem" }}>▶</span>
                     <span>No video stream attached to this lesson</span>
                   </div>
@@ -847,7 +995,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     <div>
                       <h3 className={styles.lessonDetailsTitle}>{currentMedia?.title || "Lesson Overview"}</h3>
                       <span style={{ fontSize: "0.82rem", color: "#78716c" }}>
-                        Duration: {currentMedia?.durationSec ? `${Math.ceil(currentMedia.durationSec / 60)}:00` : "15:00"}
+                        Part {activeLessonIndex + 1} of {allLessons.length} • Duration: {currentMedia?.durationSec ? `${Math.ceil(currentMedia.durationSec / 60)}:00` : "15:00"}
                       </span>
                     </div>
                     {lessonProgress[currentMedia?.id]?.isCompleted && (
@@ -859,6 +1007,59 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     {currentMedia?.description ||
                       "In this lesson, we will understand the core concepts of the LMS platform, its features, and how it helps in managing learning, tracking progress, and engaging learners effectively."}
                   </p>
+
+                  {/* Part / Module Navigation Row */}
+                  <div className={styles.lessonNavigationRow}>
+                    {activeLessonIndex > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
+                        className={styles.btnSecondaryOutline}
+                      >
+                        &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+
+                    {nextLesson ? (
+                      <button
+                        type="button"
+                        disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
+                        onClick={() => setSelectedMediaId(nextLesson.id)}
+                        className={styles.btnPrimaryOrange}
+                        style={{
+                          opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
+                          cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        Next Part ({nextLesson.title}) &rarr;
+                      </button>
+                    ) : step?.quiz ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("quiz")}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        Take Module Quiz &rarr;
+                      </button>
+                    ) : nextStep && nextStepId ? (
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/steps/${nextStepId}`)}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        Next Module ({nextStep.title}) &rarr;
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/programs/${step?.programId}/steps`}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        Course Roadmap &rarr;
+                      </Link>
+                    )}
+                  </div>
 
                   <div className={styles.objectivesBox}>
                     <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
@@ -1018,20 +1219,39 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     background: lastQuizResult.passed ? "#dcfce7" : "#fee2e2",
                     border: `1px solid ${lastQuizResult.passed ? "#86efac" : "#fca5a5"}`,
                     color: lastQuizResult.passed ? "#14532d" : "#7f1d1d",
-                    padding: "14px 18px",
+                    padding: "16px 20px",
                     borderRadius: 12,
                     marginBottom: 20,
                   }}
                 >
-                  <h4 style={{ margin: "0 0 4px", fontSize: "1rem" }}>
+                  <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700 }}>
                     {lastQuizResult.passed ? "✓ Assessment Passed!" : "Assessment Not Passed Yet"}
                   </h4>
-                  <p style={{ margin: 0, fontSize: "0.88rem" }}>
+                  <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
                     Score: {lastQuizResult.score}% (Pass threshold: 75%).
                     {lastQuizResult.passed
-                      ? " Great job! Your progress has been updated and next steps are unlocked."
-                      : " Review the video lesson and try again."}
+                      ? " Great job! Your progress has been updated and the next module is unlocked."
+                      : " Review the video lessons and try again."}
                   </p>
+                  {lastQuizResult.passed && nextStep && nextStepId && (
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/steps/${nextStepId}`)}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "10px 20px", fontSize: "0.88rem" }}
+                    >
+                      Continue to Next Module ({nextStep.title}) &rarr;
+                    </button>
+                  )}
+                  {lastQuizResult.passed && !nextStep && (
+                    <Link
+                      href={`/programs/${step?.programId}/steps`}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "10px 20px", fontSize: "0.88rem", display: "inline-block", textDecoration: "none" }}
+                    >
+                      Return to Learning Path &rarr;
+                    </Link>
+                  )}
                 </div>
               )}
 
@@ -1322,86 +1542,269 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </div>
           )}
 
-          {/* TAB 5: DISCUSSIONS (SCREEN 7) */}
+          {/* TAB 5: DISCUSSIONS (SCREEN 8) */}
           {activeTab === "discussions" && (
             <div className={styles.discussionsTabStack}>
               {/* Post Composer */}
               <div className={styles.discussionComposerCard}>
                 <textarea
-                  value={newDiscussionContent}
-                  onChange={(e) => setNewDiscussionContent(e.target.value)}
-                  placeholder="Ask a question or share your thoughts with cohort peers..."
-                  className={styles.composerTextarea}
+                  value={newPostContent}
+                  onChange={(e) => setNewPostContent(e.target.value)}
+                  placeholder="Ask a question or share your thoughts about this lesson..."
+                  className={styles.discussionComposerTextarea}
                 />
-                <div className={styles.composerActionRow}>
+                <div className={styles.discussionComposerFooter}>
+                  <span style={{ fontSize: "0.78rem", color: "#64748b" }}>
+                    Visible to your cohort &amp; instructors
+                  </span>
                   <button
                     type="button"
-                    onClick={handleCreateDiscussionPost}
-                    disabled={!newDiscussionContent.trim()}
+                    disabled={!newPostContent.trim()}
+                    onClick={() => {
+                      if (!newPostContent.trim()) return;
+                      const newPost = {
+                        id: `disc-${Date.now()}`,
+                        author: userName || "Sahyadri",
+                        avatar: (userName?.trim()?.charAt(0) || "S").toUpperCase(),
+                        time: "Just now",
+                        content: newPostContent.trim(),
+                        likes: 0,
+                        isLiked: false,
+                        replies: [],
+                      };
+                      setDiscussions((prev) => [newPost, ...prev]);
+                      setNewPostContent("");
+                    }}
                     className={styles.btnPrimaryOrange}
                   >
-                    Post Question
+                    Post Discussion
                   </button>
                 </div>
               </div>
 
-              {/* Discussions Filter */}
+              {/* Filters & Search Row */}
               <div className={styles.discussionFiltersRow}>
-                <div className={styles.discussionTabsGroup}>
+                <div className={styles.discussionFilterTabs}>
                   <button
                     type="button"
                     onClick={() => setDiscussionFilter("all")}
-                    className={`${styles.discFilterTab} ${discussionFilter === "all" ? styles.discFilterTabActive : ""}`}
+                    className={`${styles.discussionFilterTab} ${discussionFilter === "all" ? styles.discussionFilterTabActive : ""}`}
                   >
-                    All Posts
+                    All Posts ({discussions.length})
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDiscussionFilter("mine")}
-                    className={`${styles.discFilterTab} ${discussionFilter === "mine" ? styles.discFilterTabActive : ""}`}
+                    onClick={() => setDiscussionFilter("my")}
+                    className={`${styles.discussionFilterTab} ${discussionFilter === "my" ? styles.discussionFilterTabActive : ""}`}
                   >
                     My Posts
                   </button>
                 </div>
+
+                <div className={styles.searchBarContainer} style={{ maxWidth: 240, margin: 0 }}>
+                  <span>🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Search discussions..."
+                    value={discussionSearch}
+                    onChange={(e) => setDiscussionSearch(e.target.value)}
+                    className={styles.searchInput}
+                  />
+                </div>
               </div>
 
-              {/* Posts List */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {discussions.map((d) => (
-                  <div key={d.id} className={styles.discussionPostCard}>
-                    <div className={styles.postAuthorRow}>
-                      <div className={styles.authorAvatar}>{d.authorName[0]}</div>
-                      <div>
-                        <strong className={styles.authorName}>{d.authorName}</strong>
-                        <div className={styles.postTime}>{d.timeAgo}</div>
+              {/* Discussion Thread Cards */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                {discussions
+                  .filter((d) => {
+                    if (discussionFilter === "my") {
+                      return d.author.toLowerCase().includes((userName || "sahyadri").toLowerCase());
+                    }
+                    return true;
+                  })
+                  .filter((d) =>
+                    d.content.toLowerCase().includes(discussionSearch.toLowerCase()) ||
+                    d.author.toLowerCase().includes(discussionSearch.toLowerCase())
+                  )
+                  .map((d) => (
+                    <article key={d.id} className={styles.discussionThreadCard}>
+                      <div className={styles.discussionCardHeader}>
+                        <div className={styles.discussionAuthorAvatar}>
+                          {d.avatar}
+                        </div>
+                        <div className={styles.discussionAuthorInfo}>
+                          <h4 className={styles.discussionAuthorName}>{d.author}</h4>
+                          <span className={styles.discussionTime}>{d.time}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    <p className={styles.postBodyText}>{d.content}</p>
+                      <p className={styles.discussionBody}>{d.content}</p>
 
-                    <div className={styles.postActionsBar}>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleLike(d.id)}
-                        className={`${styles.postActionBtn} ${d.isLiked ? styles.postActionBtnLiked : ""}`}
-                      >
-                        <span>{d.isLiked ? "❤️" : "🤍"}</span>
-                        <span>{d.likesCount} {d.likesCount === 1 ? "Like" : "Likes"}</span>
-                      </button>
-                      <span style={{ fontSize: "0.78rem", color: "#a8a29e" }}>
-                        💬 {d.repliesCount} {d.repliesCount === 1 ? "Reply" : "Replies"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                      <div className={styles.discussionActionsRow}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiscussions((prev) =>
+                              prev.map((item) =>
+                                item.id === d.id
+                                  ? {
+                                      ...item,
+                                      likes: item.isLiked ? item.likes - 1 : item.likes + 1,
+                                      isLiked: !item.isLiked,
+                                    }
+                                  : item
+                              )
+                            );
+                          }}
+                          className={styles.discussionActionBtn}
+                          style={{ color: d.isLiked ? "#d36b00" : undefined, fontWeight: d.isLiked ? 700 : undefined }}
+                        >
+                          <span>👍</span>
+                          <span>{d.likes} {d.likes === 1 ? "like" : "likes"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setReplyInputId(replyInputId === d.id ? null : d.id)}
+                          className={styles.discussionActionBtn}
+                        >
+                          <span>💬</span>
+                          <span>{d.replies.length} {d.replies.length === 1 ? "reply" : "replies"}</span>
+                        </button>
+                      </div>
+
+                      {/* Indented Replies */}
+                      {d.replies.length > 0 && (
+                        <div className={styles.discussionRepliesList}>
+                          {d.replies.map((r) => (
+                            <div key={r.id} className={styles.discussionReplyItem}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                <span
+                                  style={{
+                                    width: 22,
+                                    height: 22,
+                                    borderRadius: "50%",
+                                    background: "#fde8d0",
+                                    color: "#d36b00",
+                                    fontSize: "0.72rem",
+                                    fontWeight: 800,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  {r.avatar}
+                                </span>
+                                <strong style={{ fontSize: "0.82rem", color: "#18181b" }}>{r.author}</strong>
+                                <span style={{ fontSize: "0.72rem", color: "#64748b" }}>• {r.time}</span>
+                              </div>
+                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#374151", lineHeight: 1.45 }}>
+                                {r.content}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Reply Input Box */}
+                      {replyInputId === d.id && (
+                        <div className={styles.discussionReplyInputRow}>
+                          <input
+                            type="text"
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            placeholder="Write a reply..."
+                            className={styles.searchInput}
+                            style={{ flex: 1, background: "#faf7f2", border: "1px solid #ece6dd", borderRadius: 8, padding: "8px 12px" }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && replyText.trim()) {
+                                const newReply = {
+                                  id: `rep-${Date.now()}`,
+                                  author: userName || "Sahyadri",
+                                  avatar: (userName?.trim()?.charAt(0) || "S").toUpperCase(),
+                                  time: "Just now",
+                                  content: replyText.trim(),
+                                };
+                                setDiscussions((prev) =>
+                                  prev.map((item) =>
+                                    item.id === d.id
+                                      ? { ...item, replies: [...item.replies, newReply] }
+                                      : item
+                                  )
+                                );
+                                setReplyText("");
+                                setReplyInputId(null);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={!replyText.trim()}
+                            onClick={() => {
+                              if (!replyText.trim()) return;
+                              const newReply = {
+                                id: `rep-${Date.now()}`,
+                                author: userName || "Sahyadri",
+                                avatar: (userName?.trim()?.charAt(0) || "S").toUpperCase(),
+                                time: "Just now",
+                                content: replyText.trim(),
+                              };
+                              setDiscussions((prev) =>
+                                prev.map((item) =>
+                                  item.id === d.id
+                                    ? { ...item, replies: [...item.replies, newReply] }
+                                    : item
+                                )
+                              );
+                              setReplyText("");
+                              setReplyInputId(null);
+                            }}
+                            className={styles.btnPrimaryOrange}
+                            style={{ padding: "6px 14px", fontSize: "0.8rem" }}
+                          >
+                            Reply
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  ))}
               </div>
             </div>
           )}
+
+          {/* Persistent Workspace Footer Navigation */}
+          <div className={styles.moduleFooterNav} style={{ marginTop: "2rem" }}>
+            {prevStep ? (
+              <Link href={`/steps/${prevStep.stepId || prevStep.id}`} className={styles.btnSecondaryOutline}>
+                &larr; Previous Module
+              </Link>
+            ) : (
+              <span />
+            )}
+            {nextStep && nextStepId ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/steps/${nextStepId}`)}
+                className={styles.btnPrimaryOrange}
+                style={{
+                  background: isStepCompleted ? "#d97706" : "#fef3c7",
+                  color: isStepCompleted ? "#ffffff" : "#b45309",
+                  borderColor: isStepCompleted ? "#d97706" : "#fde68a",
+                }}
+              >
+                Next Module ({nextStep.title}) &rarr;
+              </button>
+            ) : (
+              <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
+                Course Roadmap &rarr;
+              </Link>
+            )}
+          </div>
         </div>
       )}
 
       {/* =====================================================================
-          SCREEN 8: CELEBRATION MODAL (Lesson Completed!)
+          SCREEN 8: CELEBRATION MODAL (Lesson / Module Completed!)
           ===================================================================== */}
       {isCelebrationOpen && (
         <div className={styles.celebrationModalBackdrop}>
@@ -1409,65 +1812,129 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             <div className={styles.confettiWrapper}>
               <div className={styles.celebrationCheckCircle}>✓</div>
             </div>
-            <h2 className={styles.celebrationHeading}>Lesson Completed!</h2>
-            <p className={styles.celebrationSubtitle}>
-              You've completed: {currentMedia?.title || "Lesson"}
-            </p>
 
-            <div className={styles.celebrationButtonsRow}>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCelebrationOpen(false);
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = 0;
-                    videoRef.current.play().catch(() => {});
-                  }
-                }}
-                className={styles.btnSecondaryOutline}
-              >
-                Rewatch Lesson
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCelebrationOpen(false);
-                  setActiveTab("quiz");
-                }}
-                className={styles.btnPrimaryOrange}
-              >
-                Take Quiz
-              </button>
-            </div>
+            {celebrationMode === "module" ? (
+              <>
+                <h2 className={styles.celebrationHeading}>
+                  {lastQuizResult?.passed ? "Assessment Passed & Module Complete!" : "Module Completed!"}
+                </h2>
+                <p className={styles.celebrationSubtitle}>
+                  {lastQuizResult?.passed
+                    ? `Great score of ${lastQuizResult.score}%! You have completed all requirements for Step ${step?.sequence}: ${step?.title}.`
+                    : `You have successfully completed all lessons in Step ${step?.sequence}: ${step?.title}!`}
+                </p>
 
-            {nextLesson && (
-              <div className={styles.nextUpLessonBox}>
-                <div className={styles.nextUpLeft}>
-                  <span style={{ fontSize: "1.3rem", color: "#d97706" }}>▶</span>
-                  <div>
-                    <span style={{ fontSize: "0.72rem", fontWeight: 800, color: "#d97706", textTransform: "uppercase" }}>
-                      Next Up
-                    </span>
-                    <strong style={{ display: "block", fontSize: "0.88rem", color: "#1c1917" }}>
-                      {nextLesson.title}
-                    </strong>
-                    <span style={{ fontSize: "0.76rem", color: "#78716c" }}>
-                      {nextLesson.durationSec ? `${Math.ceil(nextLesson.durationSec / 60)} min` : "15 min"} • Video
-                    </span>
+                {nextStep && nextStepId ? (
+                  <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+                    {redirectCountdown !== null && (
+                      <div className={styles.countdownBadge}>
+                        ⏱ Redirecting to next module in {redirectCountdown}s...
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRedirectCountdown(null);
+                          setIsCelebrationOpen(false);
+                        }}
+                        className={styles.btnSecondaryOutline}
+                      >
+                        Stay on this Module
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRedirectCountdown(null);
+                          setIsCelebrationOpen(false);
+                          router.push(`/steps/${nextStepId}`);
+                        }}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        Continue to Next Module ({nextStep.title}) &rarr;
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  <div style={{ marginTop: "1.25rem" }}>
+                    <p style={{ color: "#15803d", fontWeight: 700, marginBottom: 12 }}>
+                      🎓 Congratulations! You have finished all steps in this course!
+                    </p>
+                    <Link
+                      href={`/programs/${step?.programId}/steps`}
+                      className={styles.btnPrimaryOrange}
+                      onClick={() => setIsCelebrationOpen(false)}
+                    >
+                      View Learning Path Roadmap &rarr;
+                    </Link>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 className={styles.celebrationHeading}>Lesson Part Completed!</h2>
+                <p className={styles.celebrationSubtitle}>
+                  You've completed: {currentMedia?.title || "Lesson Part"}
+                </p>
+
+                <div className={styles.celebrationButtonsRow}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCelebrationOpen(false);
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = 0;
+                        videoRef.current.play().catch(() => {});
+                      }
+                    }}
+                    className={styles.btnSecondaryOutline}
+                  >
+                    Rewatch Part
+                  </button>
+                  {step?.quiz && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCelebrationOpen(false);
+                        setActiveTab("quiz");
+                      }}
+                      className={styles.btnPrimaryOrange}
+                    >
+                      Take Quiz
+                    </button>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCelebrationOpen(false);
-                    setSelectedMediaId(nextLesson.id);
-                    setActiveTab("video");
-                  }}
-                  className={styles.btnPrimaryOrange}
-                >
-                  Start Lesson &rarr;
-                </button>
-              </div>
+
+                {nextLesson && (
+                  <div className={styles.nextUpLessonBox}>
+                    <div className={styles.nextUpLeft}>
+                      <span style={{ fontSize: "1.3rem", color: "#d97706" }}>▶</span>
+                      <div>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 800, color: "#d97706", textTransform: "uppercase" }}>
+                          Next Up (Part {activeLessonIndex + 2})
+                        </span>
+                        <strong style={{ display: "block", fontSize: "0.88rem", color: "#1c1917" }}>
+                          {nextLesson.title}
+                        </strong>
+                        <span style={{ fontSize: "0.76rem", color: "#78716c" }}>
+                          {nextLesson.durationSec ? `${Math.ceil(nextLesson.durationSec / 60)} min` : "15 min"} • Video
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCelebrationOpen(false);
+                        setSelectedMediaId(nextLesson.id);
+                        setActiveTab("video");
+                      }}
+                      className={styles.btnPrimaryOrange}
+                    >
+                      Start Part {activeLessonIndex + 2} &rarr;
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

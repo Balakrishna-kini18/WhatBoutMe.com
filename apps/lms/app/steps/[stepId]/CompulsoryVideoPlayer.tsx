@@ -40,6 +40,20 @@ export default function CompulsoryVideoPlayer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Resolve upload streaming key or direct Cloudinary/S3 URL with auth token
+  const resolvedVideoSrc = React.useMemo(() => {
+    if (!videoSrc) return "";
+    if (videoSrc.startsWith("http://") || videoSrc.startsWith("https://") || videoSrc.startsWith("/")) {
+      return videoSrc;
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const isUpload = videoSrc.startsWith("upload:");
+    const rawKey = isUpload ? videoSrc.replace("upload:", "") : videoSrc;
+    const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+    return `${apiUrl}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  }, [videoSrc]);
+
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -53,6 +67,12 @@ export default function CompulsoryVideoPlayer({
   const [seekWarning, setSeekWarning] = useState<string | null>(null);
   const [resumedNotice, setResumedNotice] = useState<number | null>(null);
   const [hasEnded, setHasEnded] = useState(false);
+
+  // Reset error when lesson or video source changes
+  useEffect(() => {
+    setVideoError(null);
+    setHasEnded(false);
+  }, [lessonId, resolvedVideoSrc]);
 
   // Anti-skip enforcement refs
   const maxWatchedSecRef = useRef<number>(initialPositionSec || 0);
@@ -437,8 +457,8 @@ export default function CompulsoryVideoPlayer({
       ) : (
         <video
           ref={videoRef}
-          key={`${lessonId}-${videoSrc}`}
-          src={videoSrc}
+          key={`${lessonId}-${resolvedVideoSrc}`}
+          src={resolvedVideoSrc}
           playsInline
           preload="metadata"
           controls={false}

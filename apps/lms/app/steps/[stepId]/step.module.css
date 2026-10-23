@@ -963,155 +963,260 @@
 }
 
 /* -------------------------------------------------------------------------
-   SCREEN 7: DISCUSSIONS TAB
+   MULTI-VIDEO PLAYLIST SELECTOR (When step has multiple video parts)
    ------------------------------------------------------------------------- */
-.discussionsTabStack {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.discussionComposerCard {
+.multiVideoPlaylistCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 14px;
-  padding: 1.25rem;
+  padding: 1.15rem 1.25rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+  gap: 0.85rem;
 }
 
-.composerTextarea {
-  width: 100%;
-  min-height: 80px;
-  border: 1px solid #e7e0d6;
-  border-radius: 8px;
-  padding: 0.75rem;
-  font-size: 0.86rem;
-  color: #1c1917;
-  font-family: inherit;
-  box-sizing: border-box;
-  resize: vertical;
-  outline: none;
-}
-
-.composerTextarea:focus {
-  border-color: #f59e0b;
-}
-
-.composerActionRow {
+.multiVideoPlaylistHeader {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.discussionFiltersRow {
+.multiVideoPlaylistHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.multiVideoPlaylistBadge {
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.multiVideoCurrentPart {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.multiVideoCounter {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.multiVideoTrackList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.multiVideoItemBtn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  background: #faf8f5;
+  border: 1px solid #ece6dd;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.multiVideoItemBtn:hover:not(:disabled) {
+  background: #f5efe6;
+  border-color: #d97706;
+}
+
+.multiVideoItemBtnActive {
+  background: #fffbeb !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+}
+
+.multiVideoItemBtnDone {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.multiVideoItemBtnLocked {
+  background: #f5f5f4;
+  border-color: #e7e5e4;
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.multiVideoItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.multiVideoItemPartNum {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e7e5e4;
+  color: #44403c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.multiVideoItemBtnActive .multiVideoItemPartNum {
+  background: #d97706;
+  color: #ffffff;
+}
+
+.multiVideoItemBtnDone .multiVideoItemPartNum {
+  background: #15803d;
+  color: #ffffff;
+}
+
+.multiVideoItemMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.multiVideoItemTitle {
+  font-size: 0.92rem;
+  color: #1c1917;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.multiVideoItemDuration {
+  font-size: 0.76rem;
+  color: #78716c;
+}
+
+.multiVideoItemRight {
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.playingTag {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #d97706;
+  background: #fef3c7;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #fde68a;
+}
+
+.completedTag {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #15803d;
+  background: #dcfce7;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #bbf7d0;
+}
+
+.lockedTag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a8a29e;
+}
+
+.startTag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #d97706;
+}
+
+.lessonNavigationRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f3efe8;
+}
+
+/* -------------------------------------------------------------------------
+   QUIZ PASSED / MODULE COMPLETED NEXT STEP BANNER
+   ------------------------------------------------------------------------- */
+.quizPassedNextModuleCard {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border: 1px solid #86efac;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.08);
 }
 
-.discussionTabsGroup {
-  display: flex;
-  gap: 1rem;
-}
-
-.discFilterTab {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: #78716c;
-  padding: 4px 2px;
-  cursor: pointer;
-}
-
-.discFilterTabActive {
-  color: #d97706;
-  border-bottom-color: #d97706;
-  font-weight: 700;
-}
-
-.discussionPostCard {
-  background: #ffffff;
-  border: 1px solid #ece6dd;
-  border-radius: 14px;
-  padding: 1.25rem 1.5rem;
-  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.postAuthorRow {
+.quizPassedNextModuleLeft {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 
-.authorAvatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #f3efe8;
-  color: #78716c;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  font-weight: 700;
+.quizPassedIcon {
+  font-size: 2rem;
+  line-height: 1;
 }
 
-.authorName {
+.quizPassedHeading {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #14532d;
+  margin: 0 0 4px;
+}
+
+.quizPassedSubtext {
   font-size: 0.88rem;
-  font-weight: 700;
-  color: #1c1917;
-}
-
-.postTime {
-  font-size: 0.74rem;
-  color: #a8a29e;
-}
-
-.postBodyText {
-  font-size: 0.88rem;
-  color: #44403c;
-  line-height: 1.5;
+  color: #166534;
   margin: 0;
 }
 
-.postActionsBar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding-top: 6px;
-  border-top: 1px solid #f9f7f4;
-}
-
-.postActionBtn {
+.countdownBadge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: transparent;
-  border: none;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #78716c;
-  cursor: pointer;
-  padding: 4px;
-  transition: color 0.15s ease;
-}
-
-.postActionBtn:hover {
-  color: #d97706;
-}
-
-.postActionBtnLiked {
-  color: #d97706 !important;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
   font-weight: 700;
+  margin-top: 8px;
 }
 
 /* -------------------------------------------------------------------------
@@ -1372,3 +1477,193 @@
   color: #78716c;
   box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
 }
+
+/* -------------------------------------------------------------------------
+   SCREEN 8: DISCUSSIONS TAB
+   ------------------------------------------------------------------------- */
+.discussionsTabStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.discussionComposerCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.discussionComposerTextarea {
+  width: 100%;
+  border: 1px solid #ece6dd;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  font-size: 0.885rem;
+  font-family: inherit;
+  color: #1c1917;
+  background: #faf7f2;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 85px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.discussionComposerTextarea:focus {
+  border-color: #d97706;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.12);
+}
+
+.discussionComposerFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.85rem;
+}
+
+.discussionFiltersRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.discussionFilterTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f3efe8;
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.discussionFilterTab {
+  background: transparent;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #78716c;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.discussionFilterTabActive {
+  background: #ffffff;
+  color: #d97706;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.discussionThreadCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.discussionCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.discussionAuthorAvatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #fde8d0;
+  color: #d36b00;
+  font-weight: 800;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.discussionAuthorInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.discussionAuthorName {
+  font-size: 0.925rem;
+  font-weight: 700;
+  color: #18181b;
+  margin: 0;
+}
+
+.discussionTime {
+  font-size: 0.775rem;
+  color: #64748b;
+}
+
+.discussionBody {
+  font-size: 0.885rem;
+  color: #374151;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.discussionActionsRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 6px;
+  border-top: 1px solid #f3efe8;
+}
+
+.discussionActionBtn {
+  background: transparent;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.discussionActionBtn:hover {
+  background: #fff7ed;
+  color: #d97706;
+}
+
+.discussionRepliesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 2rem;
+  margin-top: 6px;
+  border-left: 2px solid #f0ece1;
+}
+
+.discussionReplyItem {
+  background: #faf7f2;
+  border: 1px solid #ece6dd;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.discussionReplyInputRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 2rem;
+}
+

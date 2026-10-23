@@ -68,6 +68,24 @@ export class AgreementsService {
         },
       });
 
+      if (dto.initialContent && dto.initialContent.trim().length >= 10) {
+        const isPublishingImmediately = dto.publishImmediately === true;
+        const initialVersion = dto.initialVersion?.trim() || 'v1.0';
+        await tx.agreementTemplateVersion.create({
+          data: {
+            templateId: created.id,
+            version: initialVersion,
+            content: dto.initialContent.trim(),
+            changelog: dto.initialChangelog?.trim() || 'Initial terms release',
+            status: isPublishingImmediately
+              ? ContentStatus.PUBLISHED
+              : ContentStatus.DRAFT,
+            publishedAt: isPublishingImmediately ? new Date() : null,
+            createdById: actorId ?? null,
+          },
+        });
+      }
+
       await tx.auditLog.create({
         data: {
           actorId,
@@ -275,75 +293,94 @@ export class AgreementsService {
 
     const normalizedVersion = dto.version.trim();
 
-    // Enforce version uniqueness within template
-    const existingVersion = await this.prisma.agreementTemplateVersion.findUnique({
-      where: {
-        templateId_version: {
+    // Enforce case-insensitive version uniqueness within template
+    const existingVersion =
+      (await this.prisma.agreementTemplateVersion.findFirst?.({
+        where: {
           templateId,
-          version: normalizedVersion,
+          version: {
+            equals: normalizedVersion,
+            mode: 'insensitive',
+          },
         },
-      },
-    });
+      })) ||
+      (await this.prisma.agreementTemplateVersion.findUnique?.({
+        where: {
+          templateId_version: {
+            templateId,
+            version: normalizedVersion,
+          },
+        },
+      }));
 
     if (existingVersion) {
-      throw new BadRequestException(
-        `Version "${normalizedVersion}" already exists for this agreement template`,
+      throw new ConflictException(
+        'This version already exists. Please enter a different version number.',
       );
     }
 
     const isPublishingImmediately = dto.status === ContentStatus.PUBLISHED;
 
-    const version = await this.prisma.$transaction(async (tx) => {
-      // If publishing immediately, mark previous published versions as ARCHIVED
-      if (isPublishingImmediately) {
-        await tx.agreementTemplateVersion.updateMany({
-          where: {
-            templateId,
-            status: ContentStatus.PUBLISHED,
-          },
+    try {
+      const version = await this.prisma.$transaction(async (tx) => {
+        // If publishing immediately, mark previous published versions as ARCHIVED
+        if (isPublishingImmediately) {
+          await tx.agreementTemplateVersion.updateMany({
+            where: {
+              templateId,
+              status: ContentStatus.PUBLISHED,
+            },
+            data: {
+              status: ContentStatus.ARCHIVED,
+            },
+          });
+        }
+
+        const created = await tx.agreementTemplateVersion.create({
           data: {
-            status: ContentStatus.ARCHIVED,
+            templateId,
+            version: normalizedVersion,
+            content: dto.content,
+            changelog: dto.changelog?.trim(),
+            status: dto.status ?? ContentStatus.DRAFT,
+            publishedAt: isPublishingImmediately ? new Date() : null,
+            createdById: actorId ?? null,
+          },
+          include: {
+            createdBy: { select: { id: true, name: true, email: true } },
           },
         });
-      }
 
-      const created = await tx.agreementTemplateVersion.create({
-        data: {
-          templateId,
-          version: normalizedVersion,
-          content: dto.content,
-          changelog: dto.changelog?.trim(),
-          status: dto.status ?? ContentStatus.DRAFT,
-          publishedAt: isPublishingImmediately ? new Date() : null,
-          createdById: actorId ?? null,
-        },
-        include: {
-          createdBy: { select: { id: true, name: true, email: true } },
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: isPublishingImmediately
-            ? 'AGREEMENT_VERSION_PUBLISHED'
-            : 'AGREEMENT_VERSION_CREATED',
-          entity: 'AgreementTemplateVersion',
-          entityId: created.id,
-          meta: {
-            templateId,
-            templateTitle: template.title,
-            version: created.version,
-            status: created.status,
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: isPublishingImmediately
+              ? 'AGREEMENT_VERSION_PUBLISHED'
+              : 'AGREEMENT_VERSION_CREATED',
+            entity: 'AgreementTemplateVersion',
+            entityId: created.id,
+            meta: {
+              templateId,
+              templateTitle: template.title,
+              version: created.version,
+              status: created.status,
+            },
+            ip,
           },
-          ip,
-        },
+        });
+
+        return created;
       });
 
-      return created;
-    });
-
-    return version;
+      return version;
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(
+          'This version already exists. Please enter a different version number.',
+        );
+      }
+      throw err;
+    }
   }
 
   async findAllVersions(templateId: string) {
@@ -901,6 +938,14 @@ export class AgreementsService {
       );
     }
 
+    // Validate typed acceptance requirement ("I AGREE")
+    const acknowledgement = dto.typedAcknowledgement?.trim();
+    if (!acknowledgement || acknowledgement.toUpperCase() !== 'I AGREE') {
+      throw new BadRequestException(
+        'Typed acknowledgement "I AGREE" is required to confirm acceptance',
+      );
+    }
+
     // Check if learner wants to reuse their profile saved signature
     const userRecord = this.prisma.user
       ? await this.prisma.user.findUnique({
@@ -1194,6 +1239,7 @@ export class AgreementsService {
             consentVersion: resolvedConsentVersion,
             consentTimestamp: resolvedConsentTimestamp.toISOString(),
             typedName: legalName,
+            typedAcknowledgement: acknowledgement,
             signerName: legalName,
             signatureType,
             reusedSignature: !!dto.useSavedSignature,
@@ -1206,17 +1252,19 @@ export class AgreementsService {
       });
 
       // 4. Reusable Digital Signature in Learner Profile
-      // First enrollment: automatically persist signature to learner's profile
-      // Future enrollments: if updateProfileSignature is requested, update it
-      if (tx.user?.update && (!userRecord?.savedSignature || dto.updateProfileSignature === true)) {
-        await tx.user.update({
-          where: { id: userId },
-          data: {
-            savedSignature: normalizedSignature,
-            savedSignatureType: signatureType,
-            savedSignatureUpdatedAt: signingTimestamp,
-          },
-        });
+      if (tx.user?.update) {
+        const userUpdateData: any = {};
+        if (!userRecord?.savedSignature || dto.updateProfileSignature === true) {
+          userUpdateData.savedSignature = normalizedSignature;
+          userUpdateData.savedSignatureType = signatureType;
+          userUpdateData.savedSignatureUpdatedAt = signingTimestamp;
+        }
+        if (Object.keys(userUpdateData).length > 0) {
+          await tx.user.update({
+            where: { id: userId },
+            data: userUpdateData,
+          });
+        }
       }
 
       return signedAgreement;
@@ -1757,6 +1805,8 @@ export class AgreementsService {
       templateVersion: record.templateVersion || record.version?.version || 'v1.0',
       programTitle: record.program?.title ?? 'Program',
       typedName: record.typedName,
+      typedAcknowledgement: 'I AGREE',
+      agreementId: record.id,
       signerEmail: record.user?.email ?? null,
       consentVersion: record.consentVersion,
       consentTimestamp: record.consentTimestamp

@@ -475,6 +475,24 @@ export async function cachedFetch(
     return rawFetch(url, init);
   }
 
+  // Binary downloads (PDFs, octet-streams, media files) MUST bypass caching and stream buffering.
+  // Converting binary streams to UTF-8 text via Response.text() corrupts raw bytes with U+FFFD replacement characters.
+  const isBinaryRequest =
+    url.includes("/pdf") ||
+    url.includes("/download") ||
+    requestHeaders.get("accept")?.includes("application/pdf") ||
+    requestHeaders.get("Accept")?.includes("application/pdf") ||
+    requestHeaders.get("accept")?.includes("application/octet-stream") ||
+    requestHeaders.get("Accept")?.includes("application/octet-stream");
+
+  if (isBinaryRequest) {
+    const rawFetch =
+      typeof window !== "undefined" && (window as any).__rawOriginalFetch
+        ? (window as any).__rawOriginalFetch
+        : fetch;
+    return rawFetch(url, { ...init, headers: requestHeaders });
+  }
+
   // Auto-bust cache on mutations
   if (!isGet) {
     autoInvalidateOnMutation(url);
@@ -615,6 +633,19 @@ export async function cachedFetch(
         autoInvalidateOnMutation(url);
       }
 
+      // Transparently pass through binary response streams without converting to text
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const isBinaryResponse =
+        contentType.includes("application/pdf") ||
+        contentType.includes("application/octet-stream") ||
+        contentType.includes("image/") ||
+        contentType.includes("audio/") ||
+        contentType.includes("video/");
+
+      if (isBinaryResponse) {
+        return res;
+      }
+
       const clone = res.clone();
       const bodyText = await clone.text();
       const headersArray: [string, string][] = [];
@@ -659,6 +690,9 @@ export async function cachedFetch(
   }
 
   const result = await fetchPromise;
+  if (result instanceof Response) {
+    return result;
+  }
   const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
   logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
   return new Response(result.bodyText, {

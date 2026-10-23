@@ -41,7 +41,7 @@ export default function PostVideoCelebration({
       <div style={{ color: "#16a34a", marginBottom: "0.5rem" }}>
         <StepIcons.CheckCircle size={40} />
       </div>
-      <h3 style={{ fontFamily: "var(--font-serif)", fontSize: "1.5rem", margin: "0 0 0.25rem", color: "#166534" }}>
+      <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.5rem", margin: "0 0 0.25rem", color: "#166534" }}>
         Lesson Video Completed!
       </h3>
       <p style={{ margin: "0 0 1.25rem", color: "var(--text-secondary)", fontSize: "0.92rem" }}>

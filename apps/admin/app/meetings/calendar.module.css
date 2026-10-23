@@ -37,7 +37,7 @@
 }
 
 .headerTitle {
-  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-family: var(--font-sans);
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
@@ -257,7 +257,7 @@
 }
 
 .monthHeading {
-  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-family: var(--font-sans);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);

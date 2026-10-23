@@ -29,6 +29,11 @@ export class SignAgreementDto {
   @IsString()
   typedName?: string;
 
+
+  @IsOptional()
+  @IsString()
+  typedAcknowledgement?: string;
+
   @IsOptional()
   @IsString()
   signerName?: string;

@@ -69,7 +69,7 @@ export default function AITutorDrawer({
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
               <StepIcons.Bot size={20} />
-              <h3 style={{ fontFamily: "var(--font-serif)", fontSize: "1.2rem", margin: 0 }}>
+              <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.2rem", margin: 0 }}>
                 AI Study Tutor
               </h3>
             </div>

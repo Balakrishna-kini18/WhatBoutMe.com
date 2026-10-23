@@ -16,6 +16,8 @@ import type { SignatureMethod } from "./SignaturePad";
 import EnrollmentStepper from "../components/EnrollmentStepper";
 import css from "./agreement.module.css";
 import { SITE_URL } from "../lib/site";
+import AgreementLoading from "./loading";
+import AgreementMarkdown from "../components/AgreementMarkdown";
 
 const SignaturePad = dynamic(() => import("./SignaturePad"), {
   ssr: false,
@@ -37,6 +39,7 @@ const CONSENT_STATEMENT =
 
 type FormErrors = {
   name?: string;
+  acknowledgement?: string;
   signature?: string;
   consent?: string;
   form?: string;
@@ -85,12 +88,12 @@ function AgreementSignContent() {
   // Reusable profile signature state
   const [savedProfileSig, setSavedProfileSig] = useState<SavedSignatureResponse | null>(null);
   const [signatureChoice, setSignatureChoice] = useState<"SAVED" | "NEW">("SAVED");
-  const [updateProfileSignature, setUpdateProfileSignature] = useState(false);
 
-  // Form state — the legal name always starts empty.
+  // Form state — full legal name and digital consent
   const [consentGiven, setConsentGiven] = useState(false);
   const [consentTimestamp, setConsentTimestamp] = useState<string | null>(null);
   const [typedName, setTypedName] = useState("");
+  const [typedAcknowledgement, setTypedAcknowledgement] = useState("");
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signatureMethod, setSignatureMethod] = useState<SignatureMethod>("DRAWN");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -99,6 +102,22 @@ function AgreementSignContent() {
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
 
   const handleConfirmPaymentAndProceed = (targetProgramId?: string, targetEnrolmentId?: string) => {
+    const nextErrors: FormErrors = {};
+
+    const ackPhrase = typedAcknowledgement.trim();
+    if (ackPhrase.toUpperCase() !== "I AGREE") {
+      nextErrors.acknowledgement = 'Please type "I AGREE" to confirm that you accept the terms.';
+    }
+
+    if (!consentGiven) {
+      nextErrors.consent = "Accept the digital consent statement to continue.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      return;
+    }
+
     const progId = targetProgramId || enrolment?.programId || queryProgramId || signedRecord?.programId || justSignedSuccess?.programId;
     const enrolId = targetEnrolmentId || enrolment?.id || queryEnrolmentId || signedRecord?.enrolmentId || justSignedSuccess?.enrolmentId;
 
@@ -219,6 +238,7 @@ function AgreementSignContent() {
           if (existingSigned && existingSigned.status === "SIGNED") {
             setSignedRecord(existingSigned);
             setTypedName(existingSigned.typedName || "");
+            setTypedAcknowledgement("I AGREE");
             setConsentGiven(true);
             setConsentTimestamp(existingSigned.consentTimestamp || new Date().toISOString());
             if (existingSigned.drawnSignature || existingSigned.signatureImage) {
@@ -230,7 +250,7 @@ function AgreementSignContent() {
         }
       }
 
-      // Pre-fill user's legal name from profile if typedName is still empty
+      // Pre-fill user's legal name from profile if still empty
       try {
         const meRes = await fetch(`${API_URL}/auth/me`, { headers: getAuthHeaders() });
         if (meRes.ok) {
@@ -332,14 +352,16 @@ function AgreementSignContent() {
     const finalSigType = signatureMethod || (savedProfileSig?.savedSignatureType || "DRAWN");
 
     if (!finalSigData || finalSigData.length < 10) {
-      nextErrors.signature =
-        finalSigType === "UPLOADED"
-          ? "Upload a signature image (PNG, JPEG or WebP) before continuing."
-          : "Draw your signature before continuing.";
+      nextErrors.signature = "Please provide your signature before continuing.";
     }
 
     if (!consentGiven) {
       nextErrors.consent = "Accept the digital consent statement to continue.";
+    }
+
+    const ackPhrase = typedAcknowledgement.trim();
+    if (ackPhrase.toUpperCase() !== "I AGREE") {
+      nextErrors.acknowledgement = 'Please type "I AGREE" to confirm that you accept the terms.';
     }
 
     if (Object.keys(nextErrors).length > 0) {
@@ -366,9 +388,10 @@ function AgreementSignContent() {
         consentVersion: activeTemplate.version || "v1.0",
         consentTimestamp: consentTimestamp || new Date().toISOString(),
         typedName: legalName,
+        typedAcknowledgement: ackPhrase,
         signerName: legalName,
         useSavedSignature: usingSaved,
-        updateProfileSignature: usingSaved ? false : updateProfileSignature,
+        updateProfileSignature: !usingSaved,
         signatureData: finalSigData,
         drawnSignature: finalSigData,
         signatureType: finalSigType,
@@ -406,16 +429,7 @@ function AgreementSignContent() {
   };
 
   if (isLoading) {
-    return (
-      <div className={css.page}>
-        <div className={css.shell}>
-          <div className={`${css.card} ${css.centered}`}>
-            <p className={css.stateText}>Loading program agreement…</p>
-            <p className={css.stateBody}>Retrieving the current legal terms for this program.</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <AgreementLoading />;
   }
 
   if (loadError) {
@@ -543,39 +557,57 @@ function AgreementSignContent() {
         <EnrollmentStepper currentStep={2} />
 
         <div className={css.card}>
-          <h1 className={css.heading}>Program Agreement &amp; Digital Consent</h1>
+          <h1 className={css.heading}>Review &amp; Sign Agreement</h1>
 
-          {/* Selected program */}
-          <section className={css.summary}>
-            <span className={css.eyebrow}>Selected Program</span>
-            <span className={css.programName}>{programTitle}</span>
+          {/* Selected program in compact summary card */}
+          <section className={css.programCard}>
+            <div className={css.programIconWrap} aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+            </div>
+            <div className={css.programInfo}>
+              <span className={css.programEyebrow}>Selected Program</span>
+              <span className={css.programName}>{programTitle}</span>
+            </div>
           </section>
 
-          {/* Agreement title + the single version badge */}
-          <div className={css.docHeader}>
-            <h2 className={css.docTitle}>{agreementTitle}</h2>
-            <span className={css.versionBadge}>{agreementVersion}</span>
-          </div>
-
-          {/* Complete, unmodified published terms in a bounded reading area */}
-          <div className={css.document} tabIndex={0} role="region" aria-label="Agreement terms">
-            {hasAgreementContent ? (
-              <div className={css.documentBody}>{agreementContent}</div>
-            ) : (
-              <p className={css.notice}>
-                This agreement is not available yet. Please try again later or contact support.
-              </p>
-            )}
+          {/* Agreement terms in compact, readable section with document icon */}
+          <div className={css.termsSection}>
+            <div className={css.termsHeader}>
+              <div className={css.termsTitleWrap}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+                <span className={css.termsTitle}>Agreement Terms &amp; Conditions</span>
+              </div>
+            </div>
+            <div className={css.document} tabIndex={0} role="region" aria-label="Agreement terms">
+              {hasAgreementContent ? (
+                <AgreementMarkdown content={agreementContent} className={css.documentBody} />
+              ) : (
+                <p className={css.notice}>
+                  This agreement is not available yet. Please try again later or contact support.
+                </p>
+              )}
+            </div>
           </div>
 
           <form onSubmit={handleSignSubmit} noValidate>
             {/* Full legal name */}
             <div className={css.field}>
-              <label className={css.fieldLabel} htmlFor="legalNameInput">
-                <span>
-                  Full legal name <span className={css.required}>*</span>
+              <label className={css.legalNameLabel} htmlFor="legalNameInput">
+                <span className={css.labelText}>
+                  Full Legal Name <span className={css.required}>*</span>
                 </span>
-                <span className={css.fieldHint}>Must match your official identity</span>
+                <span className={css.legalNameNote}>
+                  (This name will appear on your certificate and cannot be changed after signing.)
+                </span>
               </label>
               <input
                 id="legalNameInput"
@@ -585,7 +617,9 @@ function AgreementSignContent() {
                 autoComplete="name"
                 placeholder="Enter your full legal name"
                 maxLength={MAX_LEGAL_NAME_LENGTH}
-                value={typedName}
+                value={signedRecord?.typedName || typedName}
+                disabled={!!signedRecord}
+                readOnly={!!signedRecord}
                 aria-invalid={errors.name ? true : undefined}
                 aria-describedby={errors.name ? "legalNameError" : undefined}
                 onChange={(e) => {
@@ -606,23 +640,22 @@ function AgreementSignContent() {
                 <span>
                   Digital signature <span className={css.required}>*</span>
                 </span>
-                <span className={css.fieldHint}>
-                  {hasSignature && signatureChoice === "SAVED"
-                    ? "Your digital signature has been fetched. You can replace or remove it below."
-                    : "Draw with finger, pen or mouse, or upload an image"}
-                </span>
               </label>
 
               {hasSignature && signatureChoice === "SAVED" ? (
                 <div className={css.savedSigCard}>
                   <div className={css.savedSigHeader}>
                     <span className={css.savedSigTitle}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5">
-                        <polyline points="20 6 9 17 4 12" />
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        <polyline points="9 12 11 14 15 10" />
                       </svg>
                       {signedRecord ? "Signed Digital Signature" : "Saved Profile Signature"}
                     </span>
                     <span className={css.savedSigBadge}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
                       {signatureMethod === "UPLOADED" ? "Uploaded Image" : "Drawn Signature"}
                     </span>
                   </div>
@@ -637,33 +670,22 @@ function AgreementSignContent() {
                   <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.85rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
                     <button
                       type="button"
+                      className={css.replaceSigBtn}
                       onClick={() => {
                         setSignatureChoice("NEW");
                         setSignatureData(null);
                         setErrors((prev) => ({ ...prev, signature: undefined }));
                       }}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.35rem",
-                        padding: "0.45rem 0.85rem",
-                        borderRadius: "8px",
-                        border: "1px solid #B86B11",
-                        background: "#FFFFFF",
-                        color: "#B86B11",
-                        fontSize: "0.82rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <path d="M12 20h9" />
                         <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
                       </svg>
-                      Replace Signature
+                      <span>Replace Signature</span>
                     </button>
                     <button
                       type="button"
+                      className={css.removeSigBtn}
                       onClick={() => {
                         setSignatureChoice("NEW");
                         setSignatureData(null);
@@ -675,41 +697,20 @@ function AgreementSignContent() {
                         }
                         setErrors((prev) => ({ ...prev, signature: undefined }));
                       }}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.35rem",
-                        padding: "0.45rem 0.85rem",
-                        borderRadius: "8px",
-                        border: "1px solid #DC2626",
-                        background: "#FFFFFF",
-                        color: "#DC2626",
-                        fontSize: "0.82rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                       </svg>
-                      Remove
+                      <span>Remove</span>
                     </button>
                   </div>
                 </div>
               ) : (
                 <div>
                   <SignaturePad onSignatureChange={handleSignatureChange} height={160} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
-                    <label className={css.saveToProfileOption}>
-                      <input
-                        type="checkbox"
-                        checked={updateProfileSignature}
-                        onChange={(e) => setUpdateProfileSignature(e.target.checked)}
-                      />
-                      <span>Save / update this signature on my profile</span>
-                    </label>
-                    {originalSignature && (
+                  {originalSignature && (
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.5rem" }}>
                       <button
                         type="button"
                         onClick={() => {
@@ -728,14 +729,48 @@ function AgreementSignContent() {
                       >
                         Keep Existing Signature
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {errors.signature && (
                 <p className={css.fieldError} role="alert">
                   {errors.signature}
+                </p>
+              )}
+            </div>
+
+            {/* Typed Acceptance requirement */}
+            <div className={css.field}>
+              <label className={css.fieldLabelStacked} htmlFor="acknowledgementInput">
+                <span className={css.labelText}>
+                  Typed Acceptance <span className={css.required}>*</span>
+                </span>
+                <span className={css.fieldHelperText}>
+                  Please type <strong>I AGREE</strong> to confirm that you have read and accepted the program agreement terms
+                </span>
+              </label>
+              <input
+                id="acknowledgementInput"
+                className={`${css.input} ${errors.acknowledgement ? css.inputInvalid : ""}`}
+                type="text"
+                name="typedAcknowledgement"
+                autoComplete="off"
+                placeholder='Type "I AGREE"'
+                value={typedAcknowledgement}
+                style={{ textTransform: "uppercase" }}
+                aria-invalid={errors.acknowledgement ? true : undefined}
+                aria-describedby={errors.acknowledgement ? "acknowledgementError" : undefined}
+                onChange={(e) => {
+                  setTypedAcknowledgement(e.target.value.toUpperCase());
+                  setErrors((prev) => ({ ...prev, acknowledgement: undefined, form: undefined }));
+                }}
+              />
+
+              {errors.acknowledgement && (
+                <p className={css.fieldError} id="acknowledgementError" role="alert">
+                  {errors.acknowledgement}
                 </p>
               )}
             </div>
@@ -806,9 +841,15 @@ function AgreementSignContent() {
                 className={css.submit}
                 style={{ cursor: isConfirmingPayment ? "wait" : "pointer" }}
               >
-                {isConfirmingPayment
-                  ? "Confirming Payment & Unlocking Course…"
-                  : "Continue to Payment"}
+                <span>
+                  {isConfirmingPayment
+                    ? "Confirming Payment & Unlocking Course…"
+                    : "Continue to Payment"}
+                </span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
               </button>
             ) : (
               <button
@@ -816,11 +857,17 @@ function AgreementSignContent() {
                 className={css.submit}
                 disabled={isSubmitting || !hasAgreementContent}
               >
-                {isSubmitting
-                  ? "Signing agreement…"
-                  : signedRecord
-                  ? "Update Signature & Continue"
-                  : "Sign Agreement & Continue to Payment"}
+                <span>
+                  {isSubmitting
+                    ? "Signing agreement…"
+                    : "Sign Agreement & Continue"}
+                </span>
+                {!isSubmitting && (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                )}
               </button>
             )}
           </form>

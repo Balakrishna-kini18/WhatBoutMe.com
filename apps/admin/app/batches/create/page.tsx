@@ -234,7 +234,7 @@ export default function CreateBatchPage() {
             <span>/</span>
             <span>New Cohort</span>
           </div>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary, #14110f)", fontFamily: "var(--font-serif, serif)" }}>
+          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary, #14110f)", fontFamily: "var(--font-sans)" }}>
             Create Batch Cohort
           </h1>
           {/* <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary, #4a443d)" }}>

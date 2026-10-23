@@ -105,7 +105,7 @@ export default function AdaptiveQuizPlayer({
           <div className={styles.quizHeroIcon}>
             <StepIcons.Brain size={32} />
           </div>
-          <h2 style={{ fontFamily: "var(--font-serif)", fontSize: "1.85rem", margin: "0 0 0.5rem" }}>
+          <h2 style={{ fontFamily: "var(--font-sans)", fontSize: "1.85rem", margin: "0 0 0.5rem" }}>
             Knowledge Check
           </h2>
           <p style={{ color: "var(--text-secondary)", margin: "0 auto", maxWidth: 500, fontSize: "0.95rem" }}>
@@ -345,7 +345,7 @@ export default function AdaptiveQuizPlayer({
               <div style={{ color: "#16a34a", marginBottom: "0.5rem" }}>
                 <StepIcons.CheckCircle size={48} />
               </div>
-              <h2 style={{ fontFamily: "var(--font-serif)", fontSize: "2rem", color: "#15803d", margin: "0 0 0.5rem" }}>
+              <h2 style={{ fontFamily: "var(--font-sans)", fontSize: "2rem", color: "#15803d", margin: "0 0 0.5rem" }}>
                 Knowledge Check Passed
               </h2>
               <div className={`${styles.scoreBadge} ${styles.scoreBadgePassed}`}>
@@ -369,7 +369,7 @@ export default function AdaptiveQuizPlayer({
               <div style={{ color: "#b91c1c", marginBottom: "0.5rem" }}>
                 <StepIcons.Brain size={48} />
               </div>
-              <h2 style={{ fontFamily: "var(--font-serif)", fontSize: "1.85rem", color: "#b91c1c", margin: "0 0 0.5rem" }}>
+              <h2 style={{ fontFamily: "var(--font-sans)", fontSize: "1.85rem", color: "#b91c1c", margin: "0 0 0.5rem" }}>
                 Keep Learning &amp; Try Again
               </h2>
               <div className={`${styles.scoreBadge} ${styles.scoreBadgeFailed}`}>

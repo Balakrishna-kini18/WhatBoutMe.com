@@ -3,6 +3,7 @@ import { PDFDocument } from 'pdf-lib';
 import {
   renderSignedAgreementPdf,
   sanitizeForWinAnsi,
+  stripMarkdownFormatting,
   type SignedAgreementPdfInput,
 } from './signed-agreement-pdf.js';
 
@@ -83,6 +84,91 @@ describe('renderSignedAgreementPdf', () => {
     const doc = await PDFDocument.load(bytes);
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
   });
+
+  it('renders and embeds an uploaded JPEG signature data URL', async () => {
+    const jpegDataUrl =
+      'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+    const bytesWithoutSig = await renderSignedAgreementPdf({
+      ...baseInput,
+      signatureType: 'UPLOADED',
+      signatureDataUrl: null,
+    });
+    const bytesWithSig = await renderSignedAgreementPdf({
+      ...baseInput,
+      signatureType: 'UPLOADED',
+      signatureDataUrl: jpegDataUrl,
+    });
+    expect(magic(bytesWithSig)).toBe('%PDF-');
+    expect(bytesWithSig.length).toBeGreaterThan(bytesWithoutSig.length);
+    const doc = await PDFDocument.load(bytesWithSig);
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders and embeds an uploaded PNG signature data URL', async () => {
+    const pngDataUrl =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const bytesWithoutSig = await renderSignedAgreementPdf({
+      ...baseInput,
+      signatureType: 'DRAWN',
+      signatureDataUrl: null,
+    });
+    const bytesWithSig = await renderSignedAgreementPdf({
+      ...baseInput,
+      signatureType: 'DRAWN',
+      signatureDataUrl: pngDataUrl,
+    });
+    expect(magic(bytesWithSig)).toBe('%PDF-');
+    expect(bytesWithSig.length).toBeGreaterThan(bytesWithoutSig.length);
+    const doc = await PDFDocument.load(bytesWithSig);
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders markdown headings, lists, and formatted text cleanly in PDF', async () => {
+    const markdownContent = `
+# Workshop Terms & Agreement
+Welcome to the program. Please read carefully.
+
+## 1. Attendance & Conduct
+All participants are expected to attend scheduled sessions.
+
+- Respect instructors and fellow learners
+- Do not record or distribute course material
+- Maintain academic honesty
+
+### 1.1 Non-Disclosure
+You agree **not to share** confidential program resources. For details see [Terms](https://whatboutme.com/terms).
+`;
+    const bytes = await renderSignedAgreementPdf({
+      ...baseInput,
+      agreementContent: markdownContent,
+    });
+    expect(magic(bytes)).toBe('%PDF-');
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('stripMarkdownFormatting', () => {
+  it('strips bold and italic asterisks and underscores', () => {
+    expect(stripMarkdownFormatting('This is **bold** and *italic* text.')).toBe(
+      'This is bold and italic text.',
+    );
+    expect(stripMarkdownFormatting('This is __bold__ and _italic_ text.')).toBe(
+      'This is bold and italic text.',
+    );
+  });
+
+  it('converts markdown links to readable text', () => {
+    expect(stripMarkdownFormatting('Review our [Terms](https://whatboutme.com/terms).')).toBe(
+      'Review our Terms (https://whatboutme.com/terms).',
+    );
+  });
+
+  it('strips inline code backticks', () => {
+    expect(stripMarkdownFormatting('Use the `code` block.')).toBe(
+      'Use the code block.',
+    );
+  });
 });
 
 describe('sanitizeForWinAnsi', () => {
@@ -100,3 +186,4 @@ describe('sanitizeForWinAnsi', () => {
     expect(sanitizeForWinAnsi('café')).toBe('café');
   });
 });
+

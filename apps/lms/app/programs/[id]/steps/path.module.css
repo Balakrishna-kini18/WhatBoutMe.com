@@ -88,7 +88,7 @@
 }
 
 .title {
-  font-family: var(--font-serif), Georgia, serif;
+  font-family: var(--font-sans);
   font-size: 1.6rem;
   font-weight: 800;
   color: var(--text-primary, #14110f);

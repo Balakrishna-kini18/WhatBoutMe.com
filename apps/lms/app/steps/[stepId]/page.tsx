@@ -777,16 +777,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               ▶ Lesson Workspace
             </button>
           </div>
-
-          {/* Drawer open button */}
-          <button
-            type="button"
-            onClick={() => setIsDrawerOpen(true)}
-            className={styles.btnSecondaryOutline}
-            title="Open Module Lessons Drawer"
-          >
-            <span>☰ Module Lessons</span>
-          </button>
         </div>
       </div>
 

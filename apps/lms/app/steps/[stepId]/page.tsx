@@ -306,6 +306,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return idx >= 0 ? idx : 0;
   }, [allLessons, currentMedia]);
 
+  const formatLessonDuration = (sec?: number) => {
+    if (!sec || sec <= 0) return null;
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
   // Load Notes for current lesson
   const loadNotesForLesson = useCallback(async (lessonId: string) => {
     try {
@@ -967,116 +974,119 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </div>
                 )}
 
-                {currentMedia?.mediaUrl ? (
-                  <div className={styles.videoTheatreCard}>
-                    <CompulsoryVideoPlayer
-                      lessonId={currentMedia.id}
-                      videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
-                      userName={userName}
-                      userEmail={userEmail}
-                      durationSec={currentMedia.durationSec || 0}
-                      initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
-                      onHeartbeat={(pos, ended, dur, delta) =>
-                        sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta)
-                      }
-                      onComplete={() => handleLessonComplete(currentMedia.id)}
-                    />
-                  </div>
-                ) : (
-                  <div className={styles.videoTheatreCard} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
-                    <span style={{ fontSize: "2rem" }}>▶</span>
-                    <span>No video stream attached to this lesson</span>
-                  </div>
-                )}
-
-                {/* Lesson Details Card Below Video */}
-                <div className={styles.lessonDetailsCard}>
-                  <div className={styles.lessonDetailsHeader}>
-                    <div>
-                      <h3 className={styles.lessonDetailsTitle}>{currentMedia?.title || "Lesson Overview"}</h3>
-                      <span style={{ fontSize: "0.82rem", color: "#78716c" }}>
-                        Part {activeLessonIndex + 1} of {allLessons.length} • Duration: {currentMedia?.durationSec ? `${Math.ceil(currentMedia.durationSec / 60)}:00` : "15:00"}
-                      </span>
+                {/* Unified Video & Lesson Details in the Same Box */}
+                <div className={styles.unifiedVideoCard}>
+                  {currentMedia?.mediaUrl ? (
+                    <div className={styles.videoPlayerViewport}>
+                      <CompulsoryVideoPlayer
+                        lessonId={currentMedia.id}
+                        videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
+                        userName={userName}
+                        userEmail={userEmail}
+                        durationSec={currentMedia.durationSec || 0}
+                        initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
+                        onHeartbeat={(pos, ended, dur, delta) =>
+                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta)
+                        }
+                        onComplete={() => handleLessonComplete(currentMedia.id)}
+                      />
                     </div>
-                    {lessonProgress[currentMedia?.id]?.isCompleted && (
-                      <span className={styles.watchedPill}>✓ Watched</span>
+                  ) : (
+                    <div className={styles.videoPlayerViewport} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: "2rem" }}>▶</span>
+                      <span>No video stream attached to this lesson</span>
+                    </div>
+                  )}
+
+                  {/* Dynamic Lesson Details in the Same Box */}
+                  <div className={styles.lessonDetailsCard}>
+                    <div className={styles.lessonDetailsHeader}>
+                      <div>
+                        <h3 className={styles.lessonDetailsTitle}>{currentMedia?.title || "Lesson Overview"}</h3>
+                        <span style={{ fontSize: "0.82rem", color: "#78716c" }}>
+                          Part {activeLessonIndex + 1} of {allLessons.length}
+                          {currentMedia?.durationSec ? ` • Duration: ${formatLessonDuration(currentMedia.durationSec)}` : ""}
+                        </span>
+                      </div>
+                      {lessonProgress[currentMedia?.id]?.isCompleted && (
+                        <span className={styles.watchedPill}>✓ Watched</span>
+                      )}
+                    </div>
+
+                    {/* Dynamic description / content only (static placeholder removed) */}
+                    {(currentMedia?.content || currentMedia?.description) && (
+                      <p className={styles.lessonParagraph}>
+                        {currentMedia.content || currentMedia.description}
+                      </p>
                     )}
-                  </div>
 
-                  <p className={styles.lessonParagraph}>
-                    {currentMedia?.description ||
-                      "In this lesson, we will understand the core concepts of the LMS platform, its features, and how it helps in managing learning, tracking progress, and engaging learners effectively."}
-                  </p>
+                    {/* Part / Module Navigation Row */}
+                    <div className={styles.lessonNavigationRow}>
+                      {activeLessonIndex > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
+                          className={styles.btnSecondaryOutline}
+                        >
+                          &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
+                        </button>
+                      ) : (
+                        <span />
+                      )}
 
-                  {/* Part / Module Navigation Row */}
-                  <div className={styles.lessonNavigationRow}>
-                    {activeLessonIndex > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
-                        className={styles.btnSecondaryOutline}
-                      >
-                        &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
-                      </button>
-                    ) : (
-                      <span />
+                      {nextLesson ? (
+                        <button
+                          type="button"
+                          disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
+                          onClick={() => setSelectedMediaId(nextLesson.id)}
+                          className={styles.btnPrimaryOrange}
+                          style={{
+                            opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
+                            cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          Next Part ({nextLesson.title}) &rarr;
+                        </button>
+                      ) : step?.quiz ? (
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("quiz")}
+                          className={styles.btnPrimaryOrange}
+                        >
+                          Take Module Quiz &rarr;
+                        </button>
+                      ) : nextStep && nextStepId ? (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/steps/${nextStepId}`)}
+                          className={styles.btnPrimaryOrange}
+                        >
+                          Next Module ({nextStep.title}) &rarr;
+                        </button>
+                      ) : (
+                        <Link
+                          href={`/programs/${step?.programId}/steps`}
+                          className={styles.btnPrimaryOrange}
+                        >
+                          Course Roadmap &rarr;
+                        </Link>
+                      )}
+                    </div>
+
+                    {/* Dynamic Learning Objectives only (static placeholder removed) */}
+                    {Array.isArray((step as any)?.learningObjectives) && (step as any).learningObjectives.length > 0 && (
+                      <div className={styles.objectivesBox}>
+                        <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
+                        <ul className={styles.objectivesList}>
+                          {(step as any).learningObjectives.map((obj: string, i: number) => (
+                            <li key={i} className={styles.objectiveItem}>
+                              <span className={styles.objectiveIcon}>✓</span>
+                              <span>{obj}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
-
-                    {nextLesson ? (
-                      <button
-                        type="button"
-                        disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
-                        onClick={() => setSelectedMediaId(nextLesson.id)}
-                        className={styles.btnPrimaryOrange}
-                        style={{
-                          opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
-                          cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        Next Part ({nextLesson.title}) &rarr;
-                      </button>
-                    ) : step?.quiz ? (
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("quiz")}
-                        className={styles.btnPrimaryOrange}
-                      >
-                        Take Module Quiz &rarr;
-                      </button>
-                    ) : nextStep && nextStepId ? (
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/steps/${nextStepId}`)}
-                        className={styles.btnPrimaryOrange}
-                      >
-                        Next Module ({nextStep.title}) &rarr;
-                      </button>
-                    ) : (
-                      <Link
-                        href={`/programs/${step?.programId}/steps`}
-                        className={styles.btnPrimaryOrange}
-                      >
-                        Course Roadmap &rarr;
-                      </Link>
-                    )}
-                  </div>
-
-                  <div className={styles.objectivesBox}>
-                    <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
-                    <ul className={styles.objectivesList}>
-                      <li className={styles.objectiveItem}>
-                        <span className={styles.objectiveIcon}>✓</span>
-                        <span>Understand the primary purpose and architectural model of the platform</span>
-                      </li>
-                      <li className={styles.objectiveItem}>
-                        <span className={styles.objectiveIcon}>✓</span>
-                        <span>Explore key progression gates, anti-skip mechanisms, and verification safeguards</span>
-                      </li>
-                      <li className={styles.objectiveItem}>
-                        <span className={styles.objectiveIcon}>✓</span>
-                        <span>Learn how sequential progression is monitored live by the server engine</span>
-                      </li>
-                    </ul>
                   </div>
                 </div>
               </div>

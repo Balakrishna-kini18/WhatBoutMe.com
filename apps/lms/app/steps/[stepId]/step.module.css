@@ -328,6 +328,24 @@
   min-width: 0;
 }
 
+.unifiedVideoCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+  display: flex;
+  flex-direction: column;
+}
+
+.videoPlayerViewport {
+  background: #000000;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
 .videoTheatreCard {
   background: #000000;
   border-radius: 14px;
@@ -343,6 +361,13 @@
   border-radius: 14px;
   padding: 1.5rem;
   box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
+}
+
+.unifiedVideoCard .lessonDetailsCard {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1.35rem 1.5rem 1.5rem;
 }
 
 .lessonDetailsHeader {

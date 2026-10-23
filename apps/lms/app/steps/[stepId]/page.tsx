@@ -898,82 +898,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
           {activeTab === "video" && (
             <div className={styles.lessonWorkspaceGrid}>
-              {/* Left Column: Multi-Video Selector + 16:9 Compulsory Player + Lesson Details */}
+              {/* Left Column: 16:9 Compulsory Player + Lesson Details + Multi-Video Selector */}
               <div className={styles.videoLeftColumn}>
-                {/* Multi-video parts selector (if step contains >1 video) */}
-                {allLessons.length > 1 && (
-                  <div className={styles.multiVideoPlaylistCard}>
-                    <div className={styles.multiVideoPlaylistHeader}>
-                      <div className={styles.multiVideoPlaylistHeaderLeft}>
-                        <span className={styles.multiVideoPlaylistBadge}>
-                          Module Playlist ({allLessons.length} Parts)
-                        </span>
-                        <span className={styles.multiVideoCurrentPart}>
-                          Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
-                        </span>
-                      </div>
-                      <span className={styles.multiVideoCounter}>
-                        {completedLessonsCount}/{totalLessonsCount} Completed
-                      </span>
-                    </div>
-
-                    <div className={styles.multiVideoTrackList} role="tablist">
-                      {allLessons.map((l: any, idx: number) => {
-                        const isSelected = currentMedia?.id === l.id;
-                        const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
-                        const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
-
-                        return (
-                          <button
-                            key={l.id}
-                            type="button"
-                            role="tab"
-                            aria-selected={isSelected}
-                            disabled={isLocked}
-                            onClick={() => {
-                              if (!isLocked) {
-                                setSelectedMediaId(l.id);
-                              }
-                            }}
-                            className={`${styles.multiVideoItemBtn} ${
-                              isSelected ? styles.multiVideoItemBtnActive : ""
-                            } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
-                              isLocked ? styles.multiVideoItemBtnLocked : ""
-                            }`}
-                            title={isLocked ? "Complete previous video part to unlock" : l.title}
-                          >
-                            <div className={styles.multiVideoItemLeft}>
-                              <span className={styles.multiVideoItemPartNum}>
-                                {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
-                              </span>
-                              <div className={styles.multiVideoItemMeta}>
-                                <strong className={styles.multiVideoItemTitle}>
-                                  Part {idx + 1}: {l.title || "Video Lesson"}
-                                </strong>
-                                <span className={styles.multiVideoItemDuration}>
-                                  {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
-                                  {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Locked" : " • Ready"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className={styles.multiVideoItemRight}>
-                              {isSelected ? (
-                                <span className={styles.playingTag}>Playing</span>
-                              ) : isDone ? (
-                                <span className={styles.completedTag}>Watched</span>
-                              ) : isLocked ? (
-                                <span className={styles.lockedTag}>Locked</span>
-                              ) : (
-                                <span className={styles.startTag}>Start</span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
                 {/* Unified Video & Lesson Details in the Same Box */}
                 <div className={styles.unifiedVideoCard}>
                   {currentMedia?.mediaUrl ? (
@@ -995,6 +921,80 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     <div className={styles.videoPlayerViewport} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
                       <span style={{ fontSize: "2rem" }}>▶</span>
                       <span>No video stream attached to this lesson</span>
+                    </div>
+                  )}
+
+                  {/* Multi-video parts selector (directly below the video) */}
+                  {allLessons.length > 1 && (
+                    <div className={styles.multiVideoPlaylistSection}>
+                      <div className={styles.multiVideoPlaylistHeader}>
+                        <div className={styles.multiVideoPlaylistHeaderLeft}>
+                          <span className={styles.multiVideoPlaylistBadge}>
+                            Module Playlist ({allLessons.length} Parts)
+                          </span>
+                          <span className={styles.multiVideoCurrentPart}>
+                            Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
+                          </span>
+                        </div>
+                        <span className={styles.multiVideoCounter}>
+                          {completedLessonsCount}/{totalLessonsCount} Completed
+                        </span>
+                      </div>
+
+                      <div className={styles.multiVideoTrackList} role="tablist">
+                        {allLessons.map((l: any, idx: number) => {
+                          const isSelected = currentMedia?.id === l.id;
+                          const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
+                          const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
+
+                          return (
+                            <button
+                              key={l.id}
+                              type="button"
+                              role="tab"
+                              aria-selected={isSelected}
+                              disabled={isLocked}
+                              onClick={() => {
+                                if (!isLocked) {
+                                  setSelectedMediaId(l.id);
+                                }
+                              }}
+                              className={`${styles.multiVideoItemBtn} ${
+                                isSelected ? styles.multiVideoItemBtnActive : ""
+                              } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
+                                isLocked ? styles.multiVideoItemBtnLocked : ""
+                              }`}
+                              title={isLocked ? "Complete previous video part to unlock" : l.title}
+                            >
+                              <div className={styles.multiVideoItemLeft}>
+                                <span className={styles.multiVideoItemPartNum}>
+                                  {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
+                                </span>
+                                <div className={styles.multiVideoItemMeta}>
+                                  <strong className={styles.multiVideoItemTitle}>
+                                    Part {idx + 1}: {l.title || "Video Lesson"}
+                                  </strong>
+                                  <span className={styles.multiVideoItemDuration}>
+                                    {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
+                                    {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Ready" : " • Ready"}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className={styles.multiVideoItemRight}>
+                                {isSelected ? (
+                                  <span className={styles.playingTag}>Playing</span>
+                                ) : isDone ? (
+                                  <span className={styles.completedTag}>Watched</span>
+                                ) : isLocked ? (
+                                  <span className={styles.lockedTag}>Locked</span>
+                                ) : (
+                                  <span className={styles.startTag}>Start</span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 

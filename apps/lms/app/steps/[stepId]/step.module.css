@@ -990,6 +990,26 @@
 /* -------------------------------------------------------------------------
    MULTI-VIDEO PLAYLIST SELECTOR (When step has multiple video parts)
    ------------------------------------------------------------------------- */
+.unifiedVideoCard .multiVideoPlaylistSection {
+  background: #ffffff;
+  border-top: 1px solid #ece6dd;
+  border-bottom: 1px solid #f3efe8;
+  padding: 1.15rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.multiVideoPlaylistSection {
+  background: #ffffff;
+  border-top: 1px solid #ece6dd;
+  border-bottom: 1px solid #f3efe8;
+  padding: 1.15rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
 .multiVideoPlaylistCard {
   background: #ffffff;
   border: 1px solid #ece6dd;

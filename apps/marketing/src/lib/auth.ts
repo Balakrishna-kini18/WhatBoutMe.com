@@ -266,9 +266,8 @@ export function continueToPortal(): boolean {
   if (!path) return false;
   // Only the portal's home needs a course first. Checkout is how one is
   // bought, and My Courses and Profile are open to every signed-in learner
-  // (My Courses shows an empty state with a way to explore). Chat is in the
-  // bottom bar beside them.
-  const open = ["/agreement", "/agreements", "/checkout", "/courses", "/chat", "/profile"].some((p) => path.startsWith(p));
+  // (My Courses shows an empty state with a way to explore).
+  const open = ["/agreement", "/agreements", "/checkout", "/courses", "/profile"].some((p) => path.startsWith(p));
   void openPortal(path, { requirePurchase: !open })({ preventDefault() {} });
   return true;
 }

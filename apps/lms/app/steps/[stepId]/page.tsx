@@ -1215,19 +1215,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     </div>
                   )}
                 </div>
-
-                {/* About this step card */}
-                <div className={styles.aboutStepCard}>
-                  <h4 className={styles.aboutStepTitle}>About this step</h4>
-                  <p className={styles.aboutStepText}>
-                    Sequential progression is monitored live by the server engine.
-                  </p>
-                  <div style={{ fontSize: "0.78rem", color: "#78716c", display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                    <span>• Step Sequence: #{step?.sequence}</span>
-                    <span>• Knowledge Check: Pass mark 75%</span>
-                    <span>• Watermark protection active for learner session</span>
-                  </div>
-                </div>
               </div>
             </div>
           )}

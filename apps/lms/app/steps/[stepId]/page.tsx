@@ -125,6 +125,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
   const [lastQuizResult, setLastQuizResult] = useState<any>(null);
   const [quizError, setQuizError] = useState<string | null>(null);
+  const [activeAttemptId, setActiveAttemptId] = useState<string | null>(null);
 
   // User state
   const [userName, setUserName] = useState<string>("Learner");
@@ -272,7 +273,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (attemptText) {
             const attemptData = JSON.parse(attemptText);
             if (attemptData) {
-              setLastQuizResult(attemptData);
+              if (attemptData.status === "IN_PROGRESS") {
+                setActiveAttemptId(attemptData.attemptId || attemptData.id || null);
+              } else if (attemptData.score !== undefined && attemptData.status !== "IN_PROGRESS") {
+                setActiveAttemptId(attemptData.attemptId || attemptData.id || null);
+                setLastQuizResult(attemptData);
+              }
             }
           }
         } catch (e) {}
@@ -502,8 +508,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setIsSubmittingQuiz(true);
     setQuizError(null);
 
-    const questionsList: QuizQuestion[] = step.quiz.questions || [];
-    const submissionDto = {
+    // Resolve or auto-start attempt if needed
+    let currentAttemptId = activeAttemptId;
+    if (!currentAttemptId) {
+      try {
+        const startRes = await fetch(`${API_URL}/quizzes/${step.quiz.id}/start`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+        });
+        if (startRes.ok) {
+          const startData = await startRes.json();
+          currentAttemptId = startData.attemptId || startData.id;
+          setActiveAttemptId(currentAttemptId);
+        }
+      } catch (e) {
+        console.warn("Could not start quiz attempt:", e);
+      }
+    }
+
+    const questionsList: QuizQuestion[] = quizQuestions || [];
+    const submissionDto: any = {
+      attemptId: currentAttemptId || undefined,
       answers: questionsList.map((q) => ({
         questionId: q.id,
         selectedOptionId: quizAnswers[q.id] || undefined,
@@ -521,6 +546,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         throw new Error(data?.message || "Failed to submit quiz");
       }
       setLastQuizResult(data);
+      setActiveAttemptId(null);
       if (data.passed) {
         invalidateCache("/progression");
         fetchStepAndProgression();
@@ -645,6 +671,60 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       ];
 
   const currentQuizQuestion: QuizQuestion = quizQuestions[activeQuizIndex] || quizQuestions[0] || defaultFallbackQuestion;
+
+  const renderLessonNavigationRow = () => (
+    <div className={styles.lessonNavigationRow}>
+      {activeLessonIndex > 0 ? (
+        <button
+          type="button"
+          onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
+          className={styles.btnSecondaryOutline}
+        >
+          &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
+        </button>
+      ) : (
+        <span />
+      )}
+
+      {nextLesson ? (
+        <button
+          type="button"
+          disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
+          onClick={() => setSelectedMediaId(nextLesson.id)}
+          className={styles.btnPrimaryOrange}
+          style={{
+            opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
+            cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
+          }}
+        >
+          Next Part ({nextLesson.title}) &rarr;
+        </button>
+      ) : step?.quiz ? (
+        <button
+          type="button"
+          onClick={() => setActiveTab("quiz")}
+          className={styles.btnPrimaryOrange}
+        >
+          Take Module Quiz &rarr;
+        </button>
+      ) : nextStep && nextStepId ? (
+        <button
+          type="button"
+          onClick={() => router.push(`/steps/${nextStepId}`)}
+          className={styles.btnPrimaryOrange}
+        >
+          Next Module ({nextStep.title}) &rarr;
+        </button>
+      ) : (
+        <Link
+          href={`/programs/${step?.programId}/steps`}
+          className={styles.btnPrimaryOrange}
+        >
+          Course Roadmap &rarr;
+        </Link>
+      )}
+    </div>
+  );
 
   // ---------------------------------------------------------------------------
   // RENDER VIEW
@@ -902,6 +982,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               <div className={styles.videoLeftColumn}>
                 {/* Unified Video & Lesson Details in the Same Box */}
                 <div className={styles.unifiedVideoCard}>
+                  {/* Dynamic Video Title Header Above Video */}
+                  <div className={styles.videoPlayerHeader}>
+                    <div className={styles.videoHeaderLeft}>
+                      <span className={styles.videoPartBadge}>
+                        Part {activeLessonIndex + 1} of {allLessons.length}
+                      </span>
+                      <h2 className={styles.videoLessonTitle}>
+                        {currentMedia?.title || "Video Lesson"}
+                      </h2>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {currentMedia?.durationSec ? (
+                        <span style={{ fontSize: "0.82rem", color: "#78716c", fontWeight: 500 }}>
+                          Duration: {formatLessonDuration(currentMedia.durationSec)}
+                        </span>
+                      ) : null}
+                      {lessonProgress[currentMedia?.id]?.isCompleted && (
+                        <span className={styles.watchedPill}>✓ Watched</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 16:9 Video Viewport */}
                   {currentMedia?.mediaUrl ? (
                     <div className={styles.videoPlayerViewport}>
                       <CompulsoryVideoPlayer
@@ -924,95 +1027,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     </div>
                   )}
 
-                  {/* Multi-video parts selector (directly below the video) */}
-                  {allLessons.length > 1 && (
-                    <div className={styles.multiVideoPlaylistSection}>
-                      <div className={styles.multiVideoPlaylistHeader}>
-                        <div className={styles.multiVideoPlaylistHeaderLeft}>
-                          <span className={styles.multiVideoPlaylistBadge}>
-                            Module Playlist ({allLessons.length} Parts)
-                          </span>
-                          <span className={styles.multiVideoCurrentPart}>
-                            Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
-                          </span>
-                        </div>
-                        <span className={styles.multiVideoCounter}>
-                          {completedLessonsCount}/{totalLessonsCount} Completed
-                        </span>
-                      </div>
-
-                      <div className={styles.multiVideoTrackList} role="tablist">
-                        {allLessons.map((l: any, idx: number) => {
-                          const isSelected = currentMedia?.id === l.id;
-                          const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
-                          const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
-
-                          return (
-                            <button
-                              key={l.id}
-                              type="button"
-                              role="tab"
-                              aria-selected={isSelected}
-                              disabled={isLocked}
-                              onClick={() => {
-                                if (!isLocked) {
-                                  setSelectedMediaId(l.id);
-                                }
-                              }}
-                              className={`${styles.multiVideoItemBtn} ${
-                                isSelected ? styles.multiVideoItemBtnActive : ""
-                              } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
-                                isLocked ? styles.multiVideoItemBtnLocked : ""
-                              }`}
-                              title={isLocked ? "Complete previous video part to unlock" : l.title}
-                            >
-                              <div className={styles.multiVideoItemLeft}>
-                                <span className={styles.multiVideoItemPartNum}>
-                                  {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
-                                </span>
-                                <div className={styles.multiVideoItemMeta}>
-                                  <strong className={styles.multiVideoItemTitle}>
-                                    Part {idx + 1}: {l.title || "Video Lesson"}
-                                  </strong>
-                                  <span className={styles.multiVideoItemDuration}>
-                                    {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
-                                    {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Ready" : " • Ready"}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className={styles.multiVideoItemRight}>
-                                {isSelected ? (
-                                  <span className={styles.playingTag}>Playing</span>
-                                ) : isDone ? (
-                                  <span className={styles.completedTag}>Watched</span>
-                                ) : isLocked ? (
-                                  <span className={styles.lockedTag}>Locked</span>
-                                ) : (
-                                  <span className={styles.startTag}>Start</span>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Dynamic Lesson Details in the Same Box */}
+                  {/* Dynamic Lesson Details placed directly below the video in the same box */}
                   <div className={styles.lessonDetailsCard}>
-                    <div className={styles.lessonDetailsHeader}>
-                      <div>
-                        <h3 className={styles.lessonDetailsTitle}>{currentMedia?.title || "Lesson Overview"}</h3>
-                        <span style={{ fontSize: "0.82rem", color: "#78716c" }}>
-                          Part {activeLessonIndex + 1} of {allLessons.length}
-                          {currentMedia?.durationSec ? ` • Duration: ${formatLessonDuration(currentMedia.durationSec)}` : ""}
-                        </span>
-                      </div>
-                      {lessonProgress[currentMedia?.id]?.isCompleted && (
-                        <span className={styles.watchedPill}>✓ Watched</span>
-                      )}
-                    </div>
-
                     {/* Dynamic description / content only (static placeholder removed) */}
                     {(currentMedia?.content || currentMedia?.description) && (
                       <p className={styles.lessonParagraph}>
@@ -1020,62 +1036,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       </p>
                     )}
 
-                    {/* Part / Module Navigation Row */}
-                    <div className={styles.lessonNavigationRow}>
-                      {activeLessonIndex > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
-                          className={styles.btnSecondaryOutline}
-                        >
-                          &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
-                        </button>
-                      ) : (
-                        <span />
-                      )}
-
-                      {nextLesson ? (
-                        <button
-                          type="button"
-                          disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
-                          onClick={() => setSelectedMediaId(nextLesson.id)}
-                          className={styles.btnPrimaryOrange}
-                          style={{
-                            opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
-                            cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
-                          }}
-                        >
-                          Next Part ({nextLesson.title}) &rarr;
-                        </button>
-                      ) : step?.quiz ? (
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("quiz")}
-                          className={styles.btnPrimaryOrange}
-                        >
-                          Take Module Quiz &rarr;
-                        </button>
-                      ) : nextStep && nextStepId ? (
-                        <button
-                          type="button"
-                          onClick={() => router.push(`/steps/${nextStepId}`)}
-                          className={styles.btnPrimaryOrange}
-                        >
-                          Next Module ({nextStep.title}) &rarr;
-                        </button>
-                      ) : (
-                        <Link
-                          href={`/programs/${step?.programId}/steps`}
-                          className={styles.btnPrimaryOrange}
-                        >
-                          Course Roadmap &rarr;
-                        </Link>
-                      )}
-                    </div>
+                    {/* Lesson navigation row (Previous Part / Next Part / Take Module Quiz) */}
+                    {renderLessonNavigationRow()}
 
                     {/* Dynamic Learning Objectives only (static placeholder removed) */}
                     {Array.isArray((step as any)?.learningObjectives) && (step as any).learningObjectives.length > 0 && (
-                      <div className={styles.objectivesBox}>
+                      <div className={styles.objectivesBox} style={{ marginTop: "1rem" }}>
                         <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
                         <ul className={styles.objectivesList}>
                           {(step as any).learningObjectives.map((obj: string, i: number) => (
@@ -1089,6 +1055,80 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     )}
                   </div>
                 </div>
+
+                {/* Multi-video parts selector (Playlist) placed BELOW the video & details card */}
+                {allLessons.length > 1 && (
+                  <div className={styles.multiVideoPlaylistCard}>
+                    <div className={styles.multiVideoPlaylistHeader}>
+                      <div className={styles.multiVideoPlaylistHeaderLeft}>
+                        <span className={styles.multiVideoPlaylistBadge}>
+                          Module Playlist ({allLessons.length} Parts)
+                        </span>
+                        <span className={styles.multiVideoCurrentPart}>
+                          Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
+                        </span>
+                      </div>
+                      <span className={styles.multiVideoCounter}>
+                        {completedLessonsCount}/{totalLessonsCount} Completed
+                      </span>
+                    </div>
+
+                    <div className={styles.multiVideoTrackList} role="tablist">
+                      {allLessons.map((l: any, idx: number) => {
+                        const isSelected = currentMedia?.id === l.id;
+                        const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
+                        const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
+
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={isSelected}
+                            disabled={isLocked}
+                            onClick={() => {
+                              if (!isLocked) {
+                                setSelectedMediaId(l.id);
+                              }
+                            }}
+                            className={`${styles.multiVideoItemBtn} ${
+                              isSelected ? styles.multiVideoItemBtnActive : ""
+                            } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
+                              isLocked ? styles.multiVideoItemBtnLocked : ""
+                            }`}
+                            title={isLocked ? "Complete previous video part to unlock" : l.title}
+                          >
+                            <div className={styles.multiVideoItemLeft}>
+                              <span className={styles.multiVideoItemPartNum}>
+                                {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
+                              </span>
+                              <div className={styles.multiVideoItemMeta}>
+                                <strong className={styles.multiVideoItemTitle}>
+                                  Part {idx + 1}: {l.title || "Video Lesson"}
+                                </strong>
+                                <span className={styles.multiVideoItemDuration}>
+                                  {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
+                                  {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Ready" : " • Ready"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className={styles.multiVideoItemRight}>
+                              {isSelected ? (
+                                <span className={styles.playingTag}>Playing</span>
+                              ) : isDone ? (
+                                <span className={styles.completedTag}>Watched</span>
+                              ) : isLocked ? (
+                                <span className={styles.lockedTag}>Locked</span>
+                              ) : (
+                                <span className={styles.startTag}>Start</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Personal Notes Widget & About Step Card */}
@@ -1223,7 +1263,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               )}
 
-              {lastQuizResult && (
+              {lastQuizResult && lastQuizResult.score !== undefined && lastQuizResult.status !== "IN_PROGRESS" && (
                 <div
                   style={{
                     background: lastQuizResult.passed ? "#dcfce7" : "#fee2e2",
@@ -1238,11 +1278,36 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     {lastQuizResult.passed ? "✓ Assessment Passed!" : "Assessment Not Passed Yet"}
                   </h4>
                   <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
-                    Score: {lastQuizResult.score}% (Pass threshold: 75%).
+                    Score: {lastQuizResult.score}% (Pass threshold: {lastQuizResult.passMark ?? 75}%).
                     {lastQuizResult.passed
                       ? " Great job! Your progress has been updated and the next module is unlocked."
                       : " Review the video lessons and try again."}
                   </p>
+                  {!lastQuizResult.passed && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setLastQuizResult(null);
+                        setQuizAnswers({});
+                        setActiveQuizIndex(0);
+                        setQuizError(null);
+                        try {
+                          const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
+                            method: "POST",
+                            headers: getAuthHeaders(),
+                          });
+                          if (startRes.ok) {
+                            const startData = await startRes.json();
+                            setActiveAttemptId(startData.attemptId || startData.id);
+                          }
+                        } catch (e) {}
+                      }}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: "pointer", marginRight: 8 }}
+                    >
+                      Try Again &rarr;
+                    </button>
+                  )}
                   {lastQuizResult.passed && nextStep && nextStepId && (
                     <button
                       type="button"

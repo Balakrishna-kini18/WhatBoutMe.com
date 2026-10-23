@@ -524,7 +524,45 @@ export class QuizzesService {
       throw new ForbiddenException('Access denied: Authentication required');
     }
 
-    const targetAttemptId = dto.attemptId || dto.id;
+    let targetAttemptId = dto.attemptId || dto.id;
+    if (!targetAttemptId) {
+      const quiz = await this.prisma.quiz.findUnique({
+        where: { id: quizId },
+        include: { step: { select: { programId: true } } },
+      });
+
+      if (!quiz) {
+        throw new NotFoundException('Quiz not found');
+      }
+
+      const enrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          userId: actorId,
+          programId: quiz.step.programId,
+        },
+      });
+
+      if (!enrolment) {
+        throw new ForbiddenException('Access denied: No enrolment found for this quiz program');
+      }
+
+      const activeAttempt = await this.prisma.attempt.findFirst({
+        where: {
+          quizId,
+          enrolmentId: enrolment.id,
+          status: AttemptStatus.IN_PROGRESS,
+        },
+        orderBy: { attemptNumber: 'desc' },
+      });
+
+      if (activeAttempt) {
+        targetAttemptId = activeAttempt.id;
+      } else {
+        const started = await this.startQuiz(quizId, actor);
+        targetAttemptId = started.attemptId || (started as any).id;
+      }
+    }
+
     if (!targetAttemptId) {
       throw new BadRequestException('attemptId is required');
     }

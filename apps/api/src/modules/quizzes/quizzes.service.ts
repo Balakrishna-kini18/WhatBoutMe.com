@@ -307,8 +307,8 @@ export class QuizzesService {
       throw new ForbiddenException('Access denied: Enrolment must be ACTIVE to take a quiz');
     }
 
-    // Progression Access Gate: Step must be unlocked (D1-033/D1-034)
-    await this.progressionService.assertStepUnlocked(enrolment.id, quiz.stepId, actor);
+    // Progression Access Gate: Step must be unlocked (fast-path avoids 11-step tree recalculation)
+    await this.progressionService.assertStepUnlocked(enrolment.id, quiz.stepId, actor, { skipEvaluateTreeIfUnlocked: true });
 
     // Prerequisite Gate: All published lessons must be viewed unless manually unlocked (D1-034/D1-035)
     // Only required when quiz is scheduled AFTER_VIDEO
@@ -376,24 +376,38 @@ export class QuizzesService {
       return this.formatAttemptResponse(activeAttempt, quiz);
     }
 
-    // Fetch previous attempts to verify limits & cooldown
-    const previousAttempts = await this.prisma.attempt.findMany({
-      where: {
-        enrolmentId: enrolment.id,
-        quizId: quiz.id,
-      },
-      orderBy: { attemptNumber: 'desc' },
-    });
-
-    // Check if an authorized staff reset occurred for this enrolment and quiz
-    const lastReset = await this.prisma.auditLog.findFirst({
-      where: {
-        action: 'QUIZ_ATTEMPTS_RESET',
-        entity: 'QuizAttempt',
-        entityId: `${enrolment.id}_${quiz.id}`,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Parallel fetch of previous attempts, reset audit logs, and question bank pool in a single round-trip
+    const [previousAttempts, lastReset, candidateQuestions] = await Promise.all([
+      this.prisma.attempt.findMany({
+        where: {
+          enrolmentId: enrolment.id,
+          quizId: quiz.id,
+        },
+        orderBy: { attemptNumber: 'desc' },
+      }),
+      this.prisma.auditLog.findFirst({
+        where: {
+          action: 'QUIZ_ATTEMPTS_RESET',
+          entity: 'QuizAttempt',
+          entityId: `${enrolment.id}_${quiz.id}`,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.question.findMany({
+        where: {
+          OR: [
+            { quizId: quiz.id },
+            { stepId: quiz.stepId },
+            { questionBank: { stepId: quiz.stepId } },
+          ],
+        },
+        include: {
+          options: {
+            select: { id: true, text: true, imageUrl: true, order: true },
+          },
+        },
+      }),
+    ]);
 
     const relevantAttempts = lastReset
       ? previousAttempts.filter((a) => a.createdAt > lastReset.createdAt)
@@ -425,22 +439,6 @@ export class QuizzesService {
         attemptsUsed: retryMeta.attemptsUsed,
       });
     }
-
-    // Question Selection: Sample from question bank or step-tagged questions
-    const candidateQuestions = await this.prisma.question.findMany({
-      where: {
-        OR: [
-          { quizId: quiz.id },
-          { stepId: quiz.stepId },
-          { questionBank: { stepId: quiz.stepId } },
-        ],
-      },
-      include: {
-        options: {
-          select: { id: true, text: true, imageUrl: true, order: true },
-        },
-      },
-    });
 
     const uniqueMap = new Map<string, (typeof candidateQuestions)[0]>();
     for (const q of candidateQuestions) {
@@ -860,32 +858,48 @@ export class QuizzesService {
       await this.cacheHelper.invalidateNamespace('users');
     }
 
-    const allAttempts = await this.prisma.attempt.findMany({
-      where: {
-        enrolmentId: attempt.enrolmentId,
-        quizId: attempt.quizId,
-      },
-      orderBy: { attemptNumber: 'desc' },
-    });
+    let retryMeta: any;
+    if (passed) {
+      const maxAttempts = attempt.quiz?.maxAttempts ?? 3;
+      retryMeta = {
+        attemptsUsed: finalized.attemptNumber,
+        maxAttempts,
+        attemptsRemaining: Math.max(0, maxAttempts - finalized.attemptNumber),
+        isCooldownActive: false,
+        cooldownUntil: null,
+        cooldownSecondsRemaining: null,
+        canRetry: false,
+        stepToRevisit: null,
+      };
+    } else {
+      const [allAttempts, lastReset] = await Promise.all([
+        this.prisma.attempt.findMany({
+          where: {
+            enrolmentId: attempt.enrolmentId,
+            quizId: attempt.quizId,
+          },
+          orderBy: { attemptNumber: 'desc' },
+        }),
+        this.prisma.auditLog.findFirst({
+          where: {
+            action: 'QUIZ_ATTEMPTS_RESET',
+            entity: 'QuizAttempt',
+            entityId: `${attempt.enrolmentId}_${attempt.quizId}`,
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
 
-    const lastReset = await this.prisma.auditLog.findFirst({
-      where: {
-        action: 'QUIZ_ATTEMPTS_RESET',
-        entity: 'QuizAttempt',
-        entityId: `${attempt.enrolmentId}_${attempt.quizId}`,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+      const currentRelevantAttempts = lastReset
+        ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)
+        : allAttempts;
 
-    const currentRelevantAttempts = lastReset
-      ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)
-      : allAttempts;
-
-    const retryMeta = this.computeRetryMetadata(
-      attempt.quiz,
-      currentRelevantAttempts,
-      attempt.quiz.step,
-    );
+      retryMeta = this.computeRetryMetadata(
+        attempt.quiz,
+        currentRelevantAttempts,
+        attempt.quiz.step,
+      );
+    }
 
     return {
       attemptId: finalized.id,

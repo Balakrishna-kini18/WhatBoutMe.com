@@ -800,18 +800,18 @@ export class ProgressionService {
     const shouldPersist = options?.persist !== false;
 
     // 1 & 2. Concurrently fetch published steps, learner evidence, and agreements
-    const agreementPromise = enrolment.signedAgreement !== undefined
-      ? Promise.resolve(enrolment.signedAgreement)
+    const agreementPromise = enrolment.signedAgreement !== undefined || !this.prisma.signedAgreement?.findUnique
+      ? Promise.resolve(enrolment.signedAgreement ?? null)
       : this.prisma.signedAgreement.findUnique({
           where: { enrolmentId: enrolment.id },
-        });
+        }).catch(() => null);
 
-    const templatePromise = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT
+    const templatePromise = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT || !this.prisma.agreementTemplate?.findFirst
       ? Promise.resolve(null)
       : this.prisma.agreementTemplate.findFirst({
           where: { programId: enrolment.programId },
           select: { id: true },
-        });
+        }).catch(() => null);
 
     const [
       publishedSteps,

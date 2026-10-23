@@ -55,7 +55,8 @@ export default function ProgramsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("table");
+  const [totalRevenue, setTotalRevenue] = useState<number | null>(null);
 
   // Modals & Menus
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -134,10 +135,18 @@ export default function ProgramsPage() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/programs`);
+      const [res, revRes] = await Promise.all([
+        cachedFetch(`${API_URL}/programs`),
+        cachedFetch(`${API_URL}/revenue`).catch(() => null),
+      ]);
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
+      }
+      if (revRes && revRes.ok) {
+        const revData = await revRes.json();
+        const usdTotal = revData?.byCurrency?.USD?.total ?? revData?.totalRevenue ?? null;
+        if (typeof usdTotal === "number") setTotalRevenue(Math.round(usdTotal));
       }
     } catch (e) {
       console.warn("Notice: could not retrieve programs list", e);
@@ -323,10 +332,10 @@ export default function ProgramsPage() {
   // Summary Metrics
   const totalPrograms = programs.length;
   const activeProgramsCount = programs.filter((p) => p.isActive).length;
-  const totalStepsCount = programs.reduce((acc, p) => acc + (p._count?.steps || 0), 0);
-  const avgPrice = totalPrograms > 0
-    ? Math.round(programs.reduce((acc, p) => acc + (p.price || 0), 0) / totalPrograms)
-    : 0;
+  const draftsCount = programs.filter((p) => !p.isActive).length;
+  const displayRevenue = totalRevenue !== null
+    ? `$${totalRevenue.toLocaleString()}`
+    : `$${programs.reduce((acc, p) => acc + (p.price || 0), 0).toLocaleString()}`;
 
   return (
     <div className={pstyles.container}>
@@ -334,18 +343,21 @@ export default function ProgramsPage() {
       <div className={pstyles.headerWrap}>
         <div className={pstyles.titleArea}>
           <h1>Programs &amp; Curriculum Studio</h1>
-          {/* <p>Design, organize, and publish high-performance learning tracks and certification paths</p> */}
         </div>
 
         <div className={pstyles.headerActions}>
-          <button className={styles.primaryBtn} onClick={openCreateModal}>
+          <Link
+            href="/programs/create"
+            className={styles.primaryBtn}
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
+          >
             <svg
               width="15"
               height="15"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
@@ -353,12 +365,12 @@ export default function ProgramsPage() {
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            <span>New Course Track</span>
-          </button>
+            <span>+ New Program</span>
+          </Link>
         </div>
       </div>
 
-      {/* 2. Quick Metrics Bar */}
+      {/* 2. 4 Top Summary KPI Cards */}
       <div className={pstyles.metricsGrid}>
         <div className={pstyles.metricCard}>
           <div className={pstyles.metricIcon}>
@@ -369,12 +381,12 @@ export default function ProgramsPage() {
           </div>
           <div className={pstyles.metricInfo}>
             <span className={pstyles.metricValue}>{totalPrograms}</span>
-            <span className={pstyles.metricLabel}>Total Courses</span>
+            <span className={pstyles.metricLabel}>Total Programs</span>
           </div>
         </div>
 
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>
+          <div className={pstyles.metricIcon} style={{ background: "#dcfce7", color: "#15803d" }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
               <polyline points="22 4 12 14.01 9 11.01" />
@@ -382,34 +394,34 @@ export default function ProgramsPage() {
           </div>
           <div className={pstyles.metricInfo}>
             <span className={pstyles.metricValue}>{activeProgramsCount}</span>
-            <span className={pstyles.metricLabel}>Active &amp; Published</span>
+            <span className={pstyles.metricLabel}>Published</span>
           </div>
         </div>
 
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>
+          <div className={pstyles.metricIcon} style={{ background: "#f3f4f6", color: "#6b7280" }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-              <polyline points="2 17 12 22 22 17" />
-              <polyline points="2 12 12 17 22 12" />
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+              <line x1="15" y1="9" x2="9" y2="15" />
             </svg>
           </div>
           <div className={pstyles.metricInfo}>
-            <span className={pstyles.metricValue}>{totalStepsCount}</span>
-            <span className={pstyles.metricLabel}>Total Modules</span>
+            <span className={pstyles.metricValue}>{draftsCount}</span>
+            <span className={pstyles.metricLabel}>Drafts</span>
           </div>
         </div>
 
         <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>
+          <div className={pstyles.metricIcon} style={{ background: "#fff7ed", color: "#d97706" }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="12" y1="1" x2="12" y2="23" />
               <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
             </svg>
           </div>
           <div className={pstyles.metricInfo}>
-            <span className={pstyles.metricValue}>${avgPrice}</span>
-            <span className={pstyles.metricLabel}>Avg Course Price</span>
+            <span className={pstyles.metricValue}>{displayRevenue}</span>
+            <span className={pstyles.metricLabel}>Total Revenue</span>
           </div>
         </div>
       </div>
@@ -427,7 +439,7 @@ export default function ProgramsPage() {
             ref={searchInputRef}
             type="text"
             className={pstyles.searchInput}
-            placeholder="Search by title, syllabus, or topic..."
+            placeholder="Search by title, category, or topic..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -687,159 +699,215 @@ export default function ProgramsPage() {
           })}
         </div>
       ) : (
-        /* Dense Table View */
-        <div style={{ background: "#ffffff", border: "1px solid var(--border-light)", borderRadius: 12, overflow: "hidden" }}>
-          <table className={styles.adminTable}>
-            <thead>
-              <tr>
-                <th>Course Title</th>
-                <th>Type</th>
-                <th>Price</th>
-                <th>Modules</th>
-                <th>Status</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPrograms.map((prog) => {
-                const info = parseCourseInfo(prog.description);
-                const imageUrl = getCourseImageUrl(info.image);
-                const hasValidImage = imageUrl && !failedImages[prog.id];
-                return (
-                  <tr key={prog.id}>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div
+        /* Horizontal Cards List View (Screen 5) */
+        <div className={pstyles.horizontalCardsList}>
+          {filteredPrograms.map((prog) => {
+            const info = parseCourseInfo(prog.description);
+            const imageUrl = getCourseImageUrl(info.image);
+            const hasValidImage = imageUrl && !failedImages[prog.id];
+            const isPublished = prog.isActive || prog.status === "PUBLISHED";
+            const stepsCount = prog._count?.steps ?? 0;
+            const enrollmentCount = (prog._count as Record<string, number> | undefined)?.enrollments ?? (prog._count as Record<string, number> | undefined)?.enrolments ?? 0;
+
+            return (
+              <div key={prog.id} className={pstyles.horizontalCard}>
+                {/* 16:9 Thumbnail Wrap */}
+                <div className={pstyles.cardThumbnailWrap}>
+                  {hasValidImage ? (
+                    <Image
+                      src={imageUrl}
+                      alt={prog.title}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 240px"
+                      unoptimized={!imageUrl.startsWith("/")}
+                      style={{ objectFit: "cover" }}
+                      onError={() =>
+                        setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
+                      }
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "linear-gradient(135deg, #fdf6ec 0%, #faebd7 100%)",
+                      }}
+                    >
+                      <svg
+                        width="36"
+                        height="36"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#d97706"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ opacity: 0.6 }}
+                      >
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+
+                {/* Body Content */}
+                <div className={pstyles.horizontalCardBody}>
+                  {/* Top Row: Pills on left, Price on right */}
+                  <div className={pstyles.cardTopRow}>
+                    <div className={pstyles.cardPillsRow}>
+                      <span className={isPublished ? pstyles.statusPillPublished : pstyles.statusPillDraft}>
+                        <span
                           style={{
-                            width: "38px",
-                            height: "38px",
-                            borderRadius: "8px",
-                            overflow: "hidden",
-                            background: "linear-gradient(135deg, #f5ece1 0%, #ebe0d0 100%)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexShrink: 0,
-                            border: "1px solid rgba(223, 208, 187, 0.6)",
+                            width: 7,
+                            height: 7,
+                            borderRadius: "50%",
+                            background: isPublished ? "#16a34a" : "#9ca3af",
+                            boxShadow: isPublished ? "0 0 0 2px rgba(22, 163, 74, 0.2)" : "none",
                           }}
-                        >
-                          {hasValidImage ? (
-                            <Image
-                              src={imageUrl}
-                              alt={prog.title}
-                              width={36}
-                              height={36}
-                              quality={80}
-                              loading="lazy"
-                              unoptimized={!imageUrl.startsWith("/")}
-                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                              onError={() =>
-                                setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
-                              }
-                            />
-                          ) : (
-                            <svg
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              style={{ color: "var(--accent-primary, #c97a1e)", opacity: 0.6 }}
-                            >
-                              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                            </svg>
-                          )}
-                        </div>
-                        <Link
-                          href={`/programs/${prog.id}`}
-                          style={{ fontWeight: 600, color: "var(--text-primary)", textDecoration: "none" }}
-                        >
-                          {prog.title}
-                        </Link>
-                      </div>
-                    </td>
-                    <td>{info.type || "Course"}</td>
-                    <td>${prog.price}</td>
-                    <td>{prog._count?.steps ?? 0} Steps</td>
-                    <td>
-                      <span className={`${styles.statusChip} ${prog.isActive ? styles.active : styles.locked}`}>
-                        {prog.isActive ? "Published" : "Draft"}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
-                        <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn} style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}>
-                          Studio &rarr;
-                        </Link>
-                        <ActionMenu
-                          ariaLabel={`Actions for ${prog.title}`}
-                          items={[
-                            {
-                              label: "Open Studio",
-                              href: `/programs/${prog.id}`,
-                              icon: (
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M12 20h9" />
-                                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                                </svg>
-                              ),
-                            },
-                            {
-                              label: "Edit Settings",
-                              onClick: () => openEditModal(prog),
-                              icon: (
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <circle cx="12" cy="12" r="3" />
-                                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                                </svg>
-                              ),
-                            },
-                            {
-                              label: "Preview on LMS",
-                              href: `http://localhost:3000/programs/${prog.id}/steps`,
-                              icon: (
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                                  <polyline points="15 3 21 3 21 9" />
-                                  <line x1="10" y1="14" x2="21" y2="3" />
-                                </svg>
-                              ),
-                            },
-                            {
-                              label: "Duplicate Track",
-                              onClick: () => handleDuplicateProgram(prog),
-                              icon: (
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                </svg>
-                              ),
-                            },
-                            {
-                              label: "Delete Track",
-                              danger: true,
-                              dividerAbove: true,
-                              onClick: () => handleDeleteProgram(prog),
-                              icon: (
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                </svg>
-                              ),
-                            },
-                          ]}
                         />
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        {isPublished ? "Published" : "Draft"}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          padding: "0.2rem 0.65rem",
+                          borderRadius: 9999,
+                          background: "#fdfbf7",
+                          border: "1px solid #ece6dd",
+                          color: "#78716a",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.03em",
+                        }}
+                      >
+                        {info.type || "Track"}
+                      </span>
+                    </div>
+
+                    <div className={pstyles.priceDisplay}>
+                      {prog.price ? `$${prog.price}` : "Complimentary"}
+                    </div>
+                  </div>
+
+                  {/* Title Link */}
+                  <div>
+                    <Link href={`/programs/${prog.id}`} className={pstyles.cardTitleLink}>
+                      {prog.title}
+                    </Link>
+                  </div>
+
+                  {/* 1-Line Summary */}
+                  <p className={pstyles.cardSummary}>
+                    {info.summary || "No course summary provided yet. Open curriculum studio to add syllabus."}
+                  </p>
+
+                  {/* Metadata Row: Modules, Duration, Enrolments */}
+                  <div className={pstyles.cardMetaRow}>
+                    <span className={pstyles.metaItemInline}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                        <polyline points="2 17 12 22 22 17" />
+                        <polyline points="2 12 12 17 22 12" />
+                      </svg>
+                      <strong>{stepsCount}</strong> {stepsCount === 1 ? "Module" : "Modules"}
+                    </span>
+                    <span style={{ color: "#d6d3d1" }}>•</span>
+                    <span className={pstyles.metaItemInline}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                      {info.duration || "Self-Paced"}
+                    </span>
+                    <span style={{ color: "#d6d3d1" }}>•</span>
+                    <span className={pstyles.metaItemInline}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                      <strong>{enrollmentCount}</strong> Enrolments
+                    </span>
+                  </div>
+
+                  {/* Actions Row */}
+                  <div className={pstyles.cardActionsRow}>
+                    <Link href={`/programs/${prog.id}`} className={pstyles.manageLessonsBtn}>
+                      <span>Manage Lessons</span>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                        <polyline points="12 5 19 12 12 19" />
+                      </svg>
+                    </Link>
+
+                    <ActionMenu
+                      ariaLabel={`Actions for ${prog.title}`}
+                      items={[
+                        {
+                          label: "Manage Lessons",
+                          href: `/programs/${prog.id}`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                              <polyline points="2 17 12 22 22 17" />
+                              <polyline points="2 12 12 17 22 12" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Edit Setup",
+                          onClick: () => openEditModal(prog),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="3" />
+                              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Learner Preview",
+                          href: `/simulator`,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="10" />
+                              <polygon points="10 8 16 12 10 16 10 8" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Duplicate Track",
+                          onClick: () => handleDuplicateProgram(prog),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Delete Track",
+                          danger: true,
+                          dividerAbove: true,
+                          onClick: () => handleDeleteProgram(prog),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

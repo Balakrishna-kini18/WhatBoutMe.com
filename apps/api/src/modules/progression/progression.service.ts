@@ -799,57 +799,76 @@ export class ProgressionService {
     const now = new Date();
     const shouldPersist = options?.persist !== false;
 
-    // 1. Fetch all published steps for the enrolled program in sequence order
-    const publishedSteps = await this.prisma.step.findMany({
-      where: {
-        programId: enrolment.programId,
-        status: ContentStatus.PUBLISHED,
-      },
-      orderBy: { sequence: 'asc' },
-      include: {
-        lessons: {
-          where: { status: ContentStatus.PUBLISHED },
-          orderBy: { order: 'asc' },
-          select: {
-            id: true,
-            order: true,
-            title: true,
-            type: true,
-            durationSec: true,
-          },
-        },
-        quiz: {
-          select: {
-            id: true,
-            passMark: true,
-            questionCount: true,
-            quizPlacement: true,
-          },
-        },
-      },
-    });
+    // 1 & 2. Concurrently fetch published steps, learner evidence, and agreements
+    const agreementPromise = enrolment.signedAgreement !== undefined
+      ? Promise.resolve(enrolment.signedAgreement)
+      : this.prisma.signedAgreement.findUnique({
+          where: { enrolmentId: enrolment.id },
+        });
 
-    // 2. Fetch existing learner evidence for this enrollment
-    const [lessonProgressList, attemptsList, stepProgressList] =
-      await Promise.all([
-        this.prisma.userLessonProgress.findMany({
-          where: { enrolmentId: enrolment.id },
-          select: {
-            lessonId: true,
-            viewed: true,
-            progressPercent: true,
-            lastPositionSec: true,
-            completedAt: true,
+    const templatePromise = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT
+      ? Promise.resolve(null)
+      : this.prisma.agreementTemplate.findFirst({
+          where: { programId: enrolment.programId },
+          select: { id: true },
+        });
+
+    const [
+      publishedSteps,
+      lessonProgressList,
+      attemptsList,
+      stepProgressList,
+      resolvedAgreement,
+      template,
+    ] = await Promise.all([
+      this.prisma.step.findMany({
+        where: {
+          programId: enrolment.programId,
+          status: ContentStatus.PUBLISHED,
+        },
+        orderBy: { sequence: 'asc' },
+        include: {
+          lessons: {
+            where: { status: ContentStatus.PUBLISHED },
+            orderBy: { order: 'asc' },
+            select: {
+              id: true,
+              order: true,
+              title: true,
+              type: true,
+              durationSec: true,
+            },
           },
-        }),
-        this.prisma.attempt.findMany({
-          where: { enrolmentId: enrolment.id },
-          select: { quizId: true, status: true, passed: true, score: true },
-        }),
-        this.prisma.stepProgress.findMany({
-          where: { enrolmentId: enrolment.id },
-        }),
-      ]);
+          quiz: {
+            select: {
+              id: true,
+              passMark: true,
+              questionCount: true,
+              quizPlacement: true,
+            },
+          },
+        },
+      }),
+      this.prisma.userLessonProgress.findMany({
+        where: { enrolmentId: enrolment.id },
+        select: {
+          lessonId: true,
+          viewed: true,
+          progressPercent: true,
+          lastPositionSec: true,
+          completedAt: true,
+        },
+      }),
+      this.prisma.attempt.findMany({
+        where: { enrolmentId: enrolment.id },
+        select: { quizId: true, status: true, passed: true, score: true },
+      }),
+      this.prisma.stepProgress.findMany({
+        where: { enrolmentId: enrolment.id },
+      }),
+      agreementPromise,
+      templatePromise,
+    ]);
 
     // 3. Fast lookup indices
     const lessonProgressMap = new Map<string, any>(
@@ -899,30 +918,10 @@ export class ProgressionService {
     const isEnrolmentCompleted = enrolment.status === EnrolmentStatus.COMPLETED;
     const isEligibleForProgress = isEnrolmentActive || isEnrolmentCompleted;
 
-    // D1-041: Check agreement requirement and signed agreement status
-    let signedAgreement = enrolment.signedAgreement;
-    if (signedAgreement === undefined && this.prisma.signedAgreement?.findUnique) {
-      signedAgreement =
-        (await this.prisma.signedAgreement.findUnique({
-          where: { enrolmentId: enrolment.id },
-        })) ?? null;
-    }
-
-    const hasValidSignedAgreement =
-      signedAgreement?.status === AgreementStatus.SIGNED;
-
-    let agreementRequired =
-      enrolment.status === EnrolmentStatus.PENDING_AGREEMENT;
-
-    if (!agreementRequired && this.prisma.agreementTemplate?.findFirst) {
-      const template = await this.prisma.agreementTemplate.findFirst({
-        where: { programId: enrolment.programId },
-        select: { id: true },
-      });
-      if (template) {
-        agreementRequired = true;
-      }
-    }
+    // D1-041: Check agreement requirement and signed agreement status (using prefetched results)
+    const signedAgreement = resolvedAgreement ?? enrolment.signedAgreement ?? null;
+    const hasValidSignedAgreement = signedAgreement?.status === AgreementStatus.SIGNED;
+    const agreementRequired = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT || !!template;
 
     const isAgreementBlocked = agreementRequired && !hasValidSignedAgreement;
 
@@ -1075,13 +1074,12 @@ export class ProgressionService {
         }
       }
 
-      // Record state changes that need persistence
-      if (
-        shouldPersist &&
-        isEnrolmentActive &&
-        (isUnlocked !== stepProgress?.isUnlocked ||
-          isStepCompleted !== stepProgress?.isCompleted)
-      ) {
+      const prevUnlocked = stepProgress?.isUnlocked ?? false;
+      const prevCompleted = stepProgress?.isCompleted ?? false;
+      const hasChanged = isUnlocked !== prevUnlocked || isStepCompleted !== prevCompleted;
+
+      // Record state changes that need persistence (only when actual status changed)
+      if (shouldPersist && isEnrolmentActive && hasChanged) {
         updatesToPersist.push({
           stepId: step.id,
           isUnlocked,

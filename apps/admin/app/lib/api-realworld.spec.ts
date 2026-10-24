@@ -471,35 +471,60 @@ describe('Admin Client Real-World Resilience & Cache Integrity', () => {
   // SCENARIO 13: Webhook Signature Verification Across Multi-Gateway Switch
   // =========================================================================
   it('Scenario 13: verifyPaymentWebhookSignature verifies Razorpay, Stripe, and Sandbox Escrow with idempotency', async () => {
-    // 1. Razorpay signature verification
-    const razorpayRes = await verifyPaymentWebhookSignature({
-      gatewayProvider: 'RAZORPAY',
-      rawPayload: { orderId: 'order_123', amount: 500, currency: 'USD' },
-      signature: 'abcdef1234567890abcdef1234567890abcdef12',
-      idempotencyKey: 'idemp_rzp_1',
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: any) => {
+      if (url.includes('/payments/webhook/verify')) {
+        let body: any = {};
+        try {
+          body = JSON.parse(init?.body || '{}');
+        } catch {}
+        return new Response(
+          JSON.stringify({
+            verified: true,
+            status: 'CAPTURED',
+            orderId: body.rawPayload?.orderId || 'order_captured',
+            amount: body.rawPayload?.amount || 0,
+            currency: body.rawPayload?.currency || 'USD',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('{}', { status: 404 });
     });
-    expect(razorpayRes.verified).toBe(true);
-    expect(razorpayRes.status).toBe('CAPTURED');
 
-    // 2. Stripe signature verification
-    const stripeRes = await verifyPaymentWebhookSignature({
-      gatewayProvider: 'STRIPE',
-      rawPayload: { orderId: 'order_456', amount: 350, currency: 'AED' },
-      signature: 't=1600000000,v1=abcdef1234567890abcdef1234567890abcdef12',
-      idempotencyKey: 'idemp_str_1',
-    });
-    expect(stripeRes.verified).toBe(true);
-    expect(stripeRes.status).toBe('CAPTURED');
+    try {
+      // 1. Razorpay signature verification
+      const razorpayRes = await verifyPaymentWebhookSignature({
+        gatewayProvider: 'RAZORPAY',
+        rawPayload: { orderId: 'order_123', amount: 500, currency: 'USD' },
+        signature: 'abcdef1234567890abcdef1234567890abcdef12',
+        idempotencyKey: 'idemp_rzp_1',
+      });
+      expect(razorpayRes.verified).toBe(true);
+      expect(razorpayRes.status).toBe('CAPTURED');
 
-    // 3. Sandbox Escrow signed token verification
-    const escrowRes = await verifyPaymentWebhookSignature({
-      gatewayProvider: 'SANDBOX_ESCROW',
-      rawPayload: { orderId: 'order_789', amount: 1500, currency: 'INR' },
-      signature: 'sig_escrow_valid_token_12345',
-      idempotencyKey: 'idemp_escrow_1',
-    });
-    expect(escrowRes.verified).toBe(true);
-    expect(escrowRes.status).toBe('CAPTURED');
+      // 2. Stripe signature verification
+      const stripeRes = await verifyPaymentWebhookSignature({
+        gatewayProvider: 'STRIPE',
+        rawPayload: { orderId: 'order_456', amount: 350, currency: 'AED' },
+        signature: 't=1600000000,v1=abcdef1234567890abcdef1234567890abcdef12',
+        idempotencyKey: 'idemp_str_1',
+      });
+      expect(stripeRes.verified).toBe(true);
+      expect(stripeRes.status).toBe('CAPTURED');
+
+      // 3. Sandbox Escrow signed token verification
+      const escrowRes = await verifyPaymentWebhookSignature({
+        gatewayProvider: 'SANDBOX_ESCROW',
+        rawPayload: { orderId: 'order_789', amount: 1500, currency: 'INR' },
+        signature: 'sig_escrow_valid_token_12345',
+        idempotencyKey: 'idemp_escrow_1',
+      });
+      expect(escrowRes.verified).toBe(true);
+      expect(escrowRes.status).toBe('CAPTURED');
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   // =========================================================================

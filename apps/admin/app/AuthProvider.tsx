@@ -19,6 +19,7 @@ export interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  login: (session: { access_token: string; refresh_token?: string; user: UserData }) => void;
   revalidateUser: (force?: boolean) => Promise<UserData | null>;
   logout: () => Promise<void>;
 }
@@ -209,6 +210,13 @@ export function useAuth(): AuthContextType {
       token,
       isLoading: false,
       isAuthenticated: Boolean(token && user),
+      login: (session) => {
+        if (typeof window !== "undefined") {
+          if (session.access_token) localStorage.setItem("token", session.access_token);
+          if (session.refresh_token) localStorage.setItem("refresh_token", session.refresh_token);
+          if (session.user) localStorage.setItem("user", JSON.stringify(session.user));
+        }
+      },
       revalidateUser: async () => user,
       logout: async () => {
         if (typeof window !== "undefined") {
@@ -235,6 +243,26 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const lastVerifiedAtRef = useRef<number>(user ? Date.now() : 0);
   const isVerifyingRef = useRef<boolean>(false);
 
+  const login = useCallback(
+    (session: { access_token: string; refresh_token?: string; user: UserData }) => {
+      if (typeof window !== "undefined") {
+        if (session.access_token) {
+          localStorage.setItem("token", session.access_token);
+        }
+        if (session.refresh_token) {
+          localStorage.setItem("refresh_token", session.refresh_token);
+        }
+        if (session.user) {
+          localStorage.setItem("user", JSON.stringify(session.user));
+        }
+      }
+      setToken(session.access_token);
+      setUser(session.user);
+      lastVerifiedAtRef.current = Date.now();
+    },
+    []
+  );
+
   const revalidateUser = useCallback(
     async (force: boolean = false): Promise<UserData | null> => {
       if (typeof window === "undefined") return null;
@@ -246,14 +274,25 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         return null;
       }
 
+      // Synchronously hydrate from localStorage if in-memory user state is null
+      let currentUser = user;
+      if (!currentUser) {
+        const cached = getInitialUser();
+        if (cached) {
+          currentUser = cached;
+          setUser(cached);
+          setToken(currentToken);
+        }
+      }
+
       const now = Date.now();
       // Stale-While-Revalidate window: 60 seconds
       const isFresh = !force && now - lastVerifiedAtRef.current < 60_000;
-      if (isFresh && user) {
-        return user;
+      if (isFresh && currentUser) {
+        return currentUser;
       }
 
-      if (isVerifyingRef.current) return user;
+      if (isVerifyingRef.current) return currentUser;
       isVerifyingRef.current = true;
 
       try {
@@ -265,10 +304,16 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         if (res.ok) {
           const verifiedUser: UserData = await res.json();
           lastVerifiedAtRef.current = Date.now();
-          setUser(verifiedUser);
+          const existing = currentUser || getInitialUser();
+          const mergedUser: UserData = {
+            ...existing,
+            ...verifiedUser,
+            permissions: verifiedUser.permissions || existing?.permissions || [],
+          };
+          setUser(mergedUser);
           setToken(currentToken);
-          localStorage.setItem("user", JSON.stringify(verifiedUser));
-          return verifiedUser;
+          localStorage.setItem("user", JSON.stringify(mergedUser));
+          return mergedUser;
         } else if (res.status === 401) {
           // If access token expired but refresh token exists, attempt renewal before signing out
           const refreshToken = localStorage.getItem("refresh_token");
@@ -281,15 +326,21 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
               if (retryRes.ok) {
                 const verifiedUser: UserData = await retryRes.json();
                 lastVerifiedAtRef.current = Date.now();
-                setUser(verifiedUser);
+                const existing = currentUser || getInitialUser();
+                const mergedUser: UserData = {
+                  ...existing,
+                  ...verifiedUser,
+                  permissions: verifiedUser.permissions || existing?.permissions || [],
+                };
+                setUser(mergedUser);
                 setToken(renewed);
-                localStorage.setItem("user", JSON.stringify(verifiedUser));
-                return verifiedUser;
+                localStorage.setItem("user", JSON.stringify(mergedUser));
+                return mergedUser;
               }
             } else if (renewed === null) {
               // Server unreachable / network blip: do NOT log the user out!
               console.warn("[AuthProvider] Token renewal unreachable due to transient network error; retaining cached session");
-              return user;
+              return currentUser;
             }
           }
 
@@ -311,7 +362,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         isVerifyingRef.current = false;
       }
 
-      return user;
+      return currentUser;
     },
     [pathname, router, user]
   );
@@ -352,15 +403,27 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       return;
     }
 
+    // Immediate hydration on route navigation
+    if (!token && currentToken) {
+      setToken(currentToken);
+    }
+    if (!user) {
+      const stored = getInitialUser();
+      if (stored) {
+        setUser(stored);
+      }
+    }
+
     // Background SWR revalidation (only runs if last check > 60s ago)
     revalidateUser(false);
-  }, [pathname, revalidateUser, router]);
+  }, [pathname, revalidateUser, router, token, user]);
 
   const contextValue: AuthContextType = {
     user,
     token,
     isLoading,
     isAuthenticated: Boolean(token && user),
+    login,
     revalidateUser,
     logout,
   };

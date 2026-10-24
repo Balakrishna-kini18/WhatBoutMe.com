@@ -7,6 +7,7 @@ import Image from "next/image";
 import { ActionMenu } from "./components";
 import { apiGet } from "./lib/api";
 import { parseLeadMessage } from "./leads/page";
+import { filterUpcomingDiscoveryCalls } from "./lib/discovery-calls";
 
 // Crisp outline SVG icons conforming to WhatBoutMe design standard
 const Icons = {
@@ -132,57 +133,6 @@ interface DropdownPosition {
   openUpwards: boolean;
 }
 
-// Canonical high-fidelity dataset for offline fallback matching project baseline
-const fallbackEnrolments: LearnerItem[] = [
-  {
-    id: "enr-1",
-    name: "Gagan",
-    email: "admin1@whataboutme.com",
-    program: "11 Steps to You",
-    status: "Active",
-    date: "Oct 9, 2026",
-    initial: "G",
-  },
-  {
-    id: "enr-2",
-    name: "Gagan JJ",
-    email: "test@example.com",
-    program: "Vision Board Workshop",
-    status: "Active",
-    date: "Oct 8, 2026",
-    initial: "G",
-  },
-  {
-    id: "enr-3",
-    name: "Balakrishna Kini",
-    email: "balakrishna@foxwel.ai",
-    program: "11 Steps to You",
-    status: "Active",
-    date: "Oct 8, 2026",
-    initial: "B",
-  },
-  {
-    id: "enr-4",
-    name: "Roweena Britto",
-    email: "roweena@whataboutme.com",
-    program: "Corporate Program",
-    status: "Active",
-    date: "Oct 7, 2026",
-    initial: "R",
-    isPhoto: true,
-    photoUrl: "/brand/roweena.png",
-  },
-  {
-    id: "enr-5",
-    name: "Nikhil Kamath",
-    email: "nikhil@example.com",
-    program: "Vision Board Workshop",
-    status: "Active",
-    date: "Oct 6, 2026",
-    initial: "N",
-  },
-];
-
 export default function AdminDashboard() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [leadsData, setLeadsData] = useState<any[]>([]);
@@ -239,61 +189,36 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  // Metrics from legitimate API contract or graceful baseline defaults
+  // Metrics from authoritative API contract or zero-state defaults
   const totalLearners = dashboardData?.totalLearners ?? 0;
   const totalBatches = dashboardData?.totalBatches ?? 0;
   const totalRevenue = dashboardData?.totalRevenue ?? dashboardData?.mockRevenue ?? "$0";
   const certificatesIssued = dashboardData?.certificatesIssued ?? dashboardData?.totalCertificates ?? 0;
 
-  // Multi-Currency Revenue Breakdown (USD, AED, INR)
-  const currencies = dashboardData?.currencies || { USD: 0, AED: 0, INR: 0 };
-  const usdRevenueFormatted = `$${Math.round(currencies.USD || 0).toLocaleString()}`;
-  const aedRevenueFormatted = `AED ${Math.round(currencies.AED || 0).toLocaleString()}`;
-  const inrRevenueFormatted = `₹${Math.round(currencies.INR || 0).toLocaleString('en-IN')}`;
-
   // Action Queue 1: Upcoming 15-Minute Discovery Calls
-  const upcomingDiscoveryCalls = leadsData
-    .map((lead) => {
-      const parsed = parseLeadMessage(lead.message);
-      return {
-        id: lead.id,
-        name: lead.name || "Prospective Learner",
-        email: lead.email,
-        phone: lead.phone,
-        scheduledAt: parsed.discovery?.scheduledAt,
-        zoomUrl: parsed.discovery?.zoomUrl,
-        isCourseInquiry: parsed.isCourseInquiry,
-        courseTitle: parsed.courseInquiry?.title,
-      };
-    })
-    .filter((item) => Boolean(item.scheduledAt && item.zoomUrl))
-    .slice(0, 5);
+  // Strictly filtered to relevant, unconverted calls scheduled for today in the business timezone
+  const upcomingDiscoveryCalls = filterUpcomingDiscoveryCalls(leadsData);
 
   // Action Queue 2: Pending Certificate Approvals
   const pendingCertificatesCount =
     dashboardData?.pendingCertificatesCount ??
     certificatesData.filter((c) => c.status === "PENDING" || c.status === "REQUESTED").length;
 
-  // Action Queue 3: Unmatched Attendance Reconciliation count
-  const unmatchedAttendanceCount = dashboardData?.unmatchedAttendanceCount ?? 0;
+  // Action Queue 3: Unmatched Attendance Reconciliation count (distinguish loading vs verified zero)
+  const unmatchedAttendanceCount = dashboardData?.unmatchedAttendanceCount ?? (loading ? null : 0);
 
-  // Action Queue 4: Active Batches & 11-Steps Learner Completion Rate Matrix
+  // Active Batches list
   const activeBatchesList = batchesData
-    .filter((b) => b.status === "ACTIVE" || b.status === "IN_PROGRESS" || !b.status)
+    .filter((b) => b.status === "ACTIVE" || b.status === "IN_PROGRESS" || (!b.status && b.startDate))
     .slice(0, 5)
     .map((b) => {
-      const learnerCount = b.enrolments?.length || b._count?.enrolments || 0;
-      const completedCount = b.enrolments?.filter((e: any) => e.status === "COMPLETED").length || 0;
-      const rawRate = learnerCount > 0 ? Math.round((completedCount / learnerCount) * 100) : 0;
-      // Deterministic completion rate derived from batch name length if live cohort has in-flight steps
-      const completionRate = rawRate > 0 ? rawRate : Math.min(95, Math.max(25, ((b.name?.length || 10) * 11) % 75 + 20));
+      const learnerCount = b.enrolledCount ?? b.enrolments?.length ?? b._count?.enrolments ?? 0;
       return {
         id: b.id,
-        name: b.name || "Cohort",
-        programTitle: b.program?.title || "11 Steps to You",
-        managerName: b.manager?.name || "Roweena Britto",
+        name: b.name || "Batch",
+        programTitle: b.program?.title || b.program || "Course",
+        managerName: b.manager?.name || b.manager || "Unassigned",
         learnerCount,
-        completionRate,
       };
     });
 
@@ -307,7 +232,7 @@ export default function AdminDashboard() {
           name: u.name || "Learner",
           email: u.email,
           program: u.programTitle || u.batchName || u.cohort || "Unassigned",
-          status: u.status === "ACTIVE" || !u.status ? "Active" : u.status,
+          status: u.status || "ACTIVE",
           date: u.createdAt
             ? new Date(u.createdAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -318,24 +243,101 @@ export default function AdminDashboard() {
           batchId: u.batchId || null,
           initial: (u.name || u.email || "L")[0].toUpperCase(),
         }))
-      : fallbackEnrolments;
+      : [];
 
-interface ProgramDistItem {
-  name: string;
-  count: number;
-  percentage: number;
-  color: string;
-}
+  interface ProgramDistItem {
+    name: string;
+    count: number;
+    percentage: number;
+    color: string;
+  }
 
   // Dynamic program distribution computed from all persisted enrolments via API
-  const programDistribution: ProgramDistItem[] = (() => {
-    if (dashboardData?.programDistribution && dashboardData.programDistribution.length > 0) {
-      return dashboardData.programDistribution;
+  const programDistribution: ProgramDistItem[] = dashboardData?.programDistribution || [];
+  const totalEnrolmentsCount = programDistribution.reduce((acc, p) => acc + (p.count || 0), 0);
+
+  interface ActivityItem {
+    id: string;
+    title: string;
+    desc: string;
+    date: string;
+    type: string;
+    href?: string;
+  }
+
+  // Genuine platform activity from backend AuditLog or verified events
+  const recentActivityList: ActivityItem[] = (() => {
+    const rawActivity = dashboardData?.recentActivity || [];
+    const filteredBusinessEvents: ActivityItem[] = rawActivity
+      .filter((act: any) => {
+        // Strictly exclude raw authentication and internal session management noise
+        if (!act || !act.action) return false;
+        if (act.entity === "UserSession") return false;
+        if (["LOGOUT", "LOGIN", "REFRESH_TOKEN"].includes(act.action)) return false;
+        return true;
+      })
+      .map((act: any) => {
+        let title = act.action ? act.action.replace(/_/g, " ") : "Platform Event";
+        let desc = act.meta?.reason || `${act.entity || "Record"} updated`;
+        let href: string | undefined = undefined;
+
+        if (act.action === "LEAD_CONVERT") {
+          title = "Lead Converted";
+          desc = act.meta?.reason || (act.meta?.courseTitle ? `Converted to ${act.meta.courseTitle}` : "Prospect converted to enrolment");
+          href = "/leads";
+        } else if (act.action === "SESSION_COMPLETED") {
+          title = "Session Completed";
+          desc = act.meta?.title || "Workshop session completed";
+          href = "/batches";
+        } else if (act.action === "SESSION_ACTIVATED") {
+          title = "Session Live";
+          desc = act.meta?.title ? `Live: ${act.meta.title}` : "Live session started";
+          href = "/batches";
+        } else if (act.action === "CERTIFICATE_STATUS_CHANGE" || act.action === "CERTIFICATE_APPROVAL" || act.action === "CERTIFICATE_ISSUED") {
+          title = "Certificate Updated";
+          desc = act.meta?.reason || (act.meta?.status ? `Certificate marked ${act.meta.status}` : "Learner credential updated");
+          href = "/certificates";
+        } else if (act.action === "STEP_UNLOCK_OVERRIDE") {
+          title = "Step Progression";
+          desc = act.meta?.reason || "Manual progression step unlocked";
+          href = "/users";
+        } else if (act.action === "ATTENDANCE_OVERRIDE" || act.action === "ATTENDANCE_MANUAL_OVERRIDE" || act.action === "ATTENDANCE_RECONCILED") {
+          title = "Attendance Updated";
+          desc = act.meta?.reason || "Batch session attendance recorded";
+          href = "/batches";
+        } else if (act.action === "ANNOUNCEMENT_BROADCAST") {
+          title = "Broadcast Sent";
+          desc = act.meta?.title || "Administrative announcement broadcasted";
+          href = "/messages";
+        }
+
+        return {
+          id: act.id,
+          title,
+          desc,
+          date: act.createdAt
+            ? new Date(act.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+            : "Recent",
+          type: act.action,
+          href,
+        };
+      });
+
+    if (filteredBusinessEvents.length >= 3) {
+      return filteredBusinessEvents.slice(0, 4);
     }
-    return [
-      { name: "11 Steps to You", count: 3, percentage: 60, color: "#B86B11" },
-      { name: "Vision Board Workshop", count: 2, percentage: 40, color: "#D97706" },
-    ];
+
+    // Verified fallback & blend from live enrolments list for rich business context
+    const enrolmentEvents: ActivityItem[] = enrolmentsList.slice(0, 4 - filteredBusinessEvents.length).map((item) => ({
+      id: item.id,
+      title: "Learner Enrolment",
+      desc: `${item.name} enrolled in ${item.program}`,
+      date: item.date,
+      type: "ENROLMENT",
+      href: item.userId ? `/users/${item.userId}` : "/users",
+    }));
+
+    return [...filteredBusinessEvents, ...enrolmentEvents].slice(0, 4);
   })();
 
   // Time-of-day greeting
@@ -354,6 +356,27 @@ interface ProgramDistItem {
     year: "numeric",
   }).format(new Date());
 
+  // Status formatter converting database enums into human-readable labels and dedicated badges
+  const formatStatus = (rawStatus?: string | null): { label: string; className: string } => {
+    const s = (rawStatus || "").toUpperCase();
+    if (s === "ACTIVE" || !s) {
+      return { label: "Active", className: styles.statusBadgeActive || "" };
+    }
+    if (s === "PENDING_PAYMENT") {
+      return { label: "Pending Payment", className: styles.statusBadgePendingPayment || "" };
+    }
+    if (s === "PENDING_AGREEMENT") {
+      return { label: "Pending Agreement", className: styles.statusBadgeAgreement || "" };
+    }
+    if (s === "COMPLETED") {
+      return { label: "Completed", className: styles.statusBadgeCompleted || "" };
+    }
+    if (s === "CANCELLED") {
+      return { label: "Cancelled", className: styles.statusBadgeCancelled || "" };
+    }
+    return { label: rawStatus || "Active", className: styles.statusBadgeActive || "" };
+  };
+
   // Functional CSV export of enrolments report
   const handleExportReport = () => {
     if (!enrolmentsList || enrolmentsList.length === 0) return;
@@ -362,7 +385,7 @@ interface ProgramDistItem {
       `"${(item.name || "").replace(/"/g, '""')}"`,
       `"${(item.email || "").replace(/"/g, '""')}"`,
       `"${(item.program || "").replace(/"/g, '""')}"`,
-      `"${(item.status || "").replace(/"/g, '""')}"`,
+      `"${formatStatus(item.status).label.replace(/"/g, '""')}"`,
       `"${(item.date || "").replace(/"/g, '""')}"`,
     ]);
     const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -383,49 +406,33 @@ interface ProgramDistItem {
     setTimeout(() => setExported(false), 2500);
   };
 
-  // SVG Donut slice calculation (radius = 38, circumference ≈ 238.76)
-  const donutRadius = 38;
+  // SVG Donut slice calculation (radius = 40, viewBox="0 0 100 100", center at 50, 50)
+  const donutRadius = 40;
   const donutCircumference = 2 * Math.PI * donutRadius;
   let accumulatedOffset = 0;
 
   const isManager = currentUser?.role === "MANAGER" || currentUser?.role === "TEACHER";
 
+  // Executive display name resolution (clean administrator identity)
+  const displayName = (() => {
+    if (!currentUser?.name) return "Administrator";
+    const cleaned = currentUser.name.replace(/^Super\s+Admin\s+/i, "").replace(/^Admin\s+/i, "").trim();
+    return cleaned || currentUser.name || "Administrator";
+  })();
+
   return (
     <div className={styles.dashboardContainer}>
       {/* ===================================================================
-          1. Header & Welcome Command Section (No role badge per design refinement)
+          1. Header & Welcome Command Section (Clean Executive Typography)
           =================================================================== */}
       <header className={styles.welcomeBar}>
         <div className={styles.welcomeInfo}>
-          <div className={styles.welcomeMetaRow}>
-            <span style={{ fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--accent-primary, #c97a1e)", background: "rgba(201, 122, 30, 0.08)", padding: "2px 8px", borderRadius: "100px", border: "1px solid rgba(201, 122, 30, 0.2)" }}>
-              Brain Health · Resilience · Purpose
-            </span>
-            <span className={styles.welcomeDateBadge}>
-              <Icons.Calendar />
-              <span>{formattedToday}</span>
-            </span>
-          </div>
           <h1 className={styles.welcomeHeading}>
-            {getGreeting()}, {currentUser?.name || "Roweena Britto"}
+            {getGreeting()}, {displayName}
           </h1>
-          {/* <p className={styles.welcomeSubtext}>
-            {isManager
-              ? "Operational summary for your assigned batches, sessions, and learners."
-              : "Executive studio managing certified brain health programmes, cohorts, and student progress across WhatBoutMe."}
-          </p> */}
         </div>
 
         <div className={styles.welcomeActions}>
-          <button
-            type="button"
-            className={styles.exportBtn}
-            onClick={handleExportReport}
-            aria-label="Export Enrolments Report as CSV"
-          >
-            {exported ? <Icons.Check /> : <Icons.Export />}
-            <span>{exported ? "Exported CSV" : "Export Report"}</span>
-          </button>
           {!isManager && (
             <Link href="/batches?create=1" className={styles.createBatchBtn}>
               <Icons.Plus />
@@ -440,7 +447,7 @@ interface ProgramDistItem {
           =================================================================== */}
       <section className={styles.kpiGrid} aria-label="Dashboard Metrics">
         {/* Metric 1: Total Learners */}
-        <article className={styles.kpiCard}>
+        <Link href="/users" className={styles.kpiCard} title="View all users and enrolments">
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>{isManager ? "Assigned Learners" : "Total Learners"}</span>
             <div className={styles.kpiIconBox}>
@@ -452,13 +459,10 @@ interface ProgramDistItem {
               {loading ? "—" : totalLearners.toLocaleString()}
             </span>
           </div>
-          <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>{isManager ? "Enrolled in your cohorts" : "Registered student accounts"}</span>
-          </div>
-        </article>
+        </Link>
 
         {/* Metric 2: Total Batches */}
-        <article className={styles.kpiCard}>
+        <Link href="/batches" className={styles.kpiCard} title="View all active batches">
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>{isManager ? "Your Batches" : "Active Batches"}</span>
             <div className={styles.kpiIconBox}>
@@ -470,14 +474,11 @@ interface ProgramDistItem {
               {loading ? "—" : totalBatches.toLocaleString()}
             </span>
           </div>
-          <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>{isManager ? "Cohorts assigned to you" : "Current & upcoming cohorts"}</span>
-          </div>
-        </article>
+        </Link>
 
-        {/* Metric 3: Total Revenue (Admin only - hidden for Managers per PDF) */}
+        {/* Metric 3: Total Revenue (Admin only - USD only per client specification) */}
         {!isManager && totalRevenue !== null && (
-          <article className={styles.kpiCard}>
+          <Link href="/revenue" className={styles.kpiCard} title="View revenue details">
             <div className={styles.kpiTopRow}>
               <span className={styles.kpiLabel}>Total Revenue</span>
               <div className={styles.kpiIconBox}>
@@ -487,16 +488,11 @@ interface ProgramDistItem {
             <div className={styles.kpiValueRow}>
               <span className={styles.kpiValue}>{loading ? "—" : totalRevenue}</span>
             </div>
-            <div className={styles.kpiFooter}>
-              <span className={styles.kpiMeta}>
-                {dashboardData?.revenueSubtitle || "Program enrolment revenue"}
-              </span>
-            </div>
-          </article>
+          </Link>
         )}
 
         {/* Metric 4: Certificates Issued */}
-        <article className={styles.kpiCard}>
+        <Link href="/certificates" className={styles.kpiCard} title="View issued certificates">
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>Certificates Issued</span>
             <div className={styles.kpiIconBox}>
@@ -508,72 +504,8 @@ interface ProgramDistItem {
               {loading ? "—" : certificatesIssued.toLocaleString()}
             </span>
           </div>
-          <div className={styles.kpiFooter}>
-            <span className={styles.kpiMeta}>Credentials awarded to date</span>
-          </div>
-        </article>
+        </Link>
       </section>
-
-      {/* ===================================================================
-          2b. Multi-Currency Revenue Summary Cards (USD, AED, INR) - Commented out from Dashboard UI
-          =================================================================== */}
-      {/*
-      {!isManager && (
-        <section className={styles.multiCurrencyGrid} aria-label="Multi-Currency Revenue Summary">
-          <div className={styles.currencyCard}>
-            <div className={styles.currencyHeader}>
-              <span className={styles.currencyTitle}>USD Direct Revenue</span>
-              <span className={styles.currencyBadgeUSD}>USD ($)</span>
-            </div>
-            <div className={styles.currencyValue}>
-              {loading ? "—" : usdRevenueFormatted}
-            </div>
-            <span className={styles.currencyMeta}>
-              International checkouts &amp; global tier subscriptions
-            </span>
-          </div>
-
-          <div className={styles.currencyCard}>
-            <div className={styles.currencyHeader}>
-              <span className={styles.currencyTitle}>UAE &amp; GCC Revenue</span>
-              <span className={styles.currencyBadgeAED}>AED (د.إ)</span>
-            </div>
-            <div className={styles.currencyValue}>
-              {loading ? "—" : aedRevenueFormatted}
-            </div>
-            <span className={styles.currencyMeta}>
-              Dubai &amp; WhatBoutMe FZE regional transactions
-            </span>
-          </div>
-
-          <div className={styles.currencyCard}>
-            <div className={styles.currencyHeader}>
-              <span className={styles.currencyTitle}>India Domestic Revenue</span>
-              <span className={styles.currencyBadgeINR}>INR (₹)</span>
-            </div>
-            <div className={styles.currencyValue}>
-              {loading ? "—" : inrRevenueFormatted}
-            </div>
-            <span className={styles.currencyMeta}>
-              Direct UPI, NetBanking &amp; domestic cards
-            </span>
-          </div>
-
-          <div className={styles.currencyCard} style={{ borderColor: "#e9d5ff", background: "#fcfaff" }}>
-            <div className={styles.currencyHeader}>
-              <span className={styles.currencyTitle}>Normalized Global Total</span>
-              <span className={styles.currencyBadgeNormalized}>Consolidated USD</span>
-            </div>
-            <div className={styles.currencyValue} style={{ color: "#6b21a8" }}>
-              {loading ? "—" : totalRevenue}
-            </div>
-            <span className={styles.currencyMeta}>
-              Consolidated revenue across all 3 currency ledgers
-            </span>
-          </div>
-        </section>
-      )}
-      */}
 
       {/* ===================================================================
           2c. Action Required Queues: Discovery Calls, Approvals & Reconciliation
@@ -582,60 +514,68 @@ interface ProgramDistItem {
         {/* Queue 1: Upcoming 15-Minute Discovery Calls */}
         <div className={styles.actionQueueCard}>
           <div className={styles.actionQueueHeader}>
-            <div>
-              <h3 className={styles.actionQueueTitle}>
-                <Icons.Video />
-                <span>15-Min Discovery Calls</span>
-              </h3>
-              <p style={{ margin: "2px 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                Scheduled prospect video consultations
-              </p>
-            </div>
-            <span className={`${styles.actionQueueBadge} ${upcomingDiscoveryCalls.length > 0 ? styles.badgeWarning : styles.badgeSuccess}`}>
-              {upcomingDiscoveryCalls.length} Scheduled
-            </span>
+            <h3 className={styles.actionQueueTitle}>
+              15-Min Discovery Calls
+            </h3>
+            {upcomingDiscoveryCalls.length > 0 && (
+              <span className={`${styles.actionQueueBadge} ${styles.badgeScheduled}`}>
+                {upcomingDiscoveryCalls.length} Scheduled
+              </span>
+            )}
           </div>
 
           <div className={styles.actionQueueList}>
             {upcomingDiscoveryCalls.length === 0 ? (
-              <div className={styles.emptyQueueState}>
-                <span>✓ All caught up!</span>
-                <span>No discovery calls scheduled for today.</span>
+              <div className={styles.actionQueueHero}>
+                <div className={styles.emptyQueueState}>
+                  <span>✓ All caught up</span>
+                  <span>No more discovery calls scheduled today</span>
+                </div>
+                <Link href="/leads" className={styles.secondaryActionBtn}>
+                  Manage All Leads →
+                </Link>
               </div>
             ) : (
-              upcomingDiscoveryCalls.map((call) => (
-                <div key={call.id} className={styles.discoveryItem}>
-                  <div className={styles.discoveryAttendee}>
-                    <span className={styles.attendeeName}>{call.name}</span>
-                    <span className={styles.attendeeTime}>
-                      {call.scheduledAt ? new Date(call.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Today"}
-                    </span>
-                  </div>
-                  <div className={styles.discoveryMeta}>
-                    {call.courseTitle ? `Inquiring for: ${call.courseTitle}` : call.email}
-                  </div>
-                  <div className={styles.discoveryActions}>
-                    {call.zoomUrl && (
-                      <a
-                        href={call.zoomUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.joinZoomBtn}
-                      >
-                        <Icons.Video />
-                        <span>Join Zoom</span>
-                      </a>
+              <>
+                {upcomingDiscoveryCalls.map((call) => (
+                  <div key={call.id} className={styles.discoveryItem}>
+                    <div className={styles.discoveryAttendee}>
+                      <span className={styles.attendeeName}>{call.name}</span>
+                      <span className={styles.attendeeTime}>
+                        {call.formattedTime}
+                      </span>
+                    </div>
+                    {call.courseTitle && (
+                      <div className={styles.discoveryMeta}>
+                        Inquiring: {call.courseTitle}
+                      </div>
                     )}
-                    <Link
-                      href={`/leads?leadId=${call.id}&action=convert`}
-                      className={styles.convertLeadBtn}
-                    >
-                      <Icons.Check />
-                      <span>Convert Lead</span>
-                    </Link>
+                    <div className={styles.discoveryActions}>
+                      {call.zoomUrl ? (
+                        <a
+                          href={call.zoomUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.joinZoomBtn}
+                          title={`Join Zoom discovery call with ${call.name}`}
+                          aria-label={`Join Zoom discovery call with ${call.name}`}
+                        >
+                          <Icons.Video />
+                          <span>Join Zoom</span>
+                        </a>
+                      ) : (
+                        <span className={styles.joinZoomBtnDisabled} title="Meeting link not provided">
+                          <Icons.Video />
+                          <span>No Zoom Link</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+                <Link href="/leads" className={styles.secondaryActionBtn}>
+                  Manage All Leads →
+                </Link>
+              </>
             )}
           </div>
         </div>
@@ -643,114 +583,86 @@ interface ProgramDistItem {
         {/* Queue 2: Pending Certificate Approvals */}
         <div className={styles.actionQueueCard}>
           <div className={styles.actionQueueHeader}>
-            <div>
-              <h3 className={styles.actionQueueTitle}>
-                <Icons.Certificate />
-                <span>Pending Certificate Approvals</span>
-              </h3>
-              <p style={{ margin: "2px 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                Learner completion sign-offs waiting approval
-              </p>
-            </div>
-            <span className={`${styles.actionQueueBadge} ${pendingCertificatesCount > 0 ? styles.badgeDanger : styles.badgeSuccess}`}>
-              {pendingCertificatesCount} Pending
-            </span>
+            <h3 className={styles.actionQueueTitle}>
+              Certificate Approvals
+            </h3>
+            {pendingCertificatesCount > 0 && (
+              <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
+                {pendingCertificatesCount} Pending
+              </span>
+            )}
           </div>
 
           <div className={styles.actionQueueList}>
-            <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-              <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                {pendingCertificatesCount > 0
-                  ? `There are ${pendingCertificatesCount} learner certificate requests awaiting instructor verification and issuance.`
-                  : "All submitted certificate requests have been reviewed and issued."}
-              </p>
-              <Link
-                href="/approvals"
-                className={styles.viewAllLink}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "0.5rem 1rem",
-                  background: pendingCertificatesCount > 0 ? "var(--accent-primary, #c97a1e)" : "var(--bg-soft, #f7f3ee)",
-                  color: pendingCertificatesCount > 0 ? "#ffffff" : "var(--text-primary)",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  fontWeight: 600,
-                  fontSize: "0.8125rem",
-                  marginTop: "auto"
-                }}
-              >
-                <span>{pendingCertificatesCount > 0 ? "Review Approvals Queue →" : "View Issued Certificates"}</span>
-              </Link>
-            </div>
+            {pendingCertificatesCount > 0 ? (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.actionQueueHeroNumber}>{pendingCertificatesCount}</div>
+                <div className={styles.actionQueueHeroMeta}>Learner certificate requests awaiting instructor review and issuance.</div>
+                <Link href="/approvals" className={styles.primaryActionBtn}>
+                  Review Approvals Queue →
+                </Link>
+              </div>
+            ) : (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.emptyQueueState}>
+                  <span>✓ Queue clear</span>
+                  <span>All submitted certificates reviewed</span>
+                </div>
+                <Link href="/certificates" className={styles.secondaryActionBtn}>
+                  View Issued Certificates →
+                </Link>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Queue 3: Unmatched Attendance Reconciliation */}
         <div className={styles.actionQueueCard}>
           <div className={styles.actionQueueHeader}>
-            <div>
-              <h3 className={styles.actionQueueTitle}>
-                <Icons.AlertTriangle />
-                <span>Attendance Reconciliation</span>
-              </h3>
-              <p style={{ margin: "2px 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                Unmatched Zoom &amp; Meet attendees
-              </p>
-            </div>
-            <span className={`${styles.actionQueueBadge} ${unmatchedAttendanceCount > 0 ? styles.badgeWarning : styles.badgeSuccess}`}>
-              {unmatchedAttendanceCount} Unmatched
-            </span>
+            <h3 className={styles.actionQueueTitle}>
+              Attendance Reconciliation
+            </h3>
+            {unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 && (
+              <span className={`${styles.actionQueueBadge} ${styles.badgeUnmatchedAlert}`}>
+                {unmatchedAttendanceCount} Unmatched
+              </span>
+            )}
           </div>
 
           <div className={styles.actionQueueList}>
-            <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-              <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                {unmatchedAttendanceCount > 0
-                  ? `${unmatchedAttendanceCount} session participants could not be automatically matched to registered learners (75% rule).`
-                  : "Zero reconciliation backlog across all active cohorts and live workshops."}
-              </p>
-              <Link
-                href="/batches"
-                className={styles.viewAllLink}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "0.5rem 1rem",
-                  background: "var(--bg-soft, #f7f3ee)",
-                  color: "var(--text-primary)",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  fontWeight: 600,
-                  fontSize: "0.8125rem",
-                  border: "1px solid var(--border-light, #ece4d7)",
-                  marginTop: "auto"
-                }}
-              >
-                <span>Go to Cohort Attendance →</span>
-              </Link>
-            </div>
+            {unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 ? (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.actionQueueHeroNumber} style={{ color: "#d97706" }}>{unmatchedAttendanceCount}</div>
+                <div className={styles.actionQueueHeroMeta}>Session participants could not be automatically matched to registered learners.</div>
+                <Link href="/batches" className={styles.warningActionBtn}>
+                  Reconcile Attendees →
+                </Link>
+              </div>
+            ) : (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.emptyQueueState}>
+                  <span>✓ Fully reconciled</span>
+                  <span>Zero reconciliation backlog across batches</span>
+                </div>
+                <Link href="/batches" className={styles.secondaryActionBtn}>
+                  View Batch Attendance →
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
       {/* ===================================================================
-          2d. Active Batches & 11-Steps Learner Completion Rate Matrix
+          2d. Active Batches Overview
           =================================================================== */}
-      <section className={styles.batchMatrixSection} aria-label="11-Steps Learner Completion Matrix">
+      <section className={styles.batchMatrixSection} aria-label="Active Batches">
         <div className={styles.batchMatrixHeader}>
-          <div>
-            <h2 className={styles.sectionTitle} style={{ fontSize: "1.0625rem" }}>
-              Active Batches &amp; 11-Steps Completion Rate
-            </h2>
-            <p className={styles.sectionSubtitle}>
-              Progress monitoring across 11 modules of Brain Health, Resilience &amp; Purpose
-            </p>
-          </div>
+          <h2 className={styles.sectionTitle} style={{ fontSize: "1.0625rem" }}>
+            Active Batches
+          </h2>
           <Link href="/batches" className={styles.viewAllLink}>
-            <span>Manage Batches</span>
+            <span>View All Batches</span>
             <Icons.ArrowRight />
           </Link>
         </div>
@@ -759,59 +671,56 @@ interface ProgramDistItem {
           <table className={styles.batchMatrixTable}>
             <thead>
               <tr>
-                <th>Cohort Name</th>
-                <th>Curriculum</th>
-                <th>Manager / Trainer</th>
+                <th>Batch Name</th>
+                <th>Program</th>
+                <th>Manager</th>
                 <th>Learners</th>
-                <th>11-Steps Completion</th>
                 <th style={{ textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {activeBatchesList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)" }}>
-                    No active cohorts found.
+                  <td colSpan={5} style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)" }}>
+                    No active batches found.
                   </td>
                 </tr>
               ) : (
                 activeBatchesList.map((batch) => (
                   <tr key={batch.id}>
                     <td>
-                      <strong style={{ fontWeight: 700, color: "var(--text-primary)" }}>{batch.name}</strong>
+                      <Link
+                        href={`/batches/${batch.id}/sessions`}
+                        className={styles.cohortLink}
+                        title={`Manage sessions for ${batch.name}`}
+                      >
+                        {batch.name}
+                      </Link>
                     </td>
                     <td style={{ color: "var(--text-secondary)" }}>{batch.programTitle}</td>
                     <td>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#15803d" }} />
-                        {batch.managerName}
-                      </span>
+                      {batch.managerName && batch.managerName !== "Unassigned" ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#15803d" }} />
+                          {batch.managerName}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                          Unassigned
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span style={{ fontWeight: 600 }}>{batch.learnerCount} learners</span>
                     </td>
-                    <td>
-                      <div className={styles.progressBarContainer}>
-                        <div className={styles.progressBarTrack}>
-                          <div
-                            className={styles.progressBarFill}
-                            style={{ width: `${batch.completionRate}%` }}
-                          />
-                        </div>
-                        <span className={styles.progressBarLabel}>{batch.completionRate}%</span>
-                      </div>
-                    </td>
                     <td style={{ textAlign: "right" }}>
                       <Link
                         href={`/batches/${batch.id}/sessions`}
-                        style={{
-                          fontSize: "0.78rem",
-                          fontWeight: 600,
-                          color: "var(--accent-primary, #c97a1e)",
-                          textDecoration: "none",
-                        }}
+                        className={styles.batchActionLink}
+                        aria-label={`Manage sessions for ${batch.name}`}
                       >
-                        View Sessions →
+                        <span>Manage Sessions</span>
+                        <Icons.ArrowRight />
                       </Link>
                     </td>
                   </tr>
@@ -829,16 +738,22 @@ interface ProgramDistItem {
         {/* Left Column: Recent Enrolments Table */}
         <section className={styles.enrolmentsSection} aria-label="Recent Enrolments">
           <div className={styles.sectionHeaderBar}>
-            <div className={styles.sectionTitleGroup}>
-              <h2 className={styles.sectionTitle}>Recent Enrolments</h2>
-              <p className={styles.sectionSubtitle}>
-                Latest learner registrations across active programs
-              </p>
+            <h2 className={styles.sectionTitle}>Recent Enrolments</h2>
+            <div className={styles.sectionHeaderActions}>
+              <button
+                type="button"
+                className={styles.exportBtnTable}
+                onClick={handleExportReport}
+                aria-label="Export Enrolments Report as CSV"
+              >
+                {exported ? <Icons.Check /> : <Icons.Export />}
+                <span>{exported ? "Exported" : "Export CSV"}</span>
+              </button>
+              <Link href="/users" className={styles.viewAllLink}>
+                <span>View All</span>
+                <Icons.ArrowRight />
+              </Link>
             </div>
-            <Link href="/users" className={styles.viewAllLink}>
-              <span>View All</span>
-              <Icons.ArrowRight />
-            </Link>
           </div>
 
           <div className={styles.tableContainer}>
@@ -992,16 +907,15 @@ interface ProgramDistItem {
 
                       {/* Status */}
                       <td>
-                        <span
-                          className={
-                            item.status === "Active"
-                              ? styles.statusBadgeActive
-                              : styles.statusBadgePending
-                          }
-                        >
-                          <span className={styles.statusDot} />
-                          <span>{item.status}</span>
-                        </span>
+                        {(() => {
+                          const statusInfo = formatStatus(item.status);
+                          return (
+                            <span className={statusInfo.className}>
+                              <span className={styles.statusDot} />
+                              <span>{statusInfo.label}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* Enrolled On */}
@@ -1056,24 +970,21 @@ interface ProgramDistItem {
           {/* Card 1: Program Enrolments Distribution */}
           <section className={styles.sideCard} aria-label="Program Distribution">
             <div className={styles.sideHeader}>
-              <div className={styles.sideTitleGroup}>
-                <h2 className={styles.sideTitle}>Program Enrolments</h2>
-                <p className={styles.sideSubtitle}>Distribution across enrolled programs</p>
-              </div>
+              <h2 className={styles.sideTitle}>Program Enrolments</h2>
             </div>
 
             {loading ? (
               <div className={styles.donutCardBody}>
                 {/* Skeleton Donut */}
                 <div className={styles.donutWrapper}>
-                  <svg viewBox="0 0 96 96" className={styles.donutSvg}>
+                  <svg viewBox="0 0 100 100" className={styles.donutSvg}>
                     <circle
-                      cx="48"
-                      cy="48"
+                      cx="50"
+                      cy="50"
                       r={donutRadius}
                       fill="none"
                       stroke="#f2ede4"
-                      strokeWidth="12"
+                      strokeWidth="11"
                     />
                   </svg>
                   <div className={styles.donutCenter}>
@@ -1114,15 +1025,15 @@ interface ProgramDistItem {
               <div className={styles.donutCardBody}>
                 {/* SVG Donut Chart */}
                 <div className={styles.donutWrapper}>
-                  <svg viewBox="0 0 96 96" className={styles.donutSvg}>
+                  <svg viewBox="0 0 100 100" className={styles.donutSvg}>
                     {/* Background track */}
                     <circle
-                      cx="48"
-                      cy="48"
+                      cx="50"
+                      cy="50"
                       r={donutRadius}
                       fill="none"
                       stroke="#f2ede4"
-                      strokeWidth="12"
+                      strokeWidth="11"
                     />
                     {/* Dynamic Segments */}
                     {programDistribution.map((item) => {
@@ -1133,12 +1044,12 @@ interface ProgramDistItem {
                       return (
                         <circle
                           key={item.name}
-                          cx="48"
-                          cy="48"
+                          cx="50"
+                          cy="50"
                           r={donutRadius}
                           fill="none"
                           stroke={item.color}
-                          strokeWidth="12"
+                          strokeWidth="11"
                           strokeDasharray={`${strokeDash} ${donutCircumference}`}
                           strokeDashoffset={-offset}
                         />
@@ -1147,7 +1058,7 @@ interface ProgramDistItem {
                   </svg>
                   {/* Center Total Count */}
                   <div className={styles.donutCenter}>
-                    <span className={styles.donutTotal}>{enrolmentsList.length}</span>
+                    <span className={styles.donutTotal}>{totalEnrolmentsCount}</span>
                     <span className={styles.donutTotalLabel}>Total</span>
                   </div>
                 </div>
@@ -1179,11 +1090,8 @@ interface ProgramDistItem {
           {/* Card 2: Recent Activity Timeline */}
           <section className={styles.sideCard} aria-label="Recent Activity">
             <div className={styles.sideHeader}>
-              <div className={styles.sideTitleGroup}>
-                <h2 className={styles.sideTitle}>Recent Activity</h2>
-                <p className={styles.sideSubtitle}>Verified platform enrolment events</p>
-              </div>
-              <Link href="/users" className={styles.viewAllLink}>
+              <h2 className={styles.sideTitle}>Recent Activity</h2>
+              <Link href="/audit-logs" className={styles.viewAllLink} title="View all system audit logs">
                 <span>View All</span>
                 <Icons.ArrowRight />
               </Link>
@@ -1207,24 +1115,38 @@ interface ProgramDistItem {
                   </div>
                 ))}
               </div>
-            ) : enrolmentsList.length === 0 ? (
+            ) : recentActivityList.length === 0 ? (
               <div className={styles.emptyStateSmall}>
-                <span>No recent activity recorded.</span>
+                <span>No recent business activity recorded.</span>
               </div>
             ) : (
               <div className={styles.timelineList}>
-                {enrolmentsList.slice(0, 4).map((item) => (
+                {recentActivityList.slice(0, 4).map((item) => (
                   <div key={item.id} className={styles.timelineItem}>
                     <div className={styles.timelineIconCol}>
-                      <Icons.UserCheck />
+                      {item.type === "CERTIFICATE_STATUS_CHANGE" || item.type === "CERTIFICATE_APPROVAL" || item.type === "CERTIFICATE_ISSUED" ? (
+                        <Icons.Certificate />
+                      ) : item.type === "LEAD_CONVERT" ? (
+                        <Icons.Check />
+                      ) : item.type === "SESSION_COMPLETED" || item.type === "SESSION_ACTIVATED" ? (
+                        <Icons.Video />
+                      ) : (
+                        <Icons.UserCheck />
+                      )}
                     </div>
                     <div className={styles.timelineContent}>
                       <div className={styles.timelineTop}>
-                        <h3 className={styles.timelineTitle}>Learner Enrolment</h3>
+                        {item.href ? (
+                          <Link href={item.href} className={styles.timelineTitleLink} title={`Jump to ${item.title}`}>
+                            <h3 className={styles.timelineTitle}>{item.title}</h3>
+                          </Link>
+                        ) : (
+                          <h3 className={styles.timelineTitle}>{item.title}</h3>
+                        )}
                         <span className={styles.timelineTime}>{item.date}</span>
                       </div>
-                      <p className={styles.timelineDesc}>
-                        {item.name} enrolled in {item.program}
+                      <p className={styles.timelineDesc} title={item.desc}>
+                        {item.desc}
                       </p>
                     </div>
                   </div>

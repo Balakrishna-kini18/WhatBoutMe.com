@@ -140,6 +140,25 @@ export class AuthService {
           },
         });
       }
+
+      // PDF Page 13: Log unusual activity, such as many logins from different countries, for admin review
+      if (isSuspicious && typeof (this.prisma as any).auditLog?.create === 'function') {
+        await (this.prisma as any).auditLog.create({
+          data: {
+            actorId: params.userId,
+            action: 'UNUSUAL_LOGIN_DETECTED',
+            entity: 'User',
+            entityId: params.userId,
+            meta: {
+              country: params.country ?? null,
+              ipAddress: params.ipAddress ?? null,
+              userAgent: params.userAgent ?? null,
+              reason: params.reason || 'Unusual login activity detected (country hopping or suspicious pattern)',
+            },
+            ip: params.ipAddress ?? null,
+          },
+        }).catch(() => null);
+      }
     } catch {
       // Non-blocking: audit write failure must not break the authentication flow
     }

@@ -12,7 +12,11 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   async connectToRedis(): Promise<void> {
-    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    const redisUrl = process.env.REDIS_URL || (process.env.REDIS_HOST ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || '6379'}` : undefined);
+    if (!redisUrl) {
+      this.adapterConstructor = null;
+      return;
+    }
     const isRediss = redisUrl.startsWith('rediss://');
     
     const redisOptions = {

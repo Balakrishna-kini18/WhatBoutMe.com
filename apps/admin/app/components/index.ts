@@ -33,3 +33,6 @@ export { default as LearnerPortalFlow } from "./LearnerPortalFlow";
 export type { LearnerPortalFlowProps, LearnerStepView, StepModule, Lesson } from "./LearnerPortalFlow";
 
 
+
+export { Pagination } from "./Pagination";
+export type { PaginationProps } from "./Pagination";

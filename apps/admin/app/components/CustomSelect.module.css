@@ -133,15 +133,11 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
 }
 
 .optionLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

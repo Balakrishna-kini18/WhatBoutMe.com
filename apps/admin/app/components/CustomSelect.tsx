@@ -17,6 +17,7 @@ export interface CustomSelectProps {
   options: CustomSelectOption[];
   minWidth?: string;
   width?: string;
+  menuMinWidth?: string;
   fullWidth?: boolean;
   size?: "sm" | "md";
   ariaLabel?: string;
@@ -33,6 +34,7 @@ export function CustomSelect({
   options,
   minWidth = "160px",
   width,
+  menuMinWidth,
   fullWidth = false,
   size = "md",
   ariaLabel,
@@ -84,7 +86,10 @@ export function CustomSelect({
         spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
 
       const triggerWidth = rect.width;
-      const left = Math.max(8, Math.min(rect.left, window.innerWidth - triggerWidth - 8));
+      // Allow menu to comfortably expand to fit option names without truncating (min 260px, max 460px)
+      const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : 0;
+      const estimatedMenuWidth = Math.max(triggerWidth, parsedMenuMinWidth, 260);
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - estimatedMenuWidth - 8));
 
       if (openUpwards) {
         const bottom = window.innerHeight - rect.top + 4;
@@ -169,6 +174,7 @@ export function CustomSelect({
         id={selectId}
         type="button"
         disabled={disabled}
+        title={displayLabel}
         className={`${styles.trigger} ${styles[size]} ${isOpen ? styles.triggerOpen : ""} ${disabled ? styles.triggerDisabled : ""}`}
         onClick={handleToggle}
         aria-haspopup="listbox"
@@ -213,8 +219,9 @@ export function CustomSelect({
                 ? { bottom: `${menuPos.bottom}px` }
                 : { top: `${menuPos.top}px` }),
               left: `${menuPos.left}px`,
-              minWidth: `${Math.max(menuPos.width, 160)}px`,
-              width: `${menuPos.width}px`,
+              minWidth: menuMinWidth || `${Math.max(menuPos.width, 260)}px`,
+              width: "max-content",
+              maxWidth: "min(480px, calc(100vw - 24px))",
               maxHeight: menuMaxHeight,
             }}
             role="listbox"
@@ -229,6 +236,7 @@ export function CustomSelect({
                   aria-selected={isSelected}
                   aria-disabled={opt.disabled}
                   tabIndex={opt.disabled ? -1 : 0}
+                  title={opt.label}
                   className={`${styles.option} ${isSelected ? styles.optionSelected : ""} ${opt.disabled ? styles.optionDisabled : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();

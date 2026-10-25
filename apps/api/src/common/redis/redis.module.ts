@@ -9,7 +9,10 @@ import { RedisService } from './redis.service.js';
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: async () => {
-        const url = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || '6379'}`;
+        const url = process.env.REDIS_URL || (process.env.REDIS_HOST ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || '6379'}` : undefined);
+        if (!url) {
+          return { ttl: 60 * 1000 };
+        }
         const isRediss = url.startsWith('rediss://');
         const isWorkerMode = process.env.WORKER_MODE === 'true';
         const isServerless = !isWorkerMode;

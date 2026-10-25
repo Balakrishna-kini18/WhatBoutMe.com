@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { resolveEmptyStateIcon } from "./empty-state-icons";
 
 export interface EmptyStateProps {
   icon?: React.ReactNode;
@@ -49,7 +50,7 @@ export function EmptyState({
           border: "1px solid var(--border-light, #ece4d7)",
         }}
       >
-        {icon || "📋"}
+        {resolveEmptyStateIcon(icon)}
       </div>
 
       <h3

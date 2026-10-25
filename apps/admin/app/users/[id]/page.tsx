@@ -45,6 +45,7 @@ interface UserDetail {
   name: string;
   email: string;
   role: string;
+  twoFactorEnabled?: boolean;
   status?: string;
   createdAt: string;
   enrolments?: EnrolmentOption[];
@@ -695,7 +696,7 @@ export default function UserDetailPage({
                       : user.role === "ADMIN"
                       ? "(Admin — Operations & Approvals)"
                       : user.role === "MANAGER"
-                      ? "(Manager — Cohort & Attendance Scoped)"
+                      ? "(Manager — Batch & Attendance Scoped)"
                       : "(Learner)"}
                   </span>
                 </span>
@@ -711,6 +712,16 @@ export default function UserDetailPage({
                   </svg>
                   <span>Joined {new Date(user.createdAt).toLocaleDateString()}</span>
                 </span>
+
+                <span className={styles.metaDot}>&bull;</span>
+
+                <span className={styles.metaItem}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  <span>{user.twoFactorEnabled ? "2FA Enabled" : "2FA Off"}</span>
+                </span>
               </div>
             </div>
           </div>
@@ -721,7 +732,7 @@ export default function UserDetailPage({
               className={styles.recalculateBtn}
               onClick={handleRecalculate}
               disabled={!selectedEnrolmentId || loadingProgression}
-              title="Recalculate progression locks and completions according to cohort schedule and criteria"
+              title="Recalculate progression locks and completions according to batch schedule and criteria"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animation: loadingProgression ? "spin 1s linear infinite" : undefined }}>
                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
@@ -753,12 +764,12 @@ export default function UserDetailPage({
         </div>
       )}
 
-      {/* 2. Enrollment Selector Card */}
+      {/* 2. Enrolment Selector Card */}
       {user.enrolments && user.enrolments.length > 0 && (
         <section className={styles.enrollmentCard}>
           <div className={styles.enrollmentPickerGroup}>
             <label className={styles.enrollmentLabel} htmlFor="enrolment-select">
-              Active Enrollment Track:
+              Active Enrolment Track:
             </label>
             <CustomSelect
               value={selectedEnrolmentId}
@@ -774,7 +785,7 @@ export default function UserDetailPage({
 
           <div className={styles.enrollmentStatusWrap} style={{ display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap" }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-              <span className={styles.enrollmentStatusLabel}>Enrollment Status:</span>
+              <span className={styles.enrollmentStatusLabel}>Enrolment Status:</span>
               <StatusBadge status={selectedEnrolment?.status || "ACTIVE"} />
             </div>
 
@@ -1001,7 +1012,7 @@ export default function UserDetailPage({
           </div>
         ) : !progression || !progression.steps || progression.steps.length === 0 ? (
           <div style={{ textAlign: "center", padding: "48px 24px", color: "var(--text-muted)", fontSize: "0.92rem" }}>
-            No program steps found for this enrollment.
+            No program steps found for this enrolment.
           </div>
         ) : (
           <div className={styles.tableWrapper}>
@@ -1378,7 +1389,7 @@ export default function UserDetailPage({
           <div>
             <h2 className={styles.sectionTitle}>Session Attendance &amp; Reconciliation History</h2>
             <p className={styles.sectionSubtitle}>
-              Live cohort and 1-on-1 coaching attendance records, timestamps, and manual overrides.
+              Live batch and 1-on-1 coaching attendance records, timestamps, and manual overrides.
             </p>
           </div>
           {attendanceHistory && (
@@ -1414,7 +1425,7 @@ export default function UserDetailPage({
               <thead>
                 <tr>
                   <th>Session</th>
-                  <th>Cohort / Track</th>
+                  <th>Batch / Track</th>
                   <th>When (Local)</th>
                   <th>Minutes Present</th>
                   <th>Attendance %</th>
@@ -1438,7 +1449,7 @@ export default function UserDetailPage({
                       <td>
                         <strong>{record.sessionTitle}</strong>
                         <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                          {record.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching" : "Cohort Session"}
+                          {record.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching" : "Batch Session"}
                         </div>
                       </td>
                       <td>
@@ -1768,7 +1779,7 @@ export default function UserDetailPage({
         ) : oralAssessments.length === 0 ? (
           <div style={{ padding: "2rem", textAlign: "center", background: "#ffffff", borderRadius: 12, border: "1px solid var(--border-light, #e7decb)" }}>
             <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-muted, #78716a)" }}>
-              No oral assessments have been recorded yet for this enrollment. Click "+ Record Oral Assessment" above to record viva rubric scores.
+              No oral assessments have been recorded yet for this enrolment. Click "+ Record Oral Assessment" above to record viva rubric scores.
             </p>
           </div>
         ) : (
@@ -1883,7 +1894,7 @@ export default function UserDetailPage({
               </span>
             </div>
             <p className={styles.sectionSubtitle}>
-              Chronological study notebook capturing in-lesson notes, quotes, and video bookmarks across modules.
+              Chronological study notebook capturing in-lesson notes, quotes, and video bookmarks across program steps.
             </p>
           </div>
 
@@ -1933,7 +1944,7 @@ export default function UserDetailPage({
             {progression?.steps && progression.steps.length > 0 && (
               <div style={{ marginBottom: "1rem" }}>
                 <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "#1e293b" }}>
-                  Associate with Module / Step
+                  Associate with Step
                 </label>
                 <select
                   value={selectedNoteStepId}
@@ -1947,7 +1958,7 @@ export default function UserDetailPage({
                     background: "#ffffff",
                   }}
                 >
-                  <option value="">-- Choose Module / Step --</option>
+                  <option value="">-- Choose Step --</option>
                   {progression.steps.map((st) => (
                     <option key={st.stepId} value={st.stepId}>
                       Step {st.sequence}: {st.title}
@@ -2042,7 +2053,7 @@ export default function UserDetailPage({
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             {studentNotes.map((note) => {
-              const stepName = note.step ? `Step ${note.step.sequence}: ${note.step.title}` : "Module Content";
+              const stepName = note.step ? `Step ${note.step.sequence}: ${note.step.title}` : "Step Content";
               const lessonName = note.lesson ? note.lesson.title : "Lesson Notes";
               const dateWritten = formatNoteDate(note.createdAt);
 
@@ -2060,7 +2071,7 @@ export default function UserDetailPage({
                     gap: "0.6rem",
                   }}
                 >
-                  {/* Mandatory Field 3: Associated Module (Step) Name and Lesson Name */}
+                  {/* Mandatory Field 3: Associated Step Name and Lesson Name */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                       <span
@@ -2168,7 +2179,7 @@ export default function UserDetailPage({
           description={
             activeModal === "unlock" ? (
               <>
-                You are about to <strong>manually grant access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>, bypassing cohort release schedules and milestone prerequisite gates.
+                You are about to <strong>manually grant access</strong> to <em>"{targetStep.title}"</em> for learner <strong>{user.name}</strong>, bypassing batch release schedules and milestone prerequisite gates.
               </>
             ) : activeModal === "relock" ? (
               <>
@@ -2183,7 +2194,7 @@ export default function UserDetailPage({
           label="Administrative Reason"
           placeholder={
             activeModal === "unlock"
-              ? "e.g., Learner demonstrated exceptional readiness or has fast-track cohort approval."
+              ? "e.g., Learner demonstrated exceptional readiness or has fast-track batch approval."
               : activeModal === "relock"
               ? "e.g., Academic review required before proceeding; prerequisite remediations needed."
               : "Optional administrative notes for resetting to automatic progression."

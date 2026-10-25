@@ -86,9 +86,9 @@ export function CustomSelect({
         spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
 
       const triggerWidth = rect.width;
-      // Allow menu to comfortably expand to fit option names without truncating (min 260px, max 460px)
-      const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : 0;
-      const estimatedMenuWidth = Math.max(triggerWidth, parsedMenuMinWidth, 260);
+      // Allow menu to comfortably fit trigger or custom menuMinWidth without unnecessary fixed bloating
+      const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : triggerWidth;
+      const estimatedMenuWidth = Math.max(triggerWidth, parsedMenuMinWidth);
       const left = Math.max(8, Math.min(rect.left, window.innerWidth - estimatedMenuWidth - 8));
 
       if (openUpwards) {
@@ -219,7 +219,7 @@ export function CustomSelect({
                 ? { bottom: `${menuPos.bottom}px` }
                 : { top: `${menuPos.top}px` }),
               left: `${menuPos.left}px`,
-              minWidth: menuMinWidth || `${Math.max(menuPos.width, 260)}px`,
+              minWidth: menuMinWidth || `${menuPos.width}px`,
               width: "max-content",
               maxWidth: "min(480px, calc(100vw - 24px))",
               maxHeight: menuMaxHeight,

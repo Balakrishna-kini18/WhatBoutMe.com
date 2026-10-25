@@ -628,7 +628,7 @@ export default function AgreementTemplateDetailPage({
               <span>Agreements</span>
             </Link>
             <span style={{ color: "var(--border-dark, #c4b5a0)", fontSize: "0.8rem" }}>/</span>
-            <span style={{ color: "var(--text-secondary, #78716c)", fontSize: "0.8rem", fontWeight: 500 }}>Contract Governance</span>
+            <span style={{ color: "var(--text-secondary, #78716c)", fontSize: "0.8rem", fontWeight: 500 }}>Agreement Governance</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
             <h1 className={styles.title} style={{ margin: 0 }}>{template.title}</h1>
@@ -863,7 +863,7 @@ export default function AgreementTemplateDetailPage({
                 Auditable log of learners who consented and signed this agreement, captured with immutable timestamp, IP address, and digital signature.
                 {isSharedDefault && (
                   <span style={{ display: "inline-block", marginLeft: "0.4rem", color: "#92400e", fontWeight: 500 }}>
-                    (Platform fallback contract preserving individual program attribution)
+                    (Platform fallback agreement preserving individual program attribution)
                   </span>
                 )}
               </p>
@@ -1164,7 +1164,7 @@ export default function AgreementTemplateDetailPage({
               <thead>
                 <tr>
                   <th>Learner</th>
-                  <th>Enrolled Program / Course</th>
+                  <th>Enrolled Program</th>
                   <th>Signed By / Method</th>
                   <th>Agreement Version</th>
                   <th>Signed On</th>
@@ -1212,10 +1212,10 @@ export default function AgreementTemplateDetailPage({
                               </svg>
                             </div>
                             <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", margin: "0 0 0.4rem 0" }}>
-                              No Completed Enrollments Yet
+                              No Completed Enrolments Yet
                             </h3>
                             <p style={{ fontSize: "0.84rem", color: "var(--text-secondary)", margin: "0 0 1.25rem 0", lineHeight: 1.6 }}>
-                              When learners consent to this agreement and complete checkout confirmation, their verified enrollments and legal certificates appear here.
+                              When learners consent to this agreement and complete checkout confirmation, their verified enrolments and legal certificates appear here.
                             </p>
                             {signedCounts.pendingPayment > 0 && (
                               <button
@@ -2159,7 +2159,7 @@ export default function AgreementTemplateDetailPage({
 
               <div>
                 <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600, marginBottom: "2px" }}>
-                  Enrolled Program / Course
+                  Enrolled Program
                 </span>
                 <strong style={{ color: "var(--text-primary)" }}>
                   {previewSignatureModal.programTitle || previewSignatureModal.program?.title || "Program"}
@@ -2182,10 +2182,10 @@ export default function AgreementTemplateDetailPage({
 
               <div>
                 <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600, marginBottom: "2px" }}>
-                  Cohort / Batch
+                  Batch
                 </span>
                 <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-                  {previewSignatureModal.enrolment?.batch?.name || "Standard Enrollment"}
+                  {previewSignatureModal.enrolment?.batch?.name || "Standard Enrolment"}
                 </span>
               </div>
 
@@ -2268,7 +2268,7 @@ export default function AgreementTemplateDetailPage({
             >
               <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-primary)", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                <span>Payment &amp; Course Access Verification</span>
+                <span>Payment &amp; Program Access Verification</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem 1.25rem" }}>
                 <div>
@@ -2278,7 +2278,7 @@ export default function AgreementTemplateDetailPage({
                   </strong>
                 </div>
                 <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", display: "block" }}>Course Access Gate:</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", display: "block" }}>Program Access Gate:</span>
                   <strong style={{ color: previewSignatureModal.enrolmentStatus === "ACTIVE" ? "#15803d" : "#dc2626" }}>
                     {previewSignatureModal.enrolmentStatus === "ACTIVE" ? "UNLOCKED (Enrolment Active)" : "LOCKED (Payment/Agreement Required)"}
                   </strong>
@@ -2392,7 +2392,7 @@ export default function AgreementTemplateDetailPage({
                   rows={3}
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
-                  placeholder="Summary of what this contract governs or cohort specifications"
+                  placeholder="Summary of what this agreement governs or batch specifications"
                 />
               </div>
 

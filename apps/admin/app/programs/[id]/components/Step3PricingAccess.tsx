@@ -157,7 +157,7 @@ export default function Step3PricingAccess({
         </div>
         <h2 className={styles.stepTitle}>Pricing &amp; Access Settings</h2>
         <p className={styles.stepSubtitle}>
-          Configure course tuition, multi-currency rates, early-bird deadlines, and learner enrollment rules.
+          Configure program tuition, multi-currency rates, early-bird deadlines, and learner enrolment rules.
         </p>
       </div>
 
@@ -400,22 +400,22 @@ export default function Step3PricingAccess({
           <div className={styles.pricingCard}>
             <h3 className={styles.pricingCardTitle}>Access Settings</h3>
             <p className={styles.pricingCardSubtitle}>
-              Control enrollment permissions, access lifespan, and release schedules.
+              Control enrolment permissions, access lifespan, and release schedules.
             </p>
 
-            {/* Enrollment Type */}
+            {/* Enrolment Type */}
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>
-                <span>Enrollment Type</span>
+                <span>Enrolment Type</span>
               </label>
               <CustomSelect
                 value={enrollmentType}
                 onChange={setEnrollmentType}
                 fullWidth
-                ariaLabel="Select Enrollment Type"
+                ariaLabel="Select Enrolment Type"
                 options={[
-                  { value: "Paid Enrollment", label: "Paid Enrollment" },
-                  { value: "Free Enrollment", label: "Free Enrollment" },
+                  { value: "Paid Enrollment", label: "Paid Enrolment" },
+                  { value: "Free Enrollment", label: "Free Enrolment" },
                   { value: "Corporate / Invite Only", label: "Corporate / Invite Only" },
                 ]}
               />
@@ -433,7 +433,7 @@ export default function Step3PricingAccess({
                 ariaLabel="Select Access Duration"
                 options={[
                   { value: "Lifetime Access", label: "Lifetime Access" },
-                  { value: "Cohort Duration", label: "Cohort Duration" },
+                  { value: "Cohort Duration", label: "Batch Duration" },
                   { value: "Time-Limited (1 Year)", label: "Time-Limited (1 Year)" },
                   { value: "Time-Limited (6 Months)", label: "Time-Limited (6 Months)" },
                 ]}
@@ -474,7 +474,7 @@ export default function Step3PricingAccess({
             <div className={styles.settingRow}>
               <div className={styles.settingLabelGroup}>
                 <span className={styles.settingLabelTitle}>Requires Approval</span>
-                <span className={styles.settingLabelDesc}>Manually approve enrollments before course access.</span>
+                <span className={styles.settingLabelDesc}>Manually approve enrolments before program access.</span>
               </div>
               <label className={styles.toggleSwitch}>
                 <input

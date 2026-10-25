@@ -100,7 +100,7 @@ export class AdminDashboardController {
           progCounts[title] = (progCounts[title] || 0) + 1;
         });
         const totalProgEnrolments = allEnrolments.length;
-        const brandColors = ['#c97a1e', '#d8a86a', '#2c2825', '#8c8275', '#a39887'];
+        const brandColors = ['#c97a1e', '#d8a86a', '#d97706', '#e09f3e', '#b45309', '#e8a87c'];
         const programDistribution = Object.entries(progCounts).map(([name, count], index) => ({
           name,
           count,
@@ -173,7 +173,7 @@ export class AdminDashboardController {
         this.prisma.enrolment.findMany({
           select: { program: { select: { id: true, title: true } } },
         }),
-        this.prisma.auditLog.findMany({
+        (this.prisma.auditLog?.findMany ? this.prisma.auditLog.findMany({
           where: {
             entity: { not: 'UserSession' },
             action: { notIn: ['LOGOUT', 'LOGIN', 'REFRESH_TOKEN'] },
@@ -189,7 +189,7 @@ export class AdminDashboardController {
             meta: true,
             createdAt: true,
           },
-        }).catch(() => []),
+        }) : Promise.resolve([])).catch(() => []),
       ]);
 
       // Financial calculations: recognize only PAID invoices, subtracting any credit notes/refunds
@@ -207,9 +207,9 @@ export class AdminDashboardController {
         }
       }
 
-      // Convert to normalized USD (1 USD = 83 INR, 1 USD = 3.67 AED)
-      const normalizedUSD = (byCurrency.USD || 0) + ((byCurrency.AED || 0) / 3.67) + ((byCurrency.INR || 0) / 83);
-      const formattedRevenue = `$${Math.round(normalizedUSD).toLocaleString()}`;
+      // Total Revenue in USD (matches Revenue page multi-currency ledger separation)
+      const usdTotal = byCurrency.USD || 0;
+      const formattedRevenue = `$${Math.round(usdTotal).toLocaleString()}`;
 
       // Clean USD-only subtitle per client specification
       const revenueSubtitle = 'Program & workshop revenue (USD)';
@@ -244,7 +244,7 @@ export class AdminDashboardController {
         progCounts[title] = (progCounts[title] || 0) + 1;
       });
       const totalProgEnrolments = allEnrolments.length;
-      const brandColors = ['#c97a1e', '#d8a86a', '#2c2825', '#8c8275', '#a39887'];
+      const brandColors = ['#c97a1e', '#d8a86a', '#d97706', '#e09f3e', '#b45309', '#e8a87c'];
       const programDistribution = Object.entries(progCounts).map(([name, count], index) => ({
         name,
         count,

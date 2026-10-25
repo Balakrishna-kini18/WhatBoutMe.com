@@ -140,7 +140,6 @@ export default function AdminDashboard() {
   const [batchesData, setBatchesData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
-  const [exported, setExported] = useState(false);
 
   // Load current administrator profile from local storage session
   useEffect(() => {
@@ -244,6 +243,14 @@ export default function AdminDashboard() {
           initial: (u.name || u.email || "L")[0].toUpperCase(),
         }))
       : [];
+
+  const WARM_BRAND_COLORS = ['#c97a1e', '#d8a86a', '#d97706', '#e09f3e', '#b45309', '#e8a87c'];
+  const getDonutColor = (color: string | undefined, index: number) => {
+    if (!color || color === '#2c2825' || color === '#1f2937' || color === '#8c8275' || color === '#a39887') {
+      return WARM_BRAND_COLORS[index % WARM_BRAND_COLORS.length];
+    }
+    return color;
+  };
 
   interface ProgramDistItem {
     name: string;
@@ -375,35 +382,6 @@ export default function AdminDashboard() {
       return { label: "Cancelled", className: styles.statusBadgeCancelled || "" };
     }
     return { label: rawStatus || "Active", className: styles.statusBadgeActive || "" };
-  };
-
-  // Functional CSV export of enrolments report
-  const handleExportReport = () => {
-    if (!enrolmentsList || enrolmentsList.length === 0) return;
-    const headers = ["Learner Name", "Email", "Program", "Status", "Enrolled Date"];
-    const rows = enrolmentsList.map((item) => [
-      `"${(item.name || "").replace(/"/g, '""')}"`,
-      `"${(item.email || "").replace(/"/g, '""')}"`,
-      `"${(item.program || "").replace(/"/g, '""')}"`,
-      `"${formatStatus(item.status).label.replace(/"/g, '""')}"`,
-      `"${(item.date || "").replace(/"/g, '""')}"`,
-    ]);
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute(
-      "download",
-      `whatboutme-enrolments-${new Date().toISOString().slice(0, 10)}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    setExported(true);
-    setTimeout(() => setExported(false), 2500);
   };
 
   // SVG Donut slice calculation (radius = 40, viewBox="0 0 100 100", center at 50, 50)
@@ -740,15 +718,6 @@ export default function AdminDashboard() {
           <div className={styles.sectionHeaderBar}>
             <h2 className={styles.sectionTitle}>Recent Enrolments</h2>
             <div className={styles.sectionHeaderActions}>
-              <button
-                type="button"
-                className={styles.exportBtnTable}
-                onClick={handleExportReport}
-                aria-label="Export Enrolments Report as CSV"
-              >
-                {exported ? <Icons.Check /> : <Icons.Export />}
-                <span>{exported ? "Exported" : "Export CSV"}</span>
-              </button>
               <Link href="/users" className={styles.viewAllLink}>
                 <span>View All</span>
                 <Icons.ArrowRight />
@@ -1036,7 +1005,7 @@ export default function AdminDashboard() {
                       strokeWidth="11"
                     />
                     {/* Dynamic Segments */}
-                    {programDistribution.map((item) => {
+                    {programDistribution.map((item, index) => {
                       const strokeDash =
                         (item.percentage / 100) * donutCircumference;
                       const offset = accumulatedOffset;
@@ -1048,7 +1017,7 @@ export default function AdminDashboard() {
                           cy="50"
                           r={donutRadius}
                           fill="none"
-                          stroke={item.color}
+                          stroke={getDonutColor(item.color, index)}
                           strokeWidth="11"
                           strokeDasharray={`${strokeDash} ${donutCircumference}`}
                           strokeDashoffset={-offset}
@@ -1065,12 +1034,12 @@ export default function AdminDashboard() {
 
                 {/* Legend List */}
                 <div className={styles.programLegendList}>
-                  {programDistribution.map((item) => (
+                  {programDistribution.map((item, index) => (
                     <div key={item.name} className={styles.legendRow}>
                       <div className={styles.legendLeft}>
                         <span
                           className={styles.legendDot}
-                          style={{ backgroundColor: item.color }}
+                          style={{ backgroundColor: getDonutColor(item.color, index) }}
                         />
                         <span className={styles.legendName} title={item.name}>
                           {item.name}

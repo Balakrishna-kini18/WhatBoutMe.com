@@ -74,8 +74,8 @@ describe('AdminDashboardController', () => {
   it('1. Returns USD-only formatted revenue and clean subtitle for Super Admin / Admin', async () => {
     const result = await controller.getDashboard({ user: { role: Role.ADMIN } });
 
-    // 6665 + (3670 / 3.67) + (516260 / 83) = 6665 + 1000 + 6220 = 13885
-    expect(result.totalRevenue).toBe('$13,885');
+    // Returns USD-only collected revenue ($6,665), without mixing AED or INR into USD
+    expect(result.totalRevenue).toBe('$6,665');
     expect(result.revenueSubtitle).toBe('Program & workshop revenue (USD)');
     expect(result.totalLearners).toBe(11);
     expect(result.totalBatches).toBe(4);

@@ -89,7 +89,7 @@ export default function CurriculumSidebar({
     return null;
   }
 
-  const courseDisplayName = batchName || programTitle || "Sigma 1";
+  const courseDisplayName = programTitle || batchName || "Course Curriculum";
 
   // Compute lesson items for a step
   const getStepLessonItems = (s: StepProgressionItem, isCurrent: boolean) => {

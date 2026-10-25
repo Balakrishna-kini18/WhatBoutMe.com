@@ -229,14 +229,11 @@ export default function ProfilePage() {
     { label: "Email Address", value: profile.email },
     { label: "Mobile Number", value: profile.phone || "Not set" },
     { label: "Account Type", value: accountType },
-    { label: "Cohort", value: cohort || "Not enrolled" },
   ];
 
   return (
     <div className={styles.frame}>
       <article className={styles.panel}>
-        <div className={styles.cover} />
-
         <header className={styles.head}>
           <span className={styles.avatarWrap}>
             <span className={styles.avatar}>{initials}</span>
@@ -249,7 +246,6 @@ export default function ProfilePage() {
             <p>{profile.email}</p>
             <div className={styles.badges}>
               <span className={styles.badge}>{accountType}</span>
-              {cohort && <span className={`${styles.badge} ${styles.badgePlain}`}>{cohort}</span>}
             </div>
           </div>
           <div className={styles.actions}>
@@ -294,7 +290,6 @@ export default function ProfilePage() {
                     <Link href={`/programs/${p.programId}/steps`} className={styles.course}>
                       <span className={styles.courseText}>
                         <strong>{p.programTitle}</strong>
-                        <span>Cohort: {p.batchName}</span>
                       </span>
                       <span className={styles.courseProgress}>{p.progress ?? 0}%</span>
                       <span className={styles.open}>Open</span>

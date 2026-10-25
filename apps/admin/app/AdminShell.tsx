@@ -104,11 +104,6 @@ const Icons = {
       <line x1="7" y1="7" x2="7.01" y2="7" />
     </svg>
   ),
-  Messages: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  ),
   Enquiries: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -215,17 +210,6 @@ interface SearchablePageItem {
 }
 
 const SEARCH_ITEMS: SearchablePageItem[] = [
-  /*
-  {
-    id: "simulator",
-    title: "Client Portal & Funnel Preview",
-    description: "End-to-end interactive preview for contact funnel, 15-min discovery booking, e-signatures, LMS player, and multi-currency checkout",
-    href: "/simulator",
-    category: "Overview",
-    iconName: "Dashboard",
-    keywords: ["portal", "client", "funnel", "preview", "simulator", "checkout", "signature", "discovery", "contact", "notes", "player"],
-  },
-  */
   {
     id: "dashboard",
     title: "Dashboard Overview",
@@ -334,15 +318,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Coupons",
     keywords: ["coupons", "promo", "discount", "stripe", "vouchers", "sale", "pricing"],
   },
-  {
-    id: "messages",
-    title: "Messages & Inquiries",
-    description: "Direct communications with learners and instructors",
-    href: "/messages",
-    category: "Communication",
-    iconName: "Messages",
-    keywords: ["chat", "inbox", "support", "conversations"],
-  },
+  
   {
     id: "leads",
     title: "Enquiries (CRM & Leads)",
@@ -700,7 +676,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     if (currentUser.role === "SUPER_ADMIN") return true;
 
     // Strict Manager Isolation per PDF specification (Page 3-4):
-    // Managers are restricted to assigned batches, live sessions, attendance, and cohort chat.
+    // Managers are restricted to assigned batches, live sessions, and attendance.
     // They cannot access finance/revenue, global marketing/website, CRM leads, or curriculum authoring.
     if (currentUser.role === "MANAGER" || currentUser.role === "TEACHER") {
       if (
@@ -752,7 +728,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       permission: true,
       items: [
         { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
-        // { label: "Client Portal & Funnel Preview", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
         { label: "Revenue", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
@@ -776,7 +751,6 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       title: "COMMUNICATION",
       permission: hasPermission("manage_operations"),
       items: [
-        { label: "Messages", href: "/messages", icon: <Icons.Messages />, perm: "manage_operations" },
         { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
         { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
         { label: "Announcements", href: "/meetings", icon: <Icons.Announcements />, perm: "manage_operations" },

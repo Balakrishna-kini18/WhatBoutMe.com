@@ -521,3 +521,30 @@
     transition: none;
   }
 }
+
+/* Course Card Progress Bar */
+.cardGrid .progressLine {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 0.65rem 0 0.85rem;
+  width: 100%;
+}
+
+.cardGrid .progress {
+  flex: 1;
+  height: 8px;
+  background: #efece6;
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.cardGrid .progress span {
+  display: block;
+  height: 100%;
+  background: #d36b00;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+

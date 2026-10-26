@@ -380,16 +380,16 @@ export default function SignaturePad({
             padding: "0.45rem 1rem",
             fontSize: "0.85rem",
             fontWeight: activeTab === "DRAWN" ? 600 : 500,
-            color: activeTab === "DRAWN" ? "#1C1917" : "#78716A",
+            color: activeTab === "DRAWN" ? "var(--text-primary, #14110f)" : "var(--text-muted, #57534e)",
             background: activeTab === "DRAWN" ? "#FFFFFF" : "transparent",
-            border: activeTab === "DRAWN" ? "1px solid #E7E0D6" : "none",
+            border: activeTab === "DRAWN" ? "1px solid var(--border-light, #E7E0D6)" : "1px solid transparent",
             borderRadius: "6px",
             cursor: "pointer",
-            boxShadow: activeTab === "DRAWN" ? "0 1px 3px rgba(0,0,0,0.04)" : "none",
+            boxShadow: activeTab === "DRAWN" ? "0 1px 3px rgba(20,17,15,0.06)" : "none",
             display: "inline-flex",
             alignItems: "center",
             gap: "0.45rem",
-            transition: "all 0.15s ease",
+            transition: "all 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -405,16 +405,16 @@ export default function SignaturePad({
             padding: "0.45rem 1rem",
             fontSize: "0.85rem",
             fontWeight: activeTab === "UPLOADED" ? 600 : 500,
-            color: activeTab === "UPLOADED" ? "#1C1917" : "#78716A",
+            color: activeTab === "UPLOADED" ? "var(--text-primary, #14110f)" : "var(--text-muted, #57534e)",
             background: activeTab === "UPLOADED" ? "#FFFFFF" : "transparent",
-            border: activeTab === "UPLOADED" ? "1px solid #E7E0D6" : "none",
+            border: activeTab === "UPLOADED" ? "1px solid var(--border-light, #E7E0D6)" : "1px solid transparent",
             borderRadius: "6px",
             cursor: "pointer",
-            boxShadow: activeTab === "UPLOADED" ? "0 1px 3px rgba(0,0,0,0.04)" : "none",
+            boxShadow: activeTab === "UPLOADED" ? "0 1px 3px rgba(20,17,15,0.06)" : "none",
             display: "inline-flex",
             alignItems: "center",
             gap: "0.45rem",
-            transition: "all 0.15s ease",
+            transition: "all 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

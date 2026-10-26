@@ -584,31 +584,34 @@ export default function CompulsoryVideoPlayer({
         }
       `}</style>
 
-      {/* 4. Seek Blocked Toast Warning */}
+      {/* 4. Seek Blocked Toast Warning (Apple HIG Accessibility Announcement) */}
       {seekWarning && (
         <div
+          role="status"
+          aria-live="polite"
           style={{
             position: "absolute",
             top: "20px",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "rgba(15, 23, 42, 0.92)",
-            border: "1px solid rgba(239, 68, 68, 0.5)",
-            color: "#fecaca",
-            padding: "8px 16px",
-            borderRadius: "20px",
+            background: "rgba(15, 23, 42, 0.82)",
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            color: "#ffffff",
+            padding: "8px 18px",
+            borderRadius: "9999px",
             fontSize: "0.82rem",
             fontWeight: 600,
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            boxShadow: "0 8px 20px rgba(0,0,0,0.4)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
             zIndex: 60,
-            backdropFilter: "blur(6px)",
+            backdropFilter: "blur(20px) saturate(160%)",
+            WebkitBackdropFilter: "blur(20px) saturate(160%)",
             pointerEvents: "none",
           }}
         >
-          <Lock size={14} color="#ef4444" />
+          <Lock size={14} color="#f59e0b" />
           <span>{seekWarning}</span>
         </div>
       )}
@@ -682,21 +685,26 @@ export default function CompulsoryVideoPlayer({
         </button>
       ) : null}
 
-      {/* 6. Custom Stripped-Down Compulsory Player Control Bar */}
+      {/* 6. Apple Liquid Glass Floating Player Transport Bar (HIG Playing Video & Liquid Glass) */}
       <div
         style={{
           position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 65%, transparent 100%)",
-          padding: "16px 18px 12px",
+          bottom: "12px",
+          left: "14px",
+          right: "14px",
+          background: "rgba(15, 23, 42, 0.72)",
+          backdropFilter: "blur(24px) saturate(160%)",
+          WebkitBackdropFilter: "blur(24px) saturate(160%)",
+          border: "1px solid rgba(255, 255, 255, 0.15)",
+          borderRadius: "14px",
+          padding: "10px 16px",
           display: "flex",
           flexDirection: "column",
           gap: "8px",
           opacity: showControls || !isPlaying ? 1 : 0,
           pointerEvents: showControls || !isPlaying ? "auto" : "none",
-          transition: "opacity 0.25s ease",
+          transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+          boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
           zIndex: 50,
         }}
       >

@@ -130,7 +130,37 @@ export default function CertificatesPage() {
               <h2>Your Courses</h2>
             </div>
             {loading ? (
-              <p className={dash.empty}>Loading your certificates...</p>
+              <ul className={dash.list} aria-hidden="true">
+                {[1, 2, 3].map((i) => (
+                  <li key={i} className={dash.course} style={{ pointerEvents: "none" }}>
+                    <div
+                      className="skeleton"
+                      style={{ width: 104, height: 68, borderRadius: 8, flexShrink: 0 }}
+                    />
+                    <div className={dash.rowMain}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div className="skeleton" style={{ width: "45%", height: 18, borderRadius: 4 }} />
+                        <div className="skeleton" style={{ width: 75, height: 20, borderRadius: 999 }} />
+                      </div>
+                      <div
+                        className="skeleton"
+                        style={{ width: "100%", height: 6, borderRadius: 999, marginBottom: 12 }}
+                      />
+                      <div
+                        className="skeleton"
+                        style={{ width: 120, height: 32, borderRadius: 8, marginLeft: "auto" }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
             ) : courses.length === 0 ? (
               <p className={dash.empty}>Enrol in a course and complete it to earn your first certificate.</p>
             ) : (

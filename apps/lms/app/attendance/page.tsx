@@ -313,20 +313,30 @@ export default function AttendancePage() {
               </div>
 
               {/* Weekday Names (Mon - Sun) */}
-              <div className={styles.weekHeader}>
+              <div className={styles.weekHeader} role="row">
                 {WEEKDAYS.map((wd) => (
-                  <div key={wd} className={styles.weekDayName}>
+                  <div key={wd} className={styles.weekDayName} role="columnheader">
                     {wd}
                   </div>
                 ))}
               </div>
 
               {/* 7-column Calendar Grid */}
-              <div className={styles.calendarGrid}>
+              <div className={styles.calendarGrid} role="grid" aria-label="Monthly Attendance Calendar">
                 {calendarDays.map((cd) => (
                   <div
                     key={cd.dateKey}
+                    role="gridcell"
+                    tabIndex={0}
+                    aria-selected={cd.isSelected}
+                    aria-label={`${cd.date.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
                     onClick={() => setSelectedKey(cd.dateKey)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedKey(cd.dateKey);
+                      }
+                    }}
                     className={`${styles.dayCell} ${!cd.isCurrentMonth ? styles.otherMonth : ""} ${cd.isSelected ? styles.selectedCell : ""}`}
                   >
                     <div className={styles.dayHeader}>

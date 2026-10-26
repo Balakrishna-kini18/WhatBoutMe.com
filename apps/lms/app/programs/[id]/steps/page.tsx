@@ -308,7 +308,45 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               </div>
 
               {loading ? (
-                <p className={styles.emptyState}>Loading your verified learning path from server...</p>
+                <ol className={styles.timeline} aria-hidden="true">
+                  {[1, 2, 3, 4, 5, 6].map((idx) => (
+                    <li key={idx} className={styles.step} style={{ opacity: 1 }}>
+                      <div
+                        className="skeleton"
+                        style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0 }}
+                      />
+                      <div className={styles.stepBody}>
+                        <div
+                          className="skeleton"
+                          style={{ width: 52, height: 12, marginBottom: 8, borderRadius: 4 }}
+                        />
+                        <div
+                          className="skeleton"
+                          style={{
+                            width: idx % 2 === 0 ? "55%" : "42%",
+                            height: 18,
+                            marginBottom: 8,
+                            borderRadius: 5,
+                          }}
+                        />
+                        <div
+                          className="skeleton"
+                          style={{
+                            width: idx % 2 === 0 ? "75%" : "65%",
+                            height: 13,
+                            borderRadius: 4,
+                          }}
+                        />
+                      </div>
+                      <div className={styles.stepActionCol}>
+                        <div
+                          className="skeleton"
+                          style={{ width: 92, height: 34, borderRadius: 8, flexShrink: 0 }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ol>
               ) : total === 0 ? (
                 <p className={styles.emptyState}>The curriculum for this course is being built. Check back soon.</p>
               ) : (
@@ -476,48 +514,61 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
                 <h2 id="progress-heading" className={styles.cardTitle}>Progress</h2>
               </div>
-              <div className={styles.ringWrap}>
-                <svg
-                  className={styles.ringSvg}
-                  width="128"
-                  height="128"
-                  viewBox="0 0 120 120"
-                  role="img"
-                  aria-label={`${percent}% overall course completion`}
-                >
-                  <circle
-                    className={styles.ringTrack}
-                    cx="60"
-                    cy="60"
-                    r={RING_RADIUS}
-                    fill="none"
-                    strokeWidth="9"
+              {loading ? (
+                <div className={styles.ringWrap} style={{ padding: "16px 0" }} aria-hidden="true">
+                  <div
+                    className="skeleton"
+                    style={{ width: 120, height: 120, borderRadius: "50%", margin: "0 auto 14px" }}
                   />
-                  <circle
-                    className={styles.ringProgress}
-                    cx="60"
-                    cy="60"
-                    r={RING_RADIUS}
-                    fill="none"
-                    strokeWidth="9"
-                    strokeLinecap="round"
-                    strokeDasharray={RING_CIRCUMFERENCE}
-                    strokeDashoffset={ringOffset}
-                    transform="rotate(-90 60 60)"
+                  <div
+                    className="skeleton"
+                    style={{ width: 110, height: 14, borderRadius: 4, margin: "0 auto" }}
                   />
-                  <text
-                    className={styles.ringValue}
-                    x="60"
-                    y="67"
-                    textAnchor="middle"
+                </div>
+              ) : (
+                <div className={styles.ringWrap}>
+                  <svg
+                    className={styles.ringSvg}
+                    width="128"
+                    height="128"
+                    viewBox="0 0 120 120"
+                    role="img"
+                    aria-label={`${percent}% overall course completion`}
                   >
-                    {percent}%
-                  </text>
-                </svg>
-                <p className={styles.progressCount}>
-                  {done} of {total} steps completed
-                </p>
-              </div>
+                    <circle
+                      className={styles.ringTrack}
+                      cx="60"
+                      cy="60"
+                      r={RING_RADIUS}
+                      fill="none"
+                      strokeWidth="9"
+                    />
+                    <circle
+                      className={styles.ringProgress}
+                      cx="60"
+                      cy="60"
+                      r={RING_RADIUS}
+                      fill="none"
+                      strokeWidth="9"
+                      strokeLinecap="round"
+                      strokeDasharray={RING_CIRCUMFERENCE}
+                      strokeDashoffset={ringOffset}
+                      transform="rotate(-90 60 60)"
+                    />
+                    <text
+                      className={styles.ringValue}
+                      x="60"
+                      y="67"
+                      textAnchor="middle"
+                    >
+                      {percent}%
+                    </text>
+                  </svg>
+                  <p className={styles.progressCount}>
+                    {done} of {total} steps completed
+                  </p>
+                </div>
+              )}
             </section>
           </aside>
         </div>

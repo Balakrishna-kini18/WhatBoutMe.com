@@ -18,6 +18,7 @@ import {
   getLockMessage,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
+import StepLoading from "./loading";
 
 export type WorkspaceTab = "video" | "quiz" | "notes" | "materials";
 
@@ -602,18 +603,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
 
 
-  // Loading State
+  // Loading State (Apple HIG skeleton matching real workspace)
   if (loading && !step) {
-    return (
-      <div className={styles.container}>
-        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#78716c" }}>
-          <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid #fde68a", borderTopColor: "#d97706", animation: "spin 1s linear infinite", margin: "0 auto 1.25rem" }} />
-          <h2 style={{ fontSize: "1.25rem", color: "#1c1917", margin: "0 0 6px" }}>Loading Module Workspace...</h2>
-          <p style={{ fontSize: "0.88rem", margin: 0 }}>Connecting with live progression engine</p>
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-        </div>
-      </div>
-    );
+    return <StepLoading />;
   }
 
   // Error State

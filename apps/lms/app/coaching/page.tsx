@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 import styles from "./coaching.module.css";
+import CoachingLoading from "./loading";
 import {
   API_URL,
   getAuthHeaders,
@@ -172,13 +173,7 @@ export default function CoachingPage() {
   };
 
   if (loading) {
-    return (
-      <div className={styles.container}>
-        <div style={{ padding: "3rem 1rem", textAlign: "center", color: "#71717a" }}>
-          Loading 1-on-1 Coaching session details...
-        </div>
-      </div>
-    );
+    return <CoachingLoading />;
   }
 
   return (

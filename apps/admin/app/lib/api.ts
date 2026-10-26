@@ -606,10 +606,19 @@ export async function cachedFetch(
             const errData = await clone.json();
             const errCode = typeof errData.error === "string" ? errData.error : errData.error?.code;
             if (errCode === "SESSION_REVOKED") {
+              const errReason = errData.reason || errData.error?.reason;
               localStorage.clear();
               clearApiCacheOnLogout();
               if (window.location.pathname !== "/login") {
-                alert("You were signed out because your account was logged into on another device.");
+                if (errReason === "DEVICE_LIMIT_EXCEEDED") {
+                  alert("You were signed out because your account was logged into on another device.");
+                } else if (errReason === "TOKEN_REUSED") {
+                  alert("You were signed out for security reasons (token reuse detected). Please sign in again.");
+                } else if (errReason === "EXPIRED") {
+                  alert("Your session has expired. Please sign in again.");
+                } else {
+                  alert("Your session has ended or been revoked. Please sign in again.");
+                }
                 window.location.href = "/login";
               }
               return {

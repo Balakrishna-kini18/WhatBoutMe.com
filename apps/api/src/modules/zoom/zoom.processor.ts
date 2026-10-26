@@ -89,7 +89,8 @@ export class ZoomProcessor extends WorkerHost {
     }
 
     // 3. D2-032: Fetch participant report and reconcile attendance via AttendanceReconciliationService
-    const participants = await this.zoomService.getParticipantReport(meetingId);
+    const rawParticipants = await this.zoomService.getParticipantReport(meetingId);
+    const participants = Array.isArray(rawParticipants) ? rawParticipants : [];
     
     const normalizedRecords: NormalizedParticipantRecord[] = participants.map((p) => {
       const email = p.userEmail?.includes('@') ? p.userEmail.trim().toLowerCase() : undefined;

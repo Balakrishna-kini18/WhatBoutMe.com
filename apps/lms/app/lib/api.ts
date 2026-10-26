@@ -132,6 +132,65 @@ export function invalidateTags(tags: string[]): number {
 
 export function clearApiCache(): void {
   apiCache.clear();
+  inFlightRequests.clear();
+}
+
+export function clearApiCacheOnLogout(): void {
+  clearApiCache();
+}
+
+// One renewal at a time, shared by every request that hits an expired token
+let renewing: Promise<string | "signed-out" | null> | null = null;
+export function renewOnce(
+  rawFetch?: typeof fetch,
+  failedToken?: string | null
+): Promise<string | "signed-out" | null> {
+  const fetchFn =
+    rawFetch ||
+    (typeof window !== "undefined" && (window as any).__rawOriginalFetch
+      ? (window as any).__rawOriginalFetch
+      : fetch);
+
+  const current = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  if (current && failedToken && current !== failedToken) {
+    return Promise.resolve(current);
+  }
+
+  if (!renewing) {
+    renewing = (async () => {
+      const refreshToken =
+        typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
+      if (!refreshToken) return "signed-out" as const;
+
+      try {
+        const res = await fetchFn(`${API_URL}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const newToken = data.access_token as string;
+          if (typeof window !== "undefined" && newToken) {
+            localStorage.setItem("token", newToken);
+            if (data.refresh_token) {
+              localStorage.setItem("refresh_token", data.refresh_token);
+            }
+          }
+          return newToken || null;
+        }
+
+        return res.status === 401 ? ("signed-out" as const) : null;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      renewing = null;
+    });
+  }
+
+  return renewing;
 }
 
 /**
@@ -398,8 +457,52 @@ export async function cachedFetch(
           ? (window as any).__rawOriginalFetch
           : fetch;
 
-      const res = await rawFetch(url, { ...init, signal: abortController.signal });
+      let res = await rawFetch(url, { ...init, signal: abortController.signal });
       clearTimeout(timeoutTimer);
+
+      // Handle transparent 401 token refresh for authenticated requests
+      const isAuthRoute = /\/auth\/(login|signup|admin-login|refresh)/.test(url);
+      if (res.status === 401 && !isAuthRoute && typeof window !== "undefined") {
+        const currentToken = localStorage.getItem("token");
+        const renewedToken = await renewOnce(rawFetch, currentToken);
+
+        if (renewedToken && renewedToken !== "signed-out") {
+          const retryHeaders = new Headers(init?.headers);
+          retryHeaders.set("Authorization", `Bearer ${renewedToken}`);
+          res = await rawFetch(url, { ...init, headers: retryHeaders, signal: abortController.signal });
+        } else if (renewedToken === "signed-out") {
+          try {
+            const clone = res.clone();
+            const errData = await clone.json();
+            const errCode = typeof errData.error === "string" ? errData.error : errData.error?.code;
+            const errReason = errData.reason || errData.error?.reason;
+            if (errCode === "SESSION_REVOKED") {
+              localStorage.removeItem("token");
+              localStorage.removeItem("refresh_token");
+              localStorage.removeItem("user");
+              clearApiCache();
+              window.dispatchEvent(
+                new CustomEvent("wbm-session-revoked", {
+                  detail: { reason: errReason || "SESSION_REVOKED" },
+                })
+              );
+              return {
+                bodyText: JSON.stringify(errData),
+                status: 401,
+                statusText: "Unauthorized",
+                headers: [],
+              };
+            }
+          } catch {}
+          localStorage.removeItem("token");
+          localStorage.removeItem("refresh_token");
+          localStorage.removeItem("user");
+          clearApiCache();
+          if (window.location.pathname !== "/login") {
+            window.location.href = "/login";
+          }
+        }
+      }
 
       const clone = res.clone();
       const bodyText = await clone.text();
@@ -466,10 +569,11 @@ export async function cachedFetch(
  * 15s AbortController timeouts, and dev-mode slow API console profiling.
  */
 if (typeof window !== "undefined") {
-  if (!(window as any).__apiFetchPatched) {
+  if (!(window as any).__apiFetchPatched && !(window as any).__fetchPatched) {
     (window as any).__rawOriginalFetch = window.fetch;
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => cachedFetch(input, init);
     (window as any).__apiFetchPatched = true;
+    (window as any).__fetchPatched = true;
   }
 }
 

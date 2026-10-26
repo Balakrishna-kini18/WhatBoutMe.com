@@ -1,4 +1,4 @@
-import { Controller, Get, Optional, Req } from '@nestjs/common';
+import { Controller, Get, Optional, Query, Req, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role, InvoiceStatus } from '@prisma/client';
@@ -117,6 +117,7 @@ export class AdminDashboardController {
           pendingCertificatesCount: pendingCertificates,
           unmatchedAttendanceCount: unmatchedAttendance,
           recentEnrolments,
+          recentActivity: [],
           programDistribution,
           totalRevenue: null,
           mockRevenue: null,
@@ -133,6 +134,7 @@ export class AdminDashboardController {
         paidInvoices,
         recentEnrolmentsList,
         allEnrolments,
+        recentAuditLogs,
       ] = await Promise.all([
         this.prisma.user.count({ where: { role: Role.USER } }),
         this.prisma.batch.count(),
@@ -171,6 +173,27 @@ export class AdminDashboardController {
         this.prisma.enrolment.findMany({
           select: { program: { select: { id: true, title: true } } },
         }),
+        typeof this.prisma.auditLog?.findMany === 'function'
+          ? this.prisma.auditLog
+              .findMany({
+                where: {
+                  entity: { not: 'UserSession' },
+                  action: { notIn: ['LOGOUT', 'LOGIN', 'REFRESH_TOKEN'] },
+                },
+                take: 8,
+                orderBy: { createdAt: 'desc' },
+                select: {
+                  id: true,
+                  actorId: true,
+                  action: true,
+                  entity: true,
+                  entityId: true,
+                  meta: true,
+                  createdAt: true,
+                },
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
       ]);
 
       // Financial calculations: recognize only PAID invoices, subtracting any credit notes/refunds
@@ -192,15 +215,8 @@ export class AdminDashboardController {
       const normalizedUSD = (byCurrency.USD || 0) + ((byCurrency.AED || 0) / 3.67) + ((byCurrency.INR || 0) / 83);
       const formattedRevenue = `$${Math.round(normalizedUSD).toLocaleString()}`;
 
-      // Build helpful subtitle showing multi-currency breakdown if non-USD currencies exist
-      const activeCurrencies: string[] = [];
-      if (byCurrency.USD > 0) activeCurrencies.push(`$${Math.round(byCurrency.USD).toLocaleString()}`);
-      if (byCurrency.AED > 0) activeCurrencies.push(`AED ${Math.round(byCurrency.AED).toLocaleString()}`);
-      if (byCurrency.INR > 0) activeCurrencies.push(`₹${Math.round(byCurrency.INR).toLocaleString('en-IN')}`);
-
-      const revenueSubtitle = (byCurrency.AED > 0 || byCurrency.INR > 0)
-        ? `USD Equiv. (${activeCurrencies.join(' · ')})`
-        : 'Program enrolment revenue';
+      // Clean USD-only subtitle per client specification
+      const revenueSubtitle = 'Program & workshop revenue (USD)';
 
       const recentEnrolments = recentEnrolmentsList.map((e) => ({
         id: e.id,
@@ -214,6 +230,16 @@ export class AdminDashboardController {
         batchId: e.batch?.id || null,
         batchName: e.batch?.name || null,
         programTitle: e.program?.title || null,
+      }));
+
+      const recentActivity = (recentAuditLogs || []).map((log: any) => ({
+        id: log.id,
+        actorId: log.actorId || null,
+        action: log.action,
+        entity: log.entity,
+        entityId: log.entityId,
+        meta: log.meta,
+        createdAt: log.createdAt,
       }));
 
       const progCounts: Record<string, number> = {};
@@ -242,6 +268,7 @@ export class AdminDashboardController {
         currencies: byCurrency,
         mockRevenue: formattedRevenue, // Maintained for backward compatibility
         recentEnrolments,
+        recentActivity,
         programDistribution,
       };
     };
@@ -258,4 +285,120 @@ export class AdminDashboardController {
 
     return this.cacheHelper.getOrSet(cacheKey, fetcher, 60, ['dashboard']);
   }
+
+  /**
+   * Forensic & Compliance Audit Logs endpoint strictly accessible to Super Admins (AGENTS.md Mandate #3).
+   * Supports action filtering, entity filtering, date range filtering, search, pagination, and actor name resolution.
+   */
+  @Get('audit-logs')
+  @Roles(Role.SUPER_ADMIN)
+  async getAuditLogs(
+    @Req() req: any,
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+    @Query('search') search?: string,
+    @Query('action') action?: string,
+    @Query('entity') entity?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const user = req?.user;
+    if (user?.role !== Role.SUPER_ADMIN && user?.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenException('Audit logs are strictly restricted to Super Administrators.');
+    }
+
+    const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(limitStr || '25', 10) || 25));
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+
+    if (action && action.trim() && action !== 'ALL') {
+      where.action = action.trim();
+    }
+
+    if (entity && entity.trim() && entity !== 'ALL') {
+      where.entity = entity.trim();
+    }
+
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        if (!isNaN(start.getTime())) where.createdAt.gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        if (!isNaN(end.getTime())) {
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.lte = end;
+        }
+      }
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      where.OR = [
+        { action: { contains: q, mode: 'insensitive' } },
+        { entity: { contains: q, mode: 'insensitive' } },
+        { entityId: { contains: q, mode: 'insensitive' } },
+        { actorId: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, rawLogs] = await Promise.all([
+      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.findMany({
+        where,
+        take: limit,
+        skip,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    // Resolve actor names where actorId is present
+    const actorIds = Array.from(new Set(rawLogs.map((l) => l.actorId).filter(Boolean))) as string[];
+    const actors = actorIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, name: true, email: true, role: true },
+        })
+      : [];
+    const actorMap = new Map(actors.map((a) => [a.id, a]));
+
+    const logs = rawLogs.map((log) => {
+      const actor = log.actorId ? actorMap.get(log.actorId) : null;
+      // Sanitize any sensitive tokens/passwords from meta
+      const sanitizedMeta = log.meta ? JSON.parse(JSON.stringify(log.meta)) : null;
+      if (sanitizedMeta && typeof sanitizedMeta === 'object') {
+        delete sanitizedMeta.password;
+        delete sanitizedMeta.token;
+        delete sanitizedMeta.secret;
+        delete sanitizedMeta.jwt;
+        delete sanitizedMeta.refreshToken;
+      }
+      return {
+        id: log.id,
+        actorId: log.actorId,
+        actorName: actor?.name || (log.actorId ? 'Staff Member' : 'System Automation'),
+        actorEmail: actor?.email || null,
+        actorRole: actor?.role || (log.actorId ? 'STAFF' : 'SYSTEM'),
+        action: log.action,
+        entity: log.entity,
+        entityId: log.entityId,
+        meta: sanitizedMeta,
+        ip: log.ip,
+        createdAt: log.createdAt,
+      };
+    });
+
+    return {
+      data: logs,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
 }
+

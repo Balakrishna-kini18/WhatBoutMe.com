@@ -3,47 +3,18 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onThisHost } from "./lib/host";
+import { renewOnce, clearApiCache } from "./lib/api";
 
 // resolved for the device showing the page (see lib/host.ts)
 const API_URL = onThisHost(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
 
-// One renewal at a time, shared by every request that hit an expired token.
-// Returns the new access token, 'signed-out' when the session really ended,
-// or null when the server could not answer (the learner stays signed in).
-let renewing: Promise<string | 'signed-out' | null> | null = null;
-function renewOnce(rawFetch: typeof fetch, failedToken: string) {
-  // another request already renewed while this one was in flight
-  const current = localStorage.getItem('token');
-  if (current && current !== failedToken) return Promise.resolve(current);
-  if (!renewing) {
-    renewing = (async () => {
-      const refreshToken = localStorage.getItem('refresh_token');
-      if (!refreshToken) return 'signed-out' as const;
-      try {
-        const res = await rawFetch(`${API_URL}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem('token', data.access_token);
-          if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
-          return data.access_token as string;
-        }
-        return res.status === 401 ? ('signed-out' as const) : null;
-      } catch {
-        return null;
-      }
-    })().finally(() => { renewing = null; });
-  }
-  return renewing;
-}
-
 // Monkey-patch window.fetch synchronously outside React so it catches the very first render's fetches
 if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
   (window as any).__fetchPatched = true;
+  (window as any).__apiFetchPatched = true;
   const originalFetch = window.fetch.bind(window);
+  (window as any).__rawOriginalFetch = originalFetch;
+
   window.fetch = async (input, init) => {
     // a phone on Wi-Fi cannot reach "localhost": see lib/host.ts
     if (typeof input === 'string') input = onThisHost(input);
@@ -94,21 +65,23 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
       const clone = response.clone();
       try {
         const errorData = await clone.json();
-        // The API wraps errors as { error: { code, message } }. An expired
+        // The API wraps errors as { error: { code, message, reason } }. An expired
         // access token arrives as a plain UNAUTHORIZED, so that is renewed too.
         const code = typeof errorData.error === 'string' ? errorData.error : errorData.error?.code;
-        const reason = errorData.reason || errorData.error?.reason || (code === 'SESSION_REVOKED' ? 'DEVICE_LIMIT_EXCEEDED' : null);
+        const reason = errorData.reason || errorData.error?.reason;
         if (code === 'SESSION_REVOKED') {
           localStorage.removeItem('token');
           localStorage.removeItem('refresh_token');
           localStorage.removeItem('user');
-          window.dispatchEvent(new CustomEvent('wbm-session-revoked', { detail: { reason: reason || 'DEVICE_LIMIT_EXCEEDED' } }));
+          clearApiCache();
+          window.dispatchEvent(new CustomEvent('wbm-session-revoked', { detail: { reason: reason || 'SESSION_REVOKED' } }));
           return response;
         } else if (code === 'TOKEN_EXPIRED' || code === 'UNAUTHORIZED') {
           // Several requests can expire together; they all wait on one renewal.
           const renewed = await renewOnce(originalFetch, token as string);
           if (renewed === 'signed-out') {
             localStorage.clear();
+            clearApiCache();
             window.location.href = '/login';
           } else if (renewed) {
             const newHeaders = new Headers(init?.headers);
@@ -121,6 +94,7 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
           // Generic 401 (e.g. invalid token after DB reset)
           if (localStorage.getItem('token')) {
             localStorage.clear();
+            clearApiCache();
             window.location.href = '/login';
           }
         }
@@ -128,6 +102,7 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
         // Not JSON
         if (localStorage.getItem('token')) {
           localStorage.clear();
+          clearApiCache();
           window.location.href = '/login';
         }
       }
@@ -142,11 +117,47 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   React.useEffect(() => {
     const onRevoked = (e: any) => {
-      setRevokedReason(e.detail?.reason || 'DEVICE_LIMIT_EXCEEDED');
+      setRevokedReason(e.detail?.reason || 'SESSION_REVOKED');
     };
     window.addEventListener('wbm-session-revoked', onRevoked);
     return () => window.removeEventListener('wbm-session-revoked', onRevoked);
   }, []);
+
+  const isDeviceLimit = revokedReason === 'DEVICE_LIMIT_EXCEEDED';
+  const isTokenReused = revokedReason === 'TOKEN_REUSED';
+  const isExpired = revokedReason === 'EXPIRED';
+
+  const modalTitle = isDeviceLimit
+    ? "Signed In on Another Device"
+    : isTokenReused
+    ? "Security Revocation"
+    : isExpired
+    ? "Session Expired"
+    : "Session Ended";
+
+  const modalDescription = isDeviceLimit ? (
+    <>
+      Your account was signed in from another browser or device. To protect your course materials and account security, WhatBoutMe permits only <strong>1 active device</strong> at a time.
+    </>
+  ) : isTokenReused ? (
+    <>
+      Your session was ended because an old security token was reused. Please sign in again to verify your identity.
+    </>
+  ) : isExpired ? (
+    <>
+      Your session has expired due to inactivity. Please sign in again to continue your coursework.
+    </>
+  ) : (
+    <>
+      Your session has ended or been revoked. Please sign in again to access your account.
+    </>
+  );
+
+  const buttonText = isDeviceLimit
+    ? "Sign In on This Device"
+    : isExpired
+    ? "Sign In Again"
+    : "Return to Login";
 
   return (
     <>
@@ -201,17 +212,18 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
               </svg>
             </div>
             <h2 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 0.5rem', color: '#0F172A', letterSpacing: '-0.02em' }}>
-              Signed In on Another Device
+              {modalTitle}
             </h2>
             <p style={{ fontSize: '0.9rem', color: '#475569', lineHeight: 1.55, margin: '0 0 1.75rem' }}>
-              Your account was signed in from another browser or device. To protect your course materials and account security, WhatBoutMe permits only <strong>1 active device</strong> at a time.
+              {modalDescription}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <button
                 type="button"
                 onClick={() => {
                   localStorage.clear();
-                  window.location.href = '/login?reason=DEVICE_LIMIT_EXCEEDED';
+                  clearApiCache();
+                  window.location.href = `/login?reason=${encodeURIComponent(revokedReason || 'SESSION_REVOKED')}`;
                 }}
                 style={{
                   width: '100%',
@@ -226,7 +238,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                   transition: 'background-color 0.15s ease',
                 }}
               >
-                Sign In on This Device
+                {buttonText}
               </button>
             </div>
           </div>

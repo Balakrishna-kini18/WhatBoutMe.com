@@ -956,7 +956,7 @@ export default function ApprovalsPage() {
                 <thead>
                   <tr>
                     <th>Learner</th>
-                    <th>Program &amp; Cohort</th>
+                    <th>Program &amp; Batch</th>
                     <th>Request Date</th>
                     <th>Eligibility Gate</th>
                     <th>Status</th>
@@ -997,7 +997,7 @@ export default function ApprovalsPage() {
                                 {programTitle}
                               </span>
                               <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                                {batchName ? `Cohort: ${batchName}` : "Direct Enrolment"}
+                                {batchName ? `Batch: ${batchName}` : "Direct Enrolment"}
                               </span>
                             </div>
                           </td>
@@ -1148,7 +1148,7 @@ export default function ApprovalsPage() {
             flexWrap: "wrap"
           }}>
             <label htmlFor="cohort-select" style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-secondary)" }}>
-              Cohort / Batch:
+              Batch:
             </label>
             <CustomSelect
               id="cohort-select"
@@ -1156,14 +1156,14 @@ export default function ApprovalsPage() {
               onChange={setSelectedBatchId}
               disabled={loadingBatches}
               minWidth="280px"
-              ariaLabel="Select Cohort or Batch"
+              ariaLabel="Select Batch"
               options={batches.map((batch) => ({
                 value: batch.id,
                 label: `${batch.name}${batch.program?.title ? ` (${batch.program.title})` : ""}`,
               }))}
             />
             <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              {assessments.length} assessment record{assessments.length !== 1 ? "s" : ""} in this cohort
+              {assessments.length} assessment record{assessments.length !== 1 ? "s" : ""} in this batch
             </span>
           </div>
 

@@ -26,6 +26,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       
       if (typeof res === 'string') {
         message = res;
+        code = HttpStatus[status] || 'ERROR';
       } else if (res && typeof res === 'object') {
         if (typeof res.message === 'string') {
           message = res.message;
@@ -48,6 +49,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = exception.message;
     }
 
+    let reason: string | undefined;
+    if (exception instanceof HttpException) {
+      const res: any = exception.getResponse();
+      if (res && typeof res === 'object') {
+        if (typeof res.reason === 'string') {
+          reason = res.reason;
+        } else if (res.error && typeof res.error === 'object' && typeof res.error.reason === 'string') {
+          reason = res.error.reason;
+        }
+      }
+    }
+
     if (response.headersSent) {
       return;
     }
@@ -56,7 +69,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error: {
         code,
         message,
+        ...(reason ? { reason } : {}),
       },
+      ...(reason ? { reason } : {}),
     });
   }
 }

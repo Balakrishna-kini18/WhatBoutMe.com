@@ -138,7 +138,7 @@ export default function CreateBatchPage() {
     setFormError("");
 
     if (!name.trim()) {
-      setFormError("Cohort name is required.");
+      setFormError("Batch name is required.");
       return;
     }
 
@@ -158,7 +158,7 @@ export default function CreateBatchPage() {
     }
 
     if (capacity < 1) {
-      setFormError("Capacity must be at least 1 student.");
+      setFormError("Capacity must be at least 1 learner.");
       return;
     }
 
@@ -191,13 +191,13 @@ export default function CreateBatchPage() {
       });
 
       if (!res.ok) {
-        const msg = await errorMessage(res, "Failed to create cohort batch.");
+        const msg = await errorMessage(res, "Failed to create batch.");
         setFormError(msg);
         toastError(msg);
         return;
       }
 
-      toastSuccess(`Cohort batch "${name.trim()}" created successfully!`);
+      toastSuccess(`Batch "${name.trim()}" created successfully!`);
       router.push("/batches");
     } catch (err: any) {
       console.error("Batch creation failed", err);
@@ -229,16 +229,16 @@ export default function CreateBatchPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted, #78716a)" }}>
             <Link href="/batches" style={{ textDecoration: "none", color: "var(--accent-primary, #c97a1e)", fontWeight: 600 }}>
-              &larr; Batches &amp; Cohorts
+              &larr; Batches
             </Link>
             <span>/</span>
-            <span>New Cohort</span>
+            <span>New Batch</span>
           </div>
           <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary, #14110f)", fontFamily: "var(--font-sans)" }}>
-            Create Batch Cohort
+            Create New Batch
           </h1>
           {/* <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary, #4a443d)" }}>
-            Configure cohort schedule, assign a batch manager, and specify multi-currency pricing tiers (USD, AED, INR).
+            Configure batch schedule, assign a batch manager, and specify multi-currency pricing tiers (USD, AED, INR).
           </p> */}
         </div>
 
@@ -360,21 +360,21 @@ export default function CreateBatchPage() {
         {/* Section 2: Batch Details & Schedule */}
         <div>
           <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: "0 0 0.5rem 0", color: "var(--text-primary, #14110f)" }}>
-            2. Cohort Details &amp; Schedule
+            2. Batch Details &amp; Schedule
           </h2>
           <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary, #4a443d)" }}>
-            Define the cohort identifier, max student capacity, and active dates.
+            Define the batch identifier, max learner capacity, and active dates.
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.25rem", marginBottom: "1.25rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
               <label style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
-                Cohort Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                Batch Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Cohort 2026-A (Spring Weekend Masterclass)"
+                placeholder="e.g. Batch 2026-A (Spring Weekend Masterclass)"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 style={{
@@ -390,7 +390,7 @@ export default function CreateBatchPage() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
               <label style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
-                Student Capacity <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                Learner Capacity <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
               </label>
               <input
                 type="number"
@@ -460,7 +460,7 @@ export default function CreateBatchPage() {
                 value={status}
                 onChange={(val) => setStatus(val as any)}
                 options={[
-                  { value: "UPCOMING", label: "Upcoming (Pre-enrollment)" },
+                  { value: "UPCOMING", label: "Upcoming (Pre-enrolment)" },
                   { value: "ACTIVE", label: "Active (In Session)" },
                 ]}
               />
@@ -495,7 +495,7 @@ export default function CreateBatchPage() {
             </span>
           </div>
           <p style={{ margin: "0 0 1.25rem 0", fontSize: "0.85rem", color: "var(--text-secondary, #4a443d)" }}>
-            Specify cohort-specific price overrides for domestic and international learners. Leave individual currency overrides blank to inherit the program default.
+            Specify batch-specific price overrides for domestic and international learners. Leave individual currency overrides blank to inherit the program default.
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.25rem", marginBottom: "1.25rem" }}>
@@ -517,7 +517,7 @@ export default function CreateBatchPage() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
               <label style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
-                Base Cohort Price ({currency})
+                Base Batch Price ({currency})
               </label>
               <input
                 type="number"
@@ -653,7 +653,7 @@ export default function CreateBatchPage() {
               opacity: isSubmitting ? 0.7 : 1,
             }}
           >
-            {isSubmitting ? "Creating Batch..." : "Create Batch Cohort"}
+            {isSubmitting ? "Creating Batch..." : "Create Batch"}
           </button>
         </div>
       </form>

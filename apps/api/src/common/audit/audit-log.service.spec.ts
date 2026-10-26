@@ -83,4 +83,73 @@ describe('Phase 2: AuditLogService - Mandatory Reason & Transactional Logging', 
     expect(txMock.auditLog.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
+
+  it('rejects step unlock and quiz overrides when reason is missing (PDF Pages 4 & 8)', async () => {
+    await expect(
+      service.log(undefined, {
+        actorId: 'admin-1',
+        action: 'STEP_MANUAL_UNLOCKED',
+        entityType: 'StepProgress',
+        entityId: 'sp-1',
+        reason: '',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.log(undefined, {
+        actorId: 'admin-1',
+        action: 'QUIZ_OVERRIDE',
+        entityType: 'Quiz',
+        entityId: 'quiz-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.log(undefined, {
+        actorId: 'admin-1',
+        action: 'REFUND_ISSUED',
+        entityType: 'Invoice',
+        entityId: 'inv-1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('redacts sensitive credentials (password, token, jwt, secret) from metadata before database insertion', async () => {
+    prismaMock.auditLog.create.mockResolvedValueOnce({ id: 'audit-redacted' });
+
+    await service.log(undefined, {
+      actorId: 'admin-1',
+      action: 'GENERAL_CONFIG_CHANGE',
+      entityType: 'SystemConfig',
+      entityId: 'cfg-1',
+      metadata: {
+        safeField: 'active',
+        password: 'plainTextPassword123',
+        token: 'eyJhbGciOi...',
+        nested: {
+          secret: 'stripe_sk_test_123',
+          normal: 42,
+        },
+      },
+    });
+
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        actorId: 'admin-1',
+        action: 'GENERAL_CONFIG_CHANGE',
+        entity: 'SystemConfig',
+        entityId: 'cfg-1',
+        meta: expect.objectContaining({
+          safeField: 'active',
+          password: '[REDACTED]',
+          token: '[REDACTED]',
+          nested: {
+            secret: '[REDACTED]',
+            normal: 42,
+          },
+          recordedAtUtc: expect.any(String),
+        }),
+      },
+    });
+  });
 });

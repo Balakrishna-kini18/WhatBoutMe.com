@@ -120,12 +120,11 @@
 
 /* Staff Role Variants */
 .roleSuperAdmin {
-  background: linear-gradient(135deg, #311042 0%, #1e112a 100%);
-  color: #f3e8ff;
-  border: 1px solid #9333ea;
-  box-shadow: 0 1px 4px rgba(147, 51, 234, 0.28);
+  background: #f5f3ff;
+  color: #6b21a8;
+  border: 1px solid #d8b4fe;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.025em;
 }
 
 .roleAdmin {

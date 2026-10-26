@@ -1453,10 +1453,69 @@ describe('AuthService - Authentication Tests', () => {
         expiresAt: new Date(Date.now() + 1000000),
       });
 
-      await expect(authService.refreshToken(reusedToken)).rejects.toThrow(UnauthorizedException);
+      try {
+        await authService.refreshToken(reusedToken);
+        expect.fail('Should have thrown UnauthorizedException');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(UnauthorizedException);
+        const res = err.getResponse();
+        expect(res.error).toBe('SESSION_REVOKED');
+        expect(res.reason).toBe('TOKEN_REUSED');
+      }
 
       // Session must be marked revoked with TOKEN_REUSED
       expect(prismaMock.userSession.update).toHaveBeenCalledWith({
+        where: { id: sessionId },
+        data: {
+          revokedAt: expect.any(Date),
+          revokedReason: 'TOKEN_REUSED',
+        },
+      });
+    });
+
+    it('3b. Token reuse revocation safely commits to database prior to throwing UnauthorizedException', async () => {
+      const sessionId = 'sess-rot-commit-check';
+      const reusedToken = 'old-stale-token-3b';
+      const currentTokenHash = await bcrypt.hash('new-active-token-3b', 10);
+
+      let committedInDb = false;
+      const txMock = {
+        $executeRaw: vi.fn().mockResolvedValue(1),
+        userSession: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: sessionId,
+            userId,
+            token: currentTokenHash,
+            revokedAt: null,
+            expiresAt: new Date(Date.now() + 1000000),
+          }),
+          update: vi.fn().mockImplementation(async () => {
+            committedInDb = true;
+            return {};
+          }),
+        },
+      };
+
+      // Model real Prisma transaction behavior: if callback resolves without throwing,
+      // its writes are committed; if it threw inside, writes would be rolled back.
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        return callback(txMock);
+      });
+
+      jwtServiceMock.verify.mockReturnValue({ sub: userId, sessionId });
+      prismaMock.user.findUnique.mockResolvedValue(mockUser);
+
+      try {
+        await authService.refreshToken(reusedToken);
+        expect.fail('Should have thrown UnauthorizedException');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(UnauthorizedException);
+        expect(err.getResponse().reason).toBe('TOKEN_REUSED');
+      }
+
+      // Proves that update executed inside transaction and was committed before the exception surfaced
+      expect(committedInDb).toBe(true);
+      expect(txMock.userSession.update).toHaveBeenCalledWith({
         where: { id: sessionId },
         data: {
           revokedAt: expect.any(Date),

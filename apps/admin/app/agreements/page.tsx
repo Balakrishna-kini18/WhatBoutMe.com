@@ -339,7 +339,7 @@ export default function AdminAgreementsPage() {
                               Shared Default
                             </span>
                             <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
-                              All unassigned courses
+                              All unassigned programs
                             </span>
                           </div>
                         ) : (
@@ -426,7 +426,7 @@ export default function AdminAgreementsPage() {
               <div>
                 <h2 id="agreement-modal-title">Create Agreement Template</h2>
                 <p className={styles.modalIntro}>
-                  Establish legal terms and conditions required before course payment and access.
+                  Establish legal terms and conditions required before program payment and access.
                 </p>
               </div>
               <button
@@ -487,7 +487,7 @@ export default function AdminAgreementsPage() {
                         Shared default
                       </div>
                       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                        Platform fallback for unassigned courses
+                        Platform fallback for unassigned programs
                       </div>
                     </button>
                   </div>
@@ -512,7 +512,7 @@ export default function AdminAgreementsPage() {
                       }))}
                     />
                     <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "4px 0 0" }}>
-                      Learners enrolling in this course will be required to sign this document before payment.
+                      Learners enrolling in this program will be required to sign this document before payment.
                     </p>
                   </div>
                 ) : (
@@ -526,7 +526,7 @@ export default function AdminAgreementsPage() {
                       color: "var(--text-secondary)",
                       lineHeight: 1.5,
                     }}>
-                      Shared default agreements apply automatically as a platform fallback to any course that does not have its own program-specific terms.
+                      Shared default agreements apply automatically as a platform fallback to any program that does not have its own program-specific terms.
                     </div>
                     {templates.some((t) => /\[Shared Default\]/.test(t.description ?? "")) && (
                       <div style={{

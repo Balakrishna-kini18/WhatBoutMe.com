@@ -460,6 +460,11 @@ model Program {
   minAttendancePercentage Int           @default(75)
   deliveryMode            DeliveryMode  @default(ONLINE)
 
+  requireExam                  Boolean       @default(true)
+  requireCoaching              Boolean       @default(true)
+  requireMissionStatement      Boolean       @default(true)
+  sequentialProgressionEnabled Boolean       @default(true)
+
   faqs                    Json?         @default("[]")
 
   steps              Step[]

@@ -263,12 +263,19 @@ export class StageGateService {
         .catch((err) => this.logger.warn(`Failed to update curriculumCompletedAt: ${err.message}`));
     }
 
+    // ── PROGRAM MILESTONE TOGGLES ────────────────────────────────────────────
+    const programConfig = enrolment.program as any;
+    const isSequential = programConfig?.sequentialProgressionEnabled !== false;
+    const isExamRequired = (programConfig?.requireExam !== false) && !isCorporateTrack && programExamCount > 0;
+    const isAttendanceRequired = (programConfig?.attendanceRequired !== false) && !isCorporateTrack;
+    const isCoachingRequired = (programConfig?.requireCoaching !== false) && !isCorporateTrack;
+    const isMissionRequired = (programConfig?.requireMissionStatement !== false) && !isCorporateTrack;
+
     // ── STAGE 2: FINAL EXAM ──────────────────────────────────────────────────
     const stage1Unlocked = true;
-    const stage2Unlocked = stage1Met;
+    const stage2Unlocked = !isSequential || stage1Met;
     const stage2Overridden = overriddenStages.has(LearnerStage.STAGE_2_EXAM);
 
-    const examRequired = !isCorporateTrack && programExamCount > 0;
     const passedExam = examAttempts.find(
       (a) => a.status === AttemptStatus.PASSED || a.passed === true,
     );
@@ -277,9 +284,13 @@ export class StageGateService {
       (a) => a.status === OralAssessmentStatus.PASSED || a.passed === true,
     );
 
-    const examMet = !examRequired || Boolean(passedExam);
+    const examMet = !isExamRequired || Boolean(passedExam);
     const oralMet = !oralRequired || Boolean(passedOral);
-    const stage2Met = stage2Overridden || isCorporateTrack || (stage2Unlocked && examMet && oralMet);
+    const stage2Met =
+      stage2Overridden ||
+      isCorporateTrack ||
+      !isExamRequired ||
+      (stage2Unlocked && examMet && oralMet);
 
     const stage2CompletedAt = stage2Met
       ? enrolment.examPassedAt || passedExam?.completedAt || new Date()
@@ -295,7 +306,7 @@ export class StageGateService {
     }
 
     // ── STAGE 3: ATTENDANCE ──────────────────────────────────────────────────
-    const stage3Unlocked = stage2Met;
+    const stage3Unlocked = !isSequential || stage2Met;
     const stage3Overridden = overriddenStages.has(LearnerStage.STAGE_3_ATTENDANCE);
     let attendanceCompliance: any;
     try {
@@ -305,7 +316,7 @@ export class StageGateService {
     } catch {
       attendanceCompliance = {
         status: 'NOT_APPLICABLE',
-        thresholdUsed: 80,
+        thresholdUsed: programConfig?.attendanceThreshold ?? 80,
         requiredSessionCount: 0,
         attendedSessionCount: 0,
         attendancePercentage: 100,
@@ -313,6 +324,7 @@ export class StageGateService {
     }
 
     const attendanceSatisfied =
+      !isAttendanceRequired ||
       attendanceCompliance.status === 'COMPLIANT' ||
       attendanceCompliance.status === 'NOT_APPLICABLE';
 
@@ -332,7 +344,7 @@ export class StageGateService {
     }
 
     // ── STAGE 4: 1-ON-1 COACHING ─────────────────────────────────────────────
-    const stage4Unlocked = stage3Unlocked && stage3Met;
+    const stage4Unlocked = !isSequential || (stage3Unlocked && stage3Met);
     const stage4Overridden = overriddenStages.has(LearnerStage.STAGE_4_ONE_ON_ONE);
     const completedOneOnOne = oneOnOneSessions.find((s) => {
       const isCompletedStatus = s.status === SessionStatus.COMPLETED;
@@ -350,7 +362,10 @@ export class StageGateService {
     });
 
     const stage4Met =
-      stage4Overridden || isCorporateTrack || (stage4Unlocked && Boolean(completedOneOnOne));
+      stage4Overridden ||
+      isCorporateTrack ||
+      !isCoachingRequired ||
+      (stage4Unlocked && Boolean(completedOneOnOne));
     const stage4CompletedAt = stage4Met
       ? enrolment.oneOnOneCompletedAt || completedOneOnOne?.endTime || new Date()
       : null;
@@ -365,7 +380,7 @@ export class StageGateService {
     }
 
     // ── STAGE 5: MISSION STATEMENT ───────────────────────────────────────────
-    const stage5Unlocked = stage4Unlocked && stage4Met;
+    const stage5Unlocked = !isSequential || (stage4Unlocked && stage4Met);
     const stage5Overridden = overriddenStages.has(LearnerStage.STAGE_5_MISSION_STATEMENT);
     const approvedMission = missionSubmissions.find(
       (m) => m.status === MissionStatementStatus.APPROVED,
@@ -374,6 +389,7 @@ export class StageGateService {
     const stage5Met =
       stage5Overridden ||
       isCorporateTrack ||
+      !isMissionRequired ||
       (stage5Unlocked && Boolean(approvedMission || enrolment.missionStatementApprovedAt));
     const stage5CompletedAt = stage5Met
       ? enrolment.missionStatementApprovedAt || approvedMission?.reviewedAt || new Date()
@@ -414,7 +430,7 @@ export class StageGateService {
         isOverridden: stage2Overridden,
         completedAt: stage2CompletedAt,
         details: {
-          examRequired,
+          examRequired: isExamRequired,
           examPassed: Boolean(passedExam),
           oralRequired,
           oralPassed: Boolean(passedOral),
@@ -426,7 +442,7 @@ export class StageGateService {
         unmetPrerequisites: stage2Unlocked
           ? !stage2Met
             ? [
-                ...(examRequired && !passedExam ? ['Final exam not passed'] : []),
+                ...(isExamRequired && !passedExam ? ['Final exam not passed'] : []),
                 ...(oralRequired && !passedOral ? ['Oral assessment not passed'] : []),
               ]
             : []

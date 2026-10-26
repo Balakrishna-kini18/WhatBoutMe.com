@@ -48,13 +48,6 @@ export default function LearnerDashboard() {
     overallAttendancePercentage: number;
     history: any[];
   } | null>(null);
-  const [stagesState, setStagesState] = useState<{
-    STAGE_1_CURRICULUM?: { isCompleted: boolean; isUnlocked: boolean };
-    STAGE_2_EXAM?: { isCompleted: boolean; isUnlocked: boolean };
-    STAGE_3_ATTENDANCE?: { isCompleted: boolean; isUnlocked: boolean };
-    STAGE_4_ONE_ON_ONE?: { isCompleted: boolean; isUnlocked: boolean };
-    STAGE_5_MISSION_STATEMENT?: { isCompleted: boolean; isUnlocked: boolean };
-  } | null>(null);
 
   const loadDashboard = useCallback(
     async (isInitial = false) => {
@@ -104,16 +97,6 @@ export default function LearnerDashboard() {
 
         if (attData) setAttendanceSummary(attData);
         setCertificates(certs || []);
-
-        const activeEnrId = (profile as any).enrolments?.[0]?.id || profile.enrolledPrograms?.[0]?.programId;
-        if (activeEnrId) {
-          fetch(`${API_URL}/progression/tree/${activeEnrId}`, { headers: authHeaders })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-              if (d?.stages) setStagesState(d.stages);
-            })
-            .catch(() => null);
-        }
       } catch {
         if (isInitial) setLoadError(true);
       } finally {
@@ -301,126 +284,6 @@ export default function LearnerDashboard() {
               You have {activeCount} active {activeCount === 1 ? "course" : "courses"} in progress — rewiring your brain for sustainable action.
             </p>
           </div>
-        </div>
-      </section>
-
-      {/* 5-STAGE PROGRESSION PIPELINE BANNER */}
-      <section
-        style={{
-          background: "#ffffff",
-          border: "1px solid #ece6dd",
-          borderRadius: "16px",
-          padding: "1.25rem 1.5rem",
-          marginBottom: "1.5rem",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-        }}
-        aria-label="5-Stage Certification Journey"
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
-          <div>
-            <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#d36b00", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Sequential Certification Journey
-            </span>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#18181b", margin: "2px 0 0" }}>
-              Your 5-Stage Progression Pipeline
-            </h2>
-          </div>
-          <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
-            Stage N+1 unlocks automatically upon completing Stage N
-          </span>
-        </div>
-
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-          gap: "10px",
-        }}>
-          {[
-            {
-              stage: 1,
-              title: "Curriculum & Lessons",
-              desc: "11 Steps & Watch Tracking",
-              route: "/courses",
-              isCompleted: stagesState?.STAGE_1_CURRICULUM?.isCompleted,
-              isUnlocked: stagesState?.STAGE_1_CURRICULUM?.isUnlocked ?? true,
-            },
-            {
-              stage: 2,
-              title: "Randomized Exam",
-              desc: "50-Question Assessment",
-              route: "/courses",
-              isCompleted: stagesState?.STAGE_2_EXAM?.isCompleted,
-              isUnlocked: stagesState?.STAGE_2_EXAM?.isUnlocked,
-            },
-            {
-              stage: 3,
-              title: "Hybrid Attendance",
-              desc: "Live Zoom or Recordings",
-              route: "/attendance",
-              isCompleted: stagesState?.STAGE_3_ATTENDANCE?.isCompleted,
-              isUnlocked: stagesState?.STAGE_3_ATTENDANCE?.isUnlocked,
-            },
-            {
-              stage: 4,
-              title: "1-on-1 Coaching",
-              desc: "Live Call & Calendar Sync",
-              route: "/coaching",
-              isCompleted: stagesState?.STAGE_4_ONE_ON_ONE?.isCompleted,
-              isUnlocked: stagesState?.STAGE_4_ONE_ON_ONE?.isUnlocked,
-            },
-            {
-              stage: 5,
-              title: "Mission Statement",
-              desc: "Capstone & Graduation Cert",
-              route: "/mission-statement",
-              isCompleted: stagesState?.STAGE_5_MISSION_STATEMENT?.isCompleted,
-              isUnlocked: stagesState?.STAGE_5_MISSION_STATEMENT?.isUnlocked,
-            },
-          ].map((st) => {
-            const isDone = Boolean(st.isCompleted);
-            const isOpen = Boolean(st.isUnlocked);
-
-            return (
-              <Link
-                key={st.stage}
-                href={st.route}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid",
-                  borderColor: isDone ? "#86efac" : isOpen ? "#fed7aa" : "#e5e7eb",
-                  background: isDone ? "#f0fdf4" : isOpen ? "#fffaf5" : "#fafaf9",
-                  textDecoration: "none",
-                  transition: "all 0.15s ease",
-                  opacity: isOpen || isDone ? 1 : 0.7,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                  <span style={{
-                    fontSize: "0.7rem",
-                    fontWeight: 800,
-                    padding: "2px 6px",
-                    borderRadius: "4px",
-                    background: isDone ? "#22c55e" : isOpen ? "#d36b00" : "#d1d5db",
-                    color: "#ffffff",
-                  }}>
-                    Stage {st.stage}
-                  </span>
-                  <span style={{ fontSize: "0.85rem" }}>
-                    {isDone ? "✓" : isOpen ? "🔓" : "🔒"}
-                  </span>
-                </div>
-                <strong style={{ fontSize: "0.85rem", color: "#18181b", margin: "2px 0" }}>
-                  {st.title}
-                </strong>
-                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                  {st.desc}
-                </span>
-              </Link>
-            );
-          })}
         </div>
       </section>
 

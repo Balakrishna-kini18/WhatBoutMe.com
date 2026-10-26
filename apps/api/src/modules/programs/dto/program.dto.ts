@@ -86,6 +86,30 @@ export class CreateProgramDto {
   certificateTemplate?: string;
 
   @IsOptional()
+  @IsBoolean()
+  requireExam?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireCoaching?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireMissionStatement?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sequentialProgressionEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  attendanceRequired?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  attendanceThreshold?: number;
+
+  @IsOptional()
   @IsString()
   shortDescription?: string;
 
@@ -173,6 +197,30 @@ export class UpdateProgramDto {
   @IsOptional()
   @IsString()
   certificateTemplate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  requireExam?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireCoaching?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requireMissionStatement?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  sequentialProgressionEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  attendanceRequired?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  attendanceThreshold?: number;
 
   @IsOptional()
   @IsString()

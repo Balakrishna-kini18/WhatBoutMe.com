@@ -521,4 +521,82 @@ describe('StageGateService: 5-Stage Sequential Progression Pipeline & Security A
       }
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PROGRAM MILESTONES & PROGRESSION CONFIG TOGGLES
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('Program Milestones & Progression Config Toggles', () => {
+    it('Automatically satisfies Stage 2, 4, and 5 when toggled optional on Program', async () => {
+      const mockPrisma = {
+        enrolment: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'enr-custom-config',
+            userId: 'user-custom',
+            programId: 'prog-custom',
+            batchId: 'batch-custom',
+            program: {
+              id: 'prog-custom',
+              title: 'Custom Flexible Track',
+              requireExam: false,
+              requireCoaching: false,
+              requireMissionStatement: false,
+              sequentialProgressionEnabled: false,
+              attendanceRequired: false,
+              attendanceThreshold: 75,
+            },
+            batch: { id: 'batch-custom', name: 'Batch Flex' },
+            user: { id: 'user-custom', name: 'Flex Student', email: 'flex@test.com' },
+          }),
+        },
+        auditLog: { findMany: vi.fn().mockResolvedValue([]) },
+        step: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: 's1', sequence: 1, title: 'Step 1', quiz: null, lessons: [] },
+          ]),
+        },
+        userLessonProgress: { findMany: vi.fn().mockResolvedValue([]) },
+        attempt: { findMany: vi.fn().mockResolvedValue([]) },
+        stepProgress: {
+          findMany: vi.fn().mockResolvedValue([{ stepId: 's1', isCompleted: true, completedAt: new Date() }]),
+        },
+        examAttempt: { findMany: vi.fn().mockResolvedValue([]) },
+        oralAssessment: {
+          findMany: vi.fn().mockResolvedValue([]),
+          count: vi.fn().mockResolvedValue(0),
+        },
+        exam: { count: vi.fn().mockResolvedValue(1) },
+        session: { findMany: vi.fn().mockResolvedValue([]) },
+        missionStatementSubmission: { findMany: vi.fn().mockResolvedValue([]) },
+      };
+
+      const complianceMock = {
+        calculateCompliance: vi.fn().mockResolvedValue({
+          status: 'NOT_APPLICABLE',
+          thresholdUsed: 75,
+          attendancePercentage: 100,
+        }),
+      };
+
+      const service = new StageGateService(mockPrisma as any, complianceMock as any);
+      const result = await service.evaluateStages('enr-custom-config');
+
+      // Stage 1 is complete
+      expect(result.stages[LearnerStage.STAGE_1_CURRICULUM].isCompleted).toBe(true);
+      // Stage 2 is complete because requireExam is false
+      expect(result.stages[LearnerStage.STAGE_2_EXAM].isCompleted).toBe(true);
+      // Stage 3 is complete because attendanceRequired is false
+      expect(result.stages[LearnerStage.STAGE_3_ATTENDANCE].isCompleted).toBe(true);
+      // Stage 4 is complete because requireCoaching is false
+      expect(result.stages[LearnerStage.STAGE_4_ONE_ON_ONE].isCompleted).toBe(true);
+      // Stage 5 is complete because requireMissionStatement is false
+      expect(result.stages[LearnerStage.STAGE_5_MISSION_STATEMENT].isCompleted).toBe(true);
+      // All stages are completed
+      expect(result.allStagesCompleted).toBe(true);
+      // All stages are unlocked concurrently because sequentialProgressionEnabled is false
+      expect(result.stages[LearnerStage.STAGE_2_EXAM].isUnlocked).toBe(true);
+      expect(result.stages[LearnerStage.STAGE_3_ATTENDANCE].isUnlocked).toBe(true);
+      expect(result.stages[LearnerStage.STAGE_4_ONE_ON_ONE].isUnlocked).toBe(true);
+      expect(result.stages[LearnerStage.STAGE_5_MISSION_STATEMENT].isUnlocked).toBe(true);
+    });
+  });
 });

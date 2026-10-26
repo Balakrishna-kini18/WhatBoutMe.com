@@ -16,10 +16,18 @@ import { ConfirmDialog, useToast, StatusBadge, CustomSelect } from "../../../com
 interface FinalExamPanelProps {
   programId: string;
   programTitle?: string;
+  requireExam?: boolean;
+  onToggleRequireExam?: (required: boolean) => Promise<void>;
 }
 
-export default function FinalExamPanel({ programId, programTitle }: FinalExamPanelProps) {
+export default function FinalExamPanel({
+  programId,
+  programTitle,
+  requireExam = true,
+  onToggleRequireExam,
+}: FinalExamPanelProps) {
   const toast = useToast();
+  const [isTogglingRequire, setIsTogglingRequire] = useState(false);
 
   const [exam, setExam] = useState<ExamConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -179,6 +187,64 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
             </button>
           )}
         </div>
+      </div>
+
+      {/* Program Requirement Toggle Banner */}
+      <div
+        style={{
+          marginTop: "1.25rem",
+          padding: "0.85rem 1.25rem",
+          borderRadius: "8px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          backgroundColor: requireExam ? "#f0fdf4" : "#f8fafc",
+          border: `1px solid ${requireExam ? "#bbf7d0" : "#e2e8f0"}`,
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1rem" }}>{requireExam ? "✅" : "⚪"}</span>
+            <strong style={{ fontSize: "0.95rem", color: requireExam ? "#166534" : "#475569" }}>
+              {requireExam ? "Final Exam is REQUIRED for Course Completion" : "Final Exam is OPTIONAL"}
+            </strong>
+          </div>
+          <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: requireExam ? "#15803d" : "#64748b" }}>
+            {requireExam
+              ? "Students must achieve passing marks on this assessment before unlocking attendance, 1-on-1 coaching, or certification."
+              : "Students can take this exam for practice, but passing it is not required to complete the curriculum or earn a certificate."}
+          </p>
+        </div>
+
+        {onToggleRequireExam && (
+          <button
+            type="button"
+            className={styles.secondaryBtn}
+            style={{ fontSize: "0.8rem", padding: "0.35rem 0.75rem" }}
+            disabled={isTogglingRequire}
+            onClick={async () => {
+              setIsTogglingRequire(true);
+              try {
+                await onToggleRequireExam(!requireExam);
+                toast.success(
+                  !requireExam
+                    ? "Final Exam marked as REQUIRED for course completion."
+                    : "Final Exam marked as OPTIONAL."
+                );
+              } catch (err: any) {
+                toast.error(err.message || "Failed to toggle exam requirement");
+              } finally {
+                setIsTogglingRequire(false);
+              }
+            }}
+          >
+            {isTogglingRequire
+              ? "Updating..."
+              : requireExam
+              ? "Set as Optional"
+              : "Set as Required"}
+          </button>
+        )}
       </div>
 
       {/* Health Check Pool Banner */}

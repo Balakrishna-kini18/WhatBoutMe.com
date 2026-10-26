@@ -25,6 +25,7 @@ const Step3CreateModuleModal = dynamic(() => import("./components/Step3CreateMod
 const Step7QuizBuilder = dynamic(() => import("./components/Step7QuizBuilder"), { ssr: false });
 const Step8ModulePreview = dynamic(() => import("./components/Step8ModulePreview"), { ssr: false });
 const FinalExamPanel = dynamic(() => import("./components/FinalExamPanel"), { ssr: false });
+const ProgramSettingsPanel = dynamic(() => import("./components/ProgramSettingsPanel"), { ssr: false });
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -177,6 +178,12 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         earlyBirdCurrency: updatedData.earlyBirdCurrency || null,
         earlyBirdDeadline: updatedData.earlyBirdDeadline ? new Date(updatedData.earlyBirdDeadline).toISOString() : null,
         hasCertificate: Boolean(updatedData.hasCertificate),
+        requireExam: updatedData.requireExam !== undefined ? Boolean(updatedData.requireExam) : undefined,
+        requireCoaching: updatedData.requireCoaching !== undefined ? Boolean(updatedData.requireCoaching) : undefined,
+        requireMissionStatement: updatedData.requireMissionStatement !== undefined ? Boolean(updatedData.requireMissionStatement) : undefined,
+        sequentialProgressionEnabled: updatedData.sequentialProgressionEnabled !== undefined ? Boolean(updatedData.sequentialProgressionEnabled) : undefined,
+        attendanceRequired: updatedData.attendanceRequired !== undefined ? Boolean(updatedData.attendanceRequired) : undefined,
+        attendanceThreshold: updatedData.attendanceThreshold !== undefined ? Number(updatedData.attendanceThreshold) : undefined,
         shortDescription: updatedData.shortDescription || "",
         thumbnailUrl: updatedData.thumbnailUrl || "",
         category: updatedData.category || "",
@@ -202,6 +209,33 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       setWizardStep("MODULE_LIST");
     } catch (err: any) {
       alert(err.message || "Failed to save course details");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Dedicated Program Progression & Milestone Settings Handler
+  const handleUpdateProgramSettings = async (updatedSettings: any) => {
+    setIsSaving(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/programs/${programId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(updatedSettings),
+      });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to update program progression settings"));
+      }
+
+      const updated = await res.json();
+      setProgramData((prev: any) => ({ ...prev, ...updated, ...updatedSettings }));
+    } catch (err: any) {
+      throw err;
     } finally {
       setIsSaving(false);
     }
@@ -726,11 +760,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           aria-selected={activeProgramTab === "SETTINGS"}
           className={`${styles.programTabBtn} ${activeProgramTab === "SETTINGS" ? styles.programTabBtnActive : ""}`}
           onClick={() => {
-            setActiveProgramTab("MODULES");
-            setWizardStep("COURSE_SETUP");
+            setActiveProgramTab("SETTINGS");
           }}
         >
-          Settings
+          Settings &amp; Milestones
         </button>
 
         <button
@@ -752,7 +785,23 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
 
       {/* Alternate Tab Views */}
       {activeProgramTab === "FINAL_EXAM" && (
-        <FinalExamPanel programId={programId} programTitle={programData?.title} />
+        <FinalExamPanel
+          programId={programId}
+          programTitle={programData?.title}
+          requireExam={programData?.requireExam !== false}
+          onToggleRequireExam={async (required: boolean) => {
+            await handleUpdateProgramSettings({ requireExam: required });
+          }}
+        />
+      )}
+
+      {activeProgramTab === "SETTINGS" && (
+        <ProgramSettingsPanel
+          programId={programId}
+          programData={programData}
+          onUpdateProgram={handleUpdateProgramSettings}
+          onNavigateTab={(tab) => setActiveProgramTab(tab)}
+        />
       )}
 
       {activeProgramTab === "OVERVIEW" && (

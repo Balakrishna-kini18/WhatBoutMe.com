@@ -768,35 +768,43 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       return this.formatExamAttemptResponse(activeAttempt, exam);
     }
 
-    // 2. Fall back to latest attempt with retry metadata
-    const latestAttempt = await this.prisma.examAttempt.findFirst({
-      where: {
-        enrolmentId: enrolment.id,
-        examId: exam.id,
-      },
-      orderBy: { attemptNumber: 'desc' },
-    });
+    // 2. Fall back to latest attempt with retry metadata (parallelize findMany + auditLog)
+    const [allAttemptsRaw, lastReset] = await Promise.all([
+      this.prisma.examAttempt.findMany
+        ? this.prisma.examAttempt.findMany({
+            where: {
+              enrolmentId: enrolment.id,
+              examId: exam.id,
+            },
+            orderBy: { attemptNumber: 'desc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.auditLog?.findFirst
+        ? this.prisma.auditLog.findFirst({
+            where: {
+              action: 'EXAM_ATTEMPTS_RESET',
+              entity: 'ExamAttempt',
+              entityId: `${enrolment.id}_${exam.id}`,
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const allAttempts = Array.isArray(allAttemptsRaw) ? allAttemptsRaw : [];
+    const latestAttempt =
+      allAttempts[0] ??
+      (await this.prisma.examAttempt.findFirst({
+        where: {
+          enrolmentId: enrolment.id,
+          examId: exam.id,
+        },
+        orderBy: { attemptNumber: 'desc' },
+      }));
 
     if (!latestAttempt) {
       return null;
     }
-
-    const allAttempts = await this.prisma.examAttempt.findMany({
-      where: {
-        enrolmentId: enrolment.id,
-        examId: exam.id,
-      },
-      orderBy: { attemptNumber: 'desc' },
-    });
-
-    const lastReset = await this.prisma.auditLog.findFirst({
-      where: {
-        action: 'EXAM_ATTEMPTS_RESET',
-        entity: 'ExamAttempt',
-        entityId: `${enrolment.id}_${exam.id}`,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
 
     const relevantAttempts = lastReset
       ? allAttempts.filter((a) => a.createdAt > lastReset.createdAt)

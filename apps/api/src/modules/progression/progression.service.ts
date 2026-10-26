@@ -1105,14 +1105,18 @@ export class ProgressionService {
         });
       }
 
-      const stepTotalItems = step.lessons.length + (step.quiz ? 1 : 0);
-      const stepCompletedItems =
+      const rawStepTotalItems = step.lessons.length + (step.quiz ? 1 : 0);
+      const rawStepCompletedItems =
         step.lessons.filter((l) => viewedLessonIds.has(l.id)).length +
         (step.quiz && passedQuizIds.has(step.quiz.id) ? 1 : 0);
+      const stepTotalItems = rawStepTotalItems;
+      const stepCompletedItems = isStepCompleted
+        ? rawStepTotalItems
+        : rawStepCompletedItems;
       const stepProgressPercent =
         stepTotalItems > 0
           ? (isStepCompleted ? 100 : Math.floor((stepCompletedItems / stepTotalItems) * 100))
-          : 100;
+          : (isStepCompleted ? 100 : 0);
 
       evaluatedSteps.push({
         stepId: step.id,
@@ -1165,19 +1169,31 @@ export class ProgressionService {
     let completedItems = 0;
 
     for (const s of evaluatedSteps) {
-      totalItems += s.lessons.length;
-      completedItems += s.lessons.filter((l) => l.isCompleted).length;
-
-      if (s.quiz) {
+      const sTotal = s.lessons.length + (s.quiz ? 1 : 0);
+      if (sTotal > 0) {
+        totalItems += sTotal;
+        if (s.isCompleted) {
+          completedItems += sTotal;
+        } else {
+          completedItems += s.lessons.filter((l) => l.isCompleted).length;
+          if (s.quiz && s.quiz.isPassed) {
+            completedItems += 1;
+          }
+        }
+      } else {
         totalItems += 1;
-        if (s.quiz.isPassed) {
+        if (s.isCompleted) {
           completedItems += 1;
         }
       }
     }
 
-    const overallProgressPercent =
-      totalItems > 0
+    const allEvaluatedStepsCompleted =
+      evaluatedSteps.length > 0 && evaluatedSteps.every((s) => s.isCompleted);
+
+    const overallProgressPercent = allEvaluatedStepsCompleted
+      ? 100
+      : totalItems > 0
         ? (completedItems === totalItems ? 100 : Math.floor((completedItems / totalItems) * 100))
         : 0;
 

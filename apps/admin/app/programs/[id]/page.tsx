@@ -26,6 +26,8 @@ const Step7QuizBuilder = dynamic(() => import("./components/Step7QuizBuilder"), 
 const Step8ModulePreview = dynamic(() => import("./components/Step8ModulePreview"), { ssr: false });
 const FinalExamPanel = dynamic(() => import("./components/FinalExamPanel"), { ssr: false });
 const ProgramSettingsPanel = dynamic(() => import("./components/ProgramSettingsPanel"), { ssr: false });
+const ProgramEnrolmentsPanel = dynamic(() => import("./components/ProgramEnrolmentsPanel"), { ssr: false });
+const ProgramAnalyticsPanel = dynamic(() => import("./components/ProgramAnalyticsPanel"), { ssr: false });
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -846,35 +848,21 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
 
       {activeProgramTab === "ENROLMENTS" && (
         <section className={styles.cardSurface}>
-          <div className={styles.cardHeaderArea}>
-            <h2 className={styles.stepTitle}>Active Enrolments</h2>
-            <p className={styles.stepSubtitle}>
-              Registered students actively advancing through this curriculum.
-            </p>
-          </div>
-          <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "#fdfbf7", borderRadius: 12, border: "1px dashed #ece6dd", color: "#78716a" }}>
-            <p style={{ margin: "0 0 0.5rem", fontWeight: 600, color: "#14110f" }}>Enrolment management active</p>
-            <p style={{ margin: 0, fontSize: "0.88rem" }}>
-              View learner progress, step unlocking overrides, and batch attendance.
-            </p>
-          </div>
+          <ProgramEnrolmentsPanel
+            programId={programId}
+            programTitle={programData?.title}
+            totalStepsCount={steps.length}
+          />
         </section>
       )}
 
       {activeProgramTab === "ANALYTICS" && (
         <section className={styles.cardSurface}>
-          <div className={styles.cardHeaderArea}>
-            <h2 className={styles.stepTitle}>Learning Analytics</h2>
-            <p className={styles.stepSubtitle}>
-              Drop-off telemetry, compulsory video completion rates, and quiz scores.
-            </p>
-          </div>
-          <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "#fdfbf7", borderRadius: 12, border: "1px dashed #ece6dd", color: "#78716a" }}>
-            <p style={{ margin: "0 0 0.5rem", fontWeight: 600, color: "#14110f" }}>Telemetry active</p>
-            <p style={{ margin: 0, fontSize: "0.88rem" }}>
-              Watch heartbeat completion and quiz diagnostic scores are monitored in real time.
-            </p>
-          </div>
+          <ProgramAnalyticsPanel
+            programId={programId}
+            programTitle={programData?.title}
+            steps={steps}
+          />
         </section>
       )}
 

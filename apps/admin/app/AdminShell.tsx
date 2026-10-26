@@ -753,7 +753,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       items: [
         { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
         { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
-        { label: "Announcements", href: "/meetings", icon: <Icons.Announcements />, perm: "manage_operations" },
+        { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Events />, perm: "manage_operations" },
       ],
     },
     {

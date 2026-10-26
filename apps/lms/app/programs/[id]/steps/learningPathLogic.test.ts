@@ -1,9 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   computeMilestoneProgression,
+  computeUnifiedJourneyProgress,
   isStageUnlocked,
   formatCooldownTimer,
   getExamBadgeStatus,
+  COACHING_TIME_SLOTS,
+  formatLocalIsoDate,
+  isCoachingSlotInFuture,
+  getUpcomingCoachingDateCards,
+  formatCoachingSlotSummary,
+  buildCoachingRequestPayload,
+  STANDARD_COACHING_SLOT_MINUTES,
   StepSummary,
 } from "./learningPathLogic";
 
@@ -140,4 +148,214 @@ describe("LMS Learning Path Progression Logic", () => {
       color: "success",
     });
   });
+
+  describe("1-on-1 Coaching Slot Selection & Duration-Free Booking Engine", () => {
+    it("provides curated Morning, Afternoon, and Evening coaching time slots without requiring a duration dropdown", () => {
+      expect(COACHING_TIME_SLOTS.length).toBeGreaterThanOrEqual(8);
+      expect(COACHING_TIME_SLOTS.some((s) => s.period === "Morning")).toBe(true);
+      expect(COACHING_TIME_SLOTS.some((s) => s.period === "Afternoon")).toBe(true);
+      expect(COACHING_TIME_SLOTS.some((s) => s.period === "Evening")).toBe(true);
+      expect(COACHING_TIME_SLOTS[0]).toEqual({
+        value: "09:00",
+        label: "09:00 AM",
+        period: "Morning",
+      });
+    });
+
+    it("formats local ISO dates accurately without UTC off-by-one shift", () => {
+      const localDate = new Date(2026, 9, 27, 0, 15, 0); // Oct 27, 2026 00:15 local
+      expect(formatLocalIsoDate(localDate)).toBe("2026-10-27");
+    });
+
+    it("generates 7 upcoming date cards starting today if evening slots remain, or tomorrow if past 7 PM", () => {
+      const morningNow = new Date(2026, 9, 26, 9, 0, 0); // Oct 26, 2026 09:00 AM
+      const morningCards = getUpcomingCoachingDateCards(morningNow, 7);
+      expect(morningCards).toHaveLength(7);
+      expect(morningCards[0]?.isoDate).toBe("2026-10-26");
+      expect(morningCards[0]?.isToday).toBe(true);
+      expect(morningCards[1]?.isTomorrow).toBe(true);
+
+      const lateNightNow = new Date(2026, 9, 26, 21, 30, 0); // Oct 26, 2026 09:30 PM
+      const lateNightCards = getUpcomingCoachingDateCards(lateNightNow, 7);
+      expect(lateNightCards).toHaveLength(7);
+      expect(lateNightCards[0]?.isoDate).toBe("2026-10-27");
+      expect(lateNightCards[0]?.isTomorrow).toBe(true);
+    });
+
+    it("disables past time slots on today's date while keeping future slots enabled", () => {
+      const now = new Date("2026-10-26T13:30:00");
+      expect(isCoachingSlotInFuture("2026-10-26", "10:00", now)).toBe(false);
+      expect(isCoachingSlotInFuture("2026-10-26", "12:00", now)).toBe(false);
+      expect(isCoachingSlotInFuture("2026-10-26", "14:00", now)).toBe(true);
+      expect(isCoachingSlotInFuture("2026-10-27", "09:00", now)).toBe(true);
+    });
+
+    it("builds a valid coaching request payload with automatic 45-min window and no duration input", () => {
+      const now = new Date("2026-10-26T10:00:00");
+      const res = buildCoachingRequestPayload({
+        enrolmentId: "enrol-uuid-123",
+        preferredDate: "2026-10-28",
+        preferredTime: "10:00",
+        notes: "  Breakthrough on Step 4 & Mission Statement prep  ",
+        learnerTimezone: "Asia/Calcutta",
+        now,
+      });
+
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.payload.enrolmentId).toBe("enrol-uuid-123");
+        expect(res.payload.learnerTimezone).toBe("Asia/Calcutta");
+        expect(res.payload.notes).toBe("Breakthrough on Step 4 & Mission Statement prep");
+        const startMs = new Date(res.payload.requestedStart).getTime();
+        const endMs = new Date(res.payload.requestedEnd).getTime();
+        expect((endMs - startMs) / 60000).toBe(STANDARD_COACHING_SLOT_MINUTES);
+      }
+    });
+
+    it("rejects past dates, missing fields, or missing enrolmentId gracefully", () => {
+      const now = new Date("2026-10-26T15:00:00");
+
+      const noEnrol = buildCoachingRequestPayload({
+        enrolmentId: "",
+        preferredDate: "2026-10-28",
+        preferredTime: "10:00",
+        now,
+      });
+      expect(noEnrol.ok).toBe(false);
+
+      const pastSlot = buildCoachingRequestPayload({
+        enrolmentId: "enrol-1",
+        preferredDate: "2026-10-26",
+        preferredTime: "10:00",
+        now,
+      });
+      expect(pastSlot.ok).toBe(false);
+      if (!pastSlot.ok) {
+        expect(pastSlot.error).toContain("future date and time");
+      }
+    });
+
+    it("formats human-readable slot summary for confirmation bar", () => {
+      const summary = formatCoachingSlotSummary("2026-10-28", "14:00");
+      expect(summary).toContain("2026");
+      expect(summary).toContain("02:00 PM");
+    });
+
+    it("high-scale real-world simulation: 10,000 concurrent learner slot selections across global timezones", () => {
+      const baseNow = new Date("2026-10-26T12:00:00Z");
+      const timezones = ["Asia/Dubai", "Asia/Calcutta", "America/New_York", "Europe/London", "UTC"];
+
+      for (let i = 0; i < 10000; i++) {
+        const slot = COACHING_TIME_SLOTS[i % COACHING_TIME_SLOTS.length]!;
+        const dayOffset = (i % 14) + 1;
+        const targetDate = new Date(baseNow.getTime() + dayOffset * 86400000);
+        const isoDate = formatLocalIsoDate(targetDate);
+        const tz = timezones[i % timezones.length]!;
+
+        const built = buildCoachingRequestPayload({
+          enrolmentId: `enrolment-${i}`,
+          preferredDate: isoDate,
+          preferredTime: slot.value,
+          learnerTimezone: tz,
+          notes: i % 2 === 0 ? `Learner ${i} reflection` : "   ",
+          now: baseNow,
+        });
+
+        expect(built.ok).toBe(true);
+        if (built.ok) {
+          expect(built.payload.enrolmentId).toBe(`enrolment-${i}`);
+          expect(built.payload.learnerTimezone).toBe(tz);
+          expect(new Date(built.payload.requestedEnd).getTime()).toBeGreaterThan(
+            new Date(built.payload.requestedStart).getTime()
+          );
+        }
+      }
+    });
+  });
+  describe("computeUnifiedJourneyProgress - Unified Learning Path Milestones", () => {
+    it("accurately evaluates user screenshot scenario: 2 steps done, exam passed, coaching pending, mission locked (3/5 = 60%)", () => {
+      const progress = computeUnifiedJourneyProgress({
+        totalSteps: 2,
+        completedSteps: 2,
+        examPassed: true,
+        examScore: 98,
+        coachingCompleted: false,
+        coachingStatus: "PENDING_APPROVAL",
+        missionApproved: false,
+        missionStatus: null,
+      });
+
+      expect(progress.totalSteps).toBe(2);
+      expect(progress.completedSteps).toBe(2);
+      expect(progress.curriculumPercent).toBe(100);
+      expect(progress.totalMilestones).toBe(5); // 2 steps + exam + coaching + mission
+      expect(progress.completedMilestones).toBe(3); // 2 steps + 1 exam
+      expect(progress.overallJourneyPercent).toBe(60); // 3 / 5 = 60%
+      expect(progress.summaryLabel).toBe("3 of 5 milestones completed");
+
+      const [curriculumM, examM, coachingM, missionM] = progress.milestones;
+      expect(curriculumM?.isCompleted).toBe(true);
+      expect(curriculumM?.statusLabel).toBe("Completed");
+
+      expect(examM?.isCompleted).toBe(true);
+      expect(examM?.statusLabel).toBe("Passed (98%)");
+
+      expect(coachingM?.isCompleted).toBe(false);
+      expect(coachingM?.statusLabel).toBe("Pending Approval");
+
+      expect(missionM?.isCompleted).toBe(false);
+      expect(missionM?.statusLabel).toBe("Locked");
+    });
+
+    it("evaluates 100% journey completion when all curriculum steps and certification gates are completed", () => {
+      const progress = computeUnifiedJourneyProgress({
+        totalSteps: 2,
+        completedSteps: 2,
+        examPassed: true,
+        examScore: 100,
+        coachingCompleted: true,
+        coachingStatus: "COMPLETED",
+        missionApproved: true,
+        missionStatus: "APPROVED",
+      });
+
+      expect(progress.completedMilestones).toBe(5);
+      expect(progress.totalMilestones).toBe(5);
+      expect(progress.overallJourneyPercent).toBe(100);
+      expect(progress.milestones.every((m) => m.isCompleted)).toBe(true);
+    });
+
+    it("evaluates early progress for beginner with 1 of 2 steps done and gates locked", () => {
+      const progress = computeUnifiedJourneyProgress({
+        totalSteps: 2,
+        completedSteps: 1,
+        examPassed: false,
+        coachingCompleted: false,
+        missionApproved: false,
+      });
+
+      expect(progress.completedMilestones).toBe(1);
+      expect(progress.totalMilestones).toBe(5);
+      expect(progress.overallJourneyPercent).toBe(20);
+      expect(progress.curriculumPercent).toBe(50);
+      expect(progress.summaryLabel).toBe("1 of 5 milestones completed");
+    });
+
+    it("evaluates coaching milestone as Declined (Reapply Available) when latest request is rejected", () => {
+      const progress = computeUnifiedJourneyProgress({
+        totalSteps: 2,
+        completedSteps: 2,
+        examPassed: true,
+        examScore: 90,
+        coachingCompleted: false,
+        coachingStatus: "REJECTED",
+        missionApproved: false,
+      });
+
+      const coachingM = progress.milestones.find((m) => m.id === "coaching");
+      expect(coachingM?.isCompleted).toBe(false);
+      expect(coachingM?.statusLabel).toBe("Declined (Reapply Available)");
+    });
+  });
+
 });

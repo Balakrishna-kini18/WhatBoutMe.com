@@ -126,6 +126,56 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it('throws BadRequestException if requestedStart is in the past', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: 'user-1',
+      });
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createRequest('user-1', {
+          enrolmentId: 'enrol-1',
+          requestedStart: '2020-01-01T10:00:00.000Z',
+          requestedEnd: '2020-01-01T10:30:00.000Z',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('auto-expires past pending request and allows booking a new upcoming slot', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: 'user-1',
+        program: { id: 'prog-1', title: 'Program' },
+      });
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValue({
+        id: 'old-req',
+        requestedStart: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        status: OneOnOneRequestStatus.PENDING_APPROVAL,
+      });
+      prismaMock.oneOnOneRequest.update.mockResolvedValue({ id: 'old-req', status: OneOnOneRequestStatus.EXPIRED });
+      prismaMock.oneOnOneRequest.create.mockResolvedValue({
+        id: 'new-req',
+        enrolmentId: 'enrol-1',
+        userId: 'user-1',
+        status: OneOnOneRequestStatus.PENDING_APPROVAL,
+      });
+
+      const res = await service.createRequest('user-1', {
+        enrolmentId: 'enrol-1',
+        requestedStart: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        requestedEnd: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString(),
+      });
+
+      expect(prismaMock.oneOnOneRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'old-req' },
+          data: expect.objectContaining({ status: OneOnOneRequestStatus.EXPIRED }),
+        }),
+      );
+      expect(res.id).toBe('new-req');
+    });
+
     it('throws BadRequestException if requestedEnd <= requestedStart', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
         id: 'enrol-1',
@@ -173,6 +223,60 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
           entityId: 'req-1',
         }),
       });
+    });
+
+    it('unblocks 1-on-1 coaching request immediately after passing Final Exam (Post-Exam Milestone) even when Stage 3 cohort attendance is still pending', async () => {
+      // Simulate StageGateService throwing "Stage Locked: Stage 3 (Attendance) must be completed before 1-on-1 coaching call"
+      stageGateServiceMock.assertStageUnlocked.mockRejectedValueOnce(
+        new ForbiddenException(
+          'Stage Locked: Stage 3 (Attendance) must be completed before 1-on-1 coaching call',
+        ),
+      );
+      stageGateServiceMock.evaluateStages.mockResolvedValueOnce({
+        stages: {
+          [LearnerStage.STAGE_2_EXAM]: {
+            isUnlocked: true,
+            isCompleted: true,
+            isOverridden: false,
+            details: { examPassed: true, examScore: 98 },
+          },
+          [LearnerStage.STAGE_3_ATTENDANCE]: {
+            isUnlocked: true,
+            isCompleted: false,
+            isOverridden: false,
+          },
+          [LearnerStage.STAGE_4_ONE_ON_ONE]: {
+            isUnlocked: false,
+            isCompleted: false,
+            isOverridden: false,
+          },
+        },
+      });
+
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: 'user-1',
+        program: { id: 'prog-1', title: '11 Steps Masterclass' },
+      });
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValue(null);
+      prismaMock.oneOnOneRequest.create.mockImplementation(async ({ data }: any) => ({
+        id: 'req-post-exam-1',
+        ...data,
+      }));
+
+      // Also omit requestedEnd to verify duration-free booking defaults cleanly to +45m
+      const res = await service.createRequest('user-1', {
+        enrolmentId: 'enrol-1',
+        requestedStart: '2026-10-28T10:00:00.000Z',
+        learnerTimezone: 'Asia/Calcutta',
+        notes: 'Passed exam with 98%, ready for 1-on-1 coaching!',
+      });
+
+      expect(res.id).toBe('req-post-exam-1');
+      expect(res.status).toBe(OneOnOneRequestStatus.PENDING_APPROVAL);
+      expect(
+        (res.requestedEnd.getTime() - res.requestedStart.getTime()) / 60000,
+      ).toBe(45);
     });
   });
 
@@ -228,6 +332,23 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       await expect(
         service.approveRequest('req-999', 'admin-1', {}),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws BadRequestException if approved session start time is in the past', async () => {
+      prismaMock.oneOnOneRequest.findUnique.mockResolvedValue({
+        id: 'req-past',
+        status: OneOnOneRequestStatus.PENDING_APPROVAL,
+        requestedStart: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        requestedEnd: new Date(Date.now() - 1 * 60 * 60 * 1000),
+        enrolment: { batchId: 'batch-1' },
+      });
+
+      await expect(
+        service.approveRequest('req-past', 'admin-1', {
+          startTime: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          endTime: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('throws ConflictException if host trainer has calendar clash', async () => {

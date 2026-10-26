@@ -3369,16 +3369,11 @@ export interface OneOnOneRequestItem {
 }
 
 export async function fetchOneOnOneRequests(status?: string): Promise<OneOnOneRequestItem[]> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const url = new URL(`${API_URL}/one-on-one/requests`);
   if (status && status !== "ALL") {
     url.searchParams.set("status", status);
   }
-  const res = await fetch(url.toString(), {
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  const res = await cachedFetch(url.toString(), { skipCache: true });
   if (!res.ok) {
     throw new Error(await errorMessage(res, "Failed to fetch 1-on-1 coaching requests"));
   }

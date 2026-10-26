@@ -765,6 +765,33 @@ export class EnrollmentsService {
               createdAt: true,
             },
           },
+          stepProgress: {
+            where: { isCompleted: true },
+            select: { stepId: true, isCompleted: true, completedAt: true },
+          },
+          examAttempts: {
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+            select: { id: true, score: true, passed: true, status: true, completedAt: true },
+          },
+          oneOnOneRequests: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              requestedStart: true,
+              session: { select: { id: true, status: true, startTime: true, joinUrl: true } },
+            },
+          },
+          missionStatements: {
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { id: true, status: true, version: true, reviewedAt: true },
+          },
+          certificate: {
+            select: { id: true, status: true, certificateCode: true, issuedAt: true },
+          },
           _count: {
             select: {
               stepProgress: true,

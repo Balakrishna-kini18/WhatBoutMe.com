@@ -5,6 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./path.module.css";
 import {
+  computeUnifiedJourneyProgress,
+  COACHING_TIME_SLOTS,
+  getUpcomingCoachingDateCards,
+  formatLocalIsoDate,
+  isCoachingSlotInFuture,
+  formatCoachingSlotSummary,
+  buildCoachingRequestPayload,
+} from "./learningPathLogic";
+import {
   API_URL,
   getAuthHeaders,
   getAuthToken,
@@ -244,12 +253,15 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
   // Inline Interactive Drawers for 1-on-1 Coaching & Mission Statement
   const [showCoachingPanel, setShowCoachingPanel] = useState(false);
-  const [preferredDate, setPreferredDate] = useState("");
+  const [preferredDate, setPreferredDate] = useState(
+    () => getUpcomingCoachingDateCards()[0]?.isoDate || ""
+  );
   const [preferredTime, setPreferredTime] = useState("10:00");
-  const [durationMin, setDurationMin] = useState(45);
   const [coachingNotes, setCoachingNotes] = useState("");
   const [submittingCoaching, setSubmittingCoaching] = useState(false);
   const [coachingFeedbackMsg, setCoachingFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [showRescheduleForm, setShowRescheduleForm] = useState(false);
+  const [showReapplyForm, setShowReapplyForm] = useState(false);
 
   const [showMissionPanel, setShowMissionPanel] = useState(false);
   const [selectedMissionFile, setSelectedMissionFile] = useState<File | null>(null);
@@ -301,11 +313,31 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         // Fetch post-curriculum milestone statuses in parallel
         const enrolmentId = data.enrolmentId;
-        const [stagesRes, examRes, coachingRes, missionRes] = await Promise.all([
+        const [stagesRes, examBundle, coachingRes, missionRes] = await Promise.all([
           enrolmentId
             ? fetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, { headers }).catch(() => null)
             : Promise.resolve(null),
-          fetch(`${API_URL}/programs/${id}/exam`, { headers }).catch(() => null),
+          fetch(`${API_URL}/programs/${id}/exam`, { headers })
+            .then(async (eRes) => {
+              if (!eRes || !eRes.ok) return null;
+              const eConfig: ExamConfigSummary = await eRes.json();
+              let eAttempt: ExamAttemptSummary | null = null;
+              if (eConfig?.id) {
+                const attRes = await fetch(`${API_URL}/exams/${eConfig.id}/attempt`, { headers }).catch(() => null);
+                if (attRes && attRes.ok) {
+                  const attText = await attRes.text();
+                  if (attText) {
+                    try {
+                      eAttempt = JSON.parse(attText);
+                    } catch {
+                      // ignore empty JSON
+                    }
+                  }
+                }
+              }
+              return { eConfig, eAttempt };
+            })
+            .catch(() => null),
           fetch(`${API_URL}/one-on-one/my-requests`, { headers }).catch(() => null),
           fetch(`${API_URL}/mission-statements/my-submissions`, { headers }).catch(() => null),
         ]);
@@ -315,21 +347,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           setStagesEval(sData);
         }
 
-        if (examRes && examRes.ok) {
-          const eConfig: ExamConfigSummary = await examRes.json();
-          setExamConfig(eConfig);
-          if (eConfig?.id) {
-            const attRes = await fetch(`${API_URL}/exams/${eConfig.id}/attempt`, { headers }).catch(() => null);
-            if (attRes && attRes.ok) {
-              const attText = await attRes.text();
-              if (attText) {
-                try {
-                  setExamAttempt(JSON.parse(attText));
-                } catch {
-                  // ignore empty JSON
-                }
-              }
-            }
+        if (examBundle?.eConfig) {
+          setExamConfig(examBundle.eConfig);
+          if (examBundle.eAttempt) {
+            setExamAttempt(examBundle.eAttempt);
           }
         }
 
@@ -372,18 +393,17 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
   const handleBookCoaching = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!progression?.enrolmentId) return;
-    if (!preferredDate || !preferredTime) {
-      setCoachingFeedbackMsg({ type: "err", text: "Please select your preferred date and time." });
-      return;
-    }
+    const built = buildCoachingRequestPayload({
+      enrolmentId: progression?.enrolmentId,
+      preferredDate,
+      preferredTime,
+      notes: coachingNotes,
+    });
 
-    const startDate = new Date(`${preferredDate}T${preferredTime}:00`);
-    if (isNaN(startDate.getTime()) || startDate <= new Date()) {
-      setCoachingFeedbackMsg({ type: "err", text: "Please choose a future date and time." });
+    if (!built.ok) {
+      setCoachingFeedbackMsg({ type: "err", text: built.error });
       return;
     }
-    const endDate = new Date(startDate.getTime() + durationMin * 60 * 1000);
 
     setSubmittingCoaching(true);
     setCoachingFeedbackMsg(null);
@@ -394,26 +414,22 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           ...getAuthHeaders(),
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          enrolmentId: progression.enrolmentId,
-          requestedStart: startDate.toISOString(),
-          requestedEnd: endDate.toISOString(),
-          learnerTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          notes: coachingNotes.trim() || undefined,
-        }),
+        body: JSON.stringify(built.payload),
       });
       if (!res.ok) {
         const err = await parseApiError(res, "Could not submit 1-on-1 coaching request");
         throw new Error(err.message);
       }
       const created = await res.json();
-      setCoachingRequests((prev) => [created, ...prev]);
-      setPreferredDate("");
+      setCoachingRequests((prev) => [created, ...prev.filter((r) => r.id !== created.id)]);
       setCoachingNotes("");
+      setShowRescheduleForm(false);
+      setShowReapplyForm(false);
       setCoachingFeedbackMsg({
         type: "ok",
         text: "1-on-1 Coaching request submitted! You will receive a meeting link once approved.",
       });
+      loadProgression(true);
     } catch (err: any) {
       setCoachingFeedbackMsg({ type: "err", text: err.message || "Failed to submit coaching request." });
     } finally {
@@ -484,9 +500,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const isCoachingUnlocked = Boolean(
     (isExamUnlocked && isExamPassed) || stage4State?.isOverridden === true
   );
-  const activeCoachingReq = coachingRequests.find(
+  const coachingRequestsSorted = [...coachingRequests].sort(
+    (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+  const activeCoachingReq = coachingRequestsSorted.find(
     (r) => r.status === "PENDING_APPROVAL" || r.status === "APPROVED"
   );
+  const latestCoachingReq = coachingRequestsSorted[0] || null;
+  const isLatestRejected = !activeCoachingReq && latestCoachingReq?.status === "REJECTED";
   const isCoachingCompleted = Boolean(
     stage4State?.isOverridden === true ||
       Boolean(stage4State?.details?.completedSessionId) ||
@@ -507,10 +528,24 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     allStepsCompleted && isExamPassed && isCoachingCompleted && isMissionApproved
   );
 
+  const journeyProgress = computeUnifiedJourneyProgress({
+    totalSteps: total,
+    completedSteps: done,
+    examPassed: isExamPassed,
+    examScore: examBestScore,
+    coachingCompleted: isCoachingCompleted,
+    coachingStatus: activeCoachingReq?.status ?? latestCoachingReq?.status ?? null,
+    missionApproved: isMissionApproved,
+    missionStatus: latestMission?.status ?? null,
+    curriculumPercent: percent,
+  });
+
+  const displayPercent = journeyProgress.overallJourneyPercent;
+
   // SVG Ring calculation: Radius = 50, Circumference = 2 * pi * 50 = ~314.16
   const RING_RADIUS = 50;
   const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-  const ringOffset = RING_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, percent)) / 100);
+  const ringOffset = RING_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, displayPercent)) / 100);
 
   const isEnrolmentActive = progression?.enrolmentStatus === "ACTIVE";
 
@@ -667,7 +702,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                 {!loading && total > 0 && (
                   <span className={styles.cardMetaBadge}>
                     <span className={styles.cardMetaDot} aria-hidden="true" />
-                    {done} of {total} steps completed
+                    {journeyProgress.summaryLabel}
                   </span>
                 )}
               </div>
@@ -927,6 +962,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           <span className={styles.quizPassedBadge}>✓ Scheduled</span>
                         ) : activeCoachingReq?.status === "PENDING_APPROVAL" ? (
                           <span className={styles.quizRequiredBadge}>Pending Approval</span>
+                        ) : isLatestRejected ? (
+                          <span
+                            className={styles.quizRequiredBadge}
+                            style={{ background: "#fee2e2", color: "#991b1b", borderColor: "#fca5a5" }}
+                          >
+                            Declined · Reapply Available
+                          </span>
                         ) : null}
                       </p>
 
@@ -954,7 +996,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             border: "1px solid #ece4d7",
                           }}
                         >
-                          {activeCoachingReq ? (
+                          {activeCoachingReq && !showRescheduleForm ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                                 <strong style={{ fontSize: "0.9rem", color: "#14110f" }}>
@@ -984,6 +1026,49 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   timeStyle: "short",
                                 })}
                               </div>
+
+                              {/* Alert when requested slot has already passed while pending */}
+                              {activeCoachingReq.status === "PENDING_APPROVAL" &&
+                                new Date(activeCoachingReq.requestedStart).getTime() < Date.now() && (
+                                  <div
+                                    style={{
+                                      marginTop: "0.35rem",
+                                      padding: "0.75rem 0.95rem",
+                                      borderRadius: 8,
+                                      background: "#fffbeb",
+                                      border: "1px solid #fde68a",
+                                      color: "#92400e",
+                                      fontSize: "0.83rem",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "0.45rem",
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                      <span>⚠️ Requested Slot Has Elapsed</span>
+                                    </div>
+                                    <div style={{ lineHeight: 1.45, color: "#78350f" }}>
+                                      The slot you selected has already passed without confirmation. Because past sessions cannot be accepted, please pick a new upcoming date and time.
+                                    </div>
+                                    <div style={{ marginTop: "0.15rem" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowRescheduleForm(true)}
+                                        className={styles.startBtn}
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "0.35rem",
+                                          padding: "0.45rem 0.9rem",
+                                          fontSize: "0.82rem",
+                                        }}
+                                      >
+                                        Pick a New Upcoming Slot &rarr;
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
                               {activeCoachingReq.session?.joinUrl && (
                                 <div>
                                   <a
@@ -998,120 +1083,508 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 </div>
                               )}
                             </div>
-                          ) : (
-                            <form onSubmit={handleBookCoaching} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                              <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "#14110f" }}>
-                                Request Your 1-on-1 Coaching Slot
+                          ) : isLatestRejected && !showReapplyForm ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                                <strong style={{ fontSize: "0.92rem", color: "#991b1b" }}>
+                                  Your Previous Coaching Request Was Declined
+                                </strong>
+                                <span
+                                  style={{
+                                    fontSize: "0.75rem",
+                                    fontWeight: 700,
+                                    padding: "2px 8px",
+                                    borderRadius: 6,
+                                    background: "#fee2e2",
+                                    color: "#991b1b",
+                                    border: "1px solid #fca5a5",
+                                  }}
+                                >
+                                  DECLINED
+                                </span>
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.65rem" }}>
-                                <div>
-                                  <label style={{ display: "block", fontSize: "0.76rem", fontWeight: 700, marginBottom: 4, color: "#4a443d" }}>
-                                    Preferred Date *
-                                  </label>
-                                  <input
-                                    type="date"
-                                    required
-                                    min={new Date().toISOString().split("T")[0]}
-                                    value={preferredDate}
-                                    onChange={(e) => setPreferredDate(e.target.value)}
-                                    style={{
-                                      width: "100%",
-                                      padding: "0.48rem 0.65rem",
-                                      borderRadius: 8,
-                                      border: "1px solid #dcd5cb",
-                                      background: "#ffffff",
-                                      fontSize: "0.84rem",
-                                    }}
-                                  />
+
+                              <div style={{ fontSize: "0.84rem", color: "#4a443d" }}>
+                                <strong>Previous Requested Slot:</strong>{" "}
+                                {new Date(latestCoachingReq.requestedStart).toLocaleString(undefined, {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })}
+                              </div>
+
+                              <div
+                                style={{
+                                  padding: "0.75rem 0.95rem",
+                                  borderRadius: 8,
+                                  background: "#fff1f2",
+                                  border: "1px solid #fecdd3",
+                                  color: "#9f1239",
+                                  fontSize: "0.83rem",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "0.35rem",
+                                }}
+                              >
+                                <div style={{ fontWeight: 700 }}>Note from Instructor:</div>
+                                <div style={{ fontStyle: "italic", color: "#881337" }}>
+                                  &ldquo;{latestCoachingReq.decisionReason || "Instructor is unavailable during this time slot. Please choose another date or time."}&rdquo;
                                 </div>
-                                <div>
-                                  <label style={{ display: "block", fontSize: "0.76rem", fontWeight: 700, marginBottom: 4, color: "#4a443d" }}>
-                                    Preferred Time *
-                                  </label>
-                                  <input
-                                    type="time"
-                                    required
-                                    value={preferredTime}
-                                    onChange={(e) => setPreferredTime(e.target.value)}
+                              </div>
+
+                              <p style={{ margin: 0, fontSize: "0.82rem", color: "#6c6359", lineHeight: 1.4 }}>
+                                You are eligible to choose another upcoming slot and reapply immediately so your session can be scheduled.
+                              </p>
+
+                              <div style={{ marginTop: "0.2rem" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowReapplyForm(true)}
+                                  className={styles.startBtn}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.4rem",
+                                    padding: "0.5rem 1rem",
+                                    fontSize: "0.84rem",
+                                  }}
+                                >
+                                  Choose a New Slot &amp; Reapply &rarr;
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <form
+                              onSubmit={handleBookCoaching}
+                              style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+                            >
+                              {showRescheduleForm && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    padding: "0.5rem 0.75rem",
+                                    borderRadius: 8,
+                                    background: "#fef3c7",
+                                    border: "1px solid #fde68a",
+                                  }}
+                                >
+                                  <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#92400e" }}>
+                                    Select a New Upcoming Slot for Your Coaching Session
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowRescheduleForm(false)}
                                     style={{
-                                      width: "100%",
-                                      padding: "0.48rem 0.65rem",
-                                      borderRadius: 8,
-                                      border: "1px solid #dcd5cb",
                                       background: "#ffffff",
-                                      fontSize: "0.84rem",
-                                    }}
-                                  />
-                                </div>
-                                <div>
-                                  <label style={{ display: "block", fontSize: "0.76rem", fontWeight: 700, marginBottom: 4, color: "#4a443d" }}>
-                                    Duration
-                                  </label>
-                                  <select
-                                    value={durationMin}
-                                    onChange={(e) => setDurationMin(Number(e.target.value))}
-                                    style={{
-                                      width: "100%",
-                                      padding: "0.48rem 0.65rem",
-                                      borderRadius: 8,
-                                      border: "1px solid #dcd5cb",
-                                      background: "#ffffff",
-                                      fontSize: "0.84rem",
+                                      border: "1px solid #d97706",
+                                      borderRadius: 6,
+                                      padding: "3px 8px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                      color: "#92400e",
+                                      cursor: "pointer",
                                     }}
                                   >
-                                    <option value={30}>30 Minutes</option>
-                                    <option value={45}>45 Minutes</option>
-                                    <option value={60}>60 Minutes</option>
-                                  </select>
+                                    ✕ Cancel
+                                  </button>
+                                </div>
+                              )}
+
+                              {showReapplyForm && isLatestRejected && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    padding: "0.55rem 0.8rem",
+                                    borderRadius: 8,
+                                    background: "#fff1f2",
+                                    border: "1px solid #fecdd3",
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontSize: "0.83rem", fontWeight: 700, color: "#9f1239" }}>
+                                      Reapplying for 1-on-1 Coaching
+                                    </div>
+                                    <div style={{ fontSize: "0.75rem", color: "#be123c", marginTop: 1 }}>
+                                      Pick an alternative date &amp; time slot. Your new request will be submitted directly to your instructor.
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowReapplyForm(false)}
+                                    style={{
+                                      background: "#ffffff",
+                                      border: "1px solid #fda4af",
+                                      borderRadius: 6,
+                                      padding: "3px 8px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                      color: "#9f1239",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    ✕ Back
+                                  </button>
+                                </div>
+                              )}
+                              {/* Header & Timezone Pill */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "0.5rem",
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#14110f" }}>
+                                    Request Your 1-on-1 Coaching Slot
+                                  </div>
+                                  <div style={{ fontSize: "0.78rem", color: "#6c6359", marginTop: 2 }}>
+                                    Pick a preferred day and time slot below for your private session.
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    fontSize: "0.72rem",
+                                    fontWeight: 600,
+                                    color: "#574f45",
+                                    background: "#f2ece1",
+                                    border: "1px solid #e3dacb",
+                                    padding: "4px 10px",
+                                    borderRadius: 999,
+                                  }}
+                                >
+                                  Timezone:{" "}
+                                  {typeof Intl !== "undefined"
+                                    ? Intl.DateTimeFormat().resolvedOptions().timeZone || "Local"
+                                    : "Local"}
+                                </span>
+                              </div>
+
+                              {/* 1. Interactive Date Strip + Custom Calendar Option */}
+                              <div
+                                style={{
+                                  background: "#ffffff",
+                                  border: "1px solid #e7dfd3",
+                                  borderRadius: 10,
+                                  padding: "0.85rem",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    flexWrap: "wrap",
+                                    gap: "0.5rem",
+                                    marginBottom: "0.65rem",
+                                  }}
+                                >
+                                  <label
+                                    style={{
+                                      fontSize: "0.78rem",
+                                      fontWeight: 700,
+                                      color: "#14110f",
+                                      letterSpacing: "0.01em",
+                                    }}
+                                  >
+                                    1. Preferred Date *
+                                  </label>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                    <span style={{ fontSize: "0.73rem", color: "#6c6359", fontWeight: 600 }}>
+                                      Other date:
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label="Preferred Date"
+                                      min={formatLocalIsoDate(new Date())}
+                                      value={preferredDate}
+                                      onChange={(e) => {
+                                        setPreferredDate(e.target.value);
+                                        setCoachingFeedbackMsg(null);
+                                      }}
+                                      style={{
+                                        padding: "0.28rem 0.5rem",
+                                        borderRadius: 6,
+                                        border: "1px solid #dcd5cb",
+                                        background: "#faf6f0",
+                                        fontSize: "0.76rem",
+                                        color: "#14110f",
+                                        fontWeight: 600,
+                                        cursor: "pointer",
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(74px, 1fr))",
+                                    gap: "0.45rem",
+                                  }}
+                                >
+                                  {getUpcomingCoachingDateCards().map((card) => {
+                                    const isSelected = preferredDate === card.isoDate;
+                                    return (
+                                      <button
+                                        key={card.isoDate}
+                                        type="button"
+                                        onClick={() => {
+                                          setPreferredDate(card.isoDate);
+                                          setCoachingFeedbackMsg(null);
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          padding: "0.55rem 0.35rem",
+                                          borderRadius: 9,
+                                          border: isSelected
+                                            ? "1.5px solid #c97a1e"
+                                            : "1px solid #e6ded2",
+                                          background: isSelected ? "#14110f" : "#fcfaf7",
+                                          color: isSelected ? "#ffffff" : "#14110f",
+                                          cursor: "pointer",
+                                          transition: "all 0.15s ease",
+                                          boxShadow: isSelected
+                                            ? "0 4px 10px rgba(20, 17, 15, 0.14)"
+                                            : "none",
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontSize: "0.66rem",
+                                            fontWeight: 700,
+                                            textTransform: "uppercase",
+                                            letterSpacing: "0.05em",
+                                            color: isSelected ? "#f5b864" : "#7c7267",
+                                          }}
+                                        >
+                                          {card.isToday
+                                            ? "Today"
+                                            : card.isTomorrow
+                                            ? "Tmrw"
+                                            : card.dayShort}
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: "1.02rem",
+                                            fontWeight: 800,
+                                            lineHeight: 1.25,
+                                            marginTop: 2,
+                                          }}
+                                        >
+                                          {card.dayNumber}
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: "0.68rem",
+                                            fontWeight: 600,
+                                            color: isSelected ? "#d6cec2" : "#6c6359",
+                                          }}
+                                        >
+                                          {card.monthShort}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               </div>
+
+                              {/* 2. Interactive Time Slot Pills (Replaces native browser time popup) */}
+                              <div
+                                style={{
+                                  background: "#ffffff",
+                                  border: "1px solid #e7dfd3",
+                                  borderRadius: 10,
+                                  padding: "0.85rem",
+                                }}
+                              >
+                                <label
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.78rem",
+                                    fontWeight: 700,
+                                    color: "#14110f",
+                                    marginBottom: "0.6rem",
+                                    letterSpacing: "0.01em",
+                                  }}
+                                >
+                                  2. Preferred Time Slot *
+                                </label>
+
+                                <div
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fill, minmax(102px, 1fr))",
+                                    gap: "0.45rem",
+                                  }}
+                                >
+                                  {COACHING_TIME_SLOTS.map((slot) => {
+                                    const isSelected = preferredTime === slot.value;
+                                    const isAvailable = preferredDate
+                                      ? isCoachingSlotInFuture(preferredDate, slot.value)
+                                      : true;
+
+                                    return (
+                                      <button
+                                        key={slot.value}
+                                        type="button"
+                                        disabled={!isAvailable}
+                                        onClick={() => {
+                                          setPreferredTime(slot.value);
+                                          setCoachingFeedbackMsg(null);
+                                        }}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          gap: "0.35rem",
+                                          padding: "0.52rem 0.5rem",
+                                          borderRadius: 8,
+                                          border: isSelected
+                                            ? "1.5px solid #c97a1e"
+                                            : "1px solid #e6ded2",
+                                          background: !isAvailable
+                                            ? "#f5f2ed"
+                                            : isSelected
+                                            ? "#fff7ed"
+                                            : "#fcfaf7",
+                                          color: !isAvailable
+                                            ? "#b3aba0"
+                                            : isSelected
+                                            ? "#9a5209"
+                                            : "#2d2823",
+                                          fontWeight: isSelected ? 700 : 600,
+                                          fontSize: "0.8rem",
+                                          cursor: isAvailable ? "pointer" : "not-allowed",
+                                          transition: "all 0.15s ease",
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            width: 6,
+                                            height: 6,
+                                            borderRadius: "50%",
+                                            background: !isAvailable
+                                              ? "#d4cdc3"
+                                              : isSelected
+                                              ? "#c97a1e"
+                                              : "#cbbba6",
+                                          }}
+                                        />
+                                        {slot.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* 3. Reflection & Questions Textarea */}
                               <div>
-                                <label style={{ display: "block", fontSize: "0.76rem", fontWeight: 700, marginBottom: 4, color: "#4a443d" }}>
-                                  Key Breakthroughs &amp; Questions for Roweena
+                                <label
+                                  style={{
+                                    display: "block",
+                                    fontSize: "0.78rem",
+                                    fontWeight: 700,
+                                    marginBottom: 6,
+                                    color: "#14110f",
+                                  }}
+                                >
+                                  3. Key Breakthroughs &amp; Questions for Roweena{" "}
+                                  <span style={{ fontWeight: 500, color: "#7c7267" }}>(Optional)</span>
                                 </label>
                                 <textarea
                                   rows={2}
                                   value={coachingNotes}
                                   onChange={(e) => setCoachingNotes(e.target.value)}
-                                  placeholder="Share any reflections or questions you'd like to discuss..."
+                                  placeholder="Share any reflections, breakthroughs, or questions you'd like to discuss..."
                                   style={{
                                     width: "100%",
-                                    padding: "0.5rem 0.65rem",
+                                    padding: "0.6rem 0.75rem",
                                     borderRadius: 8,
                                     border: "1px solid #dcd5cb",
                                     background: "#ffffff",
                                     fontSize: "0.84rem",
+                                    color: "#14110f",
+                                    resize: "vertical",
                                   }}
                                 />
                               </div>
+
                               {coachingFeedbackMsg && (
                                 <div
+                                  role="alert"
                                   style={{
-                                    fontSize: "0.8rem",
+                                    fontSize: "0.82rem",
                                     fontWeight: 600,
+                                    padding: "0.55rem 0.75rem",
+                                    borderRadius: 8,
+                                    background:
+                                      coachingFeedbackMsg.type === "ok" ? "#ecfdf5" : "#fef2f2",
+                                    border:
+                                      coachingFeedbackMsg.type === "ok"
+                                        ? "1px solid #a7f3d0"
+                                        : "1px solid #fecaca",
                                     color: coachingFeedbackMsg.type === "ok" ? "#15803d" : "#b91c1c",
                                   }}
                                 >
                                   {coachingFeedbackMsg.text}
                                 </div>
                               )}
-                              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowCoachingPanel(false)}
-                                  className={styles.reviewBtn}
-                                  style={{ cursor: "pointer" }}
-                                >
-                                  Close
-                                </button>
-                                <button
-                                  type="submit"
-                                  disabled={submittingCoaching}
-                                  className={styles.startBtn}
-                                  style={{ cursor: "pointer" }}
-                                >
-                                  {submittingCoaching ? "Submitting..." : "Submit Booking Request"}
-                                </button>
+
+                              {/* Summary Bar + Action Buttons */}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "0.75rem",
+                                  paddingTop: "0.25rem",
+                                }}
+                              >
+                                <div style={{ fontSize: "0.8rem", color: "#4a443d" }}>
+                                  {preferredDate && preferredTime ? (
+                                    <>
+                                      <span style={{ color: "#7c7267", fontWeight: 600 }}>
+                                        Selected Slot:{" "}
+                                      </span>
+                                      <strong style={{ color: "#14110f" }}>
+                                        {formatCoachingSlotSummary(preferredDate, preferredTime)}
+                                      </strong>
+                                    </>
+                                  ) : (
+                                    <span style={{ color: "#7c7267" }}>
+                                      Select a date and time slot above
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowCoachingPanel(false)}
+                                    className={styles.reviewBtn}
+                                    style={{ cursor: "pointer" }}
+                                  >
+                                    Close
+                                  </button>
+                                  <button
+                                    type="submit"
+                                    disabled={submittingCoaching}
+                                    className={styles.startBtn}
+                                    style={{ cursor: "pointer" }}
+                                  >
+                                    {submittingCoaching ? "Submitting..." : "Submit Booking Request"}
+                                  </button>
+                                </div>
                               </div>
                             </form>
                           )}
@@ -1418,7 +1891,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     height="128"
                     viewBox="0 0 120 120"
                     role="img"
-                    aria-label={`${percent}% overall course completion`}
+                    aria-label={`${displayPercent}% overall learning path completion`}
                   >
                     <circle
                       className={styles.ringTrack}
@@ -1446,12 +1919,36 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       y="67"
                       textAnchor="middle"
                     >
-                      {percent}%
+                      {displayPercent}%
                     </text>
                   </svg>
-                  <p className={styles.progressCount}>
-                    {done} of {total} steps completed
+                  <p className={styles.progressCount} style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text-primary)", margin: "0.5rem 0 0.15rem" }}>
+                    {journeyProgress.completedMilestones} of {journeyProgress.totalMilestones} milestones completed
                   </p>
+                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: "0 0 0.85rem" }}>
+                    {done} of {total} curriculum modules completed
+                  </p>
+
+                  <div style={{ width: "100%", borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: "0.65rem", display: "flex", flexDirection: "column", gap: "0.4rem", textAlign: "left", fontSize: "0.8rem" }}>
+                    {journeyProgress.milestones.map((m) => (
+                      <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: m.isCompleted ? "#166534" : "var(--text-secondary)" }}>
+                          <span style={{ fontWeight: 700 }}>{m.isCompleted ? "✓" : m.isUnlocked ? "⏳" : "🔒"}</span>
+                          <span style={{ fontSize: "0.78rem" }}>{m.title}</span>
+                        </span>
+                        <span style={{
+                          fontSize: "0.72rem",
+                          fontWeight: 600,
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          background: m.isCompleted ? "#dcfce7" : m.isUnlocked ? "#fef9c3" : "#f3f4f6",
+                          color: m.isCompleted ? "#166534" : m.isUnlocked ? "#854d0e" : "#64748b",
+                        }}>
+                          {m.statusLabel}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </section>

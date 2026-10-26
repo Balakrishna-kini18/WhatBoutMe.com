@@ -185,7 +185,7 @@ export class ContactController {
       return {
         success: true,
         inquiryType: 'COURSE',
-        leadId: lead.id,
+        leadId: lead?.id,
         courseId,
         courseTitle,
         triggerDiscoveryCall: true,
@@ -301,7 +301,7 @@ export class ContactController {
     return {
       success: true,
       inquiryType: 'GENERAL',
-      leadId: lead.id,
+      leadId: lead?.id,
       conversationId: conversation.id,
       message: 'Your message has been sent to our team. We will respond shortly.',
     };

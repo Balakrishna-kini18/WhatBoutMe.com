@@ -12,6 +12,8 @@ import {
   type MissionStatementItem,
 } from "../lib/api";
 import { CustomSelect, StatusBadge, Modal, LearnerPortalFlow } from "../components";
+import CoachingApprovalsTab from "./components/CoachingApprovalsTab";
+import { fetchOneOnOneRequests } from "../lib/api";
 
 interface Batch {
   id: string;
@@ -160,7 +162,26 @@ const DEFAULT_RUBRIC: RubricScoreItem[] = [
 ];
 
 export default function ApprovalsPage() {
-  const [activeTab, setActiveTab] = useState<"certificates" | "oral" | "missions">("certificates");
+  const [activeTab, setActiveTab] = useState<"certificates" | "coaching" | "missions" | "oral">("certificates");
+  const [pendingCoachingCount, setPendingCoachingCount] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const tabParam = searchParams.get("tab");
+      if (tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral") {
+        setActiveTab(tabParam as any);
+      }
+    }
+
+    fetchOneOnOneRequests("PENDING_APPROVAL")
+      .then((reqs) => {
+        if (Array.isArray(reqs)) {
+          setPendingCoachingCount(reqs.length);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Common notification state
   const [pageError, setPageError] = useState<string | null>(null);
@@ -726,6 +747,16 @@ export default function ApprovalsPage() {
               </svg>
               <span>Issue Certificates</span>
             </Link>
+          ) : activeTab === "coaching" ? (
+            <Link href="/meetings" className={styles.primaryBtn} style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span>Open Admin Calendar &rarr;</span>
+            </Link>
           ) : activeTab === "oral" ? (
             <button
               type="button"
@@ -802,6 +833,40 @@ export default function ApprovalsPage() {
         </div>
       )}
 
+      {pendingCoachingCount > 0 && activeTab !== "coaching" && (
+        <div style={{
+          background: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: "1rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1rem",
+        }}>
+          <span style={{ fontSize: "0.88rem", color: "#92400e", fontWeight: 600 }}>
+            ⚡ You have {pendingCoachingCount} pending 1-on-1 Coaching Session request{pendingCoachingCount > 1 ? "s" : ""} awaiting review &amp; slot scheduling.
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveTab("coaching")}
+            style={{
+              background: "#b8860b",
+              color: "#ffffff",
+              border: "none",
+              padding: "6px 14px",
+              borderRadius: 6,
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Review Coaching Requests &rarr;
+          </button>
+        </div>
+      )}
+
       {/* Primary Tab Bar */}
       <div style={{
         display: "flex",
@@ -839,6 +904,39 @@ export default function ApprovalsPage() {
               borderRadius: "10px"
             }}>
               {pendingCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("coaching")}
+          style={{
+            background: "transparent",
+            border: "none",
+            borderBottom: activeTab === "coaching" ? "3px solid #b8860b" : "3px solid transparent",
+            padding: "8px 18px",
+            fontSize: "0.95rem",
+            fontWeight: activeTab === "coaching" ? 700 : 500,
+            color: activeTab === "coaching" ? "var(--text-primary)" : "var(--text-muted)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <span>1-on-1 Coaching (Stage 4)</span>
+          {pendingCoachingCount > 0 && (
+            <span style={{
+              background: "#b8860b",
+              color: "#ffffff",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: "10px"
+            }}>
+              {pendingCoachingCount}
             </span>
           )}
         </button>
@@ -907,6 +1005,14 @@ export default function ApprovalsPage() {
           )}
         </button>
       </div>
+
+            {activeTab === "coaching" && (
+        <CoachingApprovalsTab
+          onError={(msg) => setPageError(msg)}
+          onSuccess={(msg) => setPageSuccess(msg)}
+          onPendingCountChange={(cnt) => setPendingCoachingCount(cnt)}
+        />
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           TAB 1: CERTIFICATE APPROVALS QUEUE & ELIGIBILITY GATE

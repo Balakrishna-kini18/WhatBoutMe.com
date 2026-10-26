@@ -31,6 +31,14 @@ export class ZoomWebhookController {
       throw new HttpException('Webhook configuration error', HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
+    // Replay attack prevention: timestamp must be within 5 minutes (300 seconds)
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tsSec = parseInt(timestamp, 10);
+    if (isNaN(tsSec) || Math.abs(nowSec - tsSec) > 300) {
+      this.logger.warn(`Zoom webhook timestamp expired or out of tolerance: ts=${timestamp}, now=${nowSec}`);
+      throw new HttpException('Webhook timestamp expired', HttpStatus.UNAUTHORIZED);
+    }
+
     // Zoom requires validating the signature:
     // message = 'v0' + ':' + request_timestamp + ':' + request_body
     // hash = hmac_sha256(secret_token, message)
@@ -39,8 +47,10 @@ export class ZoomWebhookController {
     const hash = crypto.createHmac('sha256', secretToken).update(message).digest('hex');
     const expectedSignature = `v0=${hash}`;
 
-    if (signature !== expectedSignature) {
-      this.logger.warn(`Invalid Zoom webhook signature. Expected ${expectedSignature}, got ${signature}`);
+    const sigBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expectedSignature);
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+      this.logger.warn(`Invalid Zoom webhook signature.`);
       throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
     }
 

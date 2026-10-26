@@ -100,6 +100,8 @@ export class BatchAttendanceController {
         joinTimeUtc: att?.joinTime ? att.joinTime.toISOString() : null,
         leaveTimeUtc: att?.leaveTime ? att.leaveTime.toISOString() : null,
         minutesPresent: att?.minutesPresent ?? att?.durationMin ?? 0,
+        liveMinutes: att?.liveMinutes ?? null,
+        recordedMinutes: att?.recordedMinutes ?? null,
         attendancePercentage:
           att?.attendancePercentage ??
           (att?.minutesPresent && session.durationMinutes
@@ -119,6 +121,7 @@ export class BatchAttendanceController {
         startTimeUtc: session.startTime.toISOString(),
         endTimeUtc: session.endTime.toISOString(),
         durationMinutes: session.durationMinutes || 60,
+        minAttendanceMinutes: session.minAttendanceMinutes ?? null,
         meetingProvider: session.meetingProvider,
         meetingLink: session.meetingLink || session.joinUrl,
         recordingLink: session.recordingLink || session.recordingUrl,
@@ -130,7 +133,9 @@ export class BatchAttendanceController {
           l.status === AttendanceStatus.PRESENT ||
           l.status === AttendanceStatus.PRESENT_AUTO ||
           l.status === AttendanceStatus.PRESENT_MANUAL ||
-          l.status === AttendanceStatus.CORRECTED,
+          l.status === AttendanceStatus.CORRECTED ||
+          l.status === (AttendanceStatus as any).PRESENT_LIVE ||
+          l.status === (AttendanceStatus as any).PRESENT_RECORDED,
       ).length,
       learners,
     };

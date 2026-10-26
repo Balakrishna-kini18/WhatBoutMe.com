@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import styles from "./attendance.module.css";
+
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -564,14 +566,12 @@ export default function AttendancePage() {
                                 <span>{isLive ? "Join Now" : "Join Class"}</span>
                               </a>
                             ) : s.recordingUrl ? (
-                              <a
-                                href={s.recordingUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              <Link
+                                href={`/sessions/${s.id}/recording`}
                                 className={styles.recordingLink}
                               >
-                                Recording
-                              </a>
+                                Watch Recording
+                              </Link>
                             ) : null}
                           </div>
                         );

@@ -49,26 +49,6 @@ export default function ProgramStepsLoading() {
               <div className="skeleton" style={{ width: 140, height: 14, borderRadius: 4 }} />
             </div>
           </section>
-
-          {/* Up Next Skeleton */}
-          <section className={styles.upNextCard} style={{ background: "var(--text-primary)" }}>
-            <div className="skeleton" style={{ width: 60, height: 12, marginBottom: 12, borderRadius: 4, background: "rgba(255,255,255,0.15)" }} />
-            <div className="skeleton" style={{ width: "70%", height: 22, marginBottom: 8, borderRadius: 6, background: "rgba(255,255,255,0.2)" }} />
-            <div className="skeleton" style={{ width: "40%", height: 14, marginBottom: 18, borderRadius: 4, background: "rgba(255,255,255,0.15)" }} />
-            <div className="skeleton" style={{ width: "100%", height: 38, borderRadius: 8, background: "rgba(255,255,255,0.2)" }} />
-          </section>
-
-          {/* How It Works Skeleton */}
-          <section className={styles.card}>
-            <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
-              <div className="skeleton" style={{ width: 100, height: 20, borderRadius: 6 }} />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div className="skeleton" style={{ width: "90%", height: 14, borderRadius: 4 }} />
-              <div className="skeleton" style={{ width: "80%", height: 14, borderRadius: 4 }} />
-              <div className="skeleton" style={{ width: "85%", height: 14, borderRadius: 4 }} />
-            </div>
-          </section>
         </aside>
       </div>
     </div>

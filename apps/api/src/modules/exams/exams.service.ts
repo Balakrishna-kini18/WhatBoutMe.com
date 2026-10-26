@@ -2,11 +2,16 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import {
   AttemptStatus,
+  ContentStatus,
   EnrolmentStatus,
+  LearnerStage,
   QuestionType,
   Role,
 } from '@prisma/client';
@@ -14,15 +19,40 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { ProgressionService } from '../progression/progression.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
-import { StartExamDto, SubmitExamDto, ResetExamAttemptsDto } from './dto/index.js';
+import {
+  StartExamDto,
+  SubmitExamDto,
+  ResetExamAttemptsDto,
+  CreateExamDto,
+  UpdateExamDto,
+  SaveExamAnswersDto,
+} from './dto/index.js';
 
 @Injectable()
-export class ExamsService {
+export class ExamsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ExamsService.name);
+  private sweepTimer: NodeJS.Timeout | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheHelper: CacheHelperService,
     private readonly progressionService: ProgressionService,
   ) {}
+
+  onModuleInit() {
+    this.sweepTimer = setInterval(() => {
+      this.finalizeExpiredAttempts().catch((err) => {
+        this.logger.error(`Expired exam attempts sweep failed: ${err.message}`);
+      });
+    }, 60000);
+  }
+
+  onModuleDestroy() {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. GET EXAM CONFIGURATION
@@ -201,14 +231,30 @@ export class ExamsService {
     // ── Question Pool Resolution ──────────────────────────────────────────────
     const stepIds = exam.program.steps.map((s) => s.id);
 
-    const candidateQuestions = await this.prisma.question.findMany({
-      where: {
+    // Dedicated pool: when linked banks exist for this exam, use them directly
+    const linkedBanks = this.prisma.questionBank?.findMany
+      ? await this.prisma.questionBank.findMany({
+          where: { examId: exam.id },
+          select: { id: true },
+        })
+      : [];
+
+    let poolCondition: any;
+    if (linkedBanks && linkedBanks.length > 0) {
+      const bankIds = linkedBanks.map((b) => b.id);
+      poolCondition = { questionBankId: { in: bankIds } };
+    } else {
+      poolCondition = {
         OR: [
           { stepId: { in: stepIds } },
           { questionBank: { stepId: { in: stepIds } } },
           { quiz: { stepId: { in: stepIds } } },
         ],
-      },
+      };
+    }
+
+    const candidateQuestions = await this.prisma.question.findMany({
+      where: poolCondition,
       include: {
         options: {
           select: { id: true, text: true, imageUrl: true, order: true },
@@ -277,22 +323,43 @@ export class ExamsService {
     });
 
     const startedAt = new Date();
-    const createdAttempt = await this.prisma.examAttempt.create({
-      data: {
-        id: newAttemptId,
-        enrolmentId: enrolment.id,
-        examId: exam.id,
-        attemptNumber: nextAttemptNumber,
-        status: AttemptStatus.IN_PROGRESS,
-        startedAt,
-        answers: {
-          boundQuestions,
-          boundQuestionIds: sampledQuestions.map((q) => q.id),
-        } as any,
-      },
-    });
+    const timeLimitMin = exam.timeLimitMin || 90;
+    const expiresAt = new Date(startedAt.getTime() + timeLimitMin * 60 * 1000);
 
-    return this.formatExamAttemptResponse(createdAttempt, exam);
+    try {
+      const createdAttempt = await this.prisma.examAttempt.create({
+        data: {
+          id: newAttemptId,
+          enrolmentId: enrolment.id,
+          examId: exam.id,
+          attemptNumber: nextAttemptNumber,
+          status: AttemptStatus.IN_PROGRESS,
+          startedAt,
+          expiresAt,
+          answers: {
+            boundQuestions,
+            boundQuestionIds: sampledQuestions.map((q) => q.id),
+          } as any,
+        },
+      });
+
+      return this.formatExamAttemptResponse(createdAttempt, exam);
+    } catch (error: any) {
+      // Handle race condition: two parallel start calls computed the same attemptNumber
+      if (error?.code === 'P2002') {
+        const existingAttempt = await this.prisma.examAttempt.findFirst({
+          where: {
+            enrolmentId: enrolment.id,
+            examId: exam.id,
+            status: AttemptStatus.IN_PROGRESS,
+          },
+        });
+        if (existingAttempt) {
+          return this.formatExamAttemptResponse(existingAttempt, exam);
+        }
+      }
+      throw error;
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -539,6 +606,17 @@ export class ExamsService {
           },
         },
       });
+
+      // Stage Hook: If exam is passed, set examPassedAt and advance learner progression stage
+      if (passed && tx.enrolment?.update) {
+        await tx.enrolment.update({
+          where: { id: attempt.enrolmentId },
+          data: {
+            examPassedAt: now,
+            currentStage: LearnerStage.STAGE_3_ATTENDANCE,
+          },
+        }).catch(() => {});
+      }
     });
 
     const maxAttempts = exam.maxAttempts || 3;
@@ -833,6 +911,201 @@ export class ExamsService {
       },
       orderBy: { attemptNumber: 'desc' },
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. ADMIN CONFIGURATION (CREATE, UPDATE, PUBLISH) & AUTOSAVE ANSWERS
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async createExam(dto: CreateExamDto, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const program = await this.prisma.program.findUnique({
+      where: { id: dto.programId },
+    });
+    if (!program) throw new NotFoundException('Program not found');
+
+    const existing = await this.prisma.exam.findFirst({
+      where: { programId: dto.programId },
+    });
+
+    if (existing) {
+      return this.updateExam(existing.id, dto, actor);
+    }
+
+    return this.prisma.exam.create({
+      data: {
+        programId: dto.programId,
+        title: dto.title,
+        description: dto.description,
+        questionCount: dto.questionCount ?? 50,
+        passMark: dto.passMark ?? 75,
+        timeLimitMin: dto.timeLimitMin ?? 90,
+        maxAttempts: dto.maxAttempts ?? 3,
+        cooldownHours: dto.cooldownHours ?? 24,
+        shuffleQuestions: dto.shuffleQuestions ?? true,
+        retryGuidance: dto.retryGuidance,
+        status: ContentStatus.DRAFT,
+      },
+    });
+  }
+
+  async updateExam(id: string, dto: UpdateExamDto, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const exam = await this.prisma.exam.findUnique({ where: { id } });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    return this.prisma.exam.update({
+      where: { id },
+      data: {
+        title: dto.title ?? exam.title,
+        description: dto.description !== undefined ? dto.description : exam.description,
+        questionCount: dto.questionCount ?? exam.questionCount,
+        passMark: dto.passMark ?? exam.passMark,
+        timeLimitMin: dto.timeLimitMin ?? exam.timeLimitMin,
+        maxAttempts: dto.maxAttempts ?? exam.maxAttempts,
+        cooldownHours: dto.cooldownHours ?? exam.cooldownHours,
+        shuffleQuestions: dto.shuffleQuestions ?? exam.shuffleQuestions,
+        retryGuidance: dto.retryGuidance !== undefined ? dto.retryGuidance : exam.retryGuidance,
+      },
+    });
+  }
+
+  async publishExam(id: string, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const exam = await this.prisma.exam.findUnique({
+      where: { id },
+      include: {
+        program: {
+          include: {
+            steps: { select: { id: true } },
+          },
+        },
+      },
+    });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    // Calculate active pool size
+    const linkedBanks = this.prisma.questionBank?.findMany
+      ? await this.prisma.questionBank.findMany({
+          where: { examId: exam.id },
+          select: { id: true },
+        })
+      : [];
+
+    let poolCondition: any;
+    if (linkedBanks && linkedBanks.length > 0) {
+      const bankIds = linkedBanks.map((b) => b.id);
+      poolCondition = { questionBankId: { in: bankIds } };
+    } else {
+      const stepIds = exam.program.steps.map((s) => s.id);
+      poolCondition = {
+        OR: [
+          { stepId: { in: stepIds } },
+          { questionBank: { stepId: { in: stepIds } } },
+          { quiz: { stepId: { in: stepIds } } },
+        ],
+      };
+    }
+
+    const candidateCount = await this.prisma.question.count({
+      where: poolCondition,
+    });
+
+    const requiredCount = exam.questionCount || 50;
+    if (candidateCount < requiredCount) {
+      throw new BadRequestException(
+        `Cannot publish exam: Active question pool (${candidateCount}) is less than required question count (${requiredCount})`,
+      );
+    }
+
+    return this.prisma.exam.update({
+      where: { id },
+      data: { status: ContentStatus.PUBLISHED },
+    });
+  }
+
+  async saveExamAnswers(examId: string, dto: SaveExamAnswersDto, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const enrolment = await this.prisma.enrolment.findFirst({
+      where: { userId: actorId, programId: exam.programId },
+    });
+    if (!enrolment) throw new NotFoundException('Enrolment not found');
+
+    const attempt = await this.prisma.examAttempt.findFirst({
+      where: {
+        enrolmentId: enrolment.id,
+        examId: exam.id,
+        status: AttemptStatus.IN_PROGRESS,
+      },
+    });
+    if (!attempt) throw new NotFoundException('No active in-progress attempt found');
+
+    const timeLimitMin = exam.timeLimitMin || 90;
+    const expiresAt =
+      attempt.expiresAt ??
+      new Date(attempt.startedAt.getTime() + timeLimitMin * 60 * 1000);
+
+    if (new Date() > expiresAt) {
+      throw new BadRequestException('Exam attempt has expired');
+    }
+
+    const currentAnswers = (attempt.answers as any) || {};
+    await this.prisma.examAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        answers: {
+          ...currentAnswers,
+          savedAnswers: dto.answers,
+        },
+      },
+    });
+
+    return { success: true, savedAt: new Date() };
+  }
+
+  async finalizeExpiredAttempts(): Promise<number> {
+    const now = new Date();
+    const expiredAttempts = await this.prisma.examAttempt.findMany({
+      where: {
+        status: AttemptStatus.IN_PROGRESS,
+        expiresAt: { lte: now },
+      },
+      take: 50,
+    });
+
+    let count = 0;
+    for (const attempt of expiredAttempts) {
+      try {
+        const answersJson = (attempt.answers as any) || {};
+        const savedAnswers = answersJson.savedAnswers || [];
+        await this.submitExam(
+          attempt.examId,
+          { attemptId: attempt.id, answers: savedAnswers },
+          { id: 'system', sub: 'system', role: Role.SUPER_ADMIN },
+        );
+        count++;
+      } catch (err: any) {
+        await this.prisma.examAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            status: AttemptStatus.FAILED,
+            completedAt: now,
+          },
+        }).catch(() => {});
+      }
+    }
+    return count;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

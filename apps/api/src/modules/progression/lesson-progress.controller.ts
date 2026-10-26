@@ -40,6 +40,9 @@ export class LessonProgressController {
       dto.positionSec,
       dto.videoDurationSec,
       dto.isEnded,
+      dto.fromSec,
+      dto.toSec,
+      dto.deltaWatchedSec,
     );
   }
 

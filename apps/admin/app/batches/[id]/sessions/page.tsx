@@ -38,6 +38,7 @@ interface Session {
   title: string;
   sessionType: "GROUP_COHORT" | "ONE_ON_ONE";
   capacity: number;
+  minAttendanceMinutes?: number | null;
   status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "RESCHEDULED";
   startTime: string;
   endTime: string;
@@ -91,6 +92,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
   const [sessionStartTime, setSessionStartTime] = useState("10:00");
   const [sessionEndTime, setSessionEndTime] = useState("11:00");
   const [capacity, setCapacity] = useState<number>(50);
+  const [minAttendanceMinutes, setMinAttendanceMinutes] = useState<number | "">("");
   const [joinUrl, setJoinUrl] = useState("");
   const [recordingUrl, setRecordingUrl] = useState("");
   const [quizId, setQuizId] = useState("");
@@ -190,6 +192,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     setSessionStartTime("10:00");
     setSessionEndTime("11:00");
     setCapacity(batch?.capacity || 50);
+    setMinAttendanceMinutes("");
     setHostTrainerId(batch?.managerId || "");
     setJoinUrl("");
     setRecordingUrl("");
@@ -208,6 +211,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     setSessionStartTime(startT);
     setSessionEndTime(endT);
     setCapacity(s.capacity);
+    setMinAttendanceMinutes(s.minAttendanceMinutes ?? "");
     setHostTrainerId(s.hostTrainer?.id || "");
     setJoinUrl(s.joinUrl || "");
     setRecordingUrl(s.recordingUrl || "");
@@ -330,6 +334,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
         endTime: end.toISOString(),
         sessionType,
         capacity: sessionType === "ONE_ON_ONE" ? 1 : Number(capacity),
+        minAttendanceMinutes: minAttendanceMinutes !== "" ? Number(minAttendanceMinutes) : undefined,
         joinUrl: joinUrl.trim() || undefined,
         recordingUrl: recordingUrl.trim() || undefined,
         quizId: quizId || undefined,
@@ -998,6 +1003,33 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                   onChange={(e) => setRecordingUrl(e.target.value)}
                 />
               </div>
+
+              {/* Minimum Attendance Minutes */}
+              <div className={styles.formGroup}>
+                <label>Minimum Attendance Minutes (Optional)</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 45 (defaults to cohort % threshold)"
+                  value={minAttendanceMinutes}
+                  onChange={(e) =>
+                    setMinAttendanceMinutes(
+                      e.target.value === "" ? "" : parseInt(e.target.value, 10) || ""
+                    )
+                  }
+                />
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "0.8rem",
+                    color: "var(--text-secondary)",
+                    marginTop: "0.25rem",
+                  }}
+                >
+                  * Custom minutes threshold required to satisfy session attendance (live + recorded).
+                </span>
+              </div>
+
 
               {/* Post-Session Quiz */}
               <div className={styles.formGroup}>

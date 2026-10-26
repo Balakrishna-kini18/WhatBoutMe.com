@@ -30,6 +30,12 @@ export default function CreateProgramPage() {
     earlyBirdCurrency?: "USD" | "AED" | "INR" | null;
     earlyBirdDeadline?: string | null;
     hasCertificate?: boolean;
+    requireExam?: boolean;
+    requireCoaching?: boolean;
+    requireMissionStatement?: boolean;
+    sequentialProgressionEnabled?: boolean;
+    attendanceRequired?: boolean;
+    attendanceThreshold?: number;
     faqs?: Array<{
       id?: string;
       question: string;
@@ -68,6 +74,12 @@ export default function CreateProgramPage() {
         earlyBirdCurrency: updatedData.earlyBirdCurrency || null,
         earlyBirdDeadline: updatedData.earlyBirdDeadline ? new Date(updatedData.earlyBirdDeadline).toISOString() : null,
         hasCertificate: Boolean(updatedData.hasCertificate),
+        requireExam: updatedData.requireExam !== undefined ? Boolean(updatedData.requireExam) : true,
+        requireCoaching: updatedData.requireCoaching !== undefined ? Boolean(updatedData.requireCoaching) : true,
+        requireMissionStatement: updatedData.requireMissionStatement !== undefined ? Boolean(updatedData.requireMissionStatement) : true,
+        sequentialProgressionEnabled: updatedData.sequentialProgressionEnabled !== undefined ? Boolean(updatedData.sequentialProgressionEnabled) : true,
+        attendanceRequired: updatedData.attendanceRequired !== undefined ? Boolean(updatedData.attendanceRequired) : true,
+        attendanceThreshold: updatedData.attendanceThreshold !== undefined ? Number(updatedData.attendanceThreshold) : 80,
         shortDescription: updatedData.shortDescription || "",
         thumbnailUrl: updatedData.thumbnailUrl || "",
         category: updatedData.category || "",

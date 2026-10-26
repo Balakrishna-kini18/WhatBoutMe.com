@@ -3,13 +3,21 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Request,
 } from '@nestjs/common';
 import { ExamsService } from './exams.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
-import { StartExamDto, SubmitExamDto, ResetExamAttemptsDto } from './dto/index.js';
+import {
+  StartExamDto,
+  SubmitExamDto,
+  ResetExamAttemptsDto,
+  CreateExamDto,
+  UpdateExamDto,
+  SaveExamAnswersDto,
+} from './dto/index.js';
 
 @Controller()
 export class ExamsController {
@@ -63,6 +71,47 @@ export class ExamsController {
     @Request() req: any,
   ) {
     return this.examsService.getActiveAttempt(id, req?.user);
+  }
+
+  @Patch('exams/:id/attempt/answers')
+  saveAnswers(
+    @Param('id') id: string,
+    @Body() dto: SaveExamAnswersDto,
+    @Request() req: any,
+  ) {
+    return this.examsService.saveExamAnswers(id, dto, req?.user);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. ADMIN EXAM BUILDER & PUBLISHING
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams')
+  createExam(
+    @Body() dto: CreateExamDto,
+    @Request() req: any,
+  ) {
+    return this.examsService.createExam(dto, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Patch('exams/:id')
+  updateExam(
+    @Param('id') id: string,
+    @Body() dto: UpdateExamDto,
+    @Request() req: any,
+  ) {
+    return this.examsService.updateExam(id, dto, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams/:id/publish')
+  publishExam(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.publishExam(id, req?.user);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

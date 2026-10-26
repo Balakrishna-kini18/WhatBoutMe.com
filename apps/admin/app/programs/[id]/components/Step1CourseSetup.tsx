@@ -26,6 +26,12 @@ interface Step1CourseSetupProps {
     earlyBirdCurrency?: "USD" | "AED" | "INR" | null;
     earlyBirdDeadline?: string | null;
     hasCertificate?: boolean;
+    requireExam?: boolean;
+    requireCoaching?: boolean;
+    requireMissionStatement?: boolean;
+    sequentialProgressionEnabled?: boolean;
+    attendanceRequired?: boolean;
+    attendanceThreshold?: number;
     faqs?: Array<{
       id?: string;
       question: string;
@@ -272,6 +278,12 @@ export default function Step1CourseSetup({
       earlyBirdCurrency,
       earlyBirdDeadline,
       hasCertificate,
+      requireExam: programData?.requireExam !== false,
+      requireCoaching: programData?.requireCoaching !== false,
+      requireMissionStatement: programData?.requireMissionStatement !== false,
+      sequentialProgressionEnabled: programData?.sequentialProgressionEnabled !== false,
+      attendanceRequired: programData?.attendanceRequired !== false,
+      attendanceThreshold: programData?.attendanceThreshold ?? 80,
       faqs: cleanedFaqs,
     });
   };

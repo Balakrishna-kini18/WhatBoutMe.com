@@ -138,12 +138,14 @@ export class CertificatesController {
   issueForBatch(
     @Param('batchId') batchId: string,
     @Body('includeUnfinished') includeUnfinished: unknown,
+    @Body('reason') reason: string | undefined,
     @Request() req: any,
   ) {
     return this.certificatesService.issueForBatch(
       batchId,
       includeUnfinished === true,
       req.user,
+      reason,
     );
   }
 

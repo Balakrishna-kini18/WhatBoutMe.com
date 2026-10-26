@@ -1352,9 +1352,27 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
     describe('Video and Audio Heartbeat Tracking (POST /progress/lessons/:lessonId/heartbeat)', () => {
       it('calculates 50% watch progress and stores viewed=false for video halfway watched', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
-        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 45.0,
+          lastPositionSec: 135,
+          watchedRanges: [[0, 135]],
+          lastHeartbeatAt: new Date(Date.now() - 10000),
+          viewed: false,
+          completedAt: null,
+        });
 
-        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 150);
+        const res = await service.recordMediaProgress(
+          'lesson-video-1',
+          learnerUser,
+          150,
+          undefined,
+          false,
+          135,
+          150,
+        );
 
         expect(res.lessonId).toBe('lesson-video-1');
         expect(res.enrolmentId).toBe('enrol-1');
@@ -1383,9 +1401,28 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
 
       it('awards completion (viewed=true) and sets completedAt when video reaches 90% threshold', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
-        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 85.0,
+          lastPositionSec: 255,
+          watchedRanges: [[0, 255]],
+          lastHeartbeatAt: new Date(Date.now() - 10000),
+          viewed: false,
+          completedAt: null,
+        });
 
-        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 270);
+        // 255s -> 270s completes the remaining 15s to reach 270s (90% of 300s)
+        const res = await service.recordMediaProgress(
+          'lesson-video-1',
+          learnerUser,
+          270,
+          undefined,
+          false,
+          255,
+          270,
+        );
 
         expect(res.progressPercent).toBe(90.0);
         expect(res.viewed).toBe(true);
@@ -1394,10 +1431,28 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
 
       it('does NOT award completion when video is strictly below the 90% threshold (e.g., 89.9%)', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
-        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 85.0,
+          lastPositionSec: 255,
+          watchedRanges: [[0, 255]],
+          lastHeartbeatAt: new Date(Date.now() - 10000),
+          viewed: false,
+          completedAt: null,
+        });
 
         // 300s * 0.899 = 269.7s
-        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 269.7);
+        const res = await service.recordMediaProgress(
+          'lesson-video-1',
+          learnerUser,
+          269.7,
+          undefined,
+          false,
+          255,
+          269.7,
+        );
 
         expect(res.progressPercent).toBeCloseTo(89.9, 1);
         expect(res.viewed).toBe(false);
@@ -1406,36 +1461,71 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
 
       it('awards completion exactly at the 90.0% boundary', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
-        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 85.0,
+          lastPositionSec: 255,
+          watchedRanges: [[0, 255]],
+          lastHeartbeatAt: new Date(Date.now() - 10000),
+          viewed: false,
+          completedAt: null,
+        });
 
         // 300s * 0.900 = 270s
-        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 270.0);
+        const res = await service.recordMediaProgress(
+          'lesson-video-1',
+          learnerUser,
+          270.0,
+          undefined,
+          false,
+          255,
+          270.0,
+        );
 
         expect(res.progressPercent).toBe(90.0);
         expect(res.viewed).toBe(true);
         expect(res.completedAt).toBeInstanceOf(Date);
       });
 
-      it('handles skip to the end (e.g. 100% position immediately)', async () => {
+      it('blocks instant skip to the end (does NOT award completion on unwatched jump)', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
         prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
 
         // Skipped directly to 300s without prior heartbeats
         const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 300.0);
 
-        expect(res.progressPercent).toBe(100.0);
-        expect(res.viewed).toBe(true);
-        expect(res.completedAt).toBeInstanceOf(Date);
+        // Clamped by server rate limiter (e.g. initial segment <= 33s)
+        expect(res.progressPercent).toBeLessThan(90.0);
+        expect(res.viewed).toBe(false);
+        expect(res.completedAt).toBeNull();
       });
-
-
 
       it('awards completion for audio when reaching 90% threshold', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockAudioLesson);
-        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-audio-1',
+          progressPercent: 82.5,
+          lastPositionSec: 165,
+          watchedRanges: [[0, 165]],
+          lastHeartbeatAt: new Date(Date.now() - 10000),
+          viewed: false,
+          completedAt: null,
+        });
 
         // 180s / 200s = 90%
-        const res = await service.recordMediaProgress('lesson-audio-1', learnerUser, 180);
+        const res = await service.recordMediaProgress(
+          'lesson-audio-1',
+          learnerUser,
+          180,
+          undefined,
+          false,
+          165,
+          180,
+        );
 
         expect(res.progressPercent).toBe(90.0);
         expect(res.viewed).toBe(true);
@@ -1467,7 +1557,7 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         expect(res.viewed).toBe(false);
       });
 
-      it('clamps impossible position beyond lesson duration to durationSec', async () => {
+      it('blocks impossible position (9999s) and does not award completion on unwatched jump', async () => {
         prismaMock.lesson.findUnique.mockResolvedValue(mockVideoLesson);
         prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
 
@@ -1475,8 +1565,8 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
         const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 9999);
 
         expect(res.lastPositionSec).toBe(300);
-        expect(res.progressPercent).toBe(100.0);
-        expect(res.viewed).toBe(true);
+        expect(res.progressPercent).toBeLessThan(90.0);
+        expect(res.viewed).toBe(false);
       });
 
       it('enforces monotonic progress percent during rewinds while updating lastPositionSec', async () => {
@@ -1669,7 +1759,17 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
           },
         };
         prismaMock.lesson.findUnique.mockResolvedValue(step2Lesson);
-        prismaMock.userLessonProgress.findUnique.mockResolvedValue(null);
+        prismaMock.userLessonProgress.findUnique.mockResolvedValue({
+          id: 'ulp-1',
+          enrolmentId: 'enrol-1',
+          lessonId: 'lesson-video-1',
+          progressPercent: 45.0,
+          lastPositionSec: 135,
+          watchedRanges: [[0, 135]],
+          lastHeartbeatAt: new Date(Date.now() - 10000),
+          viewed: false,
+          completedAt: null,
+        });
 
         // Step 2 is MANUAL_UNLOCKED
         prismaMock.stepProgress.findMany.mockResolvedValue([
@@ -1681,7 +1781,15 @@ describe('D1-033: ProgressionService - Hybrid Sequential & Cohort Schedule Engin
           },
         ]);
 
-        const res = await service.recordMediaProgress('lesson-video-1', learnerUser, 150);
+        const res = await service.recordMediaProgress(
+          'lesson-video-1',
+          learnerUser,
+          150,
+          undefined,
+          false,
+          135,
+          150,
+        );
         expect(res.progressPercent).toBe(50.0);
       });
     });

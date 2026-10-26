@@ -5,15 +5,18 @@ import {
   OnModuleDestroy,
   Inject,
   Optional,
+  forwardRef,
 } from '@nestjs/common';
 import {
   SessionStatus,
+  SessionType,
   NotificationChannel,
   DeliveryStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { EmailService } from '../email/email.service.js';
+import { StageGateService } from '../progression/stage-gate.service.js';
 import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.interface.js';
 import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.interface.js';
 import { toTimezone, resolveTimezone } from '../../common/timezone/timezone.util.js';
@@ -23,6 +26,7 @@ export interface SessionLifecycleStats {
   completedCount: number;
   reminders24hSent: number;
   reminders1hSent: number;
+  reminders10mSent: number;
 }
 
 @Injectable()
@@ -37,6 +41,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
     private readonly emailService: EmailService,
     @Optional() @Inject(MEETING_PROVIDER) private readonly meetingProvider: any,
     @Optional() @Inject(CALENDAR_PROVIDER) private readonly calendarProvider: any,
+    @Optional() @Inject(forwardRef(() => StageGateService)) private readonly stageGateService?: StageGateService,
   ) {}
 
   onModuleInit() {
@@ -71,7 +76,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
    */
   async processLifecycleTransitions(): Promise<SessionLifecycleStats> {
     if (this.isProcessing) {
-      return { activatedCount: 0, completedCount: 0, reminders24hSent: 0, reminders1hSent: 0 };
+      return { activatedCount: 0, completedCount: 0, reminders24hSent: 0, reminders1hSent: 0, reminders10mSent: 0 };
     }
     this.isProcessing = true;
 
@@ -80,6 +85,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       completedCount: 0,
       reminders24hSent: 0,
       reminders1hSent: 0,
+      reminders10mSent: 0,
     };
 
     const now = new Date();
@@ -87,14 +93,14 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
     try {
       // ── Step 1: Transition SCHEDULED -> ACTIVE ───────────────────────────
       // Sessions whose start time has arrived but end time is still in the future
-      const sessionsToActivate = await this.prisma.session.findMany({
+      const sessionsToActivate = (await this.prisma.session.findMany({
         where: {
           status: SessionStatus.SCHEDULED,
           startTime: { lte: now },
           endTime: { gt: now },
         },
         select: { id: true, title: true, startTime: true, endTime: true },
-      });
+      })) || [];
 
       for (const s of sessionsToActivate) {
         try {
@@ -128,7 +134,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       // End time has passed (plus 5-minute safety grace to avoid cutting off active attendees)
       const completionThreshold = new Date(now.getTime() - 5 * 60 * 1000);
 
-      const sessionsToComplete = await this.prisma.session.findMany({
+      const sessionsToComplete = (await this.prisma.session.findMany({
         where: {
           status: { in: [SessionStatus.ACTIVE, SessionStatus.SCHEDULED] },
           endTime: { lte: completionThreshold },
@@ -136,7 +142,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
         include: {
           hostTrainer: { select: { id: true, email: true, name: true } },
         },
-      });
+      })) || [];
 
       for (const s of sessionsToComplete) {
         try {
@@ -174,7 +180,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       const window24hStart = new Date(now.getTime() + 2 * 60 * 60 * 1000);
       const window24hEnd = new Date(now.getTime() + 26 * 60 * 60 * 1000);
 
-      const sessionsFor24hReminder = await this.prisma.session.findMany({
+      const sessionsFor24hReminder = (await this.prisma.session.findMany({
         where: {
           status: SessionStatus.SCHEDULED,
           startTime: { gte: window24hStart, lte: window24hEnd },
@@ -194,7 +200,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
             },
           },
         },
-      });
+      })) || [];
 
       for (const session of sessionsFor24hReminder) {
         const recipients = this.extractSessionRecipients(session);
@@ -209,7 +215,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       const window1hStart = now;
       const window1hEnd = new Date(now.getTime() + 75 * 60 * 1000);
 
-      const sessionsFor1hReminder = await this.prisma.session.findMany({
+      const sessionsFor1hReminder = (await this.prisma.session.findMany({
         where: {
           status: SessionStatus.SCHEDULED,
           startTime: { gte: window1hStart, lte: window1hEnd },
@@ -229,13 +235,48 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
             },
           },
         },
-      });
+      })) || [];
 
       for (const session of sessionsFor1hReminder) {
         const recipients = this.extractSessionRecipients(session);
         for (const recipient of recipients) {
           const sent = await this.sendReminderNotification(session, recipient, '1 hour');
           if (sent) stats.reminders1hSent++;
+        }
+      }
+
+      // ── Step 5: Send 10-minute Session Reminders ──────────────────────────
+      // Window: now up to 15 minutes ahead (recovers missed reminders, deduplicated)
+      const window10mStart = now;
+      const window10mEnd = new Date(now.getTime() + 15 * 60 * 1000);
+
+      const sessionsFor10mReminder = (await this.prisma.session.findMany({
+        where: {
+          status: SessionStatus.SCHEDULED,
+          startTime: { gte: window10mStart, lte: window10mEnd },
+        },
+        include: {
+          learner: { select: { id: true, email: true, name: true, timezone: true } },
+          bookings: {
+            where: { status: { in: ['BOOKED', 'CONFIRMED'] } },
+            include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
+          },
+          batch: {
+            include: {
+              enrolments: {
+                where: { status: 'ACTIVE' },
+                include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
+              },
+            },
+          },
+        },
+      })) || [];
+
+      for (const session of sessionsFor10mReminder) {
+        const recipients = this.extractSessionRecipients(session);
+        for (const recipient of recipients) {
+          const sent = await this.sendReminderNotification(session, recipient, '10 minutes');
+          if (sent) stats.reminders10mSent++;
         }
       }
     } finally {
@@ -286,6 +327,63 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
     } catch (err: any) {
       this.logger.warn(`Could not pull recording for session ${session.id}: ${err.message}`);
     }
+
+    // 3. Post-session 1-on-1 progression completion check
+    await this.handle1on1Completion(session);
+  }
+
+  /**
+   * Automatically marks 1-on-1 session completion on learner enrolment and triggers stage gate evaluation.
+   */
+  private async handle1on1Completion(session: any) {
+    try {
+      const is1on1 =
+        session.sessionType === SessionType.ONE_ON_ONE ||
+        session.sessionType === SessionType.ONE_ON_ONE_WITH_RO ||
+        Boolean(session.learnerId);
+
+      if (!is1on1) return;
+
+      let learnerUserId = session.learnerId;
+      if (!learnerUserId && session.bookings && session.bookings.length > 0) {
+        learnerUserId = session.bookings[0].userId;
+      }
+
+      if (!learnerUserId) {
+        const booking = await this.prisma.sessionBooking.findFirst({
+          where: { sessionId: session.id },
+          select: { userId: true },
+        });
+        learnerUserId = booking?.userId;
+      }
+
+      if (!learnerUserId) return;
+
+      const enrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          userId: learnerUserId,
+          status: { in: ['ACTIVE', 'COMPLETED'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (enrolment && !enrolment.oneOnOneCompletedAt) {
+        const completedAt = session.endTime || new Date();
+        await this.prisma.enrolment.update({
+          where: { id: enrolment.id },
+          data: { oneOnOneCompletedAt: completedAt },
+        });
+        this.logger.log(`Set oneOnOneCompletedAt for enrolment ${enrolment.id} via session ${session.id}`);
+
+        if (this.stageGateService) {
+          await Promise.resolve(this.stageGateService.evaluateStages(enrolment.id)).catch((err: any) =>
+            this.logger.warn(`Failed evaluating stages after 1-on-1 session completion: ${err?.message}`),
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed handling 1-on-1 completion for session ${session.id}: ${err?.message}`);
+    }
   }
 
   /**
@@ -318,16 +416,18 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Sends a 24-hour or 1-hour session reminder email, deduplicated by Notification record.
+   * Sends a 24-hour, 1-hour, or 10-minute session reminder email, deduplicated by Notification record.
    */
   private async sendReminderNotification(
     session: any,
     recipient: { id: string; email: string; name: string | null; timezone: string | null },
-    timeframe: '24 hours' | '1 hour',
+    timeframe: '24 hours' | '1 hour' | '10 minutes',
   ): Promise<boolean> {
     const notificationType = timeframe === '24 hours'
       ? `SESSION_REMINDER_24H:${session.id}`
-      : `SESSION_REMINDER_1H:${session.id}`;
+      : timeframe === '1 hour'
+      ? `SESSION_REMINDER_1H:${session.id}`
+      : `SESSION_REMINDER_10M:${session.id}`;
 
     // Deduplication check
     const existing = await this.prisma.notification.findFirst({

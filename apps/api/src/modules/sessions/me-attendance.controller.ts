@@ -90,7 +90,9 @@ export class MeAttendanceController {
         (att.status === AttendanceStatus.PRESENT ||
           att.status === AttendanceStatus.PRESENT_AUTO ||
           att.status === AttendanceStatus.PRESENT_MANUAL ||
-          att.status === AttendanceStatus.CORRECTED);
+          att.status === AttendanceStatus.CORRECTED ||
+          att.status === (AttendanceStatus as any).PRESENT_LIVE ||
+          att.status === (AttendanceStatus as any).PRESENT_RECORDED);
 
       if (isPresent) attendedCount++;
 
@@ -103,11 +105,14 @@ export class MeAttendanceController {
         startTimeUtc: session.startTime.toISOString(),
         endTimeUtc: session.endTime.toISOString(),
         durationMinutes: session.durationMinutes || 60,
+        minAttendanceMinutes: session.minAttendanceMinutes ?? null,
         meetingProvider: session.meetingProvider,
         joinUrl: session.joinUrl || session.meetingLink,
         recordingUrl: session.recordingUrl || session.recordingLink,
         status: att?.status ?? AttendanceStatus.ABSENT,
         minutesPresent: att?.minutesPresent ?? att?.durationMin ?? 0,
+        liveMinutes: att?.liveMinutes ?? null,
+        recordedMinutes: att?.recordedMinutes ?? null,
         attendancePercentage: att?.attendancePercentage ?? 0,
         source: att?.source ?? 'AUTO',
         joinTimeUtc: att?.joinTime ? att.joinTime.toISOString() : null,

@@ -59,7 +59,7 @@ export class AttendanceComplianceService {
           not: SessionStatus.CANCELLED
         }
       },
-      select: { id: true }
+      select: { id: true, durationMinutes: true, minAttendanceMinutes: true }
     });
 
     const requiredSessionCount = requiredSessions.length;
@@ -75,6 +75,10 @@ export class AttendanceComplianceService {
     }
 
     // 2. Evaluate attendance against those required sessions
+    const sessionMap = new Map<string, (typeof requiredSessions)[0]>();
+    for (const s of requiredSessions) {
+      sessionMap.set(s.id, s);
+    }
     const sessionIds = requiredSessions.map(s => s.id);
     
     const attendances = await this.prisma.attendance.findMany({
@@ -87,12 +91,30 @@ export class AttendanceComplianceService {
     let attendedSessionCount = 0;
 
     for (const record of attendances) {
-      if (
+      const isPresentStatus =
+        record.status === AttendanceStatus.PRESENT ||
         record.status === AttendanceStatus.PRESENT_AUTO ||
         record.status === AttendanceStatus.PRESENT_MANUAL ||
-        record.status === AttendanceStatus.CORRECTED
-      ) {
+        record.status === AttendanceStatus.CORRECTED ||
+        record.status === (AttendanceStatus as any).PRESENT_LIVE ||
+        record.status === (AttendanceStatus as any).PRESENT_RECORDED;
+
+      if (isPresentStatus) {
         attendedSessionCount++;
+        continue;
+      }
+
+      // Hybrid minutes evaluation (D4: Cumulative live + recorded minutes >= session threshold)
+      const session = sessionMap.get(record.sessionId);
+      if (session && (record.liveMinutes != null || record.recordedMinutes != null)) {
+        const totalMinutes = (record.liveMinutes ?? 0) + (record.recordedMinutes ?? 0);
+        const durationMin = session.durationMinutes || 60;
+        const requiredSessionMinutes =
+          session.minAttendanceMinutes ?? Math.round((durationMin * threshold) / 100);
+
+        if (totalMinutes >= requiredSessionMinutes && requiredSessionMinutes > 0) {
+          attendedSessionCount++;
+        }
       }
     }
 

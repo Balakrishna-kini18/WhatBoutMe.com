@@ -447,7 +447,7 @@ export class CertificatesService {
     try {
       await Promise.race([
         this.certificatesQueue.add('generate-certificate', {
-          certificateId: issuedCert.id,
+          certificateId: id,
         }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Queue timeout (2s)')), 2000),
@@ -667,7 +667,24 @@ export class CertificatesService {
   }
 
   // 8. Admin: Issue for entire batch
-  async issueForBatch(batchId: string, includeUnfinished: boolean, actorUser: any) {
+  async issueForBatch(batchId: string, includeUnfinished: boolean, actorUser: any, reason?: string) {
+    const actorId = actorUser.sub || actorUser.userId || actorUser.id;
+    const actorRole = actorUser.role;
+
+    // D8: Restrict includeUnfinished bypass to SUPER_ADMIN with mandatory reason
+    if (includeUnfinished) {
+      if (actorRole !== 'SUPER_ADMIN') {
+        throw new ForbiddenException(
+          'Only SUPER_ADMIN can issue certificates for learners with incomplete stages',
+        );
+      }
+      if (!reason || reason.trim().length === 0) {
+        throw new BadRequestException(
+          'A mandatory reason is required when issuing certificates for unfinished learners',
+        );
+      }
+    }
+
     const batch = await this.prisma.batch.findUnique({ where: { id: batchId } });
     if (!batch) throw new NotFoundException('Batch not found');
 
@@ -695,6 +712,22 @@ export class CertificatesService {
           notFinished.push(enrolment.user.name || enrolment.user.email);
           continue;
         }
+      } else {
+        // Log STAGE_UNLOCK_OVERRIDE for each bypassed learner
+        await this.prisma.auditLog.create({
+          data: {
+            actorId,
+            action: 'STAGE_UNLOCK_OVERRIDE',
+            entity: 'Certificate',
+            entityId: enrolment.id,
+            meta: {
+              batchId,
+              userId: enrolment.userId,
+              reason: reason!.trim(),
+              includeUnfinished: true,
+            },
+          },
+        });
       }
 
       const code = await this.generateUniqueCertificateCode();

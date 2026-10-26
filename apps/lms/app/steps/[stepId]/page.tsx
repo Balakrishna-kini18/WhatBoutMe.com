@@ -393,7 +393,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Video Heartbeat
   const sendMediaHeartbeat = useCallback(
-    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number, deltaWatchedSec?: number) => {
+    async (
+      lessonId: string,
+      positionSec: number,
+      isEnded = false,
+      videoDurationSec?: number,
+      deltaWatchedSec?: number,
+      fromSec?: number,
+      toSec?: number,
+    ) => {
       if (isHeartbeatInFlightRef.current && !isEnded) return;
       isHeartbeatInFlightRef.current = true;
 
@@ -404,6 +412,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           headers: getAuthHeaders(),
           body: JSON.stringify({
             positionSec,
+            fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
+            toSec: toSec ?? positionSec,
             videoDurationSec: dur > 0 ? dur : undefined,
             isEnded,
             deltaWatchedSec,
@@ -413,7 +423,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         if (res.ok) {
           const data = await res.json();
           setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
-          if (data.isCompleted || isEnded) {
+          if (data.isCompleted || data.viewed || isEnded) {
             invalidateCache("/progression");
             invalidateCache("/progress");
             fetchStepAndProgression();
@@ -877,8 +887,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         userEmail={userEmail}
                         durationSec={currentMedia.durationSec || 0}
                         initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
-                        onHeartbeat={(pos, ended, dur, delta) =>
-                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta)
+                        onHeartbeat={(pos, ended, dur, delta, from, to) =>
+                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to)
                         }
                         onComplete={() => handleLessonComplete(currentMedia.id)}
                       />

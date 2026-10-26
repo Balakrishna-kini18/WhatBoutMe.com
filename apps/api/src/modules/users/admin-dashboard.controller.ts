@@ -173,23 +173,27 @@ export class AdminDashboardController {
         this.prisma.enrolment.findMany({
           select: { program: { select: { id: true, title: true } } },
         }),
-        this.prisma.auditLog.findMany({
-          where: {
-            entity: { not: 'UserSession' },
-            action: { notIn: ['LOGOUT', 'LOGIN', 'REFRESH_TOKEN'] },
-          },
-          take: 8,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            actorId: true,
-            action: true,
-            entity: true,
-            entityId: true,
-            meta: true,
-            createdAt: true,
-          },
-        }).catch(() => []),
+        typeof this.prisma.auditLog?.findMany === 'function'
+          ? this.prisma.auditLog
+              .findMany({
+                where: {
+                  entity: { not: 'UserSession' },
+                  action: { notIn: ['LOGOUT', 'LOGIN', 'REFRESH_TOKEN'] },
+                },
+                take: 8,
+                orderBy: { createdAt: 'desc' },
+                select: {
+                  id: true,
+                  actorId: true,
+                  action: true,
+                  entity: true,
+                  entityId: true,
+                  meta: true,
+                  createdAt: true,
+                },
+              })
+              .catch(() => [])
+          : Promise.resolve([]),
       ]);
 
       // Financial calculations: recognize only PAID invoices, subtracting any credit notes/refunds

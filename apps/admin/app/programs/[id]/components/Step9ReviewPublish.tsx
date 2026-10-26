@@ -421,9 +421,9 @@ export default function Step9ReviewPublish({
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Enrollment</span>
+                  <span style={{ color: "#78716a", fontWeight: 500 }}>Enrolment</span>
                   <span style={{ fontWeight: 600, color: "#14110f" }}>
-                    Paid Enrollment • Lifetime Access
+                    Paid Enrolment • Lifetime Access
                   </span>
                 </div>
               </div>

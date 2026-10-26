@@ -1615,6 +1615,7 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([actorId])
   @@index([createdAt])
+  @@index([action, createdAt(sort: Desc)])
 }
 
 model Lead {

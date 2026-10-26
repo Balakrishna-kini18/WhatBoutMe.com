@@ -3,7 +3,9 @@
 import styles from "./page.module.css";
 import Image from "next/image";
 import Link from "next/link";
-import { API_URL } from "./lib/api";
+import { SITE_URL } from "./lib/site";
+import { API_URL, renewOnce } from "./lib/api";
+import { courseImageFor } from "./lib/courseImage";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
@@ -61,17 +63,48 @@ export default function LearnerDashboard() {
         setLoading(true);
       }
 
-      const authHeaders = { Authorization: `Bearer ${token}` };
+      let currentToken = token;
+      let authHeaders = { Authorization: `Bearer ${currentToken}` };
 
       try {
-        const res = await fetch(`${API_URL}/auth/me`, {
+        let res = await fetch(`${API_URL}/auth/me`, {
           headers: authHeaders,
         });
 
         if (res.status === 401) {
-          localStorage.removeItem("token");
-          router.push("/login");
-          return;
+          const refreshToken = localStorage.getItem("refresh_token");
+          if (refreshToken) {
+            const renewed = await renewOnce(fetch, currentToken);
+            if (renewed && renewed !== "signed-out") {
+              currentToken = renewed;
+              authHeaders = { Authorization: `Bearer ${renewed}` };
+              const retryRes = await fetch(`${API_URL}/auth/me`, {
+                headers: authHeaders,
+              });
+              if (retryRes.ok) {
+                res = retryRes;
+              } else if (retryRes.status === 401) {
+                localStorage.removeItem("token");
+                localStorage.removeItem("refresh_token");
+                router.push("/login");
+                return;
+              }
+            } else if (renewed === null) {
+              // Server unreachable or transient network failure: do NOT sign out!
+              if (isInitial) setLoadError(true);
+              return;
+            } else {
+              // Definitively signed out
+              localStorage.removeItem("token");
+              localStorage.removeItem("refresh_token");
+              router.push("/login");
+              return;
+            }
+          } else {
+            localStorage.removeItem("token");
+            router.push("/login");
+            return;
+          }
         }
 
         if (!res.ok) {

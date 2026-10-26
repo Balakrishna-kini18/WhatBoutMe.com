@@ -5,6 +5,7 @@ import { useEffect, useState, FormEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
+import { useAuth } from "../AuthProvider";
 
 // demo logins come from the environment or default to canonical seeded development accounts
 const QUICK = [
@@ -29,6 +30,7 @@ interface PendingSession {
     email: string;
     name?: string;
     role: string;
+    permissions?: string[];
   };
 }
 
@@ -40,6 +42,7 @@ interface SetupData {
 
 export default function AdminLogin() {
   const router = useRouter();
+  const { login } = useAuth();
 
   // Login form state
   const [email, setEmail] = useState("");
@@ -66,16 +69,14 @@ export default function AdminLogin() {
     };
   }, []);
 
-  // Commit session securely to localStorage without exposing sensitive 2FA artifacts
+  // Commit session securely to localStorage and synchronously update AuthProvider state
   const commitSession = (session: PendingSession) => {
     if (!session.access_token) return;
-    localStorage.setItem("token", session.access_token);
-    if (session.refresh_token) {
-      localStorage.setItem("refresh_token", session.refresh_token);
-    }
-    if (session.user) {
-      localStorage.setItem("user", JSON.stringify(session.user));
-    }
+    login({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      user: session.user as any,
+    });
   };
 
   // Step 1: Handle initial admin login

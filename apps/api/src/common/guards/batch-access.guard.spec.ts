@@ -401,15 +401,14 @@ describe('D1-028: BatchAccessGuard - Manager / Trainer Batch Scoping', () => {
     });
 
     it('sets metadata correctly via RequireBatchAccess / BatchAccess decorators', () => {
-      class TestController {
-        @RequireBatchAccess('customCohort')
+      class TestDecoratorController {
         handlerA() {}
-
-        @BatchAccess()
         handlerB() {}
       }
+      RequireBatchAccess('customCohort')(TestDecoratorController.prototype, 'handlerA', Object.getOwnPropertyDescriptor(TestDecoratorController.prototype, 'handlerA')!);
+      BatchAccess()(TestDecoratorController.prototype, 'handlerB', Object.getOwnPropertyDescriptor(TestDecoratorController.prototype, 'handlerB')!);
 
-      const instance = new TestController();
+      const instance = new TestDecoratorController();
       const metaA = Reflect.getMetadata(BATCH_ACCESS_PARAM_KEY, instance.handlerA);
       const metaB = Reflect.getMetadata(BATCH_ACCESS_PARAM_KEY, instance.handlerB);
 

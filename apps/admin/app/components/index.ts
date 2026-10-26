@@ -29,3 +29,6 @@ export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 
 export { AgreementMarkdown } from "./AgreementMarkdown";
+
+export { Pagination } from "./Pagination";
+export type { PaginationProps } from "./Pagination";

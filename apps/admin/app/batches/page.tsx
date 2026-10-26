@@ -329,7 +329,7 @@ function BatchesContent() {
         method: "DELETE",
       });
       if (res.ok || res.status === 404) {
-        toastSuccess(`Cohort batch "${batchToDelete.name}" deleted successfully.`);
+        toastSuccess(`Batch "${batchToDelete.name}" deleted successfully.`);
         setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);
         fetchBatches();
@@ -416,10 +416,10 @@ function BatchesContent() {
     <div className={styles.dashboardContainer}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches & Cohorts"}</h1>
+          <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches"}</h1>
           {/* {isManager && (
             <p className={styles.subtitle}>
-              View and manage sessions, attendance, and learners in your cohorts.
+              View and manage sessions, attendance, and learners in your batches.
             </p>
           )} */}
         </div>
@@ -563,7 +563,7 @@ function BatchesContent() {
                 <th>Program</th>
                 <th>Manager</th>
                 <th>Start Date</th>
-                <th>Students</th>
+                <th>Learners</th>
                 <th>Status</th>
                 <th
                   className={styles.alignRight}
@@ -600,8 +600,8 @@ function BatchesContent() {
                       title="No batches found"
                       description={
                         search
-                          ? `No cohorts match "${search}". Try adjusting your search query or filters.`
-                          : "Get started by launching a cohort batch for an active program."
+                           ? `No batches match "${search}". Try adjusting your search query or filters.`
+                           : "Get started by launching a batch for an active program."
                       }
                       actionLabel={!isManager ? "Create Batch" : undefined}
                       actionHref={!isManager ? "/batches/create" : undefined}
@@ -913,7 +913,7 @@ function BatchesContent() {
                   <label>Batch Name</label>
                   <input
                     type="text"
-                    placeholder="e.g. Winter Cohort 2026"
+                    placeholder="e.g. Winter Batch 2026"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -1073,7 +1073,7 @@ function BatchesContent() {
                           lineHeight: 1.45,
                         }}
                       >
-                        Learners in this cohort will have the Certificate milestone at the end of their curriculum (just like Apna College) and unlock it upon completing all activities.
+                        Learners in this batch will have the Certificate milestone at the end of their curriculum (just like Apna College) and unlock it upon completing all activities.
                       </p>
                     </div>
                   </label>
@@ -1113,9 +1113,9 @@ function BatchesContent() {
           if (!isDeletingBatch) setBatchToDelete(null);
         }}
         onConfirm={confirmDeleteBatch}
-        title="Delete Cohort Batch?"
+        title="Delete Batch?"
         subtitle={batchToDelete?.name}
-        description="Are you sure you want to delete this cohort batch? This will permanently delete the batch schedule and associated sessions."
+        description="Are you sure you want to delete this batch? This will permanently delete the batch schedule and associated sessions."
         tone="danger"
         confirmText={isDeletingBatch ? "Deleting..." : "Delete Batch"}
         cancelText="Cancel"
@@ -1124,9 +1124,9 @@ function BatchesContent() {
         itemDetails={
           batchToDelete
             ? [
-                { label: "Cohort Name", value: batchToDelete.name },
+                { label: "Batch Name", value: batchToDelete.name },
                 { label: "Program", value: batchToDelete.program },
-                { label: "Enrolled Students", value: batchToDelete.students },
+                { label: "Enrolled Learners", value: batchToDelete.students },
                 { label: "Status", value: batchToDelete.status },
               ]
             : []
@@ -1135,8 +1135,8 @@ function BatchesContent() {
           tone: "warning",
           text:
             batchToDelete && batchToDelete.students > 0
-              ? `Caution: This cohort has ${batchToDelete.students} enrolled learner(s). Deleting it will permanently remove the cohort batch and associated records.`
-              : "Permanent action: This empty cohort batch will be permanently removed.",
+              ? `Caution: This batch has ${batchToDelete.students} enrolled learner(s). Deleting it will permanently remove the batch and associated records.`
+              : "Permanent action: This empty batch will be permanently removed.",
         }}
       />
     </div>

@@ -1,14 +1,18 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { DM_Sans, Playfair_Display, Caveat } from "next/font/google";
+import { Playfair_Display, Caveat } from "next/font/google";
 import "./globals.css";
 import styles from "./layout.module.css";
 import LmsSidebar from "./LmsSidebar";
 import AuthProvider from "./AuthProvider";
 import LmsMain from "./LmsMain";
 
-// WhatBoutMe brand fonts
-const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap" });
+// WhatBoutMe brand fonts - DM Sans loaded locally to guarantee identical font rendering across portals
+const dmSans = localFont({
+  src: "./fonts/DMSans-Variable.woff2",
+  variable: "--font-dm-sans",
+  display: "swap",
+});
 const playfair = Playfair_Display({ subsets: ["latin"], variable: "--font-playfair", display: "swap" });
 const caveat = Caveat({ subsets: ["latin"], variable: "--font-caveat", display: "swap" });
 

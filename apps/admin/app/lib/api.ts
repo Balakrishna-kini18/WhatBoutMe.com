@@ -3190,6 +3190,129 @@ export async function publishExam(examId: string): Promise<ExamConfig> {
   return res.json();
 }
 
+export interface ExamQuestionOption {
+  id?: string;
+  text: string;
+  imageUrl?: string | null;
+  isCorrect: boolean;
+  order?: number;
+}
+
+export interface ExamQuestionItem {
+  id: string;
+  questionBankId?: string | null;
+  stepId?: string | null;
+  text: string;
+  type: "MULTIPLE_CHOICE" | "MULTI_SELECT" | "SHORT_ANSWER" | "TEXT_BOX";
+  points: number;
+  imageUrl?: string | null;
+  explanation?: string | null;
+  gradingMode?: string | null;
+  minCharacters?: number | null;
+  options: ExamQuestionOption[];
+  step?: { id: string; sequence: number; title: string } | null;
+}
+
+export interface ExamQuestionsPoolResponse {
+  exam: ExamConfig;
+  questionBankId: string;
+  dedicatedPoolCount: number;
+  fallbackStepPoolCount: number;
+  totalPoolCount: number;
+  recommendedPoolSize: number;
+  questionsPerAttempt: number;
+  totalMarks: number;
+  questions: ExamQuestionItem[];
+}
+
+export async function fetchProgramExamQuestions(programId: string): Promise<ExamQuestionsPoolResponse> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/programs/${programId}/exam/questions`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to load exam question pool"));
+  }
+  return res.json();
+}
+
+export async function createExamQuestion(
+  examId: string,
+  payload: Partial<ExamQuestionItem>
+): Promise<ExamQuestionItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to create exam question"));
+  }
+  return res.json();
+}
+
+export async function bulkCreateExamQuestions(
+  examId: string,
+  questions: Array<Partial<ExamQuestionItem>>
+): Promise<{ createdCount: number; questionBankId: string; questions: ExamQuestionItem[] }> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions/bulk`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ questions }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to bulk create exam questions"));
+  }
+  return res.json();
+}
+
+export async function updateExamQuestion(
+  examId: string,
+  questionId: string,
+  payload: Partial<ExamQuestionItem>
+): Promise<ExamQuestionItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions/${questionId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to update exam question"));
+  }
+  return res.json();
+}
+
+export async function deleteExamQuestion(
+  examId: string,
+  questionId: string
+): Promise<{ success: boolean; deletedId: string }> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions/${questionId}`, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to delete exam question"));
+  }
+  return res.json();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STAGE 4: 1-ON-1 REQUESTS & APPROVALS (PHASE 4)
 // ─────────────────────────────────────────────────────────────────────────────

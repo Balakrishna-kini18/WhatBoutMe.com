@@ -810,20 +810,20 @@ export default function ExamPage({
               <p style={{ color: "#15803d", fontSize: "1rem", margin: "0 0 1.5rem" }}>
                 Server Verified Score: <strong>{result.score}%</strong> (Required: {result.passMark}%)
               </p>
-              <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
                 <Link
-                  href="/certificates"
+                  href={`/programs/${config?.programId || paramId}/steps`}
                   style={{
-                    backgroundColor: "#166534",
+                    backgroundColor: "#c97a1e",
                     color: "white",
                     padding: "10px 24px",
-                    borderRadius: "6px",
+                    borderRadius: "8px",
                     textDecoration: "none",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     fontSize: "0.95rem",
                   }}
                 >
-                  View Your Certificate →
+                  Continue to 1-on-1 Coaching &amp; Learning Path →
                 </Link>
               </div>
             </>
@@ -943,10 +943,10 @@ export default function ExamPage({
         >
           <div>
             <span style={{ fontSize: "0.8rem", color: "#64748b", display: "block" }}>
-              Total Questions
+              Format &amp; Marks
             </span>
-            <strong style={{ fontSize: "1.25rem", color: "#0f172a" }}>
-              {config?.questionCount || 50}
+            <strong style={{ fontSize: "1.15rem", color: "#14110f" }}>
+              {config?.questionCount || 50} Qs • {config?.questionCount || 50} Marks (Shuffled)
             </strong>
           </div>
           <div>
@@ -984,16 +984,16 @@ export default function ExamPage({
             style={{
               width: "100%",
               padding: "14px",
-              borderRadius: "8px",
+              borderRadius: "10px",
               border: "none",
-              backgroundColor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#0f172a",
+              backgroundColor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#c97a1e",
               color: "white",
               fontSize: "1.05rem",
               fontWeight: 700,
               cursor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "not-allowed" : "pointer",
             }}
           >
-            {result ? "Start Next Attempt" : "Begin Final Examination"}
+            {result ? "Start Next Attempt (50 Shuffled Questions)" : `Begin ${config?.questionCount || 50}-Mark Final Examination`}
           </button>
         )}
       </div>

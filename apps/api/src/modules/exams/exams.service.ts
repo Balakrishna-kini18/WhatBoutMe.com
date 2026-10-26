@@ -64,9 +64,32 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Access denied: Authentication required');
     }
 
-    const exam = await this.prisma.exam.findFirst({
+    let exam = await this.prisma.exam.findFirst({
       where: { programId },
     });
+
+    if (!exam && this.prisma.program?.findUnique && this.prisma.exam?.create) {
+      const program = await this.prisma.program.findUnique({
+        where: { id: programId },
+      });
+      if (program) {
+        exam = await this.prisma.exam.create({
+          data: {
+            programId: program.id,
+            title: `${program.title} — Final Comprehensive Examination`,
+            description:
+              '50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool).',
+            questionCount: 50,
+            passMark: 75,
+            timeLimitMin: 90,
+            maxAttempts: 3,
+            cooldownHours: 24,
+            shuffleQuestions: true,
+            status: ContentStatus.PUBLISHED,
+          },
+        });
+      }
+    }
 
     if (!exam) {
       throw new NotFoundException('Final exam not found for this program');
@@ -230,8 +253,10 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
 
     // ── Question Pool Resolution ──────────────────────────────────────────────
     const stepIds = exam.program.steps.map((s) => s.id);
+    const requiredQuestionCount = exam.questionCount || 50;
 
-    // Dedicated pool: when linked banks exist for this exam, use them directly
+    // Dedicated pool: when linked banks exist for this exam and meet requiredQuestionCount, use them directly;
+    // otherwise combine dedicated exam bank questions with program step questions.
     const linkedBanks = this.prisma.questionBank?.findMany
       ? await this.prisma.questionBank.findMany({
           where: { examId: exam.id },
@@ -242,7 +267,21 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     let poolCondition: any;
     if (linkedBanks && linkedBanks.length > 0) {
       const bankIds = linkedBanks.map((b) => b.id);
-      poolCondition = { questionBankId: { in: bankIds } };
+      const dedicatedCount = this.prisma.question?.count
+        ? await this.prisma.question.count({ where: { questionBankId: { in: bankIds } } })
+        : 0;
+      if (dedicatedCount >= requiredQuestionCount) {
+        poolCondition = { questionBankId: { in: bankIds } };
+      } else {
+        poolCondition = {
+          OR: [
+            { questionBankId: { in: bankIds } },
+            { stepId: { in: stepIds } },
+            { questionBank: { stepId: { in: stepIds } } },
+            { quiz: { stepId: { in: stepIds } } },
+          ],
+        };
+      }
     } else {
       poolCondition = {
         OR: [
@@ -282,7 +321,6 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const distinctCandidates = Array.from(questionMap.values());
-    const requiredQuestionCount = exam.questionCount || 50;
 
     if (distinctCandidates.length < requiredQuestionCount) {
       throw new BadRequestException(
@@ -991,6 +1029,8 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     if (!exam) throw new NotFoundException('Exam not found');
 
     // Calculate active pool size
+    const requiredCount = exam.questionCount || 50;
+    const stepIds = exam.program.steps.map((s) => s.id);
     const linkedBanks = this.prisma.questionBank?.findMany
       ? await this.prisma.questionBank.findMany({
           where: { examId: exam.id },
@@ -1001,9 +1041,22 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     let poolCondition: any;
     if (linkedBanks && linkedBanks.length > 0) {
       const bankIds = linkedBanks.map((b) => b.id);
-      poolCondition = { questionBankId: { in: bankIds } };
+      const dedicatedCount = this.prisma.question?.count
+        ? await this.prisma.question.count({ where: { questionBankId: { in: bankIds } } })
+        : 0;
+      if (dedicatedCount >= requiredCount) {
+        poolCondition = { questionBankId: { in: bankIds } };
+      } else {
+        poolCondition = {
+          OR: [
+            { questionBankId: { in: bankIds } },
+            { stepId: { in: stepIds } },
+            { questionBank: { stepId: { in: stepIds } } },
+            { quiz: { stepId: { in: stepIds } } },
+          ],
+        };
+      }
     } else {
-      const stepIds = exam.program.steps.map((s) => s.id);
       poolCondition = {
         OR: [
           { stepId: { in: stepIds } },
@@ -1017,7 +1070,6 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       where: poolCondition,
     });
 
-    const requiredCount = exam.questionCount || 50;
     if (candidateCount < requiredCount) {
       throw new BadRequestException(
         `Cannot publish exam: Active question pool (${candidateCount}) is less than required question count (${requiredCount})`,
@@ -1028,6 +1080,307 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       where: { id },
       data: { status: ContentStatus.PUBLISHED },
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4B. DEDICATED FINAL EXAM QUESTION BANK CRUD (70-Q POOL FOR 50-MARK EXAM)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  private async ensureExamAndDedicatedBank(programIdOrExamId: string, byProgram = false) {
+    let exam = byProgram
+      ? await this.prisma.exam.findFirst({
+          where: { programId: programIdOrExamId },
+          include: { program: { include: { steps: { orderBy: { sequence: 'asc' } } } } },
+        })
+      : await this.prisma.exam.findUnique({
+          where: { id: programIdOrExamId },
+          include: { program: { include: { steps: { orderBy: { sequence: 'asc' } } } } },
+        });
+
+    if (!exam && byProgram) {
+      const program = await this.prisma.program.findUnique({
+        where: { id: programIdOrExamId },
+        include: { steps: { orderBy: { sequence: 'asc' } } },
+      });
+      if (!program) {
+        throw new NotFoundException('Program not found');
+      }
+      const created = await this.prisma.exam.create({
+        data: {
+          programId: program.id,
+          title: `${program.title} — Final Comprehensive Examination`,
+          description: '50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool).',
+          questionCount: 50,
+          passMark: 75,
+          timeLimitMin: 90,
+          maxAttempts: 3,
+          cooldownHours: 24,
+          shuffleQuestions: true,
+          status: ContentStatus.DRAFT,
+        },
+      });
+      exam = { ...created, program } as any;
+    }
+
+    if (!exam) {
+      throw new NotFoundException('Exam not found');
+    }
+
+    let bank = await this.prisma.questionBank.findFirst({
+      where: { examId: exam.id },
+    });
+
+    if (!bank) {
+      bank = await this.prisma.questionBank.create({
+        data: {
+          title: `${exam.title} — Dedicated 70-Question Pool`,
+          description: 'Dedicated Final Exam Question Bank (70 questions pool -> 50 randomly shuffled per attempt)',
+          programId: exam.programId,
+          examId: exam.id,
+        },
+      });
+    }
+
+    return { exam, bank };
+  }
+
+  async getProgramExamQuestions(programId: string, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const { exam, bank } = await this.ensureExamAndDedicatedBank(programId, true);
+    return this.buildExamQuestionsPayload(exam, bank);
+  }
+
+  async getExamQuestions(examId: string, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const { exam, bank } = await this.ensureExamAndDedicatedBank(examId, false);
+    return this.buildExamQuestionsPayload(exam, bank);
+  }
+
+  private async buildExamQuestionsPayload(exam: any, bank: any) {
+    const dedicatedQuestions = await this.prisma.question.findMany({
+      where: { questionBankId: bank.id },
+      include: {
+        options: { orderBy: { order: 'asc' } },
+        step: { select: { id: true, sequence: true, title: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const stepIds = (exam.program?.steps || []).map((s: any) => s.id);
+    const fallbackStepCount =
+      stepIds.length > 0 && this.prisma.question?.count
+        ? await this.prisma.question.count({
+            where: {
+              OR: [
+                { stepId: { in: stepIds } },
+                { questionBank: { stepId: { in: stepIds } } },
+                { quiz: { stepId: { in: stepIds } } },
+              ],
+            },
+          })
+        : 0;
+
+    const totalPoolCount =
+      dedicatedQuestions.length >= (exam.questionCount || 50)
+        ? dedicatedQuestions.length
+        : dedicatedQuestions.length + fallbackStepCount;
+
+    return {
+      exam: {
+        id: exam.id,
+        programId: exam.programId,
+        title: exam.title,
+        description: exam.description,
+        questionCount: exam.questionCount,
+        passMark: exam.passMark,
+        timeLimitMin: exam.timeLimitMin,
+        maxAttempts: exam.maxAttempts,
+        cooldownHours: exam.cooldownHours,
+        shuffleQuestions: exam.shuffleQuestions,
+        status: exam.status,
+      },
+      questionBankId: bank.id,
+      dedicatedPoolCount: dedicatedQuestions.length,
+      fallbackStepPoolCount: fallbackStepCount,
+      totalPoolCount,
+      recommendedPoolSize: 70,
+      questionsPerAttempt: exam.questionCount || 50,
+      totalMarks: exam.questionCount || 50,
+      questions: dedicatedQuestions,
+    };
+  }
+
+  async createExamQuestion(examId: string, dto: any, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    const { bank } = await this.ensureExamAndDedicatedBank(examId, false);
+
+    const text = (dto.text || '').trim();
+    if (!text) {
+      throw new BadRequestException('Question text is required');
+    }
+
+    const type: QuestionType =
+      dto.type === 'MULTI_SELECT'
+        ? QuestionType.MULTI_SELECT
+        : dto.type === 'SHORT_ANSWER' || dto.type === 'TEXT_BOX'
+          ? QuestionType.SHORT_ANSWER
+          : QuestionType.MULTIPLE_CHOICE;
+
+    const rawOptions = Array.isArray(dto.options) ? dto.options : [];
+    const optionsToCreate =
+      type === QuestionType.SHORT_ANSWER
+        ? []
+        : (rawOptions.length > 0
+            ? rawOptions
+            : [
+                { text: 'Option A', isCorrect: true, order: 1 },
+                { text: 'Option B', isCorrect: false, order: 2 },
+                { text: 'Option C', isCorrect: false, order: 3 },
+                { text: 'Option D', isCorrect: false, order: 4 },
+              ]
+          ).map((opt: any, idx: number) => ({
+            text: (opt.text || `Option ${idx + 1}`).trim(),
+            imageUrl: opt.imageUrl || null,
+            isCorrect: Boolean(opt.isCorrect),
+            order: typeof opt.order === 'number' ? opt.order : idx + 1,
+          }));
+
+    return this.prisma.question.create({
+      data: {
+        questionBankId: bank.id,
+        stepId: dto.stepId || null,
+        text,
+        type,
+        points: Number(dto.points) > 0 ? Number(dto.points) : 1,
+        imageUrl: dto.imageUrl || null,
+        explanation: dto.explanation || null,
+        gradingMode: dto.gradingMode || 'SELF_REFLECTION_AUTO_PASS',
+        minCharacters: dto.minCharacters ?? 10,
+        options:
+          optionsToCreate.length > 0
+            ? {
+                create: optionsToCreate,
+              }
+            : undefined,
+      },
+      include: {
+        options: { orderBy: { order: 'asc' } },
+        step: { select: { id: true, sequence: true, title: true } },
+      },
+    });
+  }
+
+  async bulkCreateExamQuestions(examId: string, questionsInput: any[], actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    if (!Array.isArray(questionsInput) || questionsInput.length === 0) {
+      throw new BadRequestException('At least one question is required for bulk creation');
+    }
+
+    const { exam, bank } = await this.ensureExamAndDedicatedBank(examId, false);
+    const created: any[] = [];
+
+    for (const item of questionsInput) {
+      const q = await this.createExamQuestion(exam.id, item, actor);
+      created.push(q);
+    }
+
+    return {
+      createdCount: created.length,
+      questionBankId: bank.id,
+      questions: created,
+    };
+  }
+
+  async updateExamQuestion(examId: string, questionId: string, dto: any, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    await this.ensureExamAndDedicatedBank(examId, false);
+
+    const existing = await this.prisma.question.findUnique({
+      where: { id: questionId },
+      include: { options: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Exam question not found');
+    }
+
+    const type: QuestionType = dto.type
+      ? dto.type === 'MULTI_SELECT'
+        ? QuestionType.MULTI_SELECT
+        : dto.type === 'SHORT_ANSWER' || dto.type === 'TEXT_BOX'
+          ? QuestionType.SHORT_ANSWER
+          : QuestionType.MULTIPLE_CHOICE
+      : existing.type;
+
+    if (Array.isArray(dto.options)) {
+      await this.prisma.option.deleteMany({
+        where: { questionId },
+      });
+    }
+
+    const optionsToCreate =
+      Array.isArray(dto.options) && type !== QuestionType.SHORT_ANSWER
+        ? dto.options.map((opt: any, idx: number) => ({
+            text: (opt.text || `Option ${idx + 1}`).trim(),
+            imageUrl: opt.imageUrl || null,
+            isCorrect: Boolean(opt.isCorrect),
+            order: typeof opt.order === 'number' ? opt.order : idx + 1,
+          }))
+        : undefined;
+
+    return this.prisma.question.update({
+      where: { id: questionId },
+      data: {
+        text: dto.text !== undefined ? dto.text.trim() : existing.text,
+        type,
+        points: dto.points !== undefined ? Number(dto.points) || 1 : existing.points,
+        imageUrl: dto.imageUrl !== undefined ? dto.imageUrl : existing.imageUrl,
+        explanation: dto.explanation !== undefined ? dto.explanation : existing.explanation,
+        stepId: dto.stepId !== undefined ? dto.stepId || null : existing.stepId,
+        gradingMode: dto.gradingMode !== undefined ? dto.gradingMode : existing.gradingMode,
+        minCharacters: dto.minCharacters !== undefined ? dto.minCharacters : existing.minCharacters,
+        ...(optionsToCreate
+          ? {
+              options: {
+                create: optionsToCreate,
+              },
+            }
+          : {}),
+      },
+      include: {
+        options: { orderBy: { order: 'asc' } },
+        step: { select: { id: true, sequence: true, title: true } },
+      },
+    });
+  }
+
+  async deleteExamQuestion(examId: string, questionId: string, actor: any) {
+    const actorId = actor?.sub ?? actor?.id;
+    if (!actorId) throw new ForbiddenException('Authentication required');
+
+    await this.ensureExamAndDedicatedBank(examId, false);
+
+    const existing = await this.prisma.question.findUnique({
+      where: { id: questionId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Exam question not found');
+    }
+
+    await this.prisma.question.delete({
+      where: { id: questionId },
+    });
+
+    return { success: true, deletedId: questionId };
   }
 
   async saveExamAnswers(examId: string, dto: SaveExamAnswersDto, actor: any) {
@@ -1131,10 +1484,14 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       timeLimitMin,
       startedAt: attempt.startedAt,
       expiresAt,
+      savedAnswers: answersJson?.savedAnswers || [],
       questions: boundQuestions.map((q: any) => ({
         id: q.id,
         text: q.text,
         type: q.type,
+        imageUrl: q.imageUrl || null,
+        gradingMode: q.gradingMode || 'SELF_REFLECTION_AUTO_PASS',
+        minCharacters: q.minCharacters ?? 10,
         points: q.points,
         stepId: q.stepId,
         stepSequence: q.stepSequence,
@@ -1143,6 +1500,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
           (q.options || []).map((opt: any) => ({
             id: opt.id,
             text: opt.text,
+            imageUrl: opt.imageUrl || null,
             order: opt.order,
           })),
           `${attempt.id}_${q.id}`,

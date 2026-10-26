@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -112,6 +113,67 @@ export class ExamsController {
     @Request() req: any,
   ) {
     return this.examsService.publishExam(id, req?.user);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. DEDICATED FINAL EXAM QUESTION BANK (70-QUESTION POOL FOR 50-MARK EXAM)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @Get('programs/:programId/exam/questions')
+  getProgramExamQuestions(
+    @Param('programId') programId: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.getProgramExamQuestions(programId, req?.user);
+  }
+
+  @Get('exams/:id/questions')
+  getExamQuestions(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.getExamQuestions(id, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams/:id/questions')
+  createExamQuestion(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.examsService.createExamQuestion(id, body, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams/:id/questions/bulk')
+  bulkCreateExamQuestions(
+    @Param('id') id: string,
+    @Body() body: { questions: any[] },
+    @Request() req: any,
+  ) {
+    return this.examsService.bulkCreateExamQuestions(id, body?.questions || [], req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Patch('exams/:id/questions/:questionId')
+  updateExamQuestion(
+    @Param('id') id: string,
+    @Param('questionId') questionId: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.examsService.updateExamQuestion(id, questionId, body, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Delete('exams/:id/questions/:questionId')
+  deleteExamQuestion(
+    @Param('id') id: string,
+    @Param('questionId') questionId: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.deleteExamQuestion(id, questionId, req?.user);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

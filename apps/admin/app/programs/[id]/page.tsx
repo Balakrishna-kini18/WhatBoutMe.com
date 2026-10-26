@@ -928,6 +928,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
               onUpdateModule={handleUpdateModule}
               onBackToBasicDetails={() => setWizardStep("COURSE_SETUP")}
               onContinueToPricing={() => setWizardStep("PRICING_ACCESS")}
+              onOpenFinalExam={() => setActiveProgramTab("FINAL_EXAM")}
             />
           )}
 

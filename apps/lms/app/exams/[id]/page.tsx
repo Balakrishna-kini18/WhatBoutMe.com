@@ -3,6 +3,7 @@
 import { useEffect, useState, use, useRef } from "react";
 import Link from "next/link";
 import { API_URL, getAuthHeaders, parseApiError } from "../../lib/api";
+import { safeParseResponseJson as safeJson } from "./examRunnerLogic";
 import styles from "../../page.module.css";
 import dash from "../../layout.module.css";
 
@@ -115,19 +116,21 @@ export default function ExamPage({
         });
 
         if (configRes.ok) {
-          const cfg: ExamConfig = await configRes.json();
-          setConfig(cfg);
-          resolvedExamId = cfg.id;
-          setExamId(cfg.id);
+          const cfg = await safeJson<ExamConfig>(configRes);
+          if (cfg && cfg.id) {
+            setConfig(cfg);
+            resolvedExamId = cfg.id;
+            setExamId(cfg.id);
+          }
         }
 
-        // Fetch active attempt or recent attempt status
+        // Fetch active attempt or recent attempt status (returns empty body when no attempt exists yet)
         const attemptRes = await fetch(`${API_URL}/exams/${resolvedExamId}/attempt`, {
           headers: getAuthHeaders(),
         });
 
         if (attemptRes.ok) {
-          const data = await attemptRes.json();
+          const data = await safeJson<any>(attemptRes);
           if (data) {
             if (data.status === "IN_PROGRESS" && data.questions) {
               setActiveAttempt(data);
@@ -243,7 +246,10 @@ export default function ExamPage({
         throw new Error(err.message);
       }
 
-      const attempt: ActiveAttempt = await res.json();
+      const attempt = await safeJson<ActiveAttempt>(res);
+      if (!attempt) {
+        throw new Error("Empty exam attempt response received from server.");
+      }
       setActiveAttempt(attempt);
       setResult(null);
       setSelectedAnswers({});
@@ -312,8 +318,10 @@ export default function ExamPage({
         throw new Error(err.message);
       }
 
-      const resData: ExamResult = await res.json();
-      setResult(resData);
+      const resData = await safeJson<ExamResult>(res);
+      if (resData) {
+        setResult(resData);
+      }
       setActiveAttempt(null);
       setSecondsRemaining(null);
     } catch (err: any) {

@@ -6,14 +6,34 @@ import { useSearchParams } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2, Mail } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import { verifyEmailUser } from "@/lib/api";
+import {
+  buildAuthHref,
+  extractRedirectParam,
+  peekEnrollmentIntent,
+  saveEnrollmentIntent,
+} from "@/lib/auth-redirect";
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const redirectFromUrl = extractRedirectParam(searchParams);
 
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
+  const [activeRedirect, setActiveRedirect] = useState<string | null>(redirectFromUrl);
+
+  useEffect(() => {
+    if (redirectFromUrl) {
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      setActiveRedirect(redirectFromUrl);
+    } else {
+      const stored = peekEnrollmentIntent();
+      if (stored?.returnUrl) {
+        setActiveRedirect(stored.returnUrl);
+      }
+    }
+  }, [redirectFromUrl]);
 
   useEffect(() => {
     if (!token) {
@@ -69,7 +89,7 @@ function VerifyEmailContent() {
           </p>
           <div className="mt-8">
             <Link
-              href="/login"
+              href={buildAuthHref("/login", activeRedirect)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
               Proceed to Sign In
@@ -89,7 +109,7 @@ function VerifyEmailContent() {
           </p>
           <div className="mt-8 space-y-3">
             <Link
-              href="/login"
+              href={buildAuthHref("/login", activeRedirect)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
               Back to Sign In

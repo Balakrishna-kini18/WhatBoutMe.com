@@ -12,6 +12,7 @@ import { scrollToTarget, lenisRef } from "@/lib/scroll";
 import { CONTACT, ENQUIRE_HREF, NAV_LINKS } from "@/lib/content";
 import { LMS_URL } from "@/lib/api";
 import { initialsOf, openPortal, signOut, useUser } from "@/lib/auth";
+import { clearEnrollmentIntent } from "@/lib/auth-redirect";
 
 // one row of the dropdown menu
 const MENU_ITEM =
@@ -170,7 +171,14 @@ export default function Nav() {
                   </div>
                 </div>
               ) : (
-                <Link href="/login" onClick={() => setOpen(false)} className={`${MENU_ITEM} font-semibold`}>
+                <Link
+                  href="/login"
+                  onClick={() => {
+                    clearEnrollmentIntent();
+                    setOpen(false);
+                  }}
+                  className={`${MENU_ITEM} font-semibold`}
+                >
                   Login
                 </Link>
               )}

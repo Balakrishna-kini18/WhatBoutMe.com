@@ -58,7 +58,7 @@ export class StageGateService {
    * Evaluates all 5 sequential stages from ground-truth evidence.
    * Timestamps on Enrolment act as an updated cache, not sole authority.
    */
-  async evaluateStages(enrolmentId: string): Promise<LearnerProgressionStages> {
+  async evaluateStages(enrolmentId: string, actor?: any): Promise<LearnerProgressionStages> {
     const enrolment = await this.prisma.enrolment.findUnique({
       where: { id: enrolmentId },
       include: {
@@ -71,6 +71,16 @@ export class StageGateService {
 
     if (!enrolment) {
       throw new NotFoundException(`Enrolment with ID ${enrolmentId} not found`);
+    }
+
+    // Anti-IDOR check: Learners can only evaluate their own enrolment stages
+    if (actor && (actor.role === 'USER' || actor.role === 'LEARNER')) {
+      const actorId = actor.sub ?? actor.id;
+      if (actorId && enrolment.userId !== actorId) {
+        throw new ForbiddenException(
+          'Access denied: You can only view progression stages for your own enrolment',
+        );
+      }
     }
 
     const isCorporateTrack =

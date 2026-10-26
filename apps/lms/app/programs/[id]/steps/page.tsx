@@ -255,12 +255,27 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [selectedMissionFile, setSelectedMissionFile] = useState<File | null>(null);
   const [submittingMission, setSubmittingMission] = useState(false);
   const [missionFeedbackMsg, setMissionFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [showWelcomeBackBanner, setShowWelcomeBackBanner] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("welcomeBack") === "1" || url.searchParams.get("welcomeBack") === "true") {
+        setShowWelcomeBackBanner(true);
+        url.searchParams.delete("welcomeBack");
+        window.history.replaceState({}, "", url.pathname + url.search);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const loadProgression = useCallback(
     async (isRetry = false) => {
       const token = getAuthToken();
       if (!token) {
-        router.push("/login");
+        router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
         return;
       }
 
@@ -272,7 +287,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         const res = await fetch(`${API_URL}/progression/me/${id}`, { headers });
 
         if (res.status === 401) {
-          router.push("/login");
+          router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
           throw new Error("Unauthorized session. Please log in again.");
         }
 
@@ -584,6 +599,46 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               </p>
             </>
           )}
+        </div>
+      )}
+
+      {showWelcomeBackBanner && (
+        <div
+          role="status"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+            padding: "14px 18px",
+            marginBottom: "18px",
+            borderRadius: "12px",
+            background: "rgba(31, 122, 76, 0.08)",
+            border: "1px solid rgba(31, 122, 76, 0.25)",
+            color: "#155736",
+            fontSize: "0.92rem",
+            fontWeight: 500,
+          }}
+        >
+          <span>
+            <strong>Welcome back!</strong> You are already enrolled in this program — continue from where you left off.
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowWelcomeBackBanner(false)}
+            aria-label="Dismiss welcome message"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#155736",
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: "0.85rem",
+              padding: "4px 8px",
+            }}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

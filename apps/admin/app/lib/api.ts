@@ -435,6 +435,16 @@ export function logSlowApiCall(
   }
 }
 
+function createSafeJsonResponse(bodyText: string, init: ResponseInit): Response {
+  const response = new Response(bodyText, init);
+  const origJson = response.json.bind(response);
+  response.json = async () => {
+    if (!bodyText || !bodyText.trim()) return null;
+    return origJson();
+  };
+  return response;
+}
+
 /**
  * Upgraded fetch with:
  * 1. In-flight request deduplication for identical concurrent GET requests
@@ -516,7 +526,7 @@ export async function cachedFetch(
 
       const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
       logSlowApiCall(method, url, cached.status, durationMs, cached.headers, "Cache");
-      return new Response(cached.bodyText, {
+      return createSafeJsonResponse(cached.bodyText, {
         status: cached.status,
         statusText: cached.statusText,
         headers: new Headers(cached.headers),
@@ -530,7 +540,7 @@ export async function cachedFetch(
     const resPayload = await inFlight;
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
-    return new Response(resPayload.bodyText, {
+    return createSafeJsonResponse(resPayload.bodyText, {
       status: resPayload.status,
       statusText: resPayload.statusText,
       headers: new Headers(resPayload.headers),
@@ -704,7 +714,7 @@ export async function cachedFetch(
   }
   const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
   logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
-  return new Response(result.bodyText, {
+  return createSafeJsonResponse(result.bodyText, {
     status: result.status,
     statusText: result.statusText,
     headers: new Headers(result.headers),

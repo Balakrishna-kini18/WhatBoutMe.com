@@ -119,6 +119,7 @@ export class ExamsController {
   // 4. DEDICATED FINAL EXAM QUESTION BANK (70-QUESTION POOL FOR 50-MARK EXAM)
   // ─────────────────────────────────────────────────────────────────────────────
 
+  @RequirePermission(Permission.PROGRAMS_READ)
   @Get('programs/:programId/exam/questions')
   getProgramExamQuestions(
     @Param('programId') programId: string,
@@ -127,6 +128,7 @@ export class ExamsController {
     return this.examsService.getProgramExamQuestions(programId, req?.user);
   }
 
+  @RequirePermission(Permission.PROGRAMS_READ)
   @Get('exams/:id/questions')
   getExamQuestions(
     @Param('id') id: string,

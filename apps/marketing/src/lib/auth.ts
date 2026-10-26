@@ -2,6 +2,13 @@
 
 import { useSyncExternalStore } from "react";
 import { API_BASE_URL, LMS_URL, loginUser, signupUser, sendSignupOtp as sendSignupOtpApi } from "./api";
+import {
+  buildAuthHref,
+  consumeEnrollmentIntent,
+  extractRedirectParam,
+  sanitizeReturnUrl,
+  saveEnrollmentIntent,
+} from "./auth-redirect";
 
 /** Signed-in learner, as returned by POST /auth/login. */
 export type SessionUser = {
@@ -176,12 +183,18 @@ async function sessionEnded(): Promise<boolean> {
 }
 
 /** Only paths inside the portal, so a link cannot send the session elsewhere. */
-export const portalPath = (path: string | null) =>
-  path && path.startsWith("/") && !path.startsWith("//") ? path : null;
+export const portalPath = (path: string | null) => {
+  const clean = sanitizeReturnUrl(path, "");
+  return clean || null;
+};
 
 /** The website sign-in, remembering where in the portal the learner was going. */
-const loginUrl = (path: string) =>
-  path === "/" ? "/login" : `/login?portal=${encodeURIComponent(path)}`;
+export const loginUrl = (path: string) =>
+  path === "/" ? "/login" : buildAuthHref("/login", path);
+
+/** The website sign-up, remembering where in the portal the learner was going. */
+export const signupUrl = (path: string) =>
+  path === "/" ? "/signup" : buildAuthHref("/signup", path);
 
 /**
  * Whether the signed-in learner has bought at least one course. Asks the API
@@ -226,11 +239,22 @@ export const PURCHASE_FIRST_URL = "/courses?purchase=required";
  * for learners who have bought a course; everyone else is sent to the courses
  * page. Pass `requirePurchase: false` for the checkout link itself.
  */
-export function openPortal(path = "/", { requirePurchase = true } = {}) {
+export function openPortal(
+  path = "/",
+  {
+    requirePurchase = true,
+    preferSignupWhenSignedOut = false,
+  }: { requirePurchase?: boolean; preferSignupWhenSignedOut?: boolean } = {},
+) {
   return async (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (!localStorage.getItem(USER_KEY)) {
-      window.location.assign(loginUrl(path));
+      if (path && path !== "/") {
+        saveEnrollmentIntent({ returnUrl: path });
+      }
+      window.location.assign(
+        preferSignupWhenSignedOut ? signupUrl(path) : loginUrl(path),
+      );
       return;
     }
     // with requirePurchase, hasPurchased() below asks the server anyway and
@@ -238,6 +262,9 @@ export function openPortal(path = "/", { requirePurchase = true } = {}) {
     if (!(await renewSession()) || (!requirePurchase && (await sessionEnded()))) {
       // the session ended (signed in elsewhere, or expired): sign in again here
       signOut();
+      if (path && path !== "/") {
+        saveEnrollmentIntent({ returnUrl: path });
+      }
       window.location.assign(loginUrl(path));
       return;
     }
@@ -245,6 +272,9 @@ export function openPortal(path = "/", { requirePurchase = true } = {}) {
       const purchased = await hasPurchased();
       if (purchased === "signed-out") {
         signOut();
+        if (path && path !== "/") {
+          saveEnrollmentIntent({ returnUrl: path });
+        }
         window.location.assign(loginUrl(path));
         return;
       }
@@ -259,15 +289,25 @@ export function openPortal(path = "/", { requirePurchase = true } = {}) {
 
 /**
  * Carries on to the portal after signing in or up, when the learner was sent
- * here from it (`?portal=/path`). Returns false when there is nowhere to go.
+ * here from it (`?redirect=/path`, `?returnTo=/path`, `?portal=/path`, or stored
+ * 30-min enrollment intent). Returns false when there is nowhere to go.
  */
-export function continueToPortal(): boolean {
-  const path = portalPath(new URLSearchParams(window.location.search).get("portal"));
+export function continueToPortal(explicitRedirect?: string | null): boolean {
+  const search = typeof window !== "undefined" ? window.location.search : "";
+  const fromParams = extractRedirectParam(search);
+  const path = consumeEnrollmentIntent(explicitRedirect ?? fromParams, "");
   if (!path) return false;
-  // Only the portal's home needs a course first. Checkout is how one is
+  // Only the portal's home needs a course first. Checkout/Agreement/Programs are how one is
   // bought, and My Courses and Profile are open to every signed-in learner
   // (My Courses shows an empty state with a way to explore).
-  const open = ["/agreement", "/agreements", "/checkout", "/courses", "/profile"].some((p) => path.startsWith(p));
+  const open = [
+    "/agreement",
+    "/agreements",
+    "/checkout",
+    "/courses",
+    "/programs",
+    "/profile",
+  ].some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`));
   void openPortal(path, { requirePurchase: !open })({ preventDefault() {} });
   return true;
 }

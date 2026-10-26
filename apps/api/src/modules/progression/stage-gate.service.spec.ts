@@ -284,6 +284,16 @@ describe('StageGateService: 5-Stage Sequential Progression Pipeline & Security A
         'Handwritten mission statement has not been approved.',
       );
     });
+
+    it('10. IDOR Security: blocks Learner B from querying Learner A enrolment stage progression', async () => {
+      await expect(
+        service.evaluateStages('enrol-1', { id: 'attacker-user-99', role: Role.USER }),
+      ).rejects.toThrow(ForbiddenException);
+
+      // Owner Learner A succeeds
+      const ownerRes = await service.evaluateStages('enrol-1', { id: 'user-1', role: Role.USER });
+      expect(ownerRes.enrolmentId).toBe('enrol-1');
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────────

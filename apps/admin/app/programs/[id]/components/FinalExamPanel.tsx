@@ -17,6 +17,7 @@ import {
 import { useToast } from "../../../components/Toast";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import StatusBadge from "../../../components/StatusBadge";
+import { validateQuestionInput } from "./finalExamLogic";
 
 interface FinalExamPanelProps {
   programId: string;
@@ -111,30 +112,24 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
     }
     setSaving(true);
     try {
+      const payload = {
+        title: title.trim(),
+        description: description.trim(),
+        questionCount: Number(questionCount) || 50,
+        passMark: Number(passMark) || 75,
+        timeLimitMin: Number(timeLimitMin) || 90,
+        maxAttempts: Number(maxAttempts) || 3,
+        cooldownHours: Number(cooldownHours) ?? 24,
+        shuffleQuestions,
+      };
       if (exam?.id) {
-        const updated = await updateExam(exam.id, {
-          title: title.trim(),
-          description: description.trim(),
-          questionCount: Number(questionCount),
-          passMark: Number(passMark),
-          timeLimitMin: Number(timeLimitMin),
-          maxAttempts: Number(maxAttempts),
-          cooldownHours: Number(cooldownHours),
-          shuffleQuestions,
-        });
+        const updated = await updateExam(exam.id, payload);
         setExam(updated);
         success("Final exam configuration saved");
       } else {
         const created = await createExam({
           programId,
-          title: title.trim(),
-          description: description.trim(),
-          questionCount: Number(questionCount),
-          passMark: Number(passMark),
-          timeLimitMin: Number(timeLimitMin),
-          maxAttempts: Number(maxAttempts),
-          cooldownHours: Number(cooldownHours),
-          shuffleQuestions,
+          ...payload,
         });
         setExam(created);
         success("Final exam created");
@@ -244,21 +239,15 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
       error("Exam record not initialized yet");
       return;
     }
-    if (!qText.trim()) {
-      error("Please enter the question prompt");
+    const validation = validateQuestionInput({
+      text: qText,
+      type: qType,
+      points: qPoints,
+      options: qOptions.map((o, idx) => ({ ...o, order: o.order ?? idx })),
+    });
+    if (!validation.isValid) {
+      error(validation.error || "Please check question details");
       return;
-    }
-
-    if (qType !== "SHORT_ANSWER") {
-      const validOptions = qOptions.filter((o) => o.text.trim().length > 0);
-      if (validOptions.length < 2) {
-        error("Please provide at least 2 non-empty answer options");
-        return;
-      }
-      if (!validOptions.some((o) => o.isCorrect)) {
-        error("Please mark at least one correct option");
-        return;
-      }
     }
 
     setSavingQuestion(true);
@@ -316,7 +305,7 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
     if (!exam?.id) return;
     const needed = Math.max(0, 70 - questions.length);
     if (needed === 0) {
-      info("Pool already has 70 or more questions!");
+      success("Pool already has 70 or more questions!");
       return;
     }
 
@@ -409,18 +398,12 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
           color: "#78716a",
         }}
       >
-        Loading Final Exam Question Pool &amp; Configuration...
+        Loading Final Exam Configuration...
       </div>
     );
   }
 
-  const dedicatedPoolCount = questions.length;
-  const effectivePoolCount =
-    dedicatedPoolCount >= questionCount
-      ? dedicatedPoolCount
-      : dedicatedPoolCount + fallbackStepPoolCount;
-  const canPublish = Boolean(exam?.id) && effectivePoolCount >= questionCount;
-  const poolProgressPercent = Math.min(100, Math.round((dedicatedPoolCount / 70) * 100));
+  const canPublish = Boolean(exam?.id) && questions.length > 0;
 
   const filteredQuestions = questions.filter((q) => {
     const matchesSearch =
@@ -469,15 +452,13 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
                 marginBottom: "0.5rem",
               }}
             >
-              STAGE 2 · FINAL EXAMINATION BUILDER
+              FINAL EXAMINATION BUILDER
             </div>
             <h2 style={{ fontSize: "1.35rem", fontWeight: 800, margin: "0 0 0.35rem", color: "#14110f" }}>
               {title || "Final Comprehensive Examination"}
             </h2>
             <p style={{ margin: 0, fontSize: "0.9rem", color: "#6b655e", maxWidth: 680 }}>
-              Configure the <strong>{questionCount}-Mark Final Exam</strong>. Learners receive{" "}
-              <strong>{questionCount} randomly shuffled questions</strong> drawn from your{" "}
-              <strong>70-question dedicated exam pool</strong> after completing all curriculum steps.
+              Create and manage examination questions for learners after completing curriculum steps.
             </p>
           </div>
 
@@ -518,126 +499,85 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
           </div>
         </div>
 
-        {/* 70-Question Pool Progress Meter */}
+        {/* 70-Question Pool Progress & Action Bar */}
         <div
           style={{
             marginTop: "1.25rem",
-            padding: "1rem 1.25rem",
+            padding: "0.95rem 1.25rem",
             borderRadius: 12,
             background: "#faf6f0",
             border: "1px solid #ece4d7",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "0.85rem",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              marginBottom: "0.55rem",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 800, fontSize: "0.92rem", color: "#14110f" }}>
-                Dedicated Exam Question Pool: {dedicatedPoolCount} / 70 Questions
-              </span>
-              <span
-                style={{
-                  fontSize: "0.78rem",
-                  fontWeight: 700,
-                  padding: "0.2rem 0.6rem",
-                  borderRadius: 999,
-                  background: dedicatedPoolCount >= 70 ? "#dcfce7" : dedicatedPoolCount >= questionCount ? "#fef3c7" : "#fee2e2",
-                  color: dedicatedPoolCount >= 70 ? "#166534" : dedicatedPoolCount >= questionCount ? "#92400e" : "#991b1b",
-                }}
-              >
-                {dedicatedPoolCount >= 70
-                  ? "✓ 70-Question Target Reached (50 Shuffled per Attempt)"
-                  : dedicatedPoolCount >= questionCount
-                    ? `Ready (${dedicatedPoolCount} in pool · ${70 - dedicatedPoolCount} more for full 70-question bank)`
-                    : `Needs ${Math.max(0, questionCount - dedicatedPoolCount)} more for ${questionCount}-mark exam`}
-              </span>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 800, fontSize: "0.92rem", color: "#14110f" }}>
+              Dedicated Exam Pool: {questions.length} / 70 Questions
+            </span>
+            <span
+              style={{
+                fontSize: "0.78rem",
+                fontWeight: 700,
+                padding: "0.2rem 0.65rem",
+                borderRadius: 999,
+                background: questions.length >= 70 ? "#dcfce7" : questions.length >= questionCount ? "#fef3c7" : "#fee2e2",
+                color: questions.length >= 70 ? "#166534" : questions.length >= questionCount ? "#92400e" : "#991b1b",
+              }}
+            >
+              {questions.length >= 70
+                ? `✓ 70-Question Target Reached (${questionCount} Shuffled per Attempt)`
+                : questions.length >= questionCount
+                ? `Ready (${questions.length} in pool · ${70 - questions.length} more for full 70-question bank)`
+                : `Needs ${Math.max(0, questionCount - questions.length)} more for ${questionCount}-mark exam`}
+            </span>
+            <span style={{ fontSize: "0.8rem", color: "#78716a" }}>
+              Pass Mark: <strong>{passMark}%</strong> · Time: <strong>{timeLimitMin}m</strong>
+            </span>
+          </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-              {dedicatedPoolCount < 70 && (
-                <button
-                  type="button"
-                  disabled={seedingPool}
-                  onClick={handleSeedUpTo70Questions}
-                  style={{
-                    padding: "0.48rem 0.9rem",
-                    borderRadius: 8,
-                    border: "1px solid #d97706",
-                    background: "#fffbeb",
-                    color: "#b45309",
-                    fontWeight: 700,
-                    fontSize: "0.8rem",
-                    cursor: seedingPool ? "wait" : "pointer",
-                  }}
-                >
-                  {seedingPool
-                    ? "Generating Questions..."
-                    : `⚡ Auto-Fill to 70 Questions (+${70 - dedicatedPoolCount})`}
-                </button>
-              )}
-
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            {questions.length < 70 && (
               <button
                 type="button"
-                onClick={openNewQuestionModal}
+                disabled={seedingPool}
+                onClick={handleSeedUpTo70Questions}
                 style={{
-                  padding: "0.5rem 1rem",
+                  padding: "0.48rem 0.95rem",
                   borderRadius: 8,
-                  border: "none",
-                  background: "#c97a1e",
-                  color: "#ffffff",
+                  border: "1px solid #d97706",
+                  background: "#fffbeb",
+                  color: "#b45309",
                   fontWeight: 700,
-                  fontSize: "0.82rem",
-                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                  cursor: seedingPool ? "wait" : "pointer",
                 }}
               >
-                + Add Exam Question
+                {seedingPool
+                  ? "Generating Questions..."
+                  : `⚡ Auto-Fill to 70 Questions (+${70 - questions.length})`}
               </button>
-            </div>
-          </div>
+            )}
 
-          <div
-            style={{
-              width: "100%",
-              height: 8,
-              background: "#e7dfd3",
-              borderRadius: 999,
-              overflow: "hidden",
-            }}
-          >
-            <div
+            <button
+              type="button"
+              onClick={openNewQuestionModal}
               style={{
-                width: `${poolProgressPercent}%`,
-                height: "100%",
-                background: dedicatedPoolCount >= 70 ? "#16a34a" : "#c97a1e",
-                transition: "width 0.3s ease",
+                padding: "0.5rem 1rem",
+                borderRadius: 8,
+                border: "none",
+                background: "#c97a1e",
+                color: "#ffffff",
+                fontWeight: 700,
+                fontSize: "0.82rem",
+                cursor: "pointer",
               }}
-            />
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: "0.5rem",
-              fontSize: "0.78rem",
-              color: "#6b655e",
-              flexWrap: "wrap",
-              gap: "0.5rem",
-            }}
-          >
-            <span>
-              <strong>Exam Format:</strong> {questionCount} Questions · {questionCount} Marks · {passMark}% Pass Mark · {timeLimitMin} Mins
-            </span>
-            <span>
-              <strong>Randomization:</strong> Fisher-Yates shuffle selects {questionCount} random questions &amp; shuffles options per student
-            </span>
+            >
+              + Add Exam Question
+            </button>
           </div>
         </div>
 
@@ -665,7 +605,7 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
               cursor: "pointer",
             }}
           >
-            1. Exam Question Pool ({dedicatedPoolCount} / 70)
+            1. Exam Question Pool ({questions.length})
           </button>
           <button
             type="button"
@@ -792,25 +732,6 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
                 >
                   + Add First Exam Question
                 </button>
-                {questions.length < 70 && (
-                  <button
-                    type="button"
-                    disabled={seedingPool}
-                    onClick={handleSeedUpTo70Questions}
-                    style={{
-                      padding: "0.6rem 1.2rem",
-                      borderRadius: 10,
-                      border: "1px solid #c97a1e",
-                      background: "#ffffff",
-                      color: "#c97a1e",
-                      fontWeight: 700,
-                      fontSize: "0.86rem",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {seedingPool ? "Populating..." : "⚡ Auto-Populate 70-Question Pool"}
-                  </button>
-                )}
               </div>
             </div>
           ) : (
@@ -1069,7 +990,7 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
                 }}
               />
               <span style={{ fontSize: "0.75rem", color: "#6b655e" }}>
-                Minimum percentage score required to pass
+                Minimum score percentage required to pass (default: 75%)
               </span>
             </div>
 
@@ -1442,7 +1363,7 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
         onClose={() => setShowPublishConfirm(false)}
         onConfirm={handlePublish}
         title="Publish Final Exam"
-        description={`Are you sure you want to publish "${title}"? Learners who complete all curriculum steps will immediately unlock this ${questionCount}-mark exam (randomly shuffled from ${effectivePoolCount} questions).`}
+        description={`Are you sure you want to publish "${title}"? Learners who complete all curriculum steps will immediately unlock this ${questionCount}-mark exam (randomly shuffled from ${questions.length} questions in pool).`}
         confirmText="Publish Now"
       />
     </div>

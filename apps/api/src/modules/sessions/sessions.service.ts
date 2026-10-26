@@ -9,8 +9,9 @@ import {
   Inject,
   Optional,
   Logger,
+  forwardRef,
 } from '@nestjs/common';
-import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus, OutboxEvent, AttendanceStatus } from '@prisma/client';
+import { Role, SessionStatus, SessionType, MeetingProvider, BookingStatus, EnrolmentStatus, OutboxEvent, AttendanceStatus, AttendanceSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
 import type { IMeetingProvider } from '../../common/interfaces/meeting-provider.interface.js';
@@ -21,6 +22,10 @@ import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { CreateSessionDto } from './dto/create-session.dto.js';
 import { UpdateSessionDto } from './dto/update-session.dto.js';
 import { QuerySessionsDto } from './dto/query-sessions.dto.js';
+import { RecordSessionProgressDto } from './dto/record-session-progress.dto.js';
+import { AttendanceComplianceService } from './attendance-compliance.service.js';
+import { StageGateService } from '../progression/stage-gate.service.js';
+import { WatchIntervalTracker } from '../progression/utils/watch-interval-tracker.js';
 import {
   getAdvanceNoticeMs,
   getAdvanceNoticeHours,
@@ -55,6 +60,12 @@ export class SessionsService {
     private readonly meetingSyncQueue?: Queue,
     @Optional()
     private readonly emailService?: EmailService,
+    @Optional()
+    @Inject(forwardRef(() => AttendanceComplianceService))
+    private readonly attendanceComplianceService?: AttendanceComplianceService,
+    @Optional()
+    @Inject(forwardRef(() => StageGateService))
+    private readonly stageGateService?: StageGateService,
   ) {}
 
   /**
@@ -280,6 +291,7 @@ export class SessionsService {
           joinUrl: finalJoinUrl || null,
           hostUrl: finalHostUrl,
           recordingUrl: data.recordingUrl || null,
+          minAttendanceMinutes: (data as any).minAttendanceMinutes ?? null,
           agenda: data.agenda || null,
           quizId: data.quizId || null,
         },
@@ -591,6 +603,7 @@ export class SessionsService {
           status: data.status ?? undefined,
           joinUrl: data.joinUrl ?? undefined,
           recordingUrl: data.recordingUrl ?? undefined,
+          minAttendanceMinutes: (data as any).minAttendanceMinutes !== undefined ? (data as any).minAttendanceMinutes : undefined,
           agenda: data.agenda ?? undefined,
           quizId: data.quizId ?? undefined,
           cancelReason: data.cancelReason ?? undefined,
@@ -2031,4 +2044,200 @@ export class SessionsService {
       this.logger.error(`Error in triggerMissedSessionNotifications: ${err.message}`);
     }
   }
+
+  /**
+   * Records media watch progress for a session recording (Phase 3 Hybrid Attendance).
+   * Reuses WatchIntervalTracker to merge watched segments, defeat fast-forward scrub/tampering,
+   * credit recorded minutes, and evaluate compliance against minAttendanceMinutes or batch %.
+   */
+  async recordRecordingProgress(sessionId: string, userId: string, dto: RecordSessionProgressDto) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        batch: {
+          include: { program: true },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException(`Session with ID ${sessionId} not found.`);
+    }
+
+    // Determine learner enrolment
+    let enrolmentId: string | null = null;
+    if (session.batchId) {
+      const enrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          userId,
+          batchId: session.batchId,
+          status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+        },
+        select: { id: true },
+      });
+      enrolmentId = enrolment?.id ?? null;
+    } else {
+      const enrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          userId,
+          status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      enrolmentId = enrolment?.id ?? null;
+    }
+
+    // Existing attendance record
+    const attendance = await this.prisma.attendance.findUnique({
+      where: { sessionId_userId: { sessionId, userId } },
+    });
+
+    // Authoritative session duration in seconds
+    const durationMin =
+      session.durationMinutes ??
+      Math.max(5, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000));
+    const authoritativeDurationSec = durationMin * 60;
+
+    // Per-session threshold in minutes
+    const batchThreshold = (session.batch as any)?.attendanceThreshold;
+    const programThreshold = (session.batch?.program as any)?.attendanceThreshold;
+    const thresholdPercent =
+      typeof batchThreshold === 'number' && !isNaN(batchThreshold)
+        ? batchThreshold
+        : typeof programThreshold === 'number' && !isNaN(programThreshold)
+          ? programThreshold
+          : 75;
+
+    const requiredMinutes =
+      session.minAttendanceMinutes ?? Math.round((durationMin * thresholdPercent) / 100);
+
+    // Existing recording progress
+    const recordingProgress = await this.prisma.sessionRecordingProgress.findUnique({
+      where: { sessionId_userId: { sessionId, userId } },
+    });
+
+    const existingRanges = (recordingProgress?.watchedRanges as any) || [];
+
+    const validation = WatchIntervalTracker.validateAndCreditHeartbeat({
+      existingRanges,
+      lastHeartbeatAt: recordingProgress?.updatedAt,
+      serverNow: new Date(),
+      fromSec: dto.fromSec,
+      toSec: dto.toSec,
+      positionSec: dto.positionSec,
+      durationSec: authoritativeDurationSec,
+      minWatchPercent: thresholdPercent,
+      isAlreadyCompleted: recordingProgress?.completed ?? false,
+    });
+
+    const recordedMinutes = Math.round((validation.coveredSec / 60) * 100) / 100;
+    const liveMinutes = attendance?.liveMinutes ?? (attendance?.minutesPresent ?? 0);
+    const totalMinutes = liveMinutes + recordedMinutes;
+    const meetsThreshold = totalMinutes >= requiredMinutes || validation.earnedCompletion;
+
+    const [updatedProgress, updatedAttendance] = await this.prisma.$transaction(async (tx) => {
+      const rec = await tx.sessionRecordingProgress.upsert({
+        where: { sessionId_userId: { sessionId, userId } },
+        update: {
+          watchedRanges: validation.updatedRanges as any,
+          coveredSec: validation.coveredSec,
+          completed: meetsThreshold || (recordingProgress?.completed ?? false),
+          completedAt:
+            meetsThreshold && !recordingProgress?.completed ? new Date() : recordingProgress?.completedAt,
+        },
+        create: {
+          sessionId,
+          userId,
+          enrolmentId,
+          watchedRanges: validation.updatedRanges as any,
+          coveredSec: validation.coveredSec,
+          completed: meetsThreshold,
+          completedAt: meetsThreshold ? new Date() : null,
+        },
+      });
+
+      const isAlreadyManualOrCorrected =
+        attendance &&
+        ([AttendanceStatus.PRESENT_MANUAL, AttendanceStatus.CORRECTED] as AttendanceStatus[]).includes(attendance.status);
+      const isAlreadyLive =
+        attendance &&
+        ([
+          AttendanceStatus.PRESENT,
+          AttendanceStatus.PRESENT_AUTO,
+          (AttendanceStatus as any).PRESENT_LIVE,
+        ] as any[]).includes(attendance.status);
+
+      let newStatus = attendance?.status ?? AttendanceStatus.ABSENT;
+      if (!isAlreadyManualOrCorrected && !isAlreadyLive) {
+        if (meetsThreshold) {
+          newStatus = (AttendanceStatus as any).PRESENT_RECORDED;
+        }
+      }
+
+      const att = await tx.attendance.upsert({
+        where: { sessionId_userId: { sessionId, userId } },
+        update: {
+          status: newStatus,
+          recordedMinutes,
+          minutesPresent: Math.round(totalMinutes),
+          attendancePercentage: Math.min(
+            100,
+            Math.round((totalMinutes / durationMin) * 10000) / 100,
+          ),
+        },
+        create: {
+          sessionId,
+          userId,
+          enrolmentId,
+          status: newStatus,
+          source: AttendanceSource.AUTO,
+          liveMinutes: 0,
+          recordedMinutes,
+          minutesPresent: Math.round(totalMinutes),
+          attendancePercentage: Math.min(
+            100,
+            Math.round((totalMinutes / durationMin) * 10000) / 100,
+          ),
+        },
+      });
+
+      if (meetsThreshold) {
+        await markDailyAttendance(tx as any, userId, 'sessionJoined');
+      }
+
+      return [rec, att];
+    });
+
+    // If session is now compliant and enrolment exists, check batch compliance and update Stage 3 gate
+    let batchCompliance: any = null;
+    if (enrolmentId && this.attendanceComplianceService) {
+      try {
+        batchCompliance = await this.attendanceComplianceService.calculateCompliance(enrolmentId);
+        if (batchCompliance.status === 'COMPLIANT' && this.stageGateService) {
+          await Promise.resolve(this.stageGateService.evaluateStages(enrolmentId)).catch((err) =>
+            this.logger.warn(`Failed to evaluate stages after recording progress: ${err.message}`),
+          );
+        }
+      } catch (err: any) {
+        this.logger.warn(`Attendance compliance calculation failed: ${err.message}`);
+      }
+    }
+
+    return {
+      sessionId,
+      accepted: validation.accepted,
+      coveredSec: validation.coveredSec,
+      progressPercent: validation.progressPercent,
+      recordedMinutes,
+      liveMinutes,
+      totalMinutes,
+      requiredMinutes,
+      isCompliant: meetsThreshold,
+      attendanceStatus: updatedAttendance.status,
+      completed: updatedProgress.completed,
+      batchCompliance: batchCompliance?.status ?? null,
+    };
+  }
 }
+

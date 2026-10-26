@@ -18,7 +18,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { Permission } from '../../config/permissions.config.js';
 import { PermissionsGuard } from '../../common/guards/permissions.guard.js';
 import { Role } from '@prisma/client';
-import { CreateSessionDto, UpdateSessionDto, QuerySessionsDto } from './dto/index.js';
+import { CreateSessionDto, UpdateSessionDto, QuerySessionsDto, RecordSessionProgressDto } from './dto/index.js';
 
 @Controller('sessions')
 @UseGuards(PermissionsGuard)
@@ -37,7 +37,7 @@ export class SessionsController {
   @Post('lifecycle-sweep')
   async triggerLifecycleSweep() {
     if (!this.lifecycleService) {
-      return { activatedCount: 0, completedCount: 0, reminders24hSent: 0, reminders1hSent: 0 };
+      return { activatedCount: 0, completedCount: 0, reminders24hSent: 0, reminders1hSent: 0, reminders10mSent: 0 };
     }
     return this.lifecycleService.processLifecycleTransitions();
   }
@@ -175,6 +175,23 @@ export class SessionsController {
   overrideAttendance(@Param('id') id: string, @Body('userId') userId: string) {
     return this.sessionsService.markAttendance(id, userId, true);
   }
+
+  /**
+   * Phase 3 Hybrid Attendance:
+   * POST /sessions/:id/recording-progress
+   * Records media watch progress for session recordings with anti-skip validation.
+   */
+  @RequirePermission(Permission.ATTENDANCE_READ)
+  @Post(':id/recording-progress')
+  recordRecordingProgress(
+    @Param('id') id: string,
+    @Body() body: RecordSessionProgressDto,
+    @Request() req: any,
+  ) {
+    const userId = req.user.sub ?? req.user.userId ?? req.user.id;
+    return this.sessionsService.recordRecordingProgress(id, userId, body);
+  }
+
 
   /**
    * D1-048b: Fetch unmatched attendance records for a session

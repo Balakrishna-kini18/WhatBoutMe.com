@@ -29,3 +29,5 @@ export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 
 export { AgreementMarkdown } from "./AgreementMarkdown";
+export { LearnerPortalFlow } from "./LearnerPortalFlow";
+export type { LearnerPortalFlowProps, StageNode } from "./LearnerPortalFlow";

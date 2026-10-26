@@ -7,6 +7,7 @@ import { CertificateGenProcessor } from './certificate-gen.processor.js';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module.js';
 import { SessionsModule } from '../sessions/sessions.module.js';
+import { ProgressionModule } from '../progression/progression.module.js';
 
 const isWorkerMode = process.env.WORKER_MODE === 'true';
 
@@ -15,6 +16,7 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
     PrismaModule,
     CloudinaryModule,
     forwardRef(() => SessionsModule),
+    forwardRef(() => ProgressionModule),
     BullModule.registerQueue({
       name: 'certificates',
     }),

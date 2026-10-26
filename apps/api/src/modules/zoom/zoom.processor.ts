@@ -30,6 +30,26 @@ export class ZoomProcessor extends WorkerHost {
     
     this.logger.log(`Processing Zoom event: ${eventType}`);
 
+    // Idempotency check via WebhookEvent table
+    const eventKey = `${eventType}:${payload.payload?.object?.uuid || payload.payload?.object?.id || ''}:${payload.event_ts || Date.now()}`;
+    if (this.prisma.webhookEvent?.create) {
+      try {
+        await this.prisma.webhookEvent.create({
+          data: {
+            provider: 'ZOOM',
+            eventKey,
+            payload: payload as any,
+            status: 'PROCESSED',
+          },
+        });
+      } catch (err: any) {
+        if (err.code === 'P2002') {
+          this.logger.log(`Duplicate webhook event ${eventKey} already processed. Skipping.`);
+          return;
+        }
+      }
+    }
+
     try {
       if (eventType === 'meeting.ended') {
         await this.handleMeetingEnded(payload.payload.object);
@@ -55,18 +75,18 @@ export class ZoomProcessor extends WorkerHost {
       return;
     }
 
-    if (session.attendancePulled) {
+    // 2. Atomic claim to prevent check-then-set race condition
+    const claim = await this.prisma.session.updateMany({
+      where: { id: session.id, attendancePulled: false },
+      data: { attendancePulled: true, status: 'COMPLETED' },
+    });
+
+    if (claim.count === 0) {
       this.logger.log(
-        `Attendance for session ${session.id} already reconciled. Skipping duplicate webhook.`,
+        `Attendance for session ${session.id} already claimed/reconciled. Skipping duplicate webhook.`,
       );
       return;
     }
-
-    // 2. Mark session as completed
-    await this.prisma.session.update({
-      where: { id: session.id },
-      data: { status: 'COMPLETED' },
-    });
 
     // 3. D2-032: Fetch participant report and reconcile attendance via AttendanceReconciliationService
     const participants = await this.zoomService.getParticipantReport(meetingId);

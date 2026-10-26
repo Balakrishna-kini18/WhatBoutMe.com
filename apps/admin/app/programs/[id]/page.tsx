@@ -21,10 +21,10 @@ import Step6AddPdfLesson from "./components/Step6AddPdfLesson";
 import Step9ReviewPublish from "./components/Step9ReviewPublish";
 import BackgroundUploadTray, { BackgroundUploadTask } from "./components/BackgroundUploadTray";
 
-// Lazy-load heavy off-screen modals and builders
 const Step3CreateModuleModal = dynamic(() => import("./components/Step3CreateModuleModal"), { ssr: false });
 const Step7QuizBuilder = dynamic(() => import("./components/Step7QuizBuilder"), { ssr: false });
 const Step8ModulePreview = dynamic(() => import("./components/Step8ModulePreview"), { ssr: false });
+const FinalExamPanel = dynamic(() => import("./components/FinalExamPanel"), { ssr: false });
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -38,7 +38,7 @@ export type WizardStep =
   | "PRICING_ACCESS"
   | "REVIEW_PUBLISH";
 
-export type ProgramTab = "MODULES" | "OVERVIEW" | "ENROLMENTS" | "ANALYTICS" | "SETTINGS";
+export type ProgramTab = "MODULES" | "OVERVIEW" | "FINAL_EXAM" | "ENROLMENTS" | "ANALYTICS" | "SETTINGS";
 
 interface Step {
   id: string;
@@ -696,6 +696,15 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         <button
           type="button"
           role="tab"
+          aria-selected={activeProgramTab === "FINAL_EXAM"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "FINAL_EXAM" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("FINAL_EXAM")}
+        >
+          Final Exam
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={activeProgramTab === "ENROLMENTS"}
           className={`${styles.programTabBtn} ${activeProgramTab === "ENROLMENTS" ? styles.programTabBtnActive : ""}`}
           onClick={() => setActiveProgramTab("ENROLMENTS")}
@@ -742,6 +751,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Alternate Tab Views */}
+      {activeProgramTab === "FINAL_EXAM" && (
+        <FinalExamPanel programId={programId} programTitle={programData?.title} />
+      )}
+
       {activeProgramTab === "OVERVIEW" && (
         <section className={styles.cardSurface}>
           <div className={styles.cardHeaderArea}>

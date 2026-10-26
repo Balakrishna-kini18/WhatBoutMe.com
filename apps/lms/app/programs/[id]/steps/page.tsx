@@ -378,29 +378,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               </div>
                             </div>
                           )}
-
-                          {/* Quiz Note & Badges */}
-                          {!isLocked && step.quiz && (
-                            <div className={styles.quizNoteWrap}>
-                              {step.quiz.isPassed ? (
-                                <span className={styles.quizPassedBadge}>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <polyline points="20 6 9 17 4 12" />
-                                  </svg>
-                                  Quiz Passed ({step.quiz.bestScore}%)
-                                </span>
-                              ) : (
-                                <span className={styles.quizRequiredBadge}>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="12" y1="8" x2="12" y2="12" />
-                                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                                  </svg>
-                                  Knowledge Check (Pass mark: {step.quiz.passMark}%)
-                                </span>
-                              )}
-                            </div>
-                          )}
                         </div>
 
                         {/* Action Buttons */}
@@ -492,8 +469,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
             </section>
           </main>
 
-          {/* Right Column: Progress Ring, Up Next, and How It Works */}
-          <aside className={styles.sideCol} aria-label="Learning Progress and Guidance">
+          {/* Right Column: Progress Ring */}
+          <aside className={styles.sideCol} aria-label="Learning Progress">
             {/* Progress Card */}
             <section className={`${styles.card} ${styles.progressCard}`} aria-labelledby="progress-heading">
               <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
@@ -541,64 +518,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                   {done} of {total} steps completed
                 </p>
               </div>
-            </section>
-
-            {/* Up Next Card */}
-            <section className={styles.upNextCard} aria-labelledby="upnext-heading">
-              <p id="upnext-heading" className={styles.upNextKicker}>Up Next</p>
-              {current ? (
-                <>
-                  <h3 className={styles.upNextTitle}>{current.title}</h3>
-                  <p className={styles.upNextSub}>Step {current.sequence} of {total}</p>
-                  <Link href={`/steps/${current.stepId}`} className={styles.upNextBtn}>
-                    {current.isCompleted
-                      ? "Review Step"
-                      : typeof current.progressPercent === "number" && current.progressPercent > 0
-                      ? "Continue Step"
-                      : "Start Step"}
-                  </Link>
-                </>
-              ) : done > 0 && done === total ? (
-                <>
-                  <h3 className={styles.upNextTitle}>
-                    {progression?.certificate ? "Certificate of Completion" : "Claim Your Certificate"}
-                  </h3>
-                  <p className={styles.upNextSub}>
-                    {progression?.certificate
-                      ? "Your official credential is ready to view and download"
-                      : "You have completed all course requirements! View your certificate"}
-                  </p>
-                  <Link href={`/programs/${id}/certificate`} className={styles.upNextBtn}>
-                    {progression?.certificate ? "View Certificate →" : "Claim Certificate →"}
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <h3 className={styles.upNextTitle}>
-                    {loading ? "Loading..." : total === 0 ? "No steps yet" : "All Steps Completed"}
-                  </h3>
-                  <p className={styles.upNextSub}>
-                    {loading
-                      ? "Retrieving curriculum..."
-                      : total === 0
-                      ? "Steps will appear here once added."
-                      : "You have completed every step in this course."}
-                  </p>
-                </>
-              )}
-            </section>
-
-            {/* How It Works Card */}
-            <section className={`${styles.card} ${styles.howItWorksCard}`} aria-labelledby="how-it-works-heading">
-              <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
-                <h2 id="how-it-works-heading" className={styles.cardTitle}>How It Works</h2>
-              </div>
-              <ul className={styles.notesList}>
-                <li>Steps unlock sequentially based on completion and cohort schedule.</li>
-                <li>Each step closes with a knowledge-check quiz.</li>
-                <li>Staff overrides and cohort schedules update automatically.</li>
-                <li>You can review completed steps at any time.</li>
-              </ul>
             </section>
           </aside>
         </div>

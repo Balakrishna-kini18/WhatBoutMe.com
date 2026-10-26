@@ -10,7 +10,14 @@ export interface CompulsoryVideoPlayerProps {
   userName?: string;
   userEmail?: string;
   durationSec?: number;
-  onHeartbeat: (positionSec: number, isEnded?: boolean, videoDurationSec?: number, deltaSec?: number) => void;
+  onHeartbeat: (
+    positionSec: number,
+    isEnded?: boolean,
+    videoDurationSec?: number,
+    deltaSec?: number,
+    fromSec?: number,
+    toSec?: number,
+  ) => void;
   onComplete: () => void;
   onRestart?: () => void;
   onTimeUpdate?: (currentSec: number) => void;
@@ -156,12 +163,22 @@ export default function CompulsoryVideoPlayer({
         if (video) {
           const effectiveDur = duration > 0 ? duration : (video.duration || 0);
           const target = Math.min(effectiveDur > 0 ? effectiveDur : video.currentTime + 10, video.currentTime + 10);
-          video.currentTime = target;
-          setCurrentTime(target);
-          lastValidTimeRef.current = target;
-          if (target > maxWatchedSecRef.current) {
-            maxWatchedSecRef.current = target;
+          const validation = validateSeek(
+            target,
+            lastValidTimeRef.current,
+            maxWatchedSecRef.current,
+            effectiveDur,
+            hasCompletedRef.current
+          );
+          if (!validation.allowed) {
+            triggerSeekWarning(validation.reason);
+            video.currentTime = validation.effectiveTime;
+            setCurrentTime(validation.effectiveTime);
+            return;
           }
+          video.currentTime = validation.effectiveTime;
+          setCurrentTime(validation.effectiveTime);
+          lastValidTimeRef.current = validation.effectiveTime;
         }
         return;
       }
@@ -251,15 +268,25 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Seeking handler: update current time and progress
+  // Seeking handler: update current time and progress safely against anti-skip rules
   const handleSeeking = () => {
     const video = videoRef.current;
     if (!video) return;
+    const validation = validateSeek(
+      video.currentTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      video.currentTime = validation.effectiveTime;
+      setCurrentTime(validation.effectiveTime);
+      return;
+    }
     lastValidTimeRef.current = video.currentTime;
     setCurrentTime(video.currentTime);
-    if (video.currentTime > maxWatchedSecRef.current) {
-      maxWatchedSecRef.current = video.currentTime;
-    }
   };
 
   // Playback rate: ensure video adheres to selected speed
@@ -270,7 +297,7 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Interactive timeline click handler: seek directly to clicked position
+  // Interactive timeline click handler: seek directly to clicked position with anti-skip validation
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     if (!video || !duration || duration <= 0) return;
@@ -279,12 +306,24 @@ export default function CompulsoryVideoPlayer({
     const clickX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const targetTime = Math.max(0, Math.min(duration, (clickX / rect.width) * duration));
 
-    video.currentTime = targetTime;
-    setCurrentTime(targetTime);
-    lastValidTimeRef.current = targetTime;
-    if (targetTime > maxWatchedSecRef.current) {
-      maxWatchedSecRef.current = targetTime;
+    const validation = validateSeek(
+      targetTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      video.currentTime = validation.effectiveTime;
+      setCurrentTime(validation.effectiveTime);
+      return;
     }
+
+    video.currentTime = validation.effectiveTime;
+    setCurrentTime(validation.effectiveTime);
+    lastValidTimeRef.current = validation.effectiveTime;
     setHasEnded(false);
   };
 
@@ -305,13 +344,22 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send 15-second periodic heartbeat (reduces connection churn while preserving accreditation)
+    // Send 15-second periodic heartbeat with exact interval segments
     const now = Date.now();
     if (now - lastHeartbeatTimeRef.current >= 15000) {
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = current;
-      onHeartbeat(Math.floor(current), false, dur > 0 ? dur : undefined, Math.floor(delta));
+      onHeartbeat(
+        Math.floor(current),
+        false,
+        dur > 0 ? dur : undefined,
+        Math.floor(delta),
+        Math.floor(fromSec),
+        Math.floor(toSec),
+      );
     }
 
     // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95

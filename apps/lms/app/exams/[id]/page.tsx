@@ -131,6 +131,23 @@ export default function ExamPage({
           if (data) {
             if (data.status === "IN_PROGRESS" && data.questions) {
               setActiveAttempt(data);
+              // Restore any previously saved answers from attempt
+              const savedList = (data as any)?.answers?.savedAnswers;
+              if (Array.isArray(savedList)) {
+                const restored: Record<string, string> = {};
+                for (const ans of savedList) {
+                  if (ans.questionId) {
+                    if (ans.selectedOptionIds && ans.selectedOptionIds.length > 0) {
+                      restored[ans.questionId] = ans.selectedOptionIds.join(",");
+                    } else if (ans.selectedOptionId || ans.optionId) {
+                      restored[ans.questionId] = ans.selectedOptionId || ans.optionId;
+                    } else if (ans.textAnswer || ans.textResponse) {
+                      restored[ans.questionId] = ans.textAnswer || ans.textResponse;
+                    }
+                  }
+                }
+                setSelectedAnswers(restored);
+              }
               // Calculate remaining seconds
               const expires = new Date(data.expiresAt).getTime();
               const now = Date.now();
@@ -151,6 +168,45 @@ export default function ExamPage({
 
     initExam();
   }, [paramId]);
+
+  // Debounced autosave effect: saves learner answers every 2s
+  const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!activeAttempt || activeAttempt.status !== "IN_PROGRESS" || Object.keys(selectedAnswers).length === 0) {
+      return;
+    }
+    if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
+
+    autosaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const answersPayload = (activeAttempt.questions || []).map((q) => {
+          const ans = selectedAnswers[q.id];
+          const isMulti = q.type === "MULTI_SELECT";
+          const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+          return {
+            questionId: q.id,
+            optionId: !isMulti && !isText ? ans : undefined,
+            selectedOptionId: !isMulti && !isText ? ans : undefined,
+            selectedOptionIds: isMulti && ans ? ans.split(",").filter(Boolean) : undefined,
+            textResponse: isText ? ans : undefined,
+            textAnswer: isText ? ans : undefined,
+          };
+        });
+
+        await fetch(`${API_URL}/exams/${examId}/attempt/answers`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ answers: answersPayload }),
+        });
+      } catch {
+        // Background autosave failure is non-blocking
+      }
+    }, 2000);
+
+    return () => {
+      if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
+    };
+  }, [selectedAnswers, activeAttempt, examId]);
 
   // Countdown timer effect
   useEffect(() => {

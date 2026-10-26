@@ -6,7 +6,8 @@ import {
   ConflictException,
   BadGatewayException,
 } from '@nestjs/common';
-import { Role, SessionStatus, SessionType, MeetingProvider } from '@prisma/client';
+import { Role, SessionStatus, SessionType, MeetingProvider, AttendanceStatus } from '@prisma/client';
+
 import { SessionsService } from './sessions.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { IMeetingProvider } from '../../common/interfaces/meeting-provider.interface.js';
@@ -701,4 +702,136 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
       );
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 9. Hybrid Attendance Recording Progress (Phase 3)
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('Hybrid Attendance Recording Progress (Phase 3)', () => {
+    const complianceServiceMock = {
+      calculateCompliance: vi.fn(),
+    };
+    const stageGateServiceMock = {
+      evaluateStages: vi.fn().mockResolvedValue(undefined),
+    };
+
+    beforeEach(() => {
+      prismaMock.sessionRecordingProgress = {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockImplementation(({ update, create }) =>
+          Promise.resolve({ id: 'rec-1', ...create, ...update }),
+        ),
+      };
+      prismaMock.attendance = {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockImplementation(({ update, create }) =>
+          Promise.resolve({ id: 'att-1', ...create, ...update }),
+        ),
+      };
+      prismaMock.enrolment.findFirst = vi.fn().mockResolvedValue({ id: 'enrol-1', status: 'ACTIVE' });
+      complianceServiceMock.calculateCompliance.mockReset();
+      complianceServiceMock.calculateCompliance.mockResolvedValue({ status: 'NOT_COMPLIANT' });
+      stageGateServiceMock.evaluateStages.mockReset();
+
+      service = new SessionsService(
+        prismaMock as unknown as PrismaService,
+        {} as any,
+        meetingProviderMock,
+        undefined,
+        meetingSyncQueueMock,
+        undefined,
+        complianceServiceMock as any,
+        stageGateServiceMock as any,
+      );
+    });
+
+    it('rejects forward seek into unwatched territory without crediting', async () => {
+      prismaMock.session.findUnique.mockResolvedValueOnce({
+        id: 'sess-1',
+        batchId: mockBatch.id,
+        durationMinutes: 60,
+        startTime: new Date('2026-11-01T10:00:00.000Z'),
+        endTime: new Date('2026-11-01T11:00:00.000Z'),
+        batch: mockBatch,
+      });
+
+      // Learner tries to jump straight to second 1500 without watching 0..1500
+      const result = await service.recordRecordingProgress('sess-1', 'learner-1', {
+        positionSec: 1500,
+        fromSec: 1500,
+        toSec: 1515,
+      });
+
+      expect(result.accepted).toBe(false);
+      expect(result.coveredSec).toBe(0);
+      expect(result.recordedMinutes).toBe(0);
+    });
+
+    it('credits contiguous watch heartbeats and tracks recorded minutes', async () => {
+      prismaMock.session.findUnique.mockResolvedValueOnce({
+        id: 'sess-1',
+        batchId: mockBatch.id,
+        durationMinutes: 60,
+        minAttendanceMinutes: 45,
+        startTime: new Date('2026-11-01T10:00:00.000Z'),
+        endTime: new Date('2026-11-01T11:00:00.000Z'),
+        batch: mockBatch,
+      });
+
+      // Valid heartbeat watching first 15 seconds
+      const result = await service.recordRecordingProgress('sess-1', 'learner-1', {
+        positionSec: 15,
+        fromSec: 0,
+        toSec: 15,
+      });
+
+      expect(result.accepted).toBe(true);
+      expect(result.coveredSec).toBe(15);
+      expect(result.isCompliant).toBe(false); // 15s < 45m
+    });
+
+    it('combines live minutes + recorded minutes to satisfy hybrid threshold and mark PRESENT_RECORDED', async () => {
+      prismaMock.session.findUnique.mockResolvedValueOnce({
+        id: 'sess-1',
+        batchId: mockBatch.id,
+        durationMinutes: 60,
+        minAttendanceMinutes: 45,
+        startTime: new Date('2026-11-01T10:00:00.000Z'),
+        endTime: new Date('2026-11-01T11:00:00.000Z'),
+        batch: mockBatch,
+      });
+
+      // Existing attendance record with 25 minutes live attendance
+      prismaMock.attendance.findUnique.mockResolvedValueOnce({
+        id: 'att-1',
+        status: AttendanceStatus.ABSENT,
+        liveMinutes: 25,
+        minutesPresent: 25,
+      });
+
+      // Existing recording progress with 1200 seconds (20 mins) already watched
+      prismaMock.sessionRecordingProgress.findUnique.mockResolvedValueOnce({
+        id: 'rec-1',
+        watchedRanges: [[0, 1200]],
+        coveredSec: 1200,
+        completed: false,
+        updatedAt: new Date(Date.now() - 15000),
+      });
+
+      // Heartbeat completes additional 15 seconds: total recorded = 1215s (20.25 mins)
+      // Total minutes = 25 (live) + 20.25 (recorded) = 45.25 mins >= 45 min threshold!
+      complianceServiceMock.calculateCompliance.mockResolvedValueOnce({ status: 'COMPLIANT' });
+
+      const result = await service.recordRecordingProgress('sess-1', 'learner-1', {
+        positionSec: 1215,
+        fromSec: 1200,
+        toSec: 1215,
+      });
+
+      expect(result.isCompliant).toBe(true);
+      expect(result.attendanceStatus).toBe('PRESENT_RECORDED');
+      expect(complianceServiceMock.calculateCompliance).toHaveBeenCalledWith('enrol-1');
+      expect(stageGateServiceMock.evaluateStages).toHaveBeenCalledWith('enrol-1');
+    });
+  });
 });
+

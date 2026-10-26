@@ -18,6 +18,11 @@ import { useToast } from "../../../components/Toast";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import StatusBadge from "../../../components/StatusBadge";
 import { validateQuestionInput } from "./finalExamLogic";
+import MarkdownQuestionImportModal from "./MarkdownQuestionImportModal";
+import {
+  ParsedMarkdownQuestion,
+  generateSampleQuestionsMarkdown,
+} from "../../../lib/markdown-question-parser";
 
 interface FinalExamPanelProps {
   programId: string;
@@ -62,6 +67,7 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
   // Delete confirmation state
   const [questionToDelete, setQuestionToDelete] = useState<ExamQuestionItem | null>(null);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
+  const [isMarkdownModalOpen, setIsMarkdownModalOpen] = useState(false);
 
   // Exam Settings Form state
   const [title, setTitle] = useState("");
@@ -371,6 +377,54 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
     }
   };
 
+  const handleMarkdownImport = async (
+    parsedQuestions: ParsedMarkdownQuestion[],
+    replaceExisting: boolean
+  ) => {
+    if (!exam?.id) {
+      throw new Error("Exam record is not initialized yet.");
+    }
+    const batchPayload: Array<Partial<ExamQuestionItem>> = parsedQuestions.map((q) => ({
+      text: q.text,
+      type: q.type,
+      points: q.points || 1,
+      explanation: q.explanation || null,
+      imageUrl: q.imageUrl || null,
+      options: q.options,
+    }));
+
+    const res = await bulkCreateExamQuestions(exam.id, batchPayload, replaceExisting);
+    if (replaceExisting) {
+      setQuestions(res.questions || []);
+      success(
+        `Replaced pool with ${res.createdCount} questions from Markdown (.md)!`
+      );
+    } else {
+      setQuestions((prev) => [...prev, ...(res.questions || [])]);
+      success(
+        `Imported ${res.createdCount} questions from Markdown (.md)! Pool now has ${questions.length + res.createdCount} questions.`
+      );
+    }
+  };
+
+  const handleDownloadQuickMdTemplate = () => {
+    const safeSlug = (programTitle || "program")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+    const content = generateSampleQuestionsMarkdown(70, programTitle || "11 Steps to U");
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${safeSlug}-70-exam-questions-template.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    info("Downloaded 70-question Markdown (.md) template!");
+  };
+
   const handlePublish = async () => {
     if (!exam?.id) return;
     setPublishing(true);
@@ -540,6 +594,40 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={handleDownloadQuickMdTemplate}
+              style={{
+                padding: "0.48rem 0.9rem",
+                borderRadius: 8,
+                border: "1px solid #dcd5cb",
+                background: "#ffffff",
+                color: "#44403c",
+                fontWeight: 700,
+                fontSize: "0.8rem",
+                cursor: "pointer",
+              }}
+            >
+              ⬇ Download .md Template (70 Qs)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMarkdownModalOpen(true)}
+              style={{
+                padding: "0.48rem 0.95rem",
+                borderRadius: 8,
+                border: "1px solid #14110f",
+                background: "#14110f",
+                color: "#ffffff",
+                fontWeight: 700,
+                fontSize: "0.8rem",
+                cursor: "pointer",
+              }}
+            >
+              📤 Upload .md Questions
+            </button>
+
             {questions.length < 70 && (
               <button
                 type="button"
@@ -1365,6 +1453,18 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
         title="Publish Final Exam"
         description={`Are you sure you want to publish "${title}"? Learners who complete all curriculum steps will immediately unlock this ${questionCount}-mark exam (randomly shuffled from ${questions.length} questions in pool).`}
         confirmText="Publish Now"
+      />
+
+      {/* Bulk Markdown (.md) Question Upload Modal */}
+      <MarkdownQuestionImportModal
+        isOpen={isMarkdownModalOpen}
+        onClose={() => setIsMarkdownModalOpen(false)}
+        title={`Upload Markdown (.md) Questions — ${title || "Final Exam Pool"}`}
+        programTitle={programTitle || "11 Steps to U"}
+        existingQuestions={questions}
+        allowReplaceMode={true}
+        defaultSampleCount={70}
+        onImport={handleMarkdownImport}
       />
     </div>
   );

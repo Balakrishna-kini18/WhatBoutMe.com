@@ -3269,8 +3269,14 @@ export async function createExamQuestion(
 
 export async function bulkCreateExamQuestions(
   examId: string,
-  questions: Array<Partial<ExamQuestionItem>>
-): Promise<{ createdCount: number; questionBankId: string; questions: ExamQuestionItem[] }> {
+  questions: Array<Partial<ExamQuestionItem>>,
+  replaceExisting = false
+): Promise<{
+  createdCount: number;
+  replaced?: boolean;
+  questionBankId: string;
+  questions: ExamQuestionItem[];
+}> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const res = await fetch(`${API_URL}/exams/${examId}/questions/bulk`, {
     method: "POST",
@@ -3278,7 +3284,7 @@ export async function bulkCreateExamQuestions(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ questions }),
+    body: JSON.stringify({ questions, replaceExisting }),
   });
   if (!res.ok) {
     throw new Error(await errorMessage(res, "Failed to bulk create exam questions"));

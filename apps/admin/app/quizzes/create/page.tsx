@@ -7,6 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { API_URL, errorMessage, uploadFile } from "../../lib/api";
 import { CustomSelect } from "../../components";
+import MarkdownQuestionImportModal from "../../programs/[id]/components/MarkdownQuestionImportModal";
+import { ParsedMarkdownQuestion } from "../../lib/markdown-question-parser";
 
 interface OptionFormItem {
   text: string;
@@ -56,6 +58,7 @@ function QuizForm() {
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isMarkdownModalOpen, setIsMarkdownModalOpen] = useState(false);
 
   useEffect(() => {
     fetchPrograms();
@@ -511,13 +514,29 @@ function QuizForm() {
 
         {/* SECTION 3: AUTHORED QUESTIONS */}
         <div style={{ borderTop: "1px solid var(--border-light)", paddingTop: "1.5rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
             <div>
               <h2 className={styles.quizSectionTitle} style={{ margin: 0 }}>Visual Question Bank</h2>
               <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0.25rem 0 0 0" }}>
-                Attach images to questions or choices, choose answer format, and set reflection evaluation rules.
+                Attach images to questions or choices, choose answer format, or bulk upload a <code>.md</code> question file.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsMarkdownModalOpen(true)}
+              style={{
+                padding: "0.55rem 1rem",
+                borderRadius: 8,
+                border: "1px solid #14110f",
+                background: "#14110f",
+                color: "#ffffff",
+                fontWeight: 700,
+                fontSize: "0.82rem",
+                cursor: "pointer",
+              }}
+            >
+              📤 Upload .md Questions
+            </button>
           </div>
 
           {questions.map((q, qIdx) => {
@@ -916,6 +935,45 @@ function QuizForm() {
           </button>
         </div>
       </form>
+
+      <MarkdownQuestionImportModal
+        isOpen={isMarkdownModalOpen}
+        onClose={() => setIsMarkdownModalOpen(false)}
+        title="Upload Markdown (.md) Questions into New Quiz"
+        programTitle="Step Quiz"
+        existingQuestions={questions.filter((q) => q.text.trim().length > 0) as any}
+        allowReplaceMode={true}
+        defaultSampleCount={5}
+        onImport={async (parsedQuestions: ParsedMarkdownQuestion[], replaceExisting: boolean) => {
+          const mapped: QuestionFormItem[] = parsedQuestions.map((q) => ({
+            text: q.text,
+            type:
+              q.type === "SHORT_ANSWER"
+                ? "TEXT_BOX"
+                : q.type === "MULTI_SELECT"
+                  ? "MULTIPLE_CHOICE"
+                  : "SINGLE_CHOICE",
+            imageUrl: q.imageUrl || "",
+            gradingMode: "SELF_REFLECTION_AUTO_PASS",
+            minCharacters: q.minCharacters ?? 10,
+            options:
+              q.type === "SHORT_ANSWER"
+                ? []
+                : q.options.map((o) => ({
+                    text: o.text,
+                    imageUrl: o.imageUrl || "",
+                    isCorrect: Boolean(o.isCorrect),
+                  })),
+          }));
+
+          setQuestions((prev) => {
+            const nonEmptyPrev = prev.filter((item) => item.text.trim().length > 0);
+            return replaceExisting || nonEmptyPrev.length === 0
+              ? mapped
+              : [...nonEmptyPrev, ...mapped];
+          });
+        }}
+      />
     </div>
   );
 }

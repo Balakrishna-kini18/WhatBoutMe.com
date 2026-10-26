@@ -151,10 +151,15 @@ export class ExamsController {
   @Post('exams/:id/questions/bulk')
   bulkCreateExamQuestions(
     @Param('id') id: string,
-    @Body() body: { questions: any[] },
+    @Body() body: { questions: any[]; replaceExisting?: boolean },
     @Request() req: any,
   ) {
-    return this.examsService.bulkCreateExamQuestions(id, body?.questions || [], req?.user);
+    return this.examsService.bulkCreateExamQuestions(
+      id,
+      body?.questions || [],
+      req?.user,
+      Boolean(body?.replaceExisting),
+    );
   }
 
   @RequirePermission(Permission.PROGRAMS_UPDATE)

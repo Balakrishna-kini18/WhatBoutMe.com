@@ -144,7 +144,29 @@ export class LeadsController {
           .catch((e: any) => console.warn('[LeadsController] General inquiry email error:', e?.message));
       }
 
-      return { success: true, inquiryType: 'GENERAL', conversationId: conversation.id };
+      // Also persist Lead in CRM table so admin sees it in apps/admin/app/leads/page.tsx
+      const lead = await this.prisma.lead.create({
+        data: {
+          name: body.name.trim(),
+          email,
+          phone: body.phone?.trim() || null,
+          message: [
+            `[General Enquiry - WhatsApp]`,
+            body.message ? body.message.trim() : null,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+          status: LeadStatus.NEW,
+        },
+      });
+
+      return {
+        id: lead.id,
+        leadId: lead.id,
+        success: true,
+        inquiryType: 'GENERAL',
+        conversationId: conversation.id,
+      };
     }
 
     // Default COURSE lead creation

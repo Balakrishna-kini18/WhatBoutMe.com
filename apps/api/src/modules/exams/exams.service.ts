@@ -731,9 +731,14 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Access denied: Authentication required');
     }
 
-    const exam = await this.prisma.exam.findUnique({
+    let exam = await this.prisma.exam.findUnique({
       where: { id: examId },
     });
+    if (!exam && typeof (this.prisma as any).exam?.findFirst === 'function') {
+      exam = await this.prisma.exam.findFirst({
+        where: { programId: examId },
+      });
+    }
 
     if (!exam) {
       throw new NotFoundException('Exam not found');
@@ -901,9 +906,14 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const exam = await this.prisma.exam.findUnique({
+    let exam = await this.prisma.exam.findUnique({
       where: { id: examId },
     });
+    if (!exam && typeof (this.prisma as any).exam?.findFirst === 'function') {
+      exam = await this.prisma.exam.findFirst({
+        where: { programId: examId },
+      });
+    }
 
     if (!exam) {
       throw new NotFoundException('Exam not found');
@@ -1428,7 +1438,12 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async bulkCreateExamQuestions(examId: string, questionsInput: any[], actor: any) {
+  async bulkCreateExamQuestions(
+    examId: string,
+    questionsInput: any[],
+    actor: any,
+    replaceExisting = false,
+  ) {
     this.assertStaffActor(actor);
 
     if (!Array.isArray(questionsInput) || questionsInput.length === 0) {
@@ -1439,6 +1454,16 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const { exam, bank } = await this.ensureExamAndDedicatedBank(examId, false);
+
+    if (
+      replaceExisting &&
+      typeof (this.prisma as any).question?.deleteMany === 'function'
+    ) {
+      await this.prisma.question.deleteMany({
+        where: { questionBankId: bank.id },
+      });
+    }
+
     const created: any[] = [];
 
     for (const item of questionsInput) {
@@ -1448,6 +1473,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       createdCount: created.length,
+      replaced: Boolean(replaceExisting),
       questionBankId: bank.id,
       questions: created,
     };
@@ -1570,7 +1596,10 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Answers must be an array');
     }
 
-    const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
+    let exam = await this.prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam && typeof (this.prisma as any).exam?.findFirst === 'function') {
+      exam = await this.prisma.exam.findFirst({ where: { programId: examId } });
+    }
     if (!exam) throw new NotFoundException('Exam not found');
 
     const enrolment = await this.prisma.enrolment.findFirst({
@@ -1612,17 +1641,32 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    const savedAt = new Date();
+    const nextQuestionIndex =
+      typeof dto.currentQuestionIndex === 'number' && dto.currentQuestionIndex >= 0
+        ? dto.currentQuestionIndex
+        : typeof currentAnswers.currentQuestionIndex === 'number'
+          ? currentAnswers.currentQuestionIndex
+          : 0;
+
     await this.prisma.examAttempt.update({
       where: { id: attempt.id },
       data: {
         answers: {
           ...currentAnswers,
           savedAnswers: dto.answers,
+          currentQuestionIndex: nextQuestionIndex,
+          lastSavedAt: savedAt.toISOString(),
         },
       },
     });
 
-    return { success: true, savedAt: new Date() };
+    return {
+      success: true,
+      savedAt,
+      currentQuestionIndex: nextQuestionIndex,
+      savedCount: dto.answers.length,
+    };
   }
 
   async finalizeExpiredAttempts(): Promise<number> {
@@ -1674,6 +1718,16 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       attempt.startedAt.getTime() + timeLimitMin * 60 * 1000,
     );
 
+    const savedAnswers = Array.isArray(answersJson?.savedAnswers)
+      ? answersJson.savedAnswers
+      : [];
+    const currentQuestionIndex =
+      typeof answersJson?.currentQuestionIndex === 'number' &&
+      answersJson.currentQuestionIndex >= 0
+        ? answersJson.currentQuestionIndex
+        : 0;
+    const lastSavedAt = answersJson?.lastSavedAt || null;
+
     return {
       attemptId: attempt.id,
       attemptNumber: attempt.attemptNumber,
@@ -1685,7 +1739,14 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       timeLimitMin,
       startedAt: attempt.startedAt,
       expiresAt,
-      savedAnswers: answersJson?.savedAnswers || [],
+      savedAnswers,
+      currentQuestionIndex,
+      lastSavedAt,
+      answers: {
+        savedAnswers,
+        currentQuestionIndex,
+        lastSavedAt,
+      },
       questions: boundQuestions.map((q: any) => ({
         id: q.id,
         text: q.text,

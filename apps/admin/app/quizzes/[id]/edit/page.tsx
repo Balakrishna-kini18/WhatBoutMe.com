@@ -5,6 +5,8 @@ import styles from "../../../page.module.css";
 import Link from "next/link";
 import { API_URL, cachedFetch, errorMessage, uploadFile } from "../../../lib/api";
 import { ConfirmDialog, useToast } from "../../../components";
+import MarkdownQuestionImportModal from "../../../programs/[id]/components/MarkdownQuestionImportModal";
+import { ParsedMarkdownQuestion } from "../../../lib/markdown-question-parser";
 
 interface Option {
   id?: string;
@@ -89,6 +91,7 @@ export default function EditQuizPage({
   ]);
   const [savingQuestion, setSavingQuestion] = useState(false);
   const [questionError, setQuestionError] = useState<string | null>(null);
+  const [isMarkdownModalOpen, setIsMarkdownModalOpen] = useState(false);
 
   useEffect(() => {
     loadQuizData();
@@ -393,6 +396,55 @@ export default function EditQuizPage({
     }
   }
 
+  async function handleMarkdownImport(
+    parsedQuestions: ParsedMarkdownQuestion[],
+    replaceExisting: boolean
+  ) {
+    const token = localStorage.getItem("token");
+    if (replaceExisting && questions.length > 0) {
+      for (const existingQ of questions) {
+        await cachedFetch(`${API_URL}/quizzes/questions/${existingQ.id}`, {
+          method: "DELETE",
+        }).catch(() => null);
+      }
+    }
+
+    for (const q of parsedQuestions) {
+      const isText = q.type === "SHORT_ANSWER";
+      const payload: any = {
+        text: q.text,
+        type: q.type,
+        imageUrl: q.imageUrl || undefined,
+        points: q.points || 1,
+        explanation: q.explanation || undefined,
+        minCharacters: q.minCharacters ?? 10,
+        options: isText
+          ? undefined
+          : q.options.map((o, idx) => ({
+              text: o.text,
+              isCorrect: Boolean(o.isCorrect),
+              order: idx + 1,
+            })),
+      };
+
+      const res = await fetch(`${API_URL}/quizzes/${quizId}/questions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to import question from Markdown"));
+      }
+    }
+
+    toastSuccess(`Imported ${parsedQuestions.length} questions from Markdown (.md).`);
+    setPageSuccess(`Imported ${parsedQuestions.length} questions from Markdown (.md).`);
+    await loadQuizData();
+  }
+
   // Delete Question with in-website popup & optimistic UI
   async function confirmDeleteQuestion() {
     if (!questionToDelete) return;
@@ -481,7 +533,7 @@ export default function EditQuizPage({
         {/* Left Column: Questions List */}
         <div>
           <section className={styles.tableSection} style={{ padding: "1.5rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: "1.25rem" }}>
                   Questions ({questions.length})
@@ -490,18 +542,36 @@ export default function EditQuizPage({
                   Visual questions administered to learners upon reaching this step.
                 </p>
               </div>
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                onClick={() => setIsAddQuestionModalOpen(true)}
-                style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                <span>Add Question</span>
-              </button>
+              <div style={{ display: "flex", gap: "0.55rem", alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => setIsMarkdownModalOpen(true)}
+                  style={{
+                    padding: "0.55rem 0.95rem",
+                    borderRadius: 8,
+                    border: "1px solid #14110f",
+                    background: "#14110f",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "0.82rem",
+                    cursor: "pointer",
+                  }}
+                >
+                  📤 Upload .md Questions
+                </button>
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  onClick={() => setIsAddQuestionModalOpen(true)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span>Add Question</span>
+                </button>
+              </div>
             </div>
 
             {questions.length === 0 ? (
@@ -1166,6 +1236,17 @@ export default function EditQuizPage({
               ]
             : []
         }
+      />
+
+      <MarkdownQuestionImportModal
+        isOpen={isMarkdownModalOpen}
+        onClose={() => setIsMarkdownModalOpen(false)}
+        title={`Upload Markdown (.md) Questions — ${quiz?.step?.title || "Step Quiz"}`}
+        programTitle={quiz?.step?.title || "Step Quiz"}
+        existingQuestions={questions as any}
+        allowReplaceMode={true}
+        defaultSampleCount={5}
+        onImport={handleMarkdownImport}
       />
     </div>
   );

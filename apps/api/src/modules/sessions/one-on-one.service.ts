@@ -118,12 +118,14 @@ export class OneOnOneService {
       const isPast =
         existingPending.requestedStart &&
         new Date(existingPending.requestedStart).getTime() < Date.now();
-      if (isPast) {
+      if (isPast || dto.reschedule) {
         await this.prisma.oneOnOneRequest.update({
           where: { id: existingPending.id },
           data: {
-            status: OneOnOneRequestStatus.EXPIRED,
-            decisionReason: 'Superseded: original requested slot passed without instructor confirmation',
+            status: isPast ? OneOnOneRequestStatus.EXPIRED : OneOnOneRequestStatus.CANCELLED,
+            decisionReason: isPast
+              ? 'Superseded: original requested slot passed without instructor confirmation'
+              : 'Rescheduled: superseded by learner with new requested slot',
           },
         });
       } else {

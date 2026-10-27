@@ -236,6 +236,7 @@ export function buildCoachingRequestPayload(params: {
   preferredTime: string;
   notes?: string;
   learnerTimezone?: string;
+  reschedule?: boolean;
   now?: Date;
 }):
   | {
@@ -246,6 +247,7 @@ export function buildCoachingRequestPayload(params: {
         requestedEnd: string;
         learnerTimezone: string;
         notes?: string;
+        reschedule?: boolean;
       };
     }
   | {
@@ -290,6 +292,7 @@ export function buildCoachingRequestPayload(params: {
       requestedStart: startDate.toISOString(),
       requestedEnd: endDate.toISOString(),
       learnerTimezone: tz,
+      ...(params.reschedule ? { reschedule: true } : {}),
       ...(trimmedNotes ? { notes: trimmedNotes } : {}),
     },
   };

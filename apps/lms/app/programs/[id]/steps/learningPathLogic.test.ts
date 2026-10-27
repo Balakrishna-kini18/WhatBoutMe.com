@@ -233,6 +233,18 @@ describe("LMS Learning Path Progression Logic", () => {
       if (!pastSlot.ok) {
         expect(pastSlot.error).toContain("future date and time");
       }
+
+      const rescheduleSlot = buildCoachingRequestPayload({
+        enrolmentId: "enrol-1",
+        preferredDate: "2026-10-28",
+        preferredTime: "11:00",
+        reschedule: true,
+        now,
+      });
+      expect(rescheduleSlot.ok).toBe(true);
+      if (rescheduleSlot.ok) {
+        expect(rescheduleSlot.payload.reschedule).toBe(true);
+      }
     });
 
     it("formats human-readable slot summary for confirmation bar", () => {

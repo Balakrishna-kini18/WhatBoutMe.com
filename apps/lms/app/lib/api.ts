@@ -218,6 +218,9 @@ export function autoInvalidateOnMutation(url: string): void {
     "notifications",
     "checkout",
     "auth",
+    "one-on-one",
+    "coaching",
+    "mission-statements",
   ];
 
   for (const r of resources) {
@@ -226,6 +229,14 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "sessions" || r === "bookings") {
         invalidateCache("/sessions");
         invalidateCache("/bookings");
+      }
+      if (r === "one-on-one" || r === "coaching") {
+        invalidateCache("/one-on-one");
+        invalidateCache("/progression");
+      }
+      if (r === "mission-statements") {
+        invalidateCache("/mission-statements");
+        invalidateCache("/progression");
       }
       if (r === "progression" || r === "progress" || r === "quizzes") {
         invalidateCache("/progression");
@@ -1198,6 +1209,7 @@ export interface OneOnOneRequestDto {
   requestedEnd: string;
   learnerTimezone?: string;
   notes?: string;
+  reschedule?: boolean;
 }
 
 export interface MyOneOnOneRequest {
@@ -1235,12 +1247,20 @@ export async function createOneOnOneRequest(payload: OneOnOneRequestDto): Promis
     const err = await parseApiError(res, 'Failed to submit coaching request');
     throw new Error(err.message);
   }
+  invalidateCache("/one-on-one");
+  invalidateCache("/progression");
   return res.json();
 }
 
-export async function fetchMyOneOnOneRequests(): Promise<MyOneOnOneRequest[]> {
-  const res = await fetch(`${API_URL}/one-on-one/my-requests`, {
+export async function fetchMyOneOnOneRequests(
+  enrolmentId?: string,
+  skipCache = false
+): Promise<MyOneOnOneRequest[]> {
+  const query = enrolmentId ? `?enrolmentId=${encodeURIComponent(enrolmentId)}` : "";
+  const res = await cachedFetch(`${API_URL}/one-on-one/my-requests${query}`, {
     headers: getAuthHeaders(),
+    ttlMs: 30_000,
+    skipCache,
   });
   if (!res.ok) {
     const err = await parseApiError(res, 'Failed to fetch coaching requests');
@@ -1258,6 +1278,8 @@ export async function cancelOneOnOneRequest(id: string): Promise<MyOneOnOneReque
     const err = await parseApiError(res, 'Failed to cancel coaching request');
     throw new Error(err.message);
   }
+  invalidateCache("/one-on-one");
+  invalidateCache("/progression");
   return res.json();
 }
 

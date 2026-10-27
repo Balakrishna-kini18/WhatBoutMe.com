@@ -6,6 +6,7 @@ import styles from './richNoteEditor.module.css';
 import { ContextualNote, formatSecondsToTimestamp } from '../../types/learner-flow';
 import { extractPlainTextPreview } from '../../lib/notesAdapter';
 import { saveNoteDraft, getNoteDraft, clearNoteDraft } from '../../lib/notesStorageEngine';
+import { ConfirmModal } from '../ui/ConfirmModal';
 
 interface RichNoteEditorModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ export default function RichNoteEditorModal({
   const [isFavorite, setIsFavorite] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (initialNote) {
@@ -122,12 +124,16 @@ export default function RichNoteEditorModal({
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
     if (!initialNote.noteId || !onDelete) return;
-    if (!window.confirm('Are you sure you want to delete this note?')) return;
     setIsDeleting(true);
     try {
       await onDelete(initialNote.noteId);
+      setShowDeleteConfirm(false);
       onClose();
     } finally {
       setIsDeleting(false);
@@ -148,7 +154,7 @@ export default function RichNoteEditorModal({
           {initialNote.noteId && onDelete && (
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={handleDeleteClick}
               disabled={isDeleting}
               className={styles.deleteBtn}
             >
@@ -361,6 +367,20 @@ export default function RichNoteEditorModal({
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          if (!isDeleting) setShowDeleteConfirm(false);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Note"
+        message="Are you sure you want to permanently delete this note? This action cannot be undone."
+        confirmText="Delete Note"
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={isDeleting}
+      />
     </div>
   );
 }

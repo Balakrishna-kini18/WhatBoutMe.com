@@ -10,6 +10,7 @@ import {
   formatSecondsToTimestamp,
 } from '../types/learner-flow';
 import RichNoteEditorModal from '../components/notes/RichNoteEditorModal';
+import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { saveLastNotesContext } from '../lib/notesStorageEngine';
 
 export interface MyNotesThreePaneExplorerProps {
@@ -85,6 +86,8 @@ export function MyNotesThreePaneExplorer({
   // Editor Modal State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Partial<ContextualNote> | null>(null);
+  const [noteToDeleteId, setNoteToDeleteId] = useState<string | null>(null);
+  const [isDeletingNote, setIsDeletingNote] = useState(false);
 
   // Pre-compute note counts by Course, Module, and Lesson
   const noteCounts = useMemo(() => {
@@ -951,11 +954,9 @@ export function MyNotesThreePaneExplorer({
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
+                                onClick={() => {
                                   setActiveMenuNoteId(null);
-                                  if (window.confirm('Delete this note permanently?')) {
-                                    await onDeleteNote(note.noteId);
-                                  }
+                                  setNoteToDeleteId(note.noteId);
                                 }}
                                 className={styles.menuItemBtn}
                                 style={{ color: '#dc2626' }}
@@ -1064,6 +1065,29 @@ export function MyNotesThreePaneExplorer({
           setIsEditorOpen(false);
           onJumpToLessonPlayer(courseId, lessonId, ts, moduleId);
         }}
+      />
+
+      <ConfirmModal
+        isOpen={noteToDeleteId !== null}
+        onClose={() => {
+          if (!isDeletingNote) setNoteToDeleteId(null);
+        }}
+        onConfirm={async () => {
+          if (!noteToDeleteId) return;
+          setIsDeletingNote(true);
+          try {
+            await onDeleteNote(noteToDeleteId);
+            setNoteToDeleteId(null);
+          } finally {
+            setIsDeletingNote(false);
+          }
+        }}
+        title="Delete Note"
+        message="Are you sure you want to permanently delete this note? This action cannot be undone."
+        confirmText="Delete Note"
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={isDeletingNote}
       />
     </div>
   );

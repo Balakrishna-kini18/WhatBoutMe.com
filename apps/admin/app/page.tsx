@@ -244,12 +244,20 @@ export default function AdminDashboard() {
         }))
       : [];
 
-  const WARM_BRAND_COLORS = ['#c97a1e', '#d8a86a', '#d97706', '#e09f3e', '#b45309', '#e8a87c'];
-  const getDonutColor = (color: string | undefined, index: number) => {
-    if (!color || color === '#2c2825' || color === '#1f2937' || color === '#8c8275' || color === '#a39887') {
-      return WARM_BRAND_COLORS[index % WARM_BRAND_COLORS.length];
-    }
-    return color;
+  // High-contrast, harmonious categorical color palette for multi-program visualization
+  const DONUT_CATEGORICAL_COLORS = [
+    '#c97a1e', // 1. Warm Amber / Ochre (Signature Brand)
+    '#2563eb', // 2. Royal Cobalt Blue (Strong contrast with amber)
+    '#059669', // 3. Emerald Green (Fresh, high contrast with both amber & blue)
+    '#7c3aed', // 4. Deep Violet / Purple
+    '#e11d48', // 5. Crimson Rose / Coral
+    '#0891b2', // 6. Deep Cyan / Teal
+    '#d97706', // 7. Golden Honey
+    '#475569', // 8. Slate Steel
+  ];
+
+  const getDonutColor = (_color: string | undefined, index: number) => {
+    return DONUT_CATEGORICAL_COLORS[index % DONUT_CATEGORICAL_COLORS.length];
   };
 
   interface ProgramDistItem {
@@ -433,9 +441,13 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {loading ? "—" : totalLearners.toLocaleString()}
-            </span>
+            {loading ? (
+              <div className="skeleton" style={{ width: 68, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>
+                {totalLearners.toLocaleString()}
+              </span>
+            )}
           </div>
         </Link>
 
@@ -448,9 +460,13 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {loading ? "—" : totalBatches.toLocaleString()}
-            </span>
+            {loading ? (
+              <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>
+                {totalBatches.toLocaleString()}
+              </span>
+            )}
           </div>
         </Link>
 
@@ -464,7 +480,11 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div className={styles.kpiValueRow}>
-              <span className={styles.kpiValue}>{loading ? "—" : totalRevenue}</span>
+              {loading ? (
+                <div className="skeleton" style={{ width: 88, height: 28, borderRadius: 6 }} />
+              ) : (
+                <span className={styles.kpiValue}>{totalRevenue}</span>
+              )}
             </div>
           </Link>
         )}
@@ -478,9 +498,13 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className={styles.kpiValueRow}>
-            <span className={styles.kpiValue}>
-              {loading ? "—" : certificatesIssued.toLocaleString()}
-            </span>
+            {loading ? (
+              <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>
+                {certificatesIssued.toLocaleString()}
+              </span>
+            )}
           </div>
         </Link>
       </section>
@@ -495,15 +519,23 @@ export default function AdminDashboard() {
             <h3 className={styles.actionQueueTitle}>
               15-Min Discovery Calls
             </h3>
-            {upcomingDiscoveryCalls.length > 0 && (
+            {loading ? (
+              <div className="skeleton" style={{ width: 78, height: 18, borderRadius: 999 }} />
+            ) : upcomingDiscoveryCalls.length > 0 ? (
               <span className={`${styles.actionQueueBadge} ${styles.badgeScheduled}`}>
                 {upcomingDiscoveryCalls.length} Scheduled
               </span>
-            )}
+            ) : null}
           </div>
 
           <div className={styles.actionQueueList}>
-            {upcomingDiscoveryCalls.length === 0 ? (
+            {loading ? (
+              <div className={styles.actionQueueHero} style={{ gap: "0.65rem" }}>
+                <div className="skeleton" style={{ width: "65%", height: 18, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "90%", height: 13, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "100%", height: 34, borderRadius: 8, marginTop: "auto" }} />
+              </div>
+            ) : upcomingDiscoveryCalls.length === 0 ? (
               <div className={styles.actionQueueHero}>
                 <div className={styles.emptyQueueState}>
                   <span>✓ All caught up</span>
@@ -564,15 +596,23 @@ export default function AdminDashboard() {
             <h3 className={styles.actionQueueTitle}>
               Certificate Approvals
             </h3>
-            {pendingCertificatesCount > 0 && (
+            {loading ? (
+              <div className="skeleton" style={{ width: 68, height: 18, borderRadius: 999 }} />
+            ) : pendingCertificatesCount > 0 ? (
               <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
                 {pendingCertificatesCount} Pending
               </span>
-            )}
+            ) : null}
           </div>
 
           <div className={styles.actionQueueList}>
-            {pendingCertificatesCount > 0 ? (
+            {loading ? (
+              <div className={styles.actionQueueHero} style={{ gap: "0.65rem" }}>
+                <div className="skeleton" style={{ width: 44, height: 28, borderRadius: 6 }} />
+                <div className="skeleton" style={{ width: "85%", height: 14, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "100%", height: 34, borderRadius: 8, marginTop: "auto" }} />
+              </div>
+            ) : pendingCertificatesCount > 0 ? (
               <div className={styles.actionQueueHero}>
                 <div className={styles.actionQueueHeroNumber}>{pendingCertificatesCount}</div>
                 <div className={styles.actionQueueHeroMeta}>Learner certificate requests awaiting instructor review and issuance.</div>
@@ -600,15 +640,23 @@ export default function AdminDashboard() {
             <h3 className={styles.actionQueueTitle}>
               Attendance Reconciliation
             </h3>
-            {unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 && (
+            {loading ? (
+              <div className="skeleton" style={{ width: 78, height: 18, borderRadius: 999 }} />
+            ) : unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 ? (
               <span className={`${styles.actionQueueBadge} ${styles.badgeUnmatchedAlert}`}>
                 {unmatchedAttendanceCount} Unmatched
               </span>
-            )}
+            ) : null}
           </div>
 
           <div className={styles.actionQueueList}>
-            {unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 ? (
+            {loading ? (
+              <div className={styles.actionQueueHero} style={{ gap: "0.65rem" }}>
+                <div className="skeleton" style={{ width: 44, height: 28, borderRadius: 6 }} />
+                <div className="skeleton" style={{ width: "85%", height: 14, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "100%", height: 34, borderRadius: 8, marginTop: "auto" }} />
+              </div>
+            ) : unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 ? (
               <div className={styles.actionQueueHero}>
                 <div className={styles.actionQueueHeroNumber} style={{ color: "#d97706" }}>{unmatchedAttendanceCount}</div>
                 <div className={styles.actionQueueHeroMeta}>Session participants could not be automatically matched to registered learners.</div>
@@ -657,7 +705,27 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody>
-              {activeBatchesList.length === 0 ? (
+              {loading ? (
+                [1, 2, 3].map((i) => (
+                  <tr key={i}>
+                    <td>
+                      <div className="skeleton" style={{ height: 15, width: 140, borderRadius: 4 }} />
+                    </td>
+                    <td>
+                      <div className="skeleton" style={{ height: 15, width: 110, borderRadius: 4 }} />
+                    </td>
+                    <td>
+                      <div className="skeleton" style={{ height: 15, width: 90, borderRadius: 4 }} />
+                    </td>
+                    <td>
+                      <div className="skeleton" style={{ height: 15, width: 75, borderRadius: 4 }} />
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <div className="skeleton" style={{ height: 15, width: 105, borderRadius: 4, marginLeft: "auto" }} />
+                    </td>
+                  </tr>
+                ))
+              ) : activeBatchesList.length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)" }}>
                     No active batches found.
@@ -879,10 +947,7 @@ export default function AdminDashboard() {
                         {(() => {
                           const statusInfo = formatStatus(item.status);
                           return (
-                            <span className={statusInfo.className}>
-                              <span className={styles.statusDot} />
-                              <span>{statusInfo.label}</span>
-                            </span>
+                            <span className={statusInfo.className}>{statusInfo.label}</span>
                           );
                         })()}
                       </td>
@@ -957,7 +1022,7 @@ export default function AdminDashboard() {
                     />
                   </svg>
                   <div className={styles.donutCenter}>
-                    <span className={styles.donutTotal}>—</span>
+                    <div className="skeleton" style={{ width: 32, height: 18, borderRadius: 4, margin: "0 auto 4px" }} />
                     <span className={styles.donutTotalLabel}>Total</span>
                   </div>
                 </div>
@@ -1005,25 +1070,28 @@ export default function AdminDashboard() {
                       strokeWidth="11"
                     />
                     {/* Dynamic Segments */}
-                    {programDistribution.map((item, index) => {
-                      const strokeDash =
-                        (item.percentage / 100) * donutCircumference;
-                      const offset = accumulatedOffset;
-                      accumulatedOffset += strokeDash;
-                      return (
-                        <circle
-                          key={item.name}
-                          cx="50"
-                          cy="50"
-                          r={donutRadius}
-                          fill="none"
-                          stroke={getDonutColor(item.color, index)}
-                          strokeWidth="11"
-                          strokeDasharray={`${strokeDash} ${donutCircumference}`}
-                          strokeDashoffset={-offset}
-                        />
-                      );
-                    })}
+                    {(() => {
+                      let currentOffset = 0;
+                      return programDistribution.map((item, index) => {
+                        const strokeDash =
+                          (item.percentage / 100) * donutCircumference;
+                        const offset = currentOffset;
+                        currentOffset += strokeDash;
+                        return (
+                          <circle
+                            key={item.name}
+                            cx="50"
+                            cy="50"
+                            r={donutRadius}
+                            fill="none"
+                            stroke={getDonutColor(item.color, index)}
+                            strokeWidth="11"
+                            strokeDasharray={`${strokeDash} ${donutCircumference}`}
+                            strokeDashoffset={-offset}
+                          />
+                        );
+                      });
+                    })()}
                   </svg>
                   {/* Center Total Count */}
                   <div className={styles.donutCenter}>

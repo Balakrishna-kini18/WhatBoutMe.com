@@ -19,6 +19,9 @@ describe('AdminDashboardController', () => {
           if (where?.status === 'PENDING') return Promise.resolve(0);
           return Promise.resolve(8);
         }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'cert-1', certificateNumber: 'WBM-CERT-101', recipientName: 'Roweena Foxwel', programTitle: '11 Steps to You' },
+        ]),
       },
       unmatchedAttendance: {
         count: vi.fn().mockResolvedValue(0),

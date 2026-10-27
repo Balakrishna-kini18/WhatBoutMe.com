@@ -422,7 +422,7 @@ typeof this.prisma.auditLog?.findMany === 'function'
             },
           })
         : [],
-      certificateIds.length > 0
+      certificateIds.length > 0 && typeof this.prisma.certificate?.findMany === 'function'
         ? this.prisma.certificate.findMany({
             where: { id: { in: certificateIds } },
             select: { id: true, certificateNumber: true, recipientName: true, programTitle: true },

@@ -3,50 +3,106 @@ import styles from "./path.module.css";
 export default function ProgramStepsLoading() {
   return (
     <div className={styles.container}>
-      {/* Header Skeleton */}
-      <div className={styles.header}>
-        <div className="skeleton" style={{ width: 140, height: 16, marginBottom: 14, borderRadius: 4 }} />
-        <div className="skeleton" style={{ width: "55%", height: 36, marginBottom: 12, borderRadius: 8 }} />
-        <div className="skeleton" style={{ width: "38%", height: 16, borderRadius: 4 }} />
-      </div>
+      {/* Page Header Skeleton */}
+      <header className={styles.header}>
+        <div
+          className="skeleton"
+          style={{ width: 76, height: 32, borderRadius: 999 }}
+          aria-hidden="true"
+        />
+        <span className={styles.headerDivider} aria-hidden="true" />
+        <div
+          className="skeleton"
+          style={{ width: 280, height: 28, borderRadius: 6 }}
+          aria-hidden="true"
+        />
+      </header>
 
       {/* Main Two-Column Skeleton Grid */}
       <div className={styles.layoutGrid}>
-        <div className={styles.mainCol}>
-          <section className={styles.card}>
+        {/* Main Column: Timeline Steps Skeleton */}
+        <main className={styles.mainCol}>
+          <section className={styles.card} aria-label="Loading steps">
             <div className={styles.cardHead}>
-              <div className="skeleton" style={{ width: 90, height: 22, borderRadius: 6 }} />
-              <div className="skeleton" style={{ width: 110, height: 16, borderRadius: 4 }} />
+              <div className="skeleton" style={{ width: 60, height: 20, borderRadius: 4 }} />
+              <div className="skeleton" style={{ width: 130, height: 24, borderRadius: 999 }} />
             </div>
 
-            <ol className={styles.timeline}>
-              {[1, 2, 3, 4, 5].map((idx) => (
+            <ol className={styles.timeline} aria-hidden="true">
+              {[1, 2, 3, 4, 5, 6].map((idx) => (
                 <li key={idx} className={styles.step} style={{ opacity: 1 }}>
-                  <div className="skeleton" style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0 }} />
+                  {/* Step Marker Circle */}
+                  <div
+                    className="skeleton"
+                    style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0 }}
+                  />
+
+                  {/* Step Body */}
                   <div className={styles.stepBody}>
-                    <div className="skeleton" style={{ width: 70, height: 12, marginBottom: 8, borderRadius: 4 }} />
-                    <div className="skeleton" style={{ width: "45%", height: 20, marginBottom: 8, borderRadius: 6 }} />
-                    <div className="skeleton" style={{ width: "65%", height: 14, borderRadius: 4 }} />
+                    <div
+                      className="skeleton"
+                      style={{ width: 52, height: 12, marginBottom: 8, borderRadius: 4 }}
+                    />
+                    <div
+                      className="skeleton"
+                      style={{
+                        width: idx % 2 === 0 ? "55%" : "42%",
+                        height: 18,
+                        marginBottom: 8,
+                        borderRadius: 5,
+                      }}
+                    />
+                    <div
+                      className="skeleton"
+                      style={{
+                        width: idx % 2 === 0 ? "75%" : "65%",
+                        height: 13,
+                        borderRadius: 4,
+                      }}
+                    />
                   </div>
+
+                  {/* Step Action Button */}
                   <div className={styles.stepActionCol}>
-                    <div className="skeleton" style={{ width: 88, height: 34, borderRadius: 8 }} />
+                    <div
+                      className="skeleton"
+                      style={{ width: 92, height: 34, borderRadius: 8, flexShrink: 0 }}
+                    />
                   </div>
                 </li>
               ))}
             </ol>
           </section>
-        </div>
+        </main>
 
         {/* Aside Sidebar Skeleton */}
         <aside className={styles.sideCol}>
           {/* Progress Card Skeleton */}
-          <section className={`${styles.card} ${styles.progressCard}`}>
+          <section className={`${styles.card} ${styles.progressCard}`} aria-hidden="true">
             <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
-              <div className="skeleton" style={{ width: 80, height: 20, borderRadius: 6 }} />
+              <div className="skeleton" style={{ width: 120, height: 18, borderRadius: 4 }} />
             </div>
-            <div className={styles.ringWrap}>
-              <div className="skeleton" style={{ width: 120, height: 120, borderRadius: "50%" }} />
-              <div className="skeleton" style={{ width: 140, height: 14, borderRadius: 4 }} />
+            <div className={styles.ringWrap} style={{ padding: "16px 0" }}>
+              <div
+                className="skeleton"
+                style={{ width: 120, height: 120, borderRadius: "50%", margin: "0 auto 14px" }}
+              />
+              <div
+                className="skeleton"
+                style={{ width: 100, height: 14, borderRadius: 4, margin: "0 auto" }}
+              />
+            </div>
+          </section>
+
+          {/* Cohort Batch Card Skeleton */}
+          <section className={styles.card} aria-hidden="true">
+            <div className={styles.cardHead} style={{ justifyContent: "flex-start" }}>
+              <div className="skeleton" style={{ width: 95, height: 18, borderRadius: 4 }} />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "4px 0" }}>
+              <div className="skeleton" style={{ width: "85%", height: 15, borderRadius: 4 }} />
+              <div className="skeleton" style={{ width: "60%", height: 13, borderRadius: 4 }} />
+              <div className="skeleton" style={{ width: "70%", height: 13, borderRadius: 4 }} />
             </div>
           </section>
         </aside>

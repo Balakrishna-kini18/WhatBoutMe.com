@@ -34,6 +34,7 @@ interface Step2ModuleListProps {
   onUpdateModule?: (stepId: string, updates: { title: string; description: string }) => Promise<void>;
   onBackToBasicDetails: () => void;
   onContinueToPricing: () => void;
+  onOpenFinalExam?: () => void;
 }
 
 export default function Step2ModuleList({
@@ -50,6 +51,7 @@ export default function Step2ModuleList({
   onUpdateModule,
   onBackToBasicDetails,
   onContinueToPricing,
+  onOpenFinalExam,
 }: Step2ModuleListProps) {
   // Find current active module, default to first step if none chosen
   const currentStep =
@@ -243,6 +245,56 @@ export default function Step2ModuleList({
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Post-Curriculum Final Exam (50 Marks · 70-Question Pool) Section */}
+          {onOpenFinalExam && (
+            <div
+              onClick={onOpenFinalExam}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onOpenFinalExam();
+              }}
+              style={{
+                marginTop: "0.85rem",
+                padding: "0.95rem 1rem",
+                borderRadius: 12,
+                border: "1.5px solid #d97706",
+                background: "#fffbeb",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.35rem",
+                boxShadow: "0 2px 6px rgba(217, 119, 6, 0.08)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span
+                  style={{
+                    fontSize: "0.7rem",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "#b45309",
+                    background: "#fde68a",
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                  }}
+                >
+                  Separate Exam Section
+                </span>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#b45309" }}>
+                  Configure &rarr;
+                </span>
+              </div>
+              <div style={{ fontWeight: 800, fontSize: "0.92rem", color: "#14110f" }}>
+                Final Examination (50 Marks)
+              </div>
+              <div style={{ fontSize: "0.78rem", color: "#6b655e", lineHeight: 1.35 }}>
+                50 questions randomly shuffled from a 70-question pool after all modules.
+              </div>
             </div>
           )}
         </div>

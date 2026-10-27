@@ -15,6 +15,8 @@ function CheckoutContent() {
   const searchParams = useSearchParams();
   const programId = searchParams.get("programId");
   const queryEnrolmentId = searchParams.get("enrolmentId");
+  const queryBatchId = searchParams.get("batchId");
+  const queryCoupon = searchParams.get("coupon");
 
   const [program, setProgram] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -24,8 +26,8 @@ function CheckoutContent() {
   // Multi-Currency State
   const [currency, setCurrency] = useState<"USD" | "AED" | "INR">("USD");
 
-  // Coupon State
-  const [couponCode, setCouponCode] = useState("");
+  // Coupon State (pre-populated if preserved from course enrollment intent)
+  const [couponCode, setCouponCode] = useState(queryCoupon || "");
   const [appliedCoupon, setAppliedCoupon] = useState<any>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
@@ -35,14 +37,15 @@ function CheckoutContent() {
     () => `chk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
   );
   const [simulatedResult, setSimulatedResult] = useState<any>(null);
-  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [simulationError, setSimulationError] = useState<any>(null);
 
   const [enrolmentId, setEnrolmentId] = useState<string | null>(queryEnrolmentId);
   const [signedVersion, setSignedVersion] = useState<string>("v1.0");
   const [agreementStatus, setAgreementStatus] = useState<"CHECKING" | "SIGNED" | "REQUIRED">("CHECKING");
 
   const targetEnrolmentId = enrolmentId || queryEnrolmentId;
-  const agreementUrl = `/agreement?programId=${programId || ""}${targetEnrolmentId ? `&enrolmentId=${targetEnrolmentId}` : ""}`;
+  const extraParams = `${queryBatchId ? `&batchId=${encodeURIComponent(queryBatchId)}` : ""}${queryCoupon ? `&coupon=${encodeURIComponent(queryCoupon)}` : ""}`;
+  const agreementUrl = `/agreement?programId=${programId || ""}${targetEnrolmentId ? `&enrolmentId=${targetEnrolmentId}` : ""}${extraParams}`;
 
   useEffect(() => {
     // Check if user is logged in
@@ -84,6 +87,14 @@ function CheckoutContent() {
             if (data?.enrolment?.id) {
               setEnrolmentId(data.enrolment.id);
             }
+            // Already Enrolled Detection: skip duplicate checkout if enrolment is already ACTIVE/COMPLETED
+            if (
+              data?.hasSignedAgreement &&
+              (data?.enrolment?.status === "ACTIVE" || data?.enrolment?.status === "COMPLETED")
+            ) {
+              router.replace(`/programs/${programId}/steps?welcomeBack=1`);
+              return;
+            }
             if (data?.hasSignedAgreement) {
               setAgreementStatus("SIGNED");
               if (data?.signedAgreement?.templateVersion) {
@@ -92,18 +103,18 @@ function CheckoutContent() {
             } else {
               setAgreementStatus("REQUIRED");
               const targetEid = data?.enrolment?.id || queryEnrolmentId;
-              const signUrl = `/agreement?programId=${programId}${targetEid ? `&enrolmentId=${targetEid}` : ""}`;
+              const signUrl = `/agreement?programId=${programId}${targetEid ? `&enrolmentId=${targetEid}` : ""}${extraParams}`;
               router.replace(signUrl);
             }
           })
           .catch(() => {
             setAgreementStatus("REQUIRED");
-            const signUrl = `/agreement?programId=${programId}${queryEnrolmentId ? `&enrolmentId=${queryEnrolmentId}` : ""}`;
+            const signUrl = `/agreement?programId=${programId}${queryEnrolmentId ? `&enrolmentId=${queryEnrolmentId}` : ""}${extraParams}`;
             router.replace(signUrl);
           });
       } else {
         const returnUrl = encodeURIComponent(
-          `/agreement?programId=${programId || ""}`
+          `/agreement?programId=${programId || ""}${extraParams}`
         );
         router.replace(`/login?portal=${returnUrl}`);
       }

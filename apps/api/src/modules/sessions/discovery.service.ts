@@ -250,110 +250,130 @@ export class DiscoveryService {
     const hostEmail = roweena?.email || 'share@whatboutme.com';
     const hostTrainerId = roweena?.id || null;
 
-    // 1. Transactional Slot Locking
-    const result = await this.prisma.$transaction(async (tx) => {
-      // PostgreSQL transactional advisory lock serializes concurrent bookings for the same slot
-      if (typeof tx.$executeRaw === 'function') {
-        const lockKey = `discovery_slot_${slotStart.getTime()}`;
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-      }
-
-      // Clash verification under transaction:
-      const clash = await tx.session.findFirst({
-        where: {
-          status: { notIn: [SessionStatus.CANCELLED, SessionStatus.RESCHEDULED] },
-          startTime: { lt: slotEnd },
-          endTime: { gt: slotStart },
-          OR: [
-            ...(hostTrainerId ? [{ hostTrainerId }] : []),
-            { sessionType: SessionType.SPEAKER_DISCOVERY_CALL },
-          ],
-        },
+    // Course title lookup if provided
+    let courseTitle = 'Curriculum & Program Guidance';
+    if (dto.courseId) {
+      const prog = await this.prisma.program.findUnique({
+        where: { id: dto.courseId },
+        select: { title: true },
       });
+      if (prog?.title) courseTitle = prog.title;
+    }
 
-      if (clash) {
-        throw new ConflictException(
-          'This 15-minute slot was just booked by another attendee. Please pick another available time.',
-        );
+    // 1. Zoom Link Generation (Executed BEFORE DB transaction so external network lag never causes transaction timeout)
+    let zoomJoinUrl = '';
+    let zoomHostUrl = '';
+    let zoomMeetingId = '';
+
+    if (this.meetingProvider) {
+      try {
+        const zoomMeeting = await this.meetingProvider.createMeeting({
+          topic: `15-Min Discovery Call: Roweena & ${prospectName} (${courseTitle})`,
+          startTime: slotStart,
+          durationMinutes: 15,
+          timezone: tz,
+        });
+        if (zoomMeeting?.joinUrl) {
+          zoomJoinUrl = zoomMeeting.joinUrl;
+          zoomHostUrl = zoomMeeting.startUrl || zoomMeeting.joinUrl;
+          zoomMeetingId = zoomMeeting.id;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Meeting provider error: ${err?.message}`);
       }
+    }
 
-      // Find or create prospect user entity
-      let user = await tx.user.findUnique({ where: { email: prospectEmail } });
-      if (!user) {
-        user = await tx.user.create({
-          data: {
-            email: prospectEmail,
-            name: prospectName,
-            phone: dto.phone.trim(),
-            role: Role.USER,
+    if (!zoomJoinUrl) {
+      const mockId = `staging-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      zoomJoinUrl = `https://zoom.us/j/${mockId}?pwd=wbm123`;
+      zoomHostUrl = `https://zoom.us/s/${mockId}?pwd=wbm123`;
+      zoomMeetingId = mockId;
+    }
+
+    // 2. Transactional Slot Locking & Session Creation (Lightning-fast DB-only transaction)
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // PostgreSQL transactional advisory lock serializes concurrent bookings for the same slot
+        if (typeof tx.$executeRaw === 'function') {
+          const lockKey = `discovery_slot_${slotStart.getTime()}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        }
+
+        // Clash verification under transaction:
+        const clash = await tx.session.findFirst({
+          where: {
+            status: { notIn: [SessionStatus.CANCELLED, SessionStatus.RESCHEDULED] },
+            startTime: { lt: slotEnd },
+            endTime: { gt: slotStart },
+            OR: [
+              ...(hostTrainerId ? [{ hostTrainerId }] : []),
+              { sessionType: SessionType.SPEAKER_DISCOVERY_CALL },
+            ],
           },
         });
-      }
 
-      // Course title lookup if provided
-      let courseTitle = 'Curriculum & Program Guidance';
-      if (dto.courseId) {
-        const prog = await tx.program.findUnique({
-          where: { id: dto.courseId },
-          select: { title: true },
-        });
-        if (prog?.title) courseTitle = prog.title;
-      }
-
-      // 2. Zoom Link Generation
-      let zoomJoinUrl = '';
-      let zoomHostUrl = '';
-      let zoomMeetingId = '';
-
-      if (this.meetingProvider) {
-        try {
-          const zoomMeeting = await this.meetingProvider.createMeeting({
-            topic: `15-Min Discovery Call: Roweena & ${prospectName} (${courseTitle})`,
-            startTime: slotStart,
-            durationMinutes: 15,
-            timezone: tz,
-          });
-          if (zoomMeeting?.joinUrl) {
-            zoomJoinUrl = zoomMeeting.joinUrl;
-            zoomHostUrl = zoomMeeting.startUrl || zoomMeeting.joinUrl;
-            zoomMeetingId = zoomMeeting.id;
-          }
-        } catch (err: any) {
-          this.logger.warn(`Meeting provider error: ${err?.message}`);
+        if (clash) {
+          throw new ConflictException(
+            'This 15-minute slot was just booked by another attendee. Please pick another available time.',
+          );
         }
-      }
 
-      if (!zoomJoinUrl) {
-        const mockId = `staging-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-        zoomJoinUrl = `https://zoom.us/j/${mockId}?pwd=wbm123`;
-        zoomHostUrl = `https://zoom.us/s/${mockId}?pwd=wbm123`;
-        zoomMeetingId = mockId;
-      }
+        // Check for duplicate upcoming discovery consultation for the same email
+        const existingUpcoming = await tx.session.findFirst({
+          where: {
+            sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
+            status: { in: [SessionStatus.SCHEDULED, SessionStatus.ACTIVE] },
+            startTime: { gt: new Date() },
+            OR: [
+              { learner: { email: prospectEmail } },
+              { agenda: { contains: prospectEmail } },
+            ],
+          },
+        });
 
-      // 3. Create Session Record
-      const sessionTitle = `1-to-1 Discovery Call: Roweena & ${prospectName}`;
-      const session = await tx.session.create({
-        data: {
-          title: sessionTitle,
-          description: `15-Minute Discovery Session for lead ${dto.leadId || 'Direct'}. Course: ${courseTitle}`,
-          sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
-          status: SessionStatus.SCHEDULED,
-          startTime: slotStart,
-          endTime: slotEnd,
-          durationMinutes: 15,
-          capacity: 1,
-          hostTrainerId,
-          learnerId: user.id,
-          joinUrl: zoomJoinUrl,
-          meetingLink: zoomJoinUrl,
-          hostUrl: zoomHostUrl,
-          providerMeetingId: zoomMeetingId,
-          zoomMeetingId,
-          agenda: `LeadId: ${dto.leadId || 'N/A'} | CourseId: ${dto.courseId || 'N/A'} | Phone: ${dto.phone}`,
-        },
-      });
+        if (existingUpcoming) {
+          throw new ConflictException(
+            'You already have an upcoming discovery consultation scheduled. Please check your email for the calendar invite or contact support.',
+          );
+        }
 
-      // 4. Update Lead Record if leadId is passed
+        // Find or create prospect user entity
+        let user = await tx.user.findUnique({ where: { email: prospectEmail } });
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              email: prospectEmail,
+              name: prospectName,
+              phone: dto.phone.trim(),
+              role: Role.USER,
+            },
+          });
+        }
+
+        // 3. Create Session Record
+        const sessionTitle = `1-to-1 Discovery Call: Roweena & ${prospectName}`;
+        const session = await tx.session.create({
+          data: {
+            title: sessionTitle,
+            description: `15-Minute Discovery Session for lead ${dto.leadId || 'Direct'}. Course: ${courseTitle}`,
+            sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
+            status: SessionStatus.SCHEDULED,
+            startTime: slotStart,
+            endTime: slotEnd,
+            durationMinutes: 15,
+            capacity: 1,
+            hostTrainerId,
+            learnerId: user.id,
+            joinUrl: zoomJoinUrl,
+            meetingLink: zoomJoinUrl,
+            hostUrl: zoomHostUrl,
+            providerMeetingId: zoomMeetingId,
+            zoomMeetingId,
+            agenda: `LeadId: ${dto.leadId || 'N/A'} | CourseId: ${dto.courseId || 'N/A'} | Phone: ${dto.phone}`,
+          },
+        });
+
+      // 4. Update Lead Record if leadId is passed, or create lead if direct booking
       if (dto.leadId) {
         const existingLead = await tx.lead.findUnique({ where: { id: dto.leadId } });
         if (existingLead) {
@@ -370,6 +390,23 @@ export class DiscoveryService {
             },
           });
         }
+      } else {
+        const newLead = await tx.lead.create({
+          data: {
+            name: prospectName,
+            email: prospectEmail,
+            phone: dto.phone.trim(),
+            status: LeadStatus.CONTACTED,
+            message: [
+              `Course Inquiry: ${courseTitle} (ID: ${dto.courseId || 'N/A'})`,
+              `📅 Discovery Call Scheduled: ${slotStart.toISOString()} | Zoom: ${zoomJoinUrl}`,
+              dto.notes ? dto.notes.trim() : null,
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
+          },
+        });
+        dto.leadId = newLead.id;
       }
 
       return {
@@ -379,6 +416,9 @@ export class DiscoveryService {
         zoomJoinUrl,
         zoomHostUrl,
       };
+    }, {
+      maxWait: 15000,
+      timeout: 30000,
     });
 
     // 5. Post-Transaction Calendar Sync & Email Dispatch

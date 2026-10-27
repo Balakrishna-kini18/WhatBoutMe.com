@@ -106,10 +106,34 @@ export class MissionStatementsService {
     file: { buffer: Buffer; mimetype: string; size: number; originalname?: string },
   ) {
     // 1. Stage Gate Verification: Stage 4 must be completed to unlock Stage 5
-    await this.stageGateService.assertStageUnlocked(
-      enrolmentId,
-      LearnerStage.STAGE_5_MISSION_STATEMENT,
-    );
+    try {
+      await this.stageGateService.assertStageUnlocked(
+        enrolmentId,
+        LearnerStage.STAGE_5_MISSION_STATEMENT,
+      );
+    } catch (stageErr: any) {
+      let unlockedViaCoaching = false;
+      const evalResult =
+        stageErr?.evaluation ??
+        (typeof this.stageGateService?.evaluateStages === 'function'
+          ? await this.stageGateService.evaluateStages(enrolmentId).catch(() => null)
+          : null);
+
+      const s4 = evalResult?.stages?.[LearnerStage.STAGE_4_ONE_ON_ONE];
+      const s5 = evalResult?.stages?.[LearnerStage.STAGE_5_MISSION_STATEMENT];
+      if (
+        s5?.isUnlocked ||
+        s5?.isOverridden ||
+        s4?.isCompleted ||
+        s4?.isOverridden ||
+        Boolean(s4?.details?.completedSessionId)
+      ) {
+        unlockedViaCoaching = true;
+      }
+      if (!unlockedViaCoaching) {
+        throw stageErr;
+      }
+    }
 
     // 2. Enrolment ownership check
     const enrolment = await this.prisma.enrolment.findUnique({

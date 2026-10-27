@@ -2,6 +2,12 @@
 
 import { useEffect } from "react";
 import { siteLoginUrl } from "../lib/site";
+import {
+  buildCourseEnrollmentReturnUrl,
+  extractRedirectParam,
+  peekEnrollmentIntent,
+  saveEnrollmentIntent,
+} from "../lib/auth-redirect";
 
 /**
  * There is no portal sign-in form. Anything that lands here (a signed-out
@@ -11,10 +17,33 @@ import { siteLoginUrl } from "../lib/site";
 export default function LoginRedirect() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const portal = params.get("portal");
+    const fromParams = extractRedirectParam(params);
     const programId = params.get("programId");
+    const batchId = params.get("batchId");
+    const coupon = params.get("coupon");
     const reason = params.get("reason");
-    const targetPath = portal || (programId ? `/checkout?programId=${encodeURIComponent(programId)}` : "/");
+
+    const targetPath =
+      fromParams ||
+      (programId
+        ? buildCourseEnrollmentReturnUrl({
+            programId,
+            batchId,
+            couponCode: coupon,
+            autoEnroll: true,
+            basePath: "/agreement",
+          })
+        : peekEnrollmentIntent()?.returnUrl || "/");
+
+    if (targetPath && targetPath !== "/") {
+      saveEnrollmentIntent({
+        returnUrl: targetPath,
+        programId: programId || undefined,
+        batchId: batchId || undefined,
+        couponCode: coupon || undefined,
+      });
+    }
+
     window.location.replace(siteLoginUrl(targetPath, reason || undefined));
   }, []);
 

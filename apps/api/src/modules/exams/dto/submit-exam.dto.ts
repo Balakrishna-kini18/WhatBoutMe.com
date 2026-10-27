@@ -3,32 +3,31 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUUID,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ExamAnswerSubmissionDto {
-  @IsUUID('4', { message: 'questionId must be a valid UUID' })
+  @IsString({ message: 'questionId must be a string' })
   @IsNotEmpty({ message: 'questionId is required' })
   questionId: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'optionId must be a valid UUID' })
+  @IsString({ message: 'optionId must be a string' })
   optionId?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'selectedOptionId must be a valid UUID' })
+  @IsString({ message: 'selectedOptionId must be a string' })
   selectedOptionId?: string;
 
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true, message: 'Each optionId must be a valid UUID' })
+  @IsString({ each: true, message: 'Each optionId must be a string' })
   optionIds?: string[];
 
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true, message: 'Each selectedOptionId must be a valid UUID' })
+  @IsString({ each: true, message: 'Each selectedOptionId must be a string' })
   selectedOptionIds?: string[];
 
   @IsOptional()
@@ -42,8 +41,12 @@ export class ExamAnswerSubmissionDto {
 
 export class SubmitExamDto {
   @IsOptional()
-  @IsUUID('4', { message: 'attemptId must be a valid UUID' })
+  @IsString({ message: 'attemptId must be a string' })
   attemptId?: string;
+
+  @IsOptional()
+  @IsString({ message: 'id must be a string' })
+  id?: string;
 
   @IsArray()
   @ValidateNested({ each: true })

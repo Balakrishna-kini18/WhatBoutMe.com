@@ -186,9 +186,12 @@ export class ProgressionController {
   // 6. 5-STAGE PROGRESSION STATE MACHINE
   // ─────────────────────────────────────────────────────────────────────────────
 
-  @Get('enrolments/:enrolmentId/stages')
-  async getEnrolmentStages(@Param('enrolmentId') enrolmentId: string) {
-    return this.stageGateService.evaluateStages(enrolmentId);
+  @Get(['enrolments/:enrolmentId/stages', 'tree/:enrolmentId'])
+  async getEnrolmentStages(
+    @Param('enrolmentId') enrolmentId: string,
+    @Request() req: any,
+  ) {
+    return this.stageGateService.evaluateStages(enrolmentId, req?.user);
   }
 
   @RequirePermission(Permission.STEPS_UNLOCK)

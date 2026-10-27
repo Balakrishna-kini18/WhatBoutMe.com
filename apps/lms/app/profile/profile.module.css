@@ -51,11 +51,11 @@
   width: 92px;
   height: 92px;
   border-radius: 50%;
-  background: #fde8d0;
-  color: #d36b00;
+  background: var(--accent-primary-tint, rgba(201, 122, 30, 0.12));
+  color: var(--accent-primary, #c97a1e);
   font-size: 2.25rem;
   font-weight: 800;
-  box-shadow: 0 4px 12px rgba(211, 107, 0, 0.15);
+  box-shadow: 0 4px 12px rgba(201, 122, 30, 0.15);
 }
 
 .mark {

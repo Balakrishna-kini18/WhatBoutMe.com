@@ -15,10 +15,17 @@ import {
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField from "@/components/site/PasswordField";
 import { confirmPasswordResetUser } from "@/lib/api";
+import {
+  buildAuthHref,
+  extractRedirectParam,
+  peekEnrollmentIntent,
+} from "@/lib/auth-redirect";
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const activeRedirect =
+    extractRedirectParam(searchParams) ?? peekEnrollmentIntent()?.returnUrl ?? null;
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -67,13 +74,13 @@ function ResetPasswordContent() {
         </p>
         <div className="mt-8 space-y-3">
           <Link
-            href="/forgot-password"
+            href={buildAuthHref("/forgot-password", activeRedirect)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
           >
             Request Reset Link
           </Link>
           <Link
-            href="/login"
+            href={buildAuthHref("/login", activeRedirect)}
             className="block text-center text-sm font-semibold text-gold-deep hover:underline"
           >
             Back to Sign In
@@ -97,7 +104,7 @@ function ResetPasswordContent() {
         </p>
         <div className="mt-8">
           <Link
-            href="/login"
+            href={buildAuthHref("/login", activeRedirect)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
           >
             Proceed to Sign In

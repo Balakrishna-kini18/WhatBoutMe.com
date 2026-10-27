@@ -1,9 +1,26 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
-import { ArrowRight, CheckCircle2, Calendar } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Calendar,
+  Clock,
+  Video,
+  Copy,
+  Download,
+  ExternalLink,
+  MessageCircle,
+  AlertCircle,
+  Sparkles,
+} from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
-import DiscoveryCallBooking from "./DiscoveryCallBooking";
+import {
+  getTimezoneOptions,
+  getSystemTimezone,
+  formatMultiTimezoneSummary,
+} from "@/lib/timezone";
+import { buildWhatsAppEnquiryUrl, openWhatsAppSafely } from "@/lib/whatsapp";
 
 const FIELD =
   "w-full rounded-xl border border-line bg-cream px-4 py-3 text-ink outline-none transition-colors focus:border-gold-deep focus:bg-white text-sm sm:text-base";
@@ -12,7 +29,8 @@ const FIELD =
 const subscribe = () => () => {};
 const getCourseFromUrl = () => {
   if (typeof window === "undefined") return "";
-  return new URLSearchParams(window.location.search).get("course") ?? "";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("course") || params.get("programId") || "";
 };
 const getServerCourse = () => "";
 
@@ -22,65 +40,91 @@ interface ProgramOption {
   slug?: string;
 }
 
-interface SubmissionResult {
+interface AvailableSlot {
+  slotStartUtc: string;
+  slotEndUtc: string;
+  timeLocal: string;
+  timeGst: string;
+  timeIst: string;
+}
+
+interface BookingResponse {
   success: boolean;
-  inquiryType: "GENERAL" | "COURSE";
-  leadId?: string;
-  courseTitle?: string;
-  courseId?: string;
+  sessionId: string;
+  title: string;
+  startTimeUtc: string;
+  endTimeUtc: string;
+  dateFormatted: string;
+  timeLocal: string;
+  timeGst: string;
+  timeIst: string;
+  timezone: string;
+  zoomJoinUrl: string;
+  icsContent: string;
+  message: string;
 }
 
 export default function ContactForm() {
   const urlCourseParam = useSyncExternalStore(subscribe, getCourseFromUrl, getServerCourse);
 
+  // 1. Shared Form State (Persists across Enquiry Type toggling)
   const [inquiryType, setInquiryType] = useState<"GENERAL" | "COURSE">("GENERAL");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [selectedCourseId, setSelectedCourseId] = useState("");
   const [message, setMessage] = useState("");
   const [honeypot, setHoneypot] = useState("");
 
+  // 2. Course Selection State
   const [courses, setCourses] = useState<ProgramOption[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState("");
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+
+  // 3. 1-on-1 Discovery Slot Picker State
+  const [selectedTz, setSelectedTz] = useState<string>(getSystemTimezone());
+  const tzOptions = getTimezoneOptions();
+
+  // Next 14 calendar days (starting tomorrow)
+  const dateOptions = Array.from({ length: 14 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i + 1);
+    return {
+      iso: d.toISOString().split("T")[0]!,
+      label: d.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      }),
+    };
+  });
+
+  const [selectedDate, setSelectedDate] = useState<string>(
+    dateOptions[0]?.iso || new Date().toISOString().split("T")[0]!,
+  );
+  const [slots, setSlots] = useState<AvailableSlot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+
+  // 4. Submission & Result State
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<SubmissionResult | null>(null);
+  const [generalSubmitted, setGeneralSubmitted] = useState(false);
+  const [waUrl, setWaUrl] = useState("");
+  const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
+  const [copiedZoom, setCopiedZoom] = useState(false);
 
-  // Auto-switch to COURSE if URL parameter ?course=... is provided
-  useEffect(() => {
-    if (urlCourseParam) {
-      setInquiryType("COURSE");
-    }
-  }, [urlCourseParam]);
-
-  // Check for direct discovery scheduler query params (?discovery=true)
+  // URL query parameter pre-selection
   useEffect(() => {
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get("discovery") === "true") {
-        const leadId = sp.get("leadId") || undefined;
-        const cId = sp.get("courseId") || undefined;
-        const cTitle = sp.get("courseTitle") || undefined;
-        const n = sp.get("name") || "";
-        const e = sp.get("email") || "";
-        const p = sp.get("phone") || "";
-        if (n) setName(n);
-        if (e) setEmail(e);
-        if (p) setPhone(p);
+      const typeParam = sp.get("type") || sp.get("enquiryType");
+      if (typeParam?.toUpperCase() === "COURSE" || urlCourseParam) {
         setInquiryType("COURSE");
-        setResult({
-          success: true,
-          inquiryType: "COURSE",
-          leadId,
-          courseId: cId,
-          courseTitle: cTitle,
-        });
       }
     }
-  }, []);
+  }, [urlCourseParam]);
 
-  // Fetch active public courses for the conditional dropdown
+  // Fetch active public courses for course dropdown
   useEffect(() => {
     let isMounted = true;
     const fetchCourses = async () => {
@@ -95,7 +139,7 @@ export default function ContactForm() {
           if (Array.isArray(data) && isMounted) {
             setCourses(data);
 
-            // Pre-select matching course from url parameter
+            // Pre-select matching course from url parameter if present
             if (urlCourseParam) {
               const paramLower = urlCourseParam.toLowerCase();
               const matched = data.find(
@@ -107,11 +151,13 @@ export default function ContactForm() {
               if (matched) {
                 setSelectedCourseId(matched.id);
               }
+            } else if (data.length > 0 && !selectedCourseId) {
+              setSelectedCourseId(data[0]!.id);
             }
           }
         }
       } catch (err) {
-        console.warn("Could not fetch active programs roster:", err);
+        console.warn("Could not fetch active programs:", err);
       } finally {
         if (isMounted) setIsLoadingCourses(false);
       }
@@ -123,11 +169,51 @@ export default function ContactForm() {
     };
   }, [urlCourseParam]);
 
-  const onSubmit = async (e: FormEvent) => {
+  // Fetch available discovery slots whenever date, timezone, or course mode changes
+  const fetchDiscoverySlots = async () => {
+    if (inquiryType !== "COURSE") return;
+    setIsLoadingSlots(true);
+    setSelectedSlot(null);
+
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/meetings/discovery/slots?date=${encodeURIComponent(
+          selectedDate,
+        )}&timezone=${encodeURIComponent(selectedTz)}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSlots(data.slots || []);
+      } else {
+        const fallback = await fetch(
+          `${API_BASE_URL}/sessions/discovery/slots?date=${encodeURIComponent(
+            selectedDate,
+          )}&timezone=${encodeURIComponent(selectedTz)}`,
+        );
+        if (fallback.ok) {
+          const data = await fallback.json();
+          setSlots(data.slots || []);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch discovery slots:", err);
+    } finally {
+      setIsLoadingSlots(false);
+    }
+  };
+
+  useEffect(() => {
+    if (inquiryType === "COURSE") {
+      fetchDiscoverySlots();
+    }
+  }, [inquiryType, selectedDate, selectedTz]);
+
+  // Handle Form Submission
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
 
-    // 1. Validation checks
+    // 1. Common Validation
     if (!name.trim()) {
       setError("Please enter your full name.");
       return;
@@ -143,17 +229,85 @@ export default function ContactForm() {
       return;
     }
 
-    if (inquiryType === "COURSE" && !selectedCourseId) {
-      setError("Please select the course you are enquiring about from the dropdown.");
-      return;
-    }
-
     if (!message.trim()) {
-      setError("Please tell us about yourself or your enquiry.");
+      setError(
+        inquiryType === "COURSE"
+          ? "Please share your mental wellness goals or topics you would like to discuss with Roweena."
+          : "Please tell us about your goals or enquiry.",
+      );
       return;
     }
 
-    const selectedCourse = courses.find((c) => c.id === selectedCourseId);
+    // 2. PATH A: GENERAL ENQUIRY -> Lead Persistence + WhatsApp Redirect
+    if (inquiryType === "GENERAL") {
+      // Mobile Safari popup-blocker mitigation: open blank reference synchronously inside user click tick
+      let popupWin: Window | null = null;
+      if (typeof window !== "undefined") {
+        try {
+          popupWin = window.open("about:blank", "_blank");
+        } catch {
+          popupWin = null;
+        }
+      }
+
+      setBusy(true);
+
+      const targetWaUrl = buildWhatsAppEnquiryUrl({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        userPhone: phone.trim(),
+        message: message.trim(),
+      });
+      setWaUrl(targetWaUrl);
+
+      try {
+        const payload = {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim(),
+          inquiryType: "GENERAL",
+          message: message.trim(),
+          honeypot: honeypot.trim() || undefined,
+        };
+
+        // Persist lead in backend so Admin sees it in apps/admin/app/leads/page.tsx
+        await fetch(`${API_BASE_URL}/contact`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }).catch(async () => {
+          return fetch(`${API_BASE_URL}/leads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        });
+
+        // Trigger WhatsApp redirect safely
+        openWhatsAppSafely(targetWaUrl, popupWin);
+        setGeneralSubmitted(true);
+      } catch (err: any) {
+        console.warn("Could not dispatch lead record:", err);
+        // Even if network fails, ensure prospect reaches WhatsApp
+        openWhatsAppSafely(targetWaUrl, popupWin);
+        setGeneralSubmitted(true);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // 3. PATH B: COURSE ENQUIRY -> Course Validation + 1-on-1 Discovery Booking
+    if (!selectedCourseId) {
+      setError("Please select the course you are enquiring about.");
+      return;
+    }
+
+    if (!selectedSlot) {
+      setError("Please select an available 15-minute time slot from the calendar.");
+      return;
+    }
+
     setBusy(true);
 
     try {
@@ -161,23 +315,20 @@ export default function ContactForm() {
         name: name.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
-        inquiryType,
-        courseId: inquiryType === "COURSE" ? selectedCourseId : undefined,
-        selectedCourseId: inquiryType === "COURSE" ? selectedCourseId : undefined,
-        courseTitle: selectedCourse?.title,
-        message: message.trim(),
-        honeypot: honeypot.trim() || undefined,
+        courseId: selectedCourseId,
+        slotStartUtc: selectedSlot.slotStartUtc,
+        timezone: selectedTz,
+        notes: message.trim(),
       };
 
-      // Send to /contact with fallback to /leads
-      let res = await fetch(`${API_BASE_URL}/contact`, {
+      let res = await fetch(`${API_BASE_URL}/meetings/discovery/book`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok && res.status === 404) {
-        res = await fetch(`${API_BASE_URL}/leads`, {
+      if (!res.ok) {
+        res = await fetch(`${API_BASE_URL}/sessions/discovery/book`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -185,63 +336,97 @@ export default function ContactForm() {
       }
 
       if (res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setResult({
-          success: true,
-          inquiryType,
-          leadId: json.leadId || json.id,
-          courseTitle: selectedCourse?.title,
-          courseId: selectedCourseId,
-        });
-      } else if (res.status === 429) {
-        setError("Too many messages submitted. Please wait a minute and try again.");
+        const data: BookingResponse = await res.json();
+        setBookingResult(data);
+      } else if (res.status === 409) {
+        // Edge Case: Slot taken while filling form
+        const errJson = await res.json().catch(() => null);
+        setError(
+          errJson?.message ||
+            "This 15-minute slot was just claimed by another prospect. Please select another time from the refreshed slots below.",
+        );
+        // Refresh available slots without losing user input
+        fetchDiscoverySlots();
       } else {
-        const data = await res.json().catch(() => null);
-        setError(data?.message || data?.error?.message || "Could not submit enquiry. Please try again.");
+        const errJson = await res.json().catch(() => null);
+        setError(
+          errJson?.message ||
+            "Could not complete your 1-on-1 consultation booking. Please try again.",
+        );
       }
     } catch {
-      setError("Network error connecting to the server. Please try again in a moment.");
+      setError("Network connection error. Please check your connection and try again.");
     } finally {
       setBusy(false);
     }
   };
 
   const handleReset = () => {
-    setResult(null);
-    setMessage("");
+    setGeneralSubmitted(false);
+    setBookingResult(null);
     setError("");
+    setMessage("");
+    setSelectedSlot(null);
   };
 
-  // SUCCESS CONFIRMATION STATE
-  if (result) {
-    if (result.inquiryType === "COURSE") {
-      return (
-        <DiscoveryCallBooking
-          leadId={result.leadId}
-          name={name}
-          email={email}
-          phone={phone}
-          courseId={result.courseId}
-          courseTitle={result.courseTitle}
-          onBack={handleReset}
-        />
-      );
+  const handleCopyZoomLink = async () => {
+    if (!bookingResult?.zoomJoinUrl) return;
+    try {
+      await navigator.clipboard.writeText(bookingResult.zoomJoinUrl);
+      setCopiedZoom(true);
+      setTimeout(() => setCopiedZoom(false), 2500);
+    } catch {
+      // ignore
     }
+  };
 
-    // General Inquiry Success Card
+  const handleDownloadIcs = () => {
+    if (!bookingResult?.icsContent) return;
+    const blob = new Blob([bookingResult.icsContent], {
+      type: "text/calendar;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Roweena-Discovery-Call-${bookingResult.sessionId.slice(0, 8)}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // SUCCESS STATE: General Enquiry (WhatsApp)
+  if (generalSubmitted && waUrl) {
     return (
-      <div role="status" className="rounded-2xl bg-cream-deep p-6 sm:p-8 text-center animate-fadeIn">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-700 mb-4">
-          <CheckCircle2 className="h-7 w-7" />
+      <div role="status" className="rounded-2xl bg-cream-deep p-6 sm:p-8 text-center animate-fadeIn text-ink">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 mb-4">
+          <MessageCircle className="h-7 w-7" />
         </div>
         <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-ink">Thank You, {name}!</h2>
         <p className="mt-2 text-sm sm:text-base text-ink-soft max-w-md mx-auto leading-relaxed">
-          Your general enquiry has been delivered directly to Roweena and the coaching team. We will review your message and reply to <strong className="text-ink">{email}</strong> within 24 hours.
+          Your general enquiry has been saved. We are redirecting you to WhatsApp to connect directly with Roweena and our coaching team.
         </p>
+
+        {/* Fallback open button for mobile popup blockers */}
+        <div className="mt-6 flex flex-col items-center justify-center gap-3">
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-7 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
+          >
+            <MessageCircle className="h-4 w-4" />
+            <span>Open WhatsApp Chat Now</span>
+          </a>
+          <span className="text-xs text-ink-soft">
+            If WhatsApp didn&apos;t open automatically, click the button above.
+          </span>
+        </div>
+
         <button
           type="button"
           onClick={handleReset}
-          className="mt-6 inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-white px-6 py-2.5 text-xs font-semibold text-ink transition hover:border-gold-deep"
+          className="mt-8 inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-white px-5 py-2 text-xs font-semibold text-ink transition hover:border-gold-deep"
         >
           Send another enquiry
         </button>
@@ -249,9 +434,120 @@ export default function ContactForm() {
     );
   }
 
+  // SUCCESS STATE: Course Enquiry (Confirmed 1-on-1 Discovery Call)
+  if (bookingResult) {
+    const timeSummary = formatMultiTimezoneSummary(
+      bookingResult.startTimeUtc,
+      bookingResult.timezone,
+    );
+
+    return (
+      <div className="rounded-2xl bg-cream-deep p-6 sm:p-8 animate-fadeIn text-ink">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-700">
+            <CheckCircle2 className="h-6 w-6" />
+          </div>
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-ink">
+              1-to-1 Discovery Call Confirmed with Roweena
+            </h2>
+          </div>
+        </div>
+
+        <p className="text-sm text-ink-soft mb-6 leading-relaxed">
+          Thank you, <strong className="text-ink">{name}</strong>! Your 15-minute discovery consultation has been confirmed and synced to Roweena&apos;s unified calendar.
+        </p>
+
+        {/* Multi-Timezone Schedule Card */}
+        <div className="rounded-xl border border-sand bg-white p-5 mb-5 space-y-3">
+          <div className="flex items-center gap-2 text-sm text-ink-soft">
+            <Clock className="h-4 w-4" />
+            <span>Scheduled Meeting Time</span>
+          </div>
+
+          <div className="text-sm sm:text-base font-bold text-ink">
+            {timeSummary.fullDate}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3 pt-1 text-xs sm:text-sm">
+            <div className="p-2.5 rounded-lg bg-cream border border-sand">
+              <span className="text-xs text-ink-soft block">Your Timezone</span>
+              <span className="font-bold text-ink">{timeSummary.local}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-cream border border-sand">
+              <span className="text-xs text-ink-soft block">Dubai Time</span>
+              <span className="font-bold text-ink">{timeSummary.gst}</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-cream border border-sand">
+              <span className="text-xs text-ink-soft block">India Time</span>
+              <span className="font-bold text-ink">{timeSummary.ist}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Zoom Link Container */}
+        <div className="rounded-xl border border-gold/40 bg-gold/10 p-5 mb-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-ink-soft flex items-center gap-1.5">
+              <Video className="h-4 w-4" />
+              <span>Zoom Meeting Link</span>
+            </span>
+            <span className="text-[11px] font-semibold text-ink-soft">Duration: 15 Minutes</span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <input
+              readOnly
+              value={bookingResult.zoomJoinUrl}
+              className="w-full rounded-lg border border-line bg-white px-3 py-2 text-xs font-mono text-ink outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleCopyZoomLink}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-line bg-white px-4 py-2 text-xs font-semibold text-ink hover:border-gold-deep transition"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              <span>{copiedZoom ? "Copied!" : "Copy Link"}</span>
+            </button>
+            <a
+              href={bookingResult.zoomJoinUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-ink px-4 py-2 text-xs font-semibold text-cream hover:bg-gold hover:text-ink transition"
+            >
+              <span>Join Zoom</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
+        </div>
+
+        {/* Calendar Add & ICS Download */}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <button
+            type="button"
+            onClick={handleDownloadIcs}
+            className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-5 py-2.5 text-xs font-semibold text-ink hover:border-gold-deep transition"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Download .ics Calendar Invite</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleReset}
+            className="text-xs text-ink-soft hover:text-ink ml-auto underline"
+          >
+            Submit another enquiry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // INTERACTIVE SMART CONDITIONAL ROUTER FORM
   return (
-    <form onSubmit={onSubmit} className="space-y-5" noValidate>
-      {/* Enquiry Type Toggle */}
+    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+      {/* 1. Enquiry Type Dropdown Toggle */}
       <div>
         <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-ink-soft">
           Enquiry Type *
@@ -259,59 +555,150 @@ export default function ContactForm() {
         <div className="grid grid-cols-2 gap-2 rounded-2xl bg-cream p-1.5 border border-line">
           <button
             type="button"
-            onClick={() => setInquiryType("GENERAL")}
+            onClick={() => {
+              setInquiryType("GENERAL");
+              setError("");
+            }}
             className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs sm:text-sm font-semibold transition-all ${
               inquiryType === "GENERAL"
                 ? "bg-white text-ink shadow-sm border border-sand"
                 : "text-ink-soft hover:text-ink"
             }`}
           >
+            <MessageCircle className="h-4 w-4 text-emerald-600" />
             <span>General Enquiry</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setInquiryType("COURSE")}
+            onClick={() => {
+              setInquiryType("COURSE");
+              setError("");
+            }}
             className={`flex items-center justify-center gap-2 rounded-xl py-2.5 px-3 text-xs sm:text-sm font-semibold transition-all ${
               inquiryType === "COURSE"
                 ? "bg-white text-ink shadow-sm border border-sand"
                 : "text-ink-soft hover:text-ink"
             }`}
           >
-            <span>Course Enquiry</span>
+            <Video className="h-4 w-4 text-gold-deep" />
+            <span>Course Enquiry (1-on-1 Zoom)</span>
           </button>
         </div>
       </div>
 
-      {/* Conditional Course Dropdown (Rendered strictly when Course Inquiry is active) */}
+      {/* 2. PATH B: COURSE ENQUIRY CONDITIONAL FIELDS */}
       {inquiryType === "COURSE" && (
-        <div className="rounded-xl border border-gold/40 bg-gold/5 p-4 transition-all">
-          <label htmlFor="courseSelect" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gold-deep">
-            Select Course *
-          </label>
-          <select
-            id="courseSelect"
-            required
-            value={selectedCourseId}
-            onChange={(e) => setSelectedCourseId(e.target.value)}
-            className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-gold-deep focus:ring-1 focus:ring-gold-deep"
-          >
-            <option value="">
-              {isLoadingCourses ? "Loading active courses..." : "-- Choose an Active Course --"}
-            </option>
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
+        <div className="rounded-2xl border border-gold/40 bg-gold/5 p-4 sm:p-5 space-y-4 animate-fadeIn">
+          {/* Target Course Selector */}
+          <div>
+            <label htmlFor="courseSelect" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gold-deep">
+              Target Course *
+            </label>
+            <select
+              id="courseSelect"
+              required
+              value={selectedCourseId}
+              onChange={(e) => setSelectedCourseId(e.target.value)}
+              className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-gold-deep focus:ring-1 focus:ring-gold-deep"
+            >
+              <option value="">
+                {isLoadingCourses ? "Loading active courses..." : "-- Choose a Course --"}
               </option>
-            ))}
-          </select>
-          <span className="mt-1.5 block text-xs text-ink-soft">
-            Submitting a course enquiry instantly reserves your prospect priority and triggers a 15-minute discovery consultation.
-          </span>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Timezone Selector */}
+          <div className="rounded-xl border border-sand bg-white p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-soft">
+              <Clock className="h-4 w-4 text-gold-deep" />
+              <span>Your Timezone:</span>
+            </div>
+            <select
+              value={selectedTz}
+              onChange={(e) => setSelectedTz(e.target.value)}
+              className="rounded-lg border border-line bg-cream px-3 py-1.5 text-xs font-medium text-ink outline-none focus:border-gold-deep"
+            >
+              {tzOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date Selector Carousel */}
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-ink-soft flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>Select Date for 1-on-1 Consultation *</span>
+            </label>
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+              {dateOptions.map((d) => (
+                <button
+                  key={d.iso}
+                  type="button"
+                  onClick={() => setSelectedDate(d.iso)}
+                  className={`shrink-0 rounded-xl px-4 py-2.5 text-xs font-semibold border transition text-center ${
+                    selectedDate === d.iso
+                      ? "bg-ink text-cream border-ink shadow-sm"
+                      : "bg-white text-ink border-line hover:border-gold-deep"
+                  }`}
+                >
+                  <span>{d.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Available Slots Grid */}
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-ink-soft">
+              Available 15-Minute Slots ({selectedDate}) *
+            </label>
+
+            {isLoadingSlots ? (
+              <div className="py-6 text-center text-xs text-ink-soft bg-white rounded-xl border border-line">
+                Checking Roweena&apos;s unified calendar availability...
+              </div>
+            ) : slots.length === 0 ? (
+              <div className="py-6 text-center text-xs text-ink-soft bg-white rounded-xl border border-line">
+                No open 15-minute slots on this date. Please pick another date above.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-56 overflow-y-auto p-1.5 border border-sand bg-white/70 rounded-xl">
+                {slots.map((slot) => {
+                  const isSelected = selectedSlot?.slotStartUtc === slot.slotStartUtc;
+                  return (
+                    <button
+                      key={slot.slotStartUtc}
+                      type="button"
+                      onClick={() => setSelectedSlot(slot)}
+                      className={`p-2 rounded-xl border text-left transition flex flex-col justify-between ${
+                        isSelected
+                          ? "bg-gold/20 border-gold-deep text-ink ring-1 ring-gold-deep font-semibold"
+                          : "bg-white border-line text-ink hover:border-gold-deep"
+                      }`}
+                    >
+                      <span className="text-xs sm:text-sm font-bold block">{slot.timeLocal}</span>
+                      <span className="text-[10px] text-ink-soft block mt-0.5">
+                        {slot.timeGst} · {slot.timeIst}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Visitor Details */}
+      {/* 3. SHARED VISITOR FIELDS (Preserved on Switch) */}
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label htmlFor="fullName" className="mb-1.5 block text-sm font-semibold text-ink">
@@ -347,7 +734,7 @@ export default function ContactForm() {
 
       <div>
         <label htmlFor="phoneNum" className="mb-1.5 block text-sm font-semibold text-ink">
-          Phone Number (with Country Code) *
+          Phone / WhatsApp Number (with Country Code) *
         </label>
         <input
           id="phoneNum"
@@ -361,13 +748,17 @@ export default function ContactForm() {
           className={FIELD}
         />
         <span className="mt-1 block text-xs text-ink-soft">
-          Include your country dial code for discovery call WhatsApp / Zoom scheduling.
+          {inquiryType === "COURSE"
+            ? "Used for sending calendar reminders and Zoom consultation details."
+            : "Include your country dial code for connecting on WhatsApp."}
         </span>
       </div>
 
       <div>
         <label htmlFor="tellUsMessage" className="mb-1.5 block text-sm font-semibold text-ink">
-          Tell us about yourself *
+          {inquiryType === "COURSE"
+            ? "Your Goals & Topics for Consultation *"
+            : "Tell us about your enquiry *"}
         </label>
         <textarea
           id="tellUsMessage"
@@ -376,8 +767,8 @@ export default function ContactForm() {
           maxLength={3500}
           placeholder={
             inquiryType === "COURSE"
-              ? "Tell us about your mental wellness journey, what you hope to achieve through this course, or any questions..."
-              : "Tell us about your goals, corporate enquiry, speaking engagement, or questions..."
+              ? "Tell us about your mental wellness journey, what you hope to achieve through this course, or questions for Roweena..."
+              : "Tell us about your goals, corporate workshop, speaking engagement, or general questions..."
           }
           value={message}
           onChange={(e) => setMessage(e.target.value)}
@@ -398,18 +789,41 @@ export default function ContactForm() {
       </div>
 
       {error && (
-        <div role="alert" className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {error}
+        <div role="alert" className="flex items-start gap-2 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <AlertCircle className="h-5 w-5 shrink-0 text-red-600 mt-0.5" />
+          <span>{error}</span>
         </div>
       )}
 
+      {/* Dynamic CTA Button based on Enquiry Type */}
       <button
         type="submit"
         disabled={busy}
-        className="group flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 px-8 text-sm font-semibold text-cream transition hover:bg-gold hover:text-ink disabled:opacity-60 shadow-sm"
+        className={`group flex w-full items-center justify-center gap-2 rounded-full py-3.5 px-8 text-sm font-semibold transition disabled:opacity-60 shadow-sm ${
+          inquiryType === "GENERAL"
+            ? "bg-emerald-600 text-white hover:bg-emerald-700"
+            : "bg-ink text-cream hover:bg-gold hover:text-ink"
+        }`}
       >
-        <span>{busy ? "Sending…" : "Send Message"}</span>
-        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+        {inquiryType === "GENERAL" ? (
+          <>
+            <MessageCircle className="h-4 w-4" />
+            <span>{busy ? "Saving & Redirecting…" : "Continue to WhatsApp"}</span>
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </>
+        ) : (
+          <>
+            <Video className="h-4 w-4" />
+            <span>
+              {busy
+                ? "Reserving slot & booking Zoom…"
+                : selectedSlot
+                ? `Book 1-on-1 Consultation (${selectedSlot.timeLocal})`
+                : "Book 1-on-1 Course Consultation"}
+            </span>
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </>
+        )}
       </button>
     </form>
   );

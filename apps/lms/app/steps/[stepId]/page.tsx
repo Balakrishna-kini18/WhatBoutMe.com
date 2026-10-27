@@ -18,6 +18,7 @@ import {
   getLockMessage,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
+import StepLoading from "./loading";
 
 export type WorkspaceTab = "video" | "quiz" | "notes" | "materials";
 
@@ -121,8 +122,46 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       if (paramView === "overview") {
         setViewMode("overview");
       }
+
+      // Restore any in-progress step quiz answers and question index on page refresh
+      try {
+        const savedQuizRaw = localStorage.getItem(`wbm_step_quiz_${stepId}`);
+        if (savedQuizRaw) {
+          const parsedQuiz = JSON.parse(savedQuizRaw);
+          if (parsedQuiz && typeof parsedQuiz === "object") {
+            if (parsedQuiz.quizAnswers && typeof parsedQuiz.quizAnswers === "object") {
+              setQuizAnswers(parsedQuiz.quizAnswers);
+            }
+            if (typeof parsedQuiz.activeQuizIndex === "number" && parsedQuiz.activeQuizIndex >= 0) {
+              setActiveQuizIndex(parsedQuiz.activeQuizIndex);
+            }
+            if (!paramTab && parsedQuiz.activeTab === "quiz") {
+              setActiveTab("quiz");
+              setViewMode("workspace");
+            }
+          }
+        }
+      } catch (e) {}
     }
-  }, []);
+  }, [stepId]);
+
+  // Persist step quiz answers and active question index to localStorage so refresh resumes seamlessly
+  useEffect(() => {
+    if (typeof window === "undefined" || !stepId) return;
+    try {
+      if (Object.keys(quizAnswers).length > 0 || (activeTab === "quiz" && activeQuizIndex > 0)) {
+        localStorage.setItem(
+          `wbm_step_quiz_${stepId}`,
+          JSON.stringify({
+            quizAnswers,
+            activeQuizIndex,
+            activeTab,
+            updatedAt: Date.now(),
+          }),
+        );
+      }
+    } catch (e) {}
+  }, [stepId, quizAnswers, activeQuizIndex, activeTab]);
 
   // 2. Fetch Step & Progression
   const fetchStepAndProgression = useCallback(async () => {
@@ -540,9 +579,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       ? attemptQuestions
       : (quizQuestions || []);
 
-    const unanswered = questionsList.some((q) => !quizAnswers[q.id]);
+    const unanswered = questionsList.some((q) => !quizAnswers[q.id]?.trim());
     if (unanswered) {
-      setQuizError("Please select an answer for all questions before submitting.");
+      setQuizError("Please answer all questions before submitting.");
       return;
     }
 
@@ -551,10 +590,20 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
     const submissionDto: any = {
       attemptId: activeAttemptId || undefined,
-      answers: questionsList.map((q) => ({
-        questionId: q.id,
-        selectedOptionId: quizAnswers[q.id] || undefined,
-      })),
+      answers: questionsList.map((q) => {
+        const rawAns = quizAnswers[q.id] || "";
+        const qType = (q as any).type || "MULTIPLE_CHOICE";
+        const isMulti = qType === "MULTI_SELECT";
+        const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+        return {
+          questionId: q.id,
+          optionId: !isMulti && !isText ? rawAns || undefined : undefined,
+          selectedOptionId: !isMulti && !isText ? rawAns || undefined : undefined,
+          selectedOptionIds: isMulti ? rawAns.split(",").filter(Boolean) : undefined,
+          textResponse: isText ? rawAns.trim() : undefined,
+          textAnswer: isText ? rawAns.trim() : undefined,
+        };
+      }),
     };
 
     try {
@@ -570,6 +619,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
       setLastQuizResult(data);
       setActiveAttemptId(null);
+      try {
+        localStorage.removeItem(`wbm_step_quiz_${stepId}`);
+      } catch (e) {}
       if (data.passed) {
         invalidateCache("/progression");
         fetchStepAndProgression();
@@ -602,18 +654,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
 
 
-  // Loading State
+  // Loading State (Apple HIG skeleton matching real workspace)
   if (loading && !step) {
-    return (
-      <div className={styles.container}>
-        <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#78716c" }}>
-          <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid #fde68a", borderTopColor: "#d97706", animation: "spin 1s linear infinite", margin: "0 auto 1.25rem" }} />
-          <h2 style={{ fontSize: "1.25rem", color: "#1c1917", margin: "0 0 6px" }}>Loading Module Workspace...</h2>
-          <p style={{ fontSize: "0.88rem", margin: 0 }}>Connecting with live progression engine</p>
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-        </div>
-      </div>
-    );
+    return <StepLoading />;
   }
 
   // Error State
@@ -1232,32 +1275,110 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   <div className={styles.questionNumberLabel}>
                     Question {activeQuizIndex + 1} of {quizQuestions.length}
                   </div>
+                  {(currentQuizQuestion as any).imageUrl && (
+                    <div style={{ marginBottom: "1rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 480 }}>
+                      <img
+                        src={(currentQuizQuestion as any).imageUrl}
+                        alt={`Question ${activeQuizIndex + 1}`}
+                        style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
+                      />
+                    </div>
+                  )}
                   <h3 className={styles.questionPrompt}>
                     {currentQuizQuestion.text}
                   </h3>
 
-                  <div className={styles.optionsStack}>
-                    {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
-                      const isSelected = quizAnswers[currentQuizQuestion.id] === opt.id;
+                  {(() => {
+                    const qType = (currentQuizQuestion as any).type || "MULTIPLE_CHOICE";
+                    const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+                    const isMulti = qType === "MULTI_SELECT";
+                    const selectedMultiList =
+                      isMulti && quizAnswers[currentQuizQuestion.id]
+                        ? (quizAnswers[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                        : [];
+
+                    if (isText) {
+                      const minChars = (currentQuizQuestion as any).minCharacters ?? 10;
+                      const currentText = quizAnswers[currentQuizQuestion.id] || "";
                       return (
-                        <div
-                          key={opt.id || optIdx}
-                          onClick={() =>
-                            setQuizAnswers((prev) => ({
-                              ...prev,
-                              [currentQuizQuestion.id]: opt.id,
-                            }))
-                          }
-                          className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
-                        >
-                          <div className={styles.optionRadioCircle}>
-                            {isSelected && <div className={styles.optionRadioInnerDot} />}
+                        <div style={{ marginBottom: "1.5rem" }}>
+                          <textarea
+                            rows={4}
+                            placeholder="Write your reflection or response here..."
+                            value={currentText}
+                            onChange={(e) =>
+                              setQuizAnswers((prev) => ({
+                                ...prev,
+                                [currentQuizQuestion.id]: e.target.value,
+                              }))
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "12px 14px",
+                              borderRadius: 10,
+                              border: "1px solid #dcd5cb",
+                              fontFamily: "inherit",
+                              fontSize: "0.95rem",
+                              background: "#fffdfa",
+                            }}
+                          />
+                          <div style={{ fontSize: "0.78rem", color: "#78716a", marginTop: 4 }}>
+                            Characters: {currentText.trim().length} / {minChars} minimum
                           </div>
-                          <span className={styles.optionText}>{opt.text}</span>
                         </div>
                       );
-                    })}
-                  </div>
+                    }
+
+                    return (
+                      <div className={styles.optionsStack}>
+                        {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
+                          const isSelected = isMulti
+                            ? selectedMultiList.includes(opt.id)
+                            : quizAnswers[currentQuizQuestion.id] === opt.id;
+                          return (
+                            <div
+                              key={opt.id || optIdx}
+                              onClick={() =>
+                                setQuizAnswers((prev) => {
+                                  if (!isMulti) {
+                                    return {
+                                      ...prev,
+                                      [currentQuizQuestion.id]: opt.id,
+                                    };
+                                  }
+                                  const existing = prev[currentQuizQuestion.id]
+                                    ? (prev[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                                    : [];
+                                  const next = existing.includes(opt.id)
+                                    ? existing.filter((id) => id !== opt.id)
+                                    : [...existing, opt.id];
+                                  return {
+                                    ...prev,
+                                    [currentQuizQuestion.id]: next.join(","),
+                                  };
+                                })
+                              }
+                              className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
+                            >
+                              <div className={styles.optionRadioCircle}>
+                                {isSelected && <div className={styles.optionRadioInnerDot} />}
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                                {opt.imageUrl && (
+                                  <img
+                                    src={opt.imageUrl}
+                                    alt={opt.text}
+                                    style={{ maxWidth: 220, maxHeight: 120, objectFit: "cover", borderRadius: 6 }}
+                                  />
+                                )}
+                                <span className={styles.optionText}>{opt.text}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <button

@@ -6,17 +6,17 @@ export default function StepLoading() {
       {/* Top Nav Skeleton */}
       <header className={styles.topNav}>
         <div className={styles.topNavLeft}>
-          <div className={styles.skeleton} style={{ width: 110, height: 32, borderRadius: 8 }} />
+          <div className="skeleton" style={{ width: 110, height: 32, borderRadius: 8 }} />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div className={styles.skeleton} style={{ width: 140, height: 16, borderRadius: 4 }} />
+            <div className="skeleton" style={{ width: 140, height: 16, borderRadius: 4 }} />
             <span style={{ color: "var(--border-light)" }}>/</span>
-            <div className={styles.skeleton} style={{ width: 180, height: 18, borderRadius: 4 }} />
+            <div className="skeleton" style={{ width: 180, height: 18, borderRadius: 4 }} />
           </div>
         </div>
 
         <div className={styles.topNavRight}>
-          <div className={styles.skeleton} style={{ width: 120, height: 26, borderRadius: 20 }} />
-          <div className={styles.skeleton} style={{ width: 100, height: 32, borderRadius: 8 }} />
+          <div className="skeleton" style={{ width: 120, height: 26, borderRadius: 20 }} />
+          <div className="skeleton" style={{ width: 100, height: 32, borderRadius: 8 }} />
         </div>
       </header>
 
@@ -24,14 +24,14 @@ export default function StepLoading() {
       <main className={`${styles.taskWorkspace} ${styles.videoScope}`}>
         {/* Activity Header Skeleton */}
         <div style={{ width: "100%", marginBottom: 24 }}>
-          <div className={styles.skeleton} style={{ width: 150, height: 14, marginBottom: 10, borderRadius: 4 }} />
-          <div className={styles.skeleton} style={{ width: "65%", height: 34, marginBottom: 10, borderRadius: 6 }} />
-          <div className={styles.skeleton} style={{ width: "85%", height: 16, borderRadius: 4 }} />
+          <div className="skeleton" style={{ width: 150, height: 14, marginBottom: 10, borderRadius: 4 }} />
+          <div className="skeleton" style={{ width: "65%", height: 34, marginBottom: 10, borderRadius: 6 }} />
+          <div className="skeleton" style={{ width: "85%", height: 16, borderRadius: 4 }} />
         </div>
 
         {/* 16:9 Video Canvas Skeleton */}
         <div
-          className={styles.skeleton}
+          className="skeleton"
           style={{
             width: "100%",
             aspectRatio: "16 / 9",
@@ -54,16 +54,16 @@ export default function StepLoading() {
             padding: "0 1.25rem",
           }}
         >
-          <div className={styles.skeleton} style={{ width: 200, height: 16, borderRadius: 4 }} />
-          <div className={styles.skeleton} style={{ width: 100, height: 28, borderRadius: 6 }} />
+          <div className="skeleton" style={{ width: 200, height: 16, borderRadius: 4 }} />
+          <div className="skeleton" style={{ width: 100, height: 28, borderRadius: 6 }} />
         </div>
       </main>
 
       {/* Sticky Bottom Bar Skeleton */}
       <footer className={styles.stickyBottomBar}>
-        <div className={styles.skeleton} style={{ width: 140, height: 38, borderRadius: 8 }} />
-        <div className={styles.skeleton} style={{ width: 140, height: 16, borderRadius: 4 }} />
-        <div className={styles.skeleton} style={{ width: 180, height: 42, borderRadius: 8 }} />
+        <div className="skeleton" style={{ width: 140, height: 38, borderRadius: 8 }} />
+        <div className="skeleton" style={{ width: 140, height: 16, borderRadius: 4 }} />
+        <div className="skeleton" style={{ width: 180, height: 42, borderRadius: 8 }} />
       </footer>
     </div>
   );

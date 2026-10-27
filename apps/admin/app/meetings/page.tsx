@@ -286,6 +286,49 @@ export default function MeetingsPage() {
   const router = useRouter();
   const [commitmentCategory, setCommitmentCategory] = useState<CommitmentCategory>("ALL");
   const [isCompletingAndConverting, setIsCompletingAndConverting] = useState(false);
+  const [isCompletingCoaching, setIsCompletingCoaching] = useState(false);
+
+  // Sync with ?date=YYYY-MM-DD and ?sessionId=XYZ from Approvals or LMS links
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const dateParam = params.get("date");
+    if (dateParam) {
+      const parsed = new Date(dateParam);
+      if (!isNaN(parsed.getTime())) {
+        setCurrentCalendarDate(parsed);
+      }
+    }
+    const sessionIdParam = params.get("sessionId");
+    if (sessionIdParam && meetings.length > 0) {
+      const target = meetings.find((m) => m.id === sessionIdParam);
+      if (target) {
+        setSelectedMeeting(target);
+      }
+    }
+  }, [meetings]);
+
+  const handleCompleteCoachingSession = async (meeting: Meeting) => {
+    setIsCompletingCoaching(true);
+    try {
+      await cachedFetch(`${API_URL}/sessions/${meeting.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "COMPLETED" }),
+      });
+      setMeetings((prev) =>
+        prev.map((m) => (m.id === meeting.id ? { ...m, status: "COMPLETED" as const } : m))
+      );
+      setSelectedMeeting((prev) =>
+        prev && prev.id === meeting.id ? { ...prev, status: "COMPLETED" as const } : prev
+      );
+      toastSuccess("1-on-1 Coaching session marked Completed! Stage 5 (Mission Statement) unlocked for learner.");
+    } catch (err: any) {
+      toastError(err?.message || "Failed to mark coaching session completed");
+    } finally {
+      setIsCompletingCoaching(false);
+    }
+  };
 
   const commitmentCounts = useMemo(() => {
     let discovery = 0;
@@ -478,9 +521,11 @@ export default function MeetingsPage() {
     }
   };
 
-  const pendingRequestsCount = useMemo(() => {
-    return oneOnOneRequests.filter((r) => r.status === "PENDING_APPROVAL").length;
+  const pendingRequests = useMemo(() => {
+    return oneOnOneRequests.filter((r) => r.status === "PENDING_APPROVAL");
   }, [oneOnOneRequests]);
+
+  const pendingRequestsCount = pendingRequests.length;
 
   const openApproveModal = (req: OneOnOneRequestItem) => {
     setApprovingRequest(req);
@@ -488,9 +533,19 @@ export default function MeetingsPage() {
     setApprovalHostTrainerId(allTrainers[0]?.id || "");
     const startD = new Date(req.requestedStart);
     const endD = new Date(req.requestedEnd);
-    setApprovalDate(startD.toISOString().split("T")[0] || "");
-    setApprovalStartTime(startD.toTimeString().slice(0, 5) || "10:00");
-    setApprovalEndTime(endD.toTimeString().slice(0, 5) || "10:30");
+    const isPast = startD.getTime() < Date.now();
+
+    if (isPast) {
+      // Slot in past! Default to tomorrow so user cannot approve a past time
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
+      setApprovalStartTime("10:00");
+      setApprovalEndTime("10:45");
+    } else {
+      setApprovalDate(startD.toISOString().split("T")[0] || "");
+      setApprovalStartTime(startD.toTimeString().slice(0, 5) || "10:00");
+      setApprovalEndTime(endD.toTimeString().slice(0, 5) || "10:30");
+    }
     setApprovalNotes(req.notes || "");
   };
 
@@ -509,6 +564,11 @@ export default function MeetingsPage() {
 
     if (end.getTime() <= start.getTime()) {
       setApprovalError("Session end time must be strictly after start time.");
+      return;
+    }
+
+    if (start.getTime() < Date.now() - 60 * 1000) {
+      setApprovalError("Cannot schedule a coaching call in the past. Please select an upcoming date and time.");
       return;
     }
 
@@ -563,6 +623,13 @@ export default function MeetingsPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const v = searchParams.get("view") || searchParams.get("tab");
+      if (v === "requests" || v === "coaching") {
+        setViewMode("requests");
+      }
+    }
     load();
   }, []);
 
@@ -1197,6 +1264,86 @@ export default function MeetingsPage() {
           </div>
         </div>
       </div>
+
+      {/* High-Visibility Banner for Pending Coaching Requests */}
+      {pendingRequestsCount > 0 && viewMode !== "requests" && (
+        <div style={{
+          background: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: 10,
+          padding: "12px 18px",
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "12px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#92400e" }}>
+            <span style={{ fontSize: "1.25rem" }}>⚡</span>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>
+                {pendingRequestsCount} 1-on-1 Coaching Booking Request{pendingRequestsCount > 1 ? "s" : ""} Pending Approval
+              </span>
+              {pendingRequests[0]?.user && (
+                <div style={{ fontSize: "0.8rem", color: "#b45309", marginTop: 2 }}>
+                  Latest request: <strong>{pendingRequests[0].user.name || pendingRequests[0].user.email}</strong>
+                  {pendingRequests[0].enrolment?.program?.title && ` for ${pendingRequests[0].enrolment.program.title}`}
+                  {` (Preferred: ${new Date(pendingRequests[0].requestedStart).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})`}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {pendingRequests[0] && (
+              <button
+                type="button"
+                onClick={() => {
+                  const req = pendingRequests[0];
+                  if (req) openApproveModal(req);
+                }}
+                style={{
+                  background: "#b8860b",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: "7px 16px",
+                  borderRadius: 6,
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span>Approve &amp; Place on Calendar</span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode("requests");
+                loadRequests();
+              }}
+              style={{
+                background: "#ffffff",
+                color: "#92400e",
+                border: "1px solid #fde68a",
+                padding: "7px 14px",
+                borderRadius: 6,
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Review Requests Queue ({pendingRequestsCount})
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── 3. View 1: Calendar View ── */}
       {viewMode === "calendar" && (
@@ -2060,6 +2207,20 @@ export default function MeetingsPage() {
         maxWidth="580px"
         footer={
           <div className={calStyles.modalFooterActions}>
+            {selectedMeeting && isCoachingCall(selectedMeeting) && selectedMeeting.status !== "COMPLETED" && selectedMeeting.status !== "CANCELLED" && (
+              <button
+                type="button"
+                className={calStyles.primaryOrangeBtn}
+                style={{
+                  background: "#15803d",
+                  boxShadow: "0 2px 6px rgba(21, 128, 61, 0.3)",
+                }}
+                disabled={isCompletingCoaching}
+                onClick={() => handleCompleteCoachingSession(selectedMeeting)}
+              >
+                {isCompletingCoaching ? "Marking Completed..." : "Mark Coaching Completed (Unlock Stage 5) ✓"}
+              </button>
+            )}
             {selectedMeeting && isDiscoveryCall(selectedMeeting) && selectedMeeting.status !== "CANCELLED" && (
               <button
                 type="button"
@@ -2473,6 +2634,27 @@ export default function MeetingsPage() {
             </div>
           )}
 
+          {approvingRequest && new Date(approvingRequest.requestedStart).getTime() < Date.now() && (
+            <div
+              style={{
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: 8,
+                padding: "10px 14px",
+                marginBottom: "12px",
+                color: "#991b1b",
+                fontSize: "0.85rem",
+              }}
+            >
+              <strong>⚠️ Requested Slot Has Passed:</strong> The slot originally requested by the learner (
+              {new Date(approvingRequest.requestedStart).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+              ) has already passed. A past slot cannot be accepted. Please select a future date and time below to schedule this session.
+            </div>
+          )}
+
           <div className={calStyles.formField}>
             <label className={calStyles.formLabel}>
               Assign Host Trainer <span className={calStyles.requiredStar}>*</span>
@@ -2497,6 +2679,7 @@ export default function MeetingsPage() {
               <input
                 type="date"
                 required
+                min={new Date().toISOString().split("T")[0]}
                 value={approvalDate}
                 onChange={(e) => setApprovalDate(e.target.value)}
                 className={calStyles.formInput}

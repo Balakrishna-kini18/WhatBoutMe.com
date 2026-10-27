@@ -316,22 +316,6 @@ export default function LmsSidebar() {
             </Link>
 
             <Link
-              href="/coaching"
-              className={`${styles.navItem} ${pathname === "/coaching" ? styles.active : ""}`}
-            >
-              <Icons.Coaching />
-              <span>1-on-1 Coaching</span>
-            </Link>
-
-            <Link
-              href="/mission-statement"
-              className={`${styles.navItem} ${pathname === "/mission-statement" ? styles.active : ""}`}
-            >
-              <Icons.Mission />
-              <span>Mission Statement</span>
-            </Link>
-
-            <Link
               href="/certificates"
               className={`${styles.navItem} ${pathname === "/certificates" || pathname.startsWith("/certificates/") ? styles.active : ""}`}
             >

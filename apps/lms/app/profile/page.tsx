@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOutEverywhere as leavePortal } from "../lib/site";
 import SignaturePad, { SignatureMethod } from "../agreement/SignaturePad";
+import ProfileLoading from "./loading";
 import styles from "./profile.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -210,7 +211,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) return <div className={styles.frame}><p className={styles.muted}>Loading your profile...</p></div>;
+  if (loading) return <ProfileLoading />;
   if (!profile) return <div className={styles.frame}><p className={styles.muted}>We couldn&apos;t load your profile. Please refresh the page.</p></div>;
 
   const displayName = profile.name || "Learner";

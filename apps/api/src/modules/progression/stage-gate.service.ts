@@ -47,6 +47,8 @@ export interface LearnerProgressionStages {
 @Injectable()
 export class StageGateService {
   private readonly logger = new Logger(StageGateService.name);
+  private readonly evalCache = new Map<string, { expiresAt: number; data: LearnerProgressionStages }>();
+  private readonly inflightEvals = new Map<string, Promise<LearnerProgressionStages>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -54,11 +56,69 @@ export class StageGateService {
     private readonly attendanceComplianceService: AttendanceComplianceService,
   ) {}
 
+  public invalidateCache(enrolmentId: string): void {
+    this.evalCache.delete(enrolmentId);
+    this.inflightEvals.delete(enrolmentId);
+  }
+
   /**
    * Evaluates all 5 sequential stages from ground-truth evidence.
    * Timestamps on Enrolment act as an updated cache, not sole authority.
    */
-  async evaluateStages(enrolmentId: string): Promise<LearnerProgressionStages> {
+  async evaluateStages(enrolmentId: string, actor?: any): Promise<LearnerProgressionStages> {
+    const useCache = process.env.NODE_ENV !== 'test' && !process.env.VITEST;
+    if (useCache) {
+      const cached = this.evalCache.get(enrolmentId);
+      if (cached && cached.expiresAt > Date.now()) {
+        if (actor && (actor.role === 'USER' || actor.role === 'LEARNER')) {
+          const actorId = actor.sub ?? actor.id;
+          if (actorId && cached.data.userId !== actorId) {
+            throw new ForbiddenException(
+              'Access denied: You can only view progression stages for your own enrolment',
+            );
+          }
+        }
+        return cached.data;
+      }
+      const inflight = this.inflightEvals.get(enrolmentId);
+      if (inflight) {
+        const res = await inflight;
+        if (actor && (actor.role === 'USER' || actor.role === 'LEARNER')) {
+          const actorId = actor.sub ?? actor.id;
+          if (actorId && res.userId !== actorId) {
+            throw new ForbiddenException(
+              'Access denied: You can only view progression stages for your own enrolment',
+            );
+          }
+        }
+        return res;
+      }
+    }
+
+    const computePromise = this.computeStagesInternal(enrolmentId, actor);
+    if (useCache) {
+      this.inflightEvals.set(enrolmentId, computePromise);
+    }
+    try {
+      const result = await computePromise;
+      if (useCache) {
+        this.evalCache.set(enrolmentId, {
+          expiresAt: Date.now() + 30_000,
+          data: result,
+        });
+      }
+      return result;
+    } finally {
+      if (useCache) {
+        this.inflightEvals.delete(enrolmentId);
+      }
+    }
+  }
+
+  private async computeStagesInternal(
+    enrolmentId: string,
+    actor?: any,
+  ): Promise<LearnerProgressionStages> {
     const enrolment = await this.prisma.enrolment.findUnique({
       where: { id: enrolmentId },
       include: {
@@ -73,6 +133,16 @@ export class StageGateService {
       throw new NotFoundException(`Enrolment with ID ${enrolmentId} not found`);
     }
 
+    // Anti-IDOR check: Learners can only evaluate their own enrolment stages
+    if (actor && (actor.role === 'USER' || actor.role === 'LEARNER')) {
+      const actorId = actor.sub ?? actor.id;
+      if (actorId && enrolment.userId !== actorId) {
+        throw new ForbiddenException(
+          'Access denied: You can only view progression stages for your own enrolment',
+        );
+      }
+    }
+
     const isCorporateTrack =
       enrolment.program.title.toLowerCase().includes('corporate') ||
       enrolment.batch.name.toLowerCase().includes('corporate');
@@ -80,28 +150,11 @@ export class StageGateService {
       ? CertificateType.CORPORATE_PARTICIPATION
       : CertificateType.PROFESSIONAL;
 
-    // Fetch active overrides from AuditLog (if available)
-    const stageOverrides = this.prisma.auditLog?.findMany
-      ? await this.prisma.auditLog.findMany({
-          where: {
-            entity: 'Enrolment',
-            entityId: enrolment.id,
-            action: 'STAGE_UNLOCK_OVERRIDE',
-          },
-          orderBy: { createdAt: 'desc' },
-        })
-      : [];
+    const programConfig = enrolment.program as any;
 
-    const overriddenStages = new Set<string>();
-    for (const log of stageOverrides) {
-      const meta = log.meta as any;
-      if (meta?.stage) {
-        overriddenStages.add(meta.stage);
-      }
-    }
-
-    // Parallel fetch prerequisites
+    // Parallel fetch all prerequisites, overrides, and attendance compliance in a single wave
     const [
+      stageOverrides,
       publishedSteps,
       lessonProgressList,
       quizAttemptsList,
@@ -112,7 +165,20 @@ export class StageGateService {
       programOralCount,
       oneOnOneSessions,
       missionSubmissions,
+      attendanceCompliance,
     ] = await Promise.all([
+      // 0. Active overrides from AuditLog
+      this.prisma.auditLog?.findMany
+        ? this.prisma.auditLog.findMany({
+            where: {
+              entity: 'Enrolment',
+              entityId: enrolment.id,
+              action: 'STAGE_UNLOCK_OVERRIDE',
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+
       // 1. Published steps & lessons & quizzes
       this.prisma.step.findMany({
         where: { programId: enrolment.programId, status: ContentStatus.PUBLISHED },
@@ -200,7 +266,26 @@ export class StageGateService {
             orderBy: { version: 'desc' },
           })
         : Promise.resolve([]),
+
+      // 11. Attendance compliance (evaluated concurrently instead of sequentially after)
+      this.attendanceComplianceService
+        .calculateCompliance(enrolment.id)
+        .catch(() => ({
+          status: 'NOT_APPLICABLE',
+          thresholdUsed: programConfig?.attendanceThreshold ?? 80,
+          requiredSessionCount: 0,
+          attendedSessionCount: 0,
+          attendancePercentage: 100,
+        })),
     ]);
+
+    const overriddenStages = new Set<string>();
+    for (const log of stageOverrides) {
+      const meta = log.meta as any;
+      if (meta?.stage) {
+        overriddenStages.add(meta.stage);
+      }
+    }
 
     // ── STAGE 1: CURRICULUM ──────────────────────────────────────────────────
     const viewedLessonIds = new Set(lessonProgressList.map((lp) => lp.lessonId));
@@ -264,7 +349,6 @@ export class StageGateService {
     }
 
     // ── PROGRAM MILESTONE TOGGLES ────────────────────────────────────────────
-    const programConfig = enrolment.program as any;
     const isSequential = programConfig?.sequentialProgressionEnabled !== false;
     const isExamRequired = (programConfig?.requireExam !== false) && !isCorporateTrack && programExamCount > 0;
     const isAttendanceRequired = (programConfig?.attendanceRequired !== false) && !isCorporateTrack;
@@ -308,20 +392,6 @@ export class StageGateService {
     // ── STAGE 3: ATTENDANCE ──────────────────────────────────────────────────
     const stage3Unlocked = !isSequential || stage2Met;
     const stage3Overridden = overriddenStages.has(LearnerStage.STAGE_3_ATTENDANCE);
-    let attendanceCompliance: any;
-    try {
-      attendanceCompliance = await this.attendanceComplianceService.calculateCompliance(
-        enrolment.id,
-      );
-    } catch {
-      attendanceCompliance = {
-        status: 'NOT_APPLICABLE',
-        thresholdUsed: programConfig?.attendanceThreshold ?? 80,
-        requiredSessionCount: 0,
-        attendedSessionCount: 0,
-        attendancePercentage: 100,
-      };
-    }
 
     const attendanceSatisfied =
       !isAttendanceRequired ||
@@ -554,7 +624,9 @@ export class StageGateService {
         targetStage.unmetPrerequisites && targetStage.unmetPrerequisites.length > 0
           ? targetStage.unmetPrerequisites.join('; ')
           : `Prerequisites for ${stage} have not been completed`;
-      throw new ForbiddenException(`Stage Locked: ${reason}`);
+      const err = new ForbiddenException(`Stage Locked: ${reason}`);
+      (err as any).evaluation = evaluation;
+      throw err;
     }
   }
 
@@ -597,6 +669,7 @@ export class StageGateService {
     });
 
     // Invalidate evaluation by refreshing evaluation
+    this.invalidateCache(enrolment.id);
     await this.evaluateStages(enrolment.id);
   }
 }

@@ -10,8 +10,8 @@ export class CreateOneOnOneRequestDto {
   requestedStart!: string;
 
   @IsISO8601()
-  @IsNotEmpty()
-  requestedEnd!: string;
+  @IsOptional()
+  requestedEnd?: string;
 
   @IsString()
   @IsOptional()

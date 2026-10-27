@@ -8,6 +8,7 @@ export interface ParsedLeadMessage {
     checkoutUrl: string;
   };
   isCourseInquiry: boolean;
+  isWhatsAppGeneral: boolean;
 }
 
 /**
@@ -15,12 +16,14 @@ export interface ParsedLeadMessage {
  * - Conversion notices: [Converted to Enrolment: <id> | Course: <title> | Link: <url>]
  * - Discovery bookings: 📅 Discovery Call Scheduled: <iso> | Zoom: <url>
  * - Course inquiries: Course Inquiry: <title> (ID: <id>)
+ * - WhatsApp general inquiries: [General Enquiry - WhatsApp]
  */
 export function parseLeadMessage(raw: string | null): ParsedLeadMessage {
   if (!raw || !raw.trim()) {
     return {
       originalMessage: "",
       isCourseInquiry: false,
+      isWhatsAppGeneral: false,
     };
   }
 
@@ -75,6 +78,15 @@ export function parseLeadMessage(raw: string | null): ParsedLeadMessage {
     }
   }
 
+  // 4. Extract WhatsApp General Enquiry tag (if present)
+  const isWhatsAppGeneral = Boolean(
+    text.includes("[General Enquiry - WhatsApp]") ||
+    raw.includes("[General Enquiry - WhatsApp]")
+  );
+  if (isWhatsAppGeneral) {
+    text = text.replace(/\[General Enquiry\s*-\s*WhatsApp\]/gi, "").trim();
+  }
+
   const isCourseInquiry = Boolean(
     courseInquiry ||
     conversion ||
@@ -88,5 +100,6 @@ export function parseLeadMessage(raw: string | null): ParsedLeadMessage {
     discovery,
     conversion,
     isCourseInquiry,
+    isWhatsAppGeneral,
   };
 }

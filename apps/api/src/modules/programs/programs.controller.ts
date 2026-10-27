@@ -198,8 +198,10 @@ export class ProgramsController {
   publishProgram(
     @Param('id') id: string,
     @Body() publishDto: PublishProgramDto,
+    @Request() req: any,
   ) {
-    return this.programsService.publishProgram(id, publishDto);
+    const actorId = req?.user?.sub || req?.user?.id;
+    return this.programsService.publishProgram(id, publishDto, actorId);
   }
 
   @Public()
@@ -211,8 +213,13 @@ export class ProgramsController {
 
   @RequirePermission(Permission.PROGRAMS_UPDATE)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateProgramDto) {
-    return this.programsService.update(id, updateDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateProgramDto,
+    @Request() req: any,
+  ) {
+    const actorId = req?.user?.sub || req?.user?.id;
+    return this.programsService.update(id, updateDto, actorId);
   }
 
   @RequirePermission(Permission.PROGRAMS_CREATE)

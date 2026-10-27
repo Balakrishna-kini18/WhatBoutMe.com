@@ -320,6 +320,363 @@
 }
 
 /* =========================================================================
+   3b. 5-Stage Certification & Progression Pipeline Stepper
+   ========================================================================= */
+.pipelineCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pipelineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pipelineTitleWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pipelineTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #5e5243);
+  margin: 0;
+}
+
+.pipelineCurrentStageBadge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: #fdf3e7;
+  color: var(--accent-primary, #c97a1e);
+  border: 1px solid #ebdccb;
+}
+
+.pipelineGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.6rem;
+}
+
+.pipelineStepCard {
+  background: #faf7f2;
+  border: 1px solid #e7decb;
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 62px;
+  gap: 0.4rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  text-align: left;
+}
+
+.pipelineStepCard:hover {
+  background: #ffffff;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.08);
+}
+
+.pipelineStepCardActive {
+  background: #ffffff;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 2px rgba(201, 122, 30, 0.18);
+}
+
+.stepCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  min-height: 20px;
+}
+
+.stepNumberPill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e7decb;
+  color: var(--text-primary, #14110f);
+  flex-shrink: 0;
+}
+
+.stepNumberPillCompleted {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.stepNameText {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepMetricText {
+  font-size: 0.72rem;
+  color: var(--text-muted, #78716a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipelineBadgeCompleted {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #dcfce7;
+  color: #15803d;
+  width: fit-content;
+}
+
+.pipelineBadgeActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  width: fit-content;
+}
+
+.pipelineBadgeLocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #6b7280;
+  width: fit-content;
+}
+
+.stageInspectorBox {
+  background: #faf7f2;
+  border: 1px solid #e7decb;
+  border-radius: 10px;
+  padding: 0.85rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  animation: fadeIn 0.15s ease-in-out;
+}
+
+.inspectorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border-bottom: 1px solid #ebdccb;
+  padding-bottom: 0.5rem;
+}
+
+.inspectorTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+}
+
+.inspectorActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inspectorGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.inspectorMetaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.inspectorMetaLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted, #78716a);
+  letter-spacing: 0.04em;
+}
+
+.inspectorMetaValue {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+}
+
+.unmetPrereqsList {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: #991b1b;
+  font-size: 0.75rem;
+  margin: 0;
+  list-style: square inside;
+}
+
+/* =========================================================================
+   Stage Workspace & Unified Progression View
+   ========================================================================= */
+.stageWorkspaceCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.stageHeader {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  background: #faf7f2;
+}
+
+.stageHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stageHeaderTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stageHeaderSubtitle {
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #78716a);
+  margin: 0;
+}
+
+.stageHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.complianceMeterCard {
+  padding: 1rem 1.25rem;
+  background: #fdfbf7;
+  border-bottom: 1px solid #f0e7d8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.complianceStatsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.complianceBarWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.complianceTrack {
+  height: 8px;
+  background: #ebdccb;
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.complianceFill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.complianceLabelsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted, #78716a);
+  font-weight: 600;
+}
+
+.stageDetailsBox {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stageInfoCallout {
+  background: #faf7f2;
+  border: 1px solid #ebdccb;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+/* =========================================================================
    4. Navigation Tabs (Identical to users/page.tsx)
    ========================================================================= */
 .tabsContainer {

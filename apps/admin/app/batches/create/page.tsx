@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import styles from "../../page.module.css";
-import { API_URL, createBatch, errorMessage } from "../../lib/api";
+import { API_URL, createBatch, errorMessage, cachedFetch } from "../../lib/api";
 import {
   getTimezoneOptions,
   getSystemTimezone,
@@ -68,8 +68,8 @@ export default function CreateBatchPage() {
     const loadInitialData = async () => {
       try {
         const [progsRes, usersRes] = await Promise.all([
-          fetch(`${API_URL}/programs`),
-          fetch(`${API_URL}/users?limit=100`),
+          cachedFetch(`${API_URL}/programs`),
+          cachedFetch(`${API_URL}/users?limit=100`),
         ]);
 
         if (progsRes.ok) {

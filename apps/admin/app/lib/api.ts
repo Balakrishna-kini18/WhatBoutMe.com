@@ -465,7 +465,7 @@ export async function cachedFetch(
   const isGet = method === "GET";
   const skipCache = init?.skipCache ?? false;
   const ttlMs = init?.ttlMs ?? 30_000; // 30s default cache TTL for instant tab switching (<15ms)
-  const timeoutMs = init?.timeoutMs ?? (isGet ? 20_000 : 60_000); // 60s default for mutations, 20s for GET
+  const timeoutMs = init?.timeoutMs ?? (isGet ? 35_000 : 60_000); // 60s default for mutations, 35s for GET (accommodates cold-start DB queries)
 
   // Auto-inject Authorization token from localStorage if in browser and not explicitly provided
   const requestHeaders = new Headers(init?.headers);

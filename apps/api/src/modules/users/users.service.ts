@@ -164,6 +164,10 @@ export class UsersService {
               createdAt: true,
               batch: { select: { id: true, name: true, programId: true } },
               program: { select: { id: true, title: true } },
+              currentStage: true,
+              missionStatementApprovedAt: true,
+              signedAgreement: { select: { id: true, status: true, signedAt: true } },
+              certificate: { select: { id: true, status: true, certificateCode: true } },
               stepProgress: {
                 select: {
                   stepId: true,
@@ -300,6 +304,23 @@ export class UsersService {
         }
       }
 
+      // Pure Curriculum Progression Computation (eliminating Attendance category error from step column)
+      const rawCurrentStage = (primaryEnrolment as any)?.currentStage || 'STAGE_1_CURRICULUM';
+      const certStatus = (primaryEnrolment as any)?.certificate?.status;
+      let stageLabel: string | null = null;
+
+      if (isLearner && primaryEnrolment) {
+        if (isStepLocked) {
+          stageLabel = 'Locked';
+        } else if (certStatus === 'ISSUED') {
+          stageLabel = 'Certified';
+        } else if (currentStepNumber) {
+          stageLabel = `Step ${currentStepNumber}/${totalSteps}`;
+        } else {
+          stageLabel = `Step 1/${totalSteps}`;
+        }
+      }
+
       return {
         id: user.id,
         name: user.name || 'Unknown',
@@ -310,6 +331,8 @@ export class UsersService {
         progress: `${progressPct}%`,
         currentStepNumber,
         totalSteps: isLearner && primaryEnrolment ? totalSteps : null,
+        currentStage: isLearner ? rawCurrentStage : null,
+        stageLabel: isLearner ? stageLabel : null,
         isStepLocked,
         stepLockReason,
         twoFactorEnabled: Boolean(user.twoFactorEnabled),
@@ -319,15 +342,56 @@ export class UsersService {
         batchId: primaryEnrolment?.batchId || null,
         enrolmentId: primaryEnrolment?.id || null,
         programId: primaryEnrolment?.programId || null,
-        enrolments: user.enrolments.map(e => ({
-          id: e.id,
-          batchId: e.batchId,
-          batchName: e.batch?.name || 'Unassigned',
-          programId: e.programId,
-          programTitle: e.program?.title || 'Unknown',
-          status: e.status,
-          createdAt: e.createdAt,
-        })),
+        enrolments: user.enrolments.map(e => {
+          const eProgramId = e.programId || e.batch?.programId;
+          const eTotalSteps = eProgramId ? (programTotalSteps[eProgramId] || 11) : 11;
+          const eStepProgs = (e as any).stepProgress || [];
+          const eUnlocked = eStepProgs.filter((sp: any) => sp.isUnlocked);
+          const eIncompleteUnlocked = eUnlocked.filter((sp: any) => !sp.isCompleted);
+          const eCompletedCount = eStepProgs.filter((sp: any) => sp.isCompleted).length;
+
+          const isEnrAgreementSigned = (e as any).signedAgreement?.status === 'SIGNED' || isAgreementSigned;
+
+          let eStepNum: number | null = null;
+          let eLocked = false;
+          let eLabel = '';
+
+          if (e.status === EnrolmentStatus.PENDING_PAYMENT || !isEnrAgreementSigned) {
+            eStepNum = null;
+            eLocked = true;
+            eLabel = 'Locked';
+          } else {
+            if (eIncompleteUnlocked.length > 0) {
+              eStepNum = Math.min(...eIncompleteUnlocked.map((sp: any) => sp.step?.sequence || 1));
+            } else if (eUnlocked.length > 0) {
+              eStepNum = Math.max(...eUnlocked.map((sp: any) => sp.step?.sequence || 1));
+            } else {
+              eStepNum = 1;
+            }
+
+            const eCertStatus = (e as any)?.certificate?.status;
+            if (eCertStatus === 'ISSUED') {
+              eLabel = 'Certified';
+            } else {
+              eLabel = `Step ${eStepNum || 1}/${eTotalSteps}`;
+            }
+          }
+
+          return {
+            id: e.id,
+            batchId: e.batchId,
+            batchName: e.batch?.name || 'Unassigned',
+            programId: e.programId,
+            programTitle: e.program?.title || 'Unknown',
+            status: e.status,
+            currentStepNumber: eStepNum,
+            totalSteps: eTotalSteps,
+            isStepLocked: eLocked,
+            stepLabel: eLabel,
+            isAgreementSigned: isEnrAgreementSigned,
+            createdAt: e.createdAt,
+          };
+        }),
         enrolledAt: primaryEnrolment?.createdAt || null,
         createdAt: user.createdAt,
         joined: (() => {

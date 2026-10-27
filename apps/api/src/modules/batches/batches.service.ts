@@ -189,7 +189,7 @@ export class BatchesService {
   // 2. CREATION & MUTATION
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async create(data: CreateBatchDto) {
+  async create(data: CreateBatchDto, actorId?: string) {
     // 1-4. Parallelize independent validation queries concurrently in a single round-trip
     const [program, existing, manager, trainers] = await Promise.all([
       this.prisma.program.findUnique({
@@ -337,7 +337,7 @@ export class BatchesService {
     return this.formatBatchResponse(created!);
   }
 
-  async update(id: string, data: UpdateBatchDto) {
+  async update(id: string, data: UpdateBatchDto, actorId?: string) {
     const batch = await this.prisma.batch.findUnique({ where: { id } });
     if (!batch) {
       throw new NotFoundException('Batch not found');
@@ -450,7 +450,7 @@ export class BatchesService {
   // 3. LIFECYCLE TRANSITIONS
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async transitionStatus(id: string, dto: TransitionBatchStatusDto) {
+  async transitionStatus(id: string, dto: TransitionBatchStatusDto, actorId?: string) {
     const batch = await this.prisma.batch.findUnique({ where: { id } });
     if (!batch) {
       throw new NotFoundException('Batch not found');

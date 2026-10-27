@@ -5,7 +5,13 @@ import styles from "./page.module.css";
 import Link from "next/link";
 import Image from "next/image";
 import { ActionMenu } from "./components";
-import { apiGet, fetchOneOnOneRequests, type OneOnOneRequestItem } from "./lib/api";
+import {
+  apiGet,
+  fetchOneOnOneRequests,
+  fetchMissionStatements,
+  type OneOnOneRequestItem,
+  type MissionStatementItem,
+} from "./lib/api";
 import { parseLeadMessage } from "./leads/page";
 import { filterUpcomingDiscoveryCalls } from "./lib/discovery-calls";
 
@@ -139,6 +145,7 @@ export default function AdminDashboard() {
   const [certificatesData, setCertificatesData] = useState<any[]>([]);
   const [batchesData, setBatchesData] = useState<any[]>([]);
   const [coachingRequests, setCoachingRequests] = useState<OneOnOneRequestItem[]>([]);
+  const [missionSubmissions, setMissionSubmissions] = useState<MissionStatementItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
 
@@ -159,7 +166,7 @@ export default function AdminDashboard() {
     let active = true;
     const fetchDashboardMetrics = async () => {
       try {
-        const [dash, leads, certs, batches, coachingReqs] = await Promise.all([
+        const [dash, leads, certs, batches, coachingReqs, missions] = await Promise.all([
           apiGet<any>('/admin/dashboard').catch((e) => {
             console.warn("Dashboard fetch error:", e);
             return null;
@@ -168,6 +175,7 @@ export default function AdminDashboard() {
           apiGet<any>('/certificates').catch(() => []),
           apiGet<any>('/batches').catch(() => []),
           fetchOneOnOneRequests('PENDING_APPROVAL').catch(() => []),
+          fetchMissionStatements('SUBMITTED').catch(() => []),
         ]);
 
         if (active) {
@@ -177,6 +185,7 @@ export default function AdminDashboard() {
           if (Array.isArray(certs)) setCertificatesData(certs);
           if (Array.isArray(batches)) setBatchesData(batches);
           if (Array.isArray(coachingReqs)) setCoachingRequests(coachingReqs);
+          if (Array.isArray(missions)) setMissionSubmissions(missions);
         }
       } catch (e: any) {
         console.error("Dashboard parallel fetch error:", e);
@@ -206,8 +215,8 @@ export default function AdminDashboard() {
     dashboardData?.pendingCertificatesCount ??
     certificatesData.filter((c) => c.status === "PENDING" || c.status === "REQUESTED").length;
 
-  // Action Queue 3: Unmatched Attendance Reconciliation count (distinguish loading vs verified zero)
-  const unmatchedAttendanceCount = dashboardData?.unmatchedAttendanceCount ?? (loading ? null : 0);
+  // Action Queue 3: Pending Mission Statement Reviews (Stage 5)
+  const pendingMissionsCount = missionSubmissions.length;
 
   // Active Batches list
   const activeBatchesList = batchesData
@@ -593,17 +602,17 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Queue 2: Pending Certificate Approvals */}
+        {/* Queue 2: 1-on-1 Coaching Session Requests (Stage 4) */}
         <div className={styles.actionQueueCard}>
           <div className={styles.actionQueueHeader}>
             <h3 className={styles.actionQueueTitle}>
-              Certificate Approvals
+              1-on-1 Coaching Queue
             </h3>
             {loading ? (
               <div className="skeleton" style={{ width: 68, height: 18, borderRadius: 999 }} />
-            ) : pendingCertificatesCount > 0 ? (
+            ) : coachingRequests.length > 0 ? (
               <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
-                {pendingCertificatesCount} Pending
+                {coachingRequests.length} Pending
               </span>
             ) : null}
           </div>
@@ -611,47 +620,11 @@ export default function AdminDashboard() {
           <div className={styles.actionQueueList}>
             {loading ? (
               <div className={styles.actionQueueHero} style={{ gap: "0.65rem" }}>
-                <div className="skeleton" style={{ width: 44, height: 28, borderRadius: 6 }} />
-                <div className="skeleton" style={{ width: "85%", height: 14, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "65%", height: 18, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "90%", height: 13, borderRadius: 4 }} />
                 <div className="skeleton" style={{ width: "100%", height: 34, borderRadius: 8, marginTop: "auto" }} />
               </div>
-            ) : pendingCertificatesCount > 0 ? (
-              <div className={styles.actionQueueHero}>
-                <div className={styles.actionQueueHeroNumber}>{pendingCertificatesCount}</div>
-                <div className={styles.actionQueueHeroMeta}>Learner certificate requests awaiting instructor review and issuance.</div>
-                <Link href="/approvals" className={styles.primaryActionBtn}>
-                  Review Approvals Queue →
-                </Link>
-              </div>
-            ) : (
-              <div className={styles.actionQueueHero}>
-                <div className={styles.emptyQueueState}>
-                  <span>✓ Queue clear</span>
-                  <span>All submitted certificates reviewed</span>
-                </div>
-                <Link href="/certificates" className={styles.secondaryActionBtn}>
-                  View Issued Certificates →
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Queue 4: 1-on-1 Coaching Session Requests (Stage 4) */}
-        <div className={styles.actionQueueCard}>
-          <div className={styles.actionQueueHeader}>
-            <h3 className={styles.actionQueueTitle}>
-              1-on-1 Coaching Queue
-            </h3>
-            {coachingRequests.length > 0 && (
-              <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
-                {coachingRequests.length} Pending
-              </span>
-            )}
-          </div>
-
-          <div className={styles.actionQueueList}>
-            {coachingRequests.length === 0 ? (
+            ) : coachingRequests.length === 0 ? (
               <div className={styles.actionQueueHero}>
                 <div className={styles.emptyQueueState}>
                   <span>✓ All caught up</span>
@@ -700,17 +673,17 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Queue 3: Unmatched Attendance Reconciliation */}
+        {/* Queue 3: Mission Statement Reviews (Stage 5) */}
         <div className={styles.actionQueueCard}>
           <div className={styles.actionQueueHeader}>
             <h3 className={styles.actionQueueTitle}>
-              Attendance Reconciliation
+              Mission Statement Reviews
             </h3>
             {loading ? (
-              <div className="skeleton" style={{ width: 78, height: 18, borderRadius: 999 }} />
-            ) : unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 ? (
-              <span className={`${styles.actionQueueBadge} ${styles.badgeUnmatchedAlert}`}>
-                {unmatchedAttendanceCount} Unmatched
+              <div className="skeleton" style={{ width: 68, height: 18, borderRadius: 999 }} />
+            ) : pendingMissionsCount > 0 ? (
+              <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
+                {pendingMissionsCount} Pending
               </span>
             ) : null}
           </div>
@@ -722,22 +695,66 @@ export default function AdminDashboard() {
                 <div className="skeleton" style={{ width: "85%", height: 14, borderRadius: 4 }} />
                 <div className="skeleton" style={{ width: "100%", height: 34, borderRadius: 8, marginTop: "auto" }} />
               </div>
-            ) : unmatchedAttendanceCount !== null && unmatchedAttendanceCount > 0 ? (
+            ) : pendingMissionsCount > 0 ? (
               <div className={styles.actionQueueHero}>
-                <div className={styles.actionQueueHeroNumber} style={{ color: "#d97706" }}>{unmatchedAttendanceCount}</div>
-                <div className={styles.actionQueueHeroMeta}>Session participants could not be automatically matched to registered learners.</div>
-                <Link href="/batches" className={styles.warningActionBtn}>
-                  Reconcile Attendees →
+                <div className={styles.actionQueueHeroNumber}>{pendingMissionsCount}</div>
+                <div className={styles.actionQueueHeroMeta}>Stage 5 learner mission statements submitted and awaiting review.</div>
+                <Link href="/approvals?tab=missions" className={styles.primaryActionBtn}>
+                  Review Submissions ({pendingMissionsCount}) →
                 </Link>
               </div>
             ) : (
               <div className={styles.actionQueueHero}>
                 <div className={styles.emptyQueueState}>
-                  <span>✓ Fully reconciled</span>
-                  <span>Zero reconciliation backlog across batches</span>
+                  <span>✓ All caught up</span>
+                  <span>No mission statements awaiting review</span>
                 </div>
-                <Link href="/batches" className={styles.secondaryActionBtn}>
-                  View Batch Attendance →
+                <Link href="/approvals?tab=missions" className={styles.secondaryActionBtn}>
+                  View Mission Submissions →
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Queue 4: Pending Certificate Approvals */}
+        <div className={styles.actionQueueCard}>
+          <div className={styles.actionQueueHeader}>
+            <h3 className={styles.actionQueueTitle}>
+              Certificate Approvals
+            </h3>
+            {loading ? (
+              <div className="skeleton" style={{ width: 68, height: 18, borderRadius: 999 }} />
+            ) : pendingCertificatesCount > 0 ? (
+              <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
+                {pendingCertificatesCount} Pending
+              </span>
+            ) : null}
+          </div>
+
+          <div className={styles.actionQueueList}>
+            {loading ? (
+              <div className={styles.actionQueueHero} style={{ gap: "0.65rem" }}>
+                <div className="skeleton" style={{ width: 44, height: 28, borderRadius: 6 }} />
+                <div className="skeleton" style={{ width: "85%", height: 14, borderRadius: 4 }} />
+                <div className="skeleton" style={{ width: "100%", height: 34, borderRadius: 8, marginTop: "auto" }} />
+              </div>
+            ) : pendingCertificatesCount > 0 ? (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.actionQueueHeroNumber}>{pendingCertificatesCount}</div>
+                <div className={styles.actionQueueHeroMeta}>Learner certificate requests awaiting instructor review and issuance.</div>
+                <Link href="/approvals?tab=certificates" className={styles.primaryActionBtn}>
+                  Review Approvals Queue →
+                </Link>
+              </div>
+            ) : (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.emptyQueueState}>
+                  <span>✓ Queue clear</span>
+                  <span>All submitted certificates reviewed</span>
+                </div>
+                <Link href="/certificates" className={styles.secondaryActionBtn}>
+                  View Issued Certificates →
                 </Link>
               </div>
             )}

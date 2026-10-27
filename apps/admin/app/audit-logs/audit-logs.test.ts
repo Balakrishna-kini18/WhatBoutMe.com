@@ -81,6 +81,11 @@ describe("Compliance & System Audit Logs Specification", () => {
       expect(optionValues).toContain("USER_ROLE_CHANGED");
       expect(optionValues).toContain("UNUSUAL_LOGIN_DETECTED");
       expect(optionValues).toContain("PASSWORD_RESET");
+      expect(optionValues).toContain("BATCH_CREATED");
+      expect(optionValues).toContain("BATCH_MANAGER_ASSIGNED");
+      expect(optionValues).toContain("BATCH_STATUS_CHANGED");
+      expect(optionValues).toContain("PROGRAM_PUBLISHED");
+      expect(optionValues).toContain("PROGRAM_PRICING_UPDATED");
     });
   });
 
@@ -422,6 +427,173 @@ describe("Compliance & System Audit Logs Specification", () => {
       expect(actionLinks.length).toBe(1);
       expect(actionLinks[0]!.label).toBe("Checkout Url");
       expect(actionLinks[0]!.url).toContain("http://localhost:3003/checkout/lead/");
+    });
+
+    it("handles 5-stage pipeline actions (stage override, mission statement, 1-on-1 sessions)", () => {
+      // 1. STAGE_UNLOCK_OVERRIDE with explicit reason
+      const stageLogWithReason = {
+        id: "stg-1",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "STAGE_UNLOCK_OVERRIDE",
+        entity: "Enrolment",
+        entityId: "enr-1",
+        meta: { stage: "STAGE_2_EXAM", reason: "Exempted due to prior master certification" },
+        ip: null,
+        createdAt: "2026-10-26T10:00:00.000Z",
+      };
+      expect(getAuditDetails(stageLogWithReason)).toBe("Exempted due to prior master certification");
+
+      // 1b. STAGE_UNLOCK_OVERRIDE without explicit reason
+      const stageLogNoReason = {
+        ...stageLogWithReason,
+        meta: { stage: "STAGE_2_EXAM" },
+      };
+      expect(getAuditDetails(stageLogNoReason)).toBe("Stage unlock override applied (Stage 2 Exam)");
+
+      // 2. MISSION_STATEMENT_SUBMITTED
+      const missionSubLog = {
+        id: "ms-1",
+        actorId: "u-1",
+        actorName: "Student Alpha",
+        actorEmail: "alpha@example.com",
+        actorRole: "USER",
+        action: "MISSION_STATEMENT_SUBMITTED",
+        entity: "MissionStatementSubmission",
+        entityId: "mss-1",
+        meta: { fileName: "My_Personal_Mission_Statement_v1.pdf" },
+        ip: null,
+        createdAt: "2026-10-26T11:00:00.000Z",
+      };
+      expect(getAuditDetails(missionSubLog)).toBe("Submitted mission statement: My_Personal_Mission_Statement_v1.pdf");
+
+      // 3. MISSION_STATEMENT_APPROVED with feedback
+      const missionAppLog = {
+        id: "ms-2",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "MISSION_STATEMENT_APPROVED",
+        entity: "MissionStatementSubmission",
+        entityId: "mss-1",
+        meta: { feedback: "Exceptionally well articulated life vision." },
+        ip: null,
+        createdAt: "2026-10-26T12:00:00.000Z",
+      };
+      expect(getAuditDetails(missionAppLog)).toBe("Exceptionally well articulated life vision.");
+
+      // 3b. MISSION_STATEMENT_APPROVED without feedback
+      const missionAppNoFeedback = {
+        ...missionAppLog,
+        meta: null,
+      };
+      expect(getAuditDetails(missionAppNoFeedback)).toBe("Mission statement reviewed and approved");
+
+      // 4. ONE_ON_ONE_APPROVED
+      const oooAppLog = {
+        id: "ooo-1",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "ONE_ON_ONE_APPROVED",
+        entity: "OneOnOneRequest",
+        entityId: "ooo-req-1",
+        meta: null,
+        ip: null,
+        createdAt: "2026-10-26T13:00:00.000Z",
+      };
+      expect(getAuditDetails(oooAppLog)).toBe("1-on-1 coaching call scheduled & approved");
+    });
+
+    it("resolves batch and program governance lifecycle audit events", () => {
+      // 1. BATCH_CREATED
+      const batchCreatedLog = {
+        id: "b-1",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "BATCH_CREATED",
+        entity: "Batch",
+        entityId: "batch-1",
+        meta: { batchName: "Cohort 12", capacity: 35 },
+        ip: null,
+        createdAt: "2026-10-27T08:00:00.000Z",
+      };
+      expect(getAuditDetails(batchCreatedLog)).toBe('Created batch "Cohort 12" (35 capacity)');
+      expect(ACTION_SHORT_NAMES.BATCH_CREATED).toBe("Batch Created");
+
+      // 2. BATCH_MANAGER_ASSIGNED
+      const batchManagerLog = {
+        id: "b-2",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "BATCH_MANAGER_ASSIGNED",
+        entity: "Batch",
+        entityId: "batch-1",
+        meta: { batchName: "Cohort 12", newManagerName: "Instructor Sarah" },
+        ip: null,
+        createdAt: "2026-10-27T08:05:00.000Z",
+      };
+      expect(getAuditDetails(batchManagerLog)).toBe('Manager assigned for "Cohort 12": Instructor Sarah');
+      expect(ACTION_SHORT_NAMES.BATCH_MANAGER_ASSIGNED).toBe("Manager Assigned");
+
+      // 3. BATCH_STATUS_CHANGED
+      const batchStatusLog = {
+        id: "b-3",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "BATCH_STATUS_CHANGED",
+        entity: "Batch",
+        entityId: "batch-1",
+        meta: { batchName: "Cohort 12", newStatus: "ACTIVE" },
+        ip: null,
+        createdAt: "2026-10-27T08:10:00.000Z",
+      };
+      expect(getAuditDetails(batchStatusLog)).toBe('"Cohort 12" status transitioned to ACTIVE');
+      expect(ACTION_SHORT_NAMES.BATCH_STATUS_CHANGED).toBe("Batch Status");
+
+      // 4. PROGRAM_PUBLISHED
+      const progPubLog = {
+        id: "p-1",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "PROGRAM_PUBLISHED",
+        entity: "Program",
+        entityId: "prog-1",
+        meta: { programTitle: "Sigma Leadership Mastery" },
+        ip: null,
+        createdAt: "2026-10-27T08:15:00.000Z",
+      };
+      expect(getAuditDetails(progPubLog)).toBe('"Sigma Leadership Mastery" published to catalog');
+      expect(ACTION_SHORT_NAMES.PROGRAM_PUBLISHED).toBe("Program Published");
+
+      // 5. PROGRAM_PRICING_UPDATED
+      const progPricingLog = {
+        id: "p-2",
+        actorId: "actor-1",
+        actorName: "Super Admin Roweena",
+        actorEmail: "super@whatboutme.com",
+        actorRole: "SUPER_ADMIN",
+        action: "PROGRAM_PRICING_UPDATED",
+        entity: "Program",
+        entityId: "prog-1",
+        meta: { programTitle: "Sigma Leadership Mastery", newPricing: { price: 1499, currency: "USD" } },
+        ip: null,
+        createdAt: "2026-10-27T08:20:00.000Z",
+      };
+      expect(getAuditDetails(progPricingLog)).toBe('"Sigma Leadership Mastery" pricing updated: USD 1499');
+      expect(ACTION_SHORT_NAMES.PROGRAM_PRICING_UPDATED).toBe("Pricing Updated");
     });
   });
 });

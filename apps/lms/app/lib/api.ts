@@ -1105,16 +1105,18 @@ export async function registerPushSubscription(sub: PushSubscription): Promise<b
 }
 
 export async function fetchNotifications(limit = 50): Promise<AppNotification[]> {
-  const res = await fetch(`${API_URL}/notifications/mine?limit=${limit}`, {
+  const res = await cachedFetch(`${API_URL}/notifications/mine?limit=${limit}`, {
     headers: getAuthHeaders(),
+    ttlMs: 30_000,
   });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchUnreadNotificationCount(): Promise<number> {
-  const res = await fetch(`${API_URL}/notifications/unread-count`, {
+  const res = await cachedFetch(`${API_URL}/notifications/unread-count`, {
     headers: getAuthHeaders(),
+    ttlMs: 30_000,
   });
   if (!res.ok) return 0;
   const data = await res.json();
@@ -1122,6 +1124,7 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
 }
 
 export async function markNotificationAsRead(id: string): Promise<boolean> {
+  invalidateTag("notifications");
   const res = await fetch(`${API_URL}/notifications/${id}/read`, {
     method: 'PATCH',
     headers: getAuthHeaders(),
@@ -1130,6 +1133,7 @@ export async function markNotificationAsRead(id: string): Promise<boolean> {
 }
 
 export async function markAllNotificationsAsRead(): Promise<boolean> {
+  invalidateTag("notifications");
   const res = await fetch(`${API_URL}/notifications/mark-all-read`, {
     method: 'POST',
     headers: getAuthHeaders(),

@@ -143,6 +143,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isHeartbeatInFlightRef = useRef<boolean>(false);
   const lastEndedSentTimeRef = useRef<Record<string, number>>({});
+  const [recheckCount, setRecheckCount] = useState<number>(0);
+  const [isRecheckingUnlock, setIsRecheckingUnlock] = useState<boolean>(false);
 
   // 1. Initial User Hydration & Jump Link (?lessonId=...)
   useEffect(() => {
@@ -223,7 +225,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   }, [stepId, quizAnswers, activeQuizIndex, activeTab]);
 
   // 2. Fetch Step & Progression with automatic retry & cache resilience
-  const fetchStepAndProgression = useCallback(async (isRetry = false) => {
+  const fetchStepAndProgression = useCallback(async (isRetry = false, forceFresh = false) => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
 
@@ -238,7 +240,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       setLoadError(null);
       const stepRes = await cachedFetch(`${API_URL}/programs/steps/${stepId}`, {
         headers: getAuthHeaders(),
-        ttlMs: 30_000,
+        ttlMs: forceFresh ? 0 : 15_000,
+        skipCache: forceFresh,
       });
       if (!stepRes.ok) {
         if (stepRes.status === 401) {
@@ -257,14 +260,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       const progPromise = stepData.programId
         ? cachedFetch(`${API_URL}/progression/me/${stepData.programId}`, {
             headers: getAuthHeaders(),
-            ttlMs: 20_000,
+            ttlMs: forceFresh ? 0 : 5_000,
+            skipCache: forceFresh,
           })
         : Promise.resolve(null);
 
       const quizPromise = stepData.quiz?.id
         ? cachedFetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
             headers: getAuthHeaders(),
-            ttlMs: 20_000,
+            ttlMs: forceFresh ? 0 : 5_000,
+            skipCache: forceFresh,
           }).catch(() => null)
         : Promise.resolve(null);
 
@@ -444,6 +449,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Determine Current Step Progression & Quiz Unlocked Status
   const currentStepProg = progression?.steps?.find((s: any) => s.stepId === stepId);
+  const isStepUnlocked = currentStepProg ? currentStepProg.isUnlocked : true;
+
+  // Auto-recheck unlocked status if user lands on locked step right after previous module
+  useEffect(() => {
+    if (!step || isStepUnlocked || !currentStepProg) return;
+    if (currentStepProg.lockReason !== "PREVIOUS_STEP_INCOMPLETE") return;
+    if (recheckCount >= 6) return;
+
+    const delay = recheckCount === 0 ? 1000 : 1500;
+    const timer = setTimeout(async () => {
+      setIsRecheckingUnlock(true);
+      invalidateCache();
+      isFetchingRef.current = false;
+      await fetchStepAndProgression(false, true);
+      setIsRecheckingUnlock(false);
+      setRecheckCount((prev) => prev + 1);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [step, isStepUnlocked, currentStepProg?.lockReason, recheckCount, fetchStepAndProgression]);
+
   const effectiveQuizPlacement =
     step?.quiz?.quizPlacement ||
     (step as any)?.quizPlacement ||
@@ -671,9 +697,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             const data = await res.json();
             setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
             if (data.isCompleted || data.viewed || isEnded) {
-              invalidateCache("/progression");
-              invalidateCache("/progress");
-              void fetchStepAndProgression();
+              invalidateCache();
+              void fetchStepAndProgression(false, true);
             }
           } else if (isEnded && attempt < 2) {
             setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
@@ -765,6 +790,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         );
 
         if (areAllVideosDone) {
+          // Immediately unlock next module in client state so it never shows locked
+          setProgression((prevProg: any) => {
+            if (!prevProg?.steps) return prevProg;
+            return {
+              ...prevProg,
+              steps: prevProg.steps.map((s: any) => {
+                if (s.stepId === stepId) {
+                  return { ...s, isCompleted: true, progressPercent: 100 };
+                }
+                if (nextStepId && s.stepId === nextStepId) {
+                  return { ...s, isUnlocked: true, lockReason: null };
+                }
+                return s;
+              }),
+            };
+          });
+
           if (
             step?.quiz &&
             !lastQuizResult?.passed &&
@@ -777,7 +819,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             setCelebrationMode("module");
             setIsCelebrationOpen(true);
             if (nextStepId) {
-              setRedirectCountdown(4);
+              setRedirectCountdown(3);
             }
           }
         } else {
@@ -788,7 +830,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         return updated;
       });
 
-      // 4. Background fire-and-forget server sync (does NOT block UI or video progression)
+      // 4. Background server sync (does NOT block UI or video progression)
       void (async () => {
         try {
           const lesson = allLessons.find((l: any) => l.id === lessonId);
@@ -801,9 +843,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               headers: getAuthHeaders(),
             });
           }
-          invalidateCache("/progression");
-          invalidateCache("/progress");
-          void fetchStepAndProgression();
+          invalidateCache();
+          void fetchStepAndProgression(false, true);
         } catch (e) {
           console.warn("Background lesson completion sync failed:", e);
         }
@@ -890,7 +931,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Calculate Progress Percentages
   const isStepCompleted = currentStepProg?.isCompleted || step?.isCompleted;
-  const isStepUnlocked = currentStepProg ? currentStepProg.isUnlocked : true;
 
   const totalLessonsCount = allLessons.length;
   const completedLessonsCount = allLessons.filter(
@@ -933,16 +973,60 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Locked Step State
   if (!isStepUnlocked && currentStepProg) {
+    const isPrevIncomplete = currentStepProg.lockReason === "PREVIOUS_STEP_INCOMPLETE";
     return (
       <div className={styles.container}>
         <div className={styles.lockCard}>
           <span className={styles.lockBadge}>Step Locked</span>
-          <h2 className={styles.lockTitle}>Step {step.sequence}: {step.title}</h2>
+          <h2 className={styles.lockTitle}>Step {step?.sequence}: {step?.title}</h2>
           <p className={styles.lockMessage}>
             {getLockMessage(currentStepProg.lockReason)}
           </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <Link href={`/programs/${step.programId}/steps`} className={styles.btnPrimaryOrange}>
+
+          {isPrevIncomplete && (
+            <div
+              style={{
+                margin: "16px 0",
+                fontSize: "0.9rem",
+                color: "#ea580c",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              {isRecheckingUnlock ? (
+                <>
+                  <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>⏳</span>
+                  <span>Verifying previous module completion... Unlocking step</span>
+                </>
+              ) : recheckCount < 6 ? (
+                <>
+                  <span>Checking completion status... Unlocks automatically</span>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 12 }}>
+            {isPrevIncomplete && (
+              <button
+                type="button"
+                disabled={isRecheckingUnlock}
+                onClick={async () => {
+                  setIsRecheckingUnlock(true);
+                  invalidateCache();
+                  isFetchingRef.current = false;
+                  await fetchStepAndProgression(false, true);
+                  setIsRecheckingUnlock(false);
+                }}
+                className={styles.btnPrimaryOrange}
+                style={{ minWidth: 160 }}
+              >
+                {isRecheckingUnlock ? "Verifying..." : "Check Unlock Now ⟳"}
+              </button>
+            )}
+            <Link href={`/programs/${step?.programId}/steps`} className={styles.btnSecondaryOutline}>
               Return to Roadmap &rarr;
             </Link>
           </div>

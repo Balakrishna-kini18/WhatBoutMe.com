@@ -137,10 +137,18 @@ export default function CompulsoryVideoPlayer({
     }
   }, [resumedNotice]);
 
-  // Reset seek applied state when lesson changes
+  // Comprehensive state reset whenever lessonId changes
   useEffect(() => {
     hasAppliedInitialSeekRef.current = false;
-  }, [lessonId]);
+    hasCompletedRef.current = false;
+    maxWatchedSecRef.current = initialTargetSec;
+    lastValidTimeRef.current = initialTargetSec;
+    lastHeartbeatPositionRef.current = initialTargetSec;
+    lastHeartbeatTimeRef.current = Date.now();
+    setHasEnded(false);
+    setCurrentTime(initialTargetSec);
+    setIsPlaying(false);
+  }, [lessonId, initialTargetSec]);
 
 
   // Watermark text
@@ -434,8 +442,8 @@ export default function CompulsoryVideoPlayer({
       saveLocalVideoResume(lessonId, current, dur);
     }
 
-    // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95
-    if (dur > 0 && current >= dur * 0.95 && !hasCompletedRef.current) {
+    // Server-enforced compulsory completion: watchedSeconds >= duration * 0.90 or within 1s of end
+    if (dur > 0 && (current >= dur * 0.90 || current >= dur - 1.0) && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
       setHasEnded(true);
       clearLocalVideoResume(lessonId);
@@ -465,8 +473,8 @@ export default function CompulsoryVideoPlayer({
       lastHeartbeatTimeRef.current = Date.now();
       lastHeartbeatPositionRef.current = toSec;
       onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
-      onComplete();
     }
+    onComplete();
   };
 
 

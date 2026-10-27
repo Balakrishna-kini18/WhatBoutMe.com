@@ -46,14 +46,13 @@ export default function PdfViewerModal({
     let isMounted = true;
     setLoading(true);
     setError(null);
-    cleanupBlob();
 
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const streamUrl = `${API_URL}/media/document/${encodeURIComponent(documentId)}${
       token ? `?token=${encodeURIComponent(token)}` : ""
     }`;
 
-    // Fetch PDF securely with auth headers and create a safe blob URL for the iframe
+    // Fetch PDF securely with auth headers and create an uncorrupted blob URL for the iframe
     const fetchPdf = async () => {
       try {
         const headers: Record<string, string> = {
@@ -63,7 +62,12 @@ export default function PdfViewerModal({
           headers["Authorization"] = `Bearer ${token}`;
         }
 
-        const res = await fetch(streamUrl, {
+        const rawFetch =
+          typeof window !== "undefined" && (window as any).__rawOriginalFetch
+            ? (window as any).__rawOriginalFetch
+            : fetch;
+
+        const res = await rawFetch(streamUrl, {
           method: "GET",
           headers,
         });
@@ -78,6 +82,9 @@ export default function PdfViewerModal({
         // Force application/pdf blob type so browser viewer recognizes it
         const pdfBlob = new Blob([blob], { type: "application/pdf" });
         const objectUrl = URL.createObjectURL(pdfBlob);
+
+        // Safely rotate to new blob URL
+        cleanupBlob();
         activeBlobRef.current = objectUrl;
         setBlobUrl(objectUrl);
         setLoading(false);
@@ -103,9 +110,16 @@ export default function PdfViewerModal({
     return () => {
       isMounted = false;
       window.removeEventListener("keydown", handleKeyDown);
-      cleanupBlob();
     };
   }, [isOpen, documentId]);
+
+  // Clean up blob only when the modal is closed or unmounted
+  useEffect(() => {
+    if (!isOpen) {
+      cleanupBlob();
+      setBlobUrl(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -113,8 +127,8 @@ export default function PdfViewerModal({
   const directStreamUrl = `${API_URL}/media/document/${encodeURIComponent(documentId)}${
     token ? `?token=${encodeURIComponent(token)}` : ""
   }`;
-  const effectiveDownloadUrl = downloadUrl || directStreamUrl;
-  const viewInNewTabUrl = blobUrl || directStreamUrl;
+  const effectiveDownloadUrl = directStreamUrl;
+  const viewInNewTabUrl = directStreamUrl;
 
   return (
     <div
@@ -220,29 +234,11 @@ export default function PdfViewerModal({
           )}
 
           {blobUrl && !error && (
-            <object
-              data={blobUrl}
-              type="application/pdf"
-              className={styles.pdfFrameObject}
-            >
-              <iframe
-                src={blobUrl}
-                title={title}
-                className={styles.pdfFrame}
-              >
-                <div className={styles.pdfFallbackNotice}>
-                  <p>Your browser does not support embedded PDF viewing.</p>
-                  <a
-                    href={viewInNewTabUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.btnPrimaryView}
-                  >
-                    Open PDF in New Window
-                  </a>
-                </div>
-              </iframe>
-            </object>
+            <iframe
+              src={blobUrl}
+              title={title}
+              className={styles.pdfFrame}
+            />
           )}
         </div>
       </div>

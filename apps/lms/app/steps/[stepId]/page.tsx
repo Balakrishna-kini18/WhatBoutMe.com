@@ -113,13 +113,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   });
 
   const handleViewPdf = useCallback((material: { id: string; title: string; mediaUrl?: string | null }) => {
-    const dlUrl = resolveMediaDownloadUrl(material.mediaUrl);
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+    const directDocUrl = `${API_URL}/media/document/${encodeURIComponent(material.id)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     setViewerPdf({
       isOpen: true,
       id: material.id,
       title: material.title,
       mediaUrl: material.mediaUrl,
-      downloadUrl: dlUrl,
+      downloadUrl: directDocUrl,
     });
   }, []);
 
@@ -1303,8 +1304,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             <span style={{ fontSize: "1rem" }}>👁</span> View Fullscreen
                           </button>
                           <a
-                            href={resolveMediaDownloadUrl(currentMedia.mediaUrl)}
-                            download={currentMedia.title}
+                            href={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
+                            download={`${currentMedia.title}.pdf`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className={styles.btnSecondaryOutline}
@@ -1315,17 +1316,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         </div>
                       </div>
                       <div className={styles.pdfLessonEmbedContainer}>
-                        <object
-                          data={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
-                          type="application/pdf"
-                          className={styles.pdfFrameObject}
-                        >
-                          <iframe
-                            src={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
-                            title={currentMedia.title}
-                            className={styles.pdfFrame}
-                          />
-                        </object>
+                        <iframe
+                          src={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
+                          title={currentMedia.title}
+                          className={styles.pdfFrame}
+                        />
                       </div>
                     </div>
                   ) : currentMedia?.mediaUrl ? (
@@ -2006,8 +2001,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 {stepMaterials
                   .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
                   .map((m) => {
-                    const downloadUrl = resolveMediaDownloadUrl(m.mediaUrl);
                     const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
+                    const downloadUrl = isPdf
+                      ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
+                      : resolveMediaDownloadUrl(m.mediaUrl);
                     return (
                       <div
                         key={m.id}

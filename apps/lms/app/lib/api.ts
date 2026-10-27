@@ -350,6 +350,16 @@ export function logSlowApiCall(
   }
 }
 
+function createSafeJsonResponse(bodyText: string, init: ResponseInit): Response {
+  const response = new Response(bodyText, init);
+  const origJson = response.json.bind(response);
+  response.json = async () => {
+    if (!bodyText || !bodyText.trim()) return null;
+    return origJson();
+  };
+  return response;
+}
+
 /**
  * Upgraded fetch with:
  * 1. In-flight request deduplication for identical concurrent GET requests
@@ -388,7 +398,7 @@ export async function cachedFetch(
         // Fresh hit: touch LRU order and serve immediately without network round trip
         apiCache.delete(cacheKey);
         apiCache.set(cacheKey, cached);
-        return new Response(cached.bodyText, {
+        return createSafeJsonResponse(cached.bodyText, {
           status: cached.status,
           statusText: cached.statusText,
           headers: new Headers(cached.headers),
@@ -398,7 +408,7 @@ export async function cachedFetch(
         apiCache.delete(cacheKey);
         apiCache.set(cacheKey, cached);
         triggerBackgroundRevalidate(url, init, cacheKey, ttlMs, timeoutMs);
-        return new Response(cached.bodyText, {
+        return createSafeJsonResponse(cached.bodyText, {
           status: cached.status,
           statusText: cached.statusText,
           headers: new Headers(cached.headers),
@@ -416,7 +426,7 @@ export async function cachedFetch(
     const resPayload = await inFlight;
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
-    return new Response(resPayload.bodyText, {
+    return createSafeJsonResponse(resPayload.bodyText, {
       status: resPayload.status,
       statusText: resPayload.statusText,
       headers: new Headers(resPayload.headers),
@@ -556,7 +566,7 @@ export async function cachedFetch(
   const result = await fetchPromise;
   const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
   logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
-  return new Response(result.bodyText, {
+  return createSafeJsonResponse(result.bodyText, {
     status: result.status,
     statusText: result.statusText,
     headers: new Headers(result.headers),
@@ -1145,6 +1155,148 @@ export async function updateNotificationPreferences(prefs: Partial<NotificationP
   });
   if (!res.ok) {
     throw new Error('Failed to update notification preferences');
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 4: 1-ON-1 COACHING CALL REQUESTS (LMS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface OneOnOneRequestDto {
+  enrolmentId: string;
+  requestedStart: string;
+  requestedEnd: string;
+  learnerTimezone?: string;
+  notes?: string;
+}
+
+export interface MyOneOnOneRequest {
+  id: string;
+  enrolmentId: string;
+  userId: string;
+  requestedStart: string;
+  requestedEnd: string;
+  learnerTimezone?: string | null;
+  notes?: string | null;
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED" | "EXPIRED";
+  decisionReason?: string | null;
+  session?: {
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    joinUrl?: string | null;
+    hostTrainer?: { id: string; name?: string | null; email?: string | null } | null;
+  } | null;
+  enrolment?: {
+    id: string;
+    program?: { id: string; title: string } | null;
+  };
+  createdAt: string;
+}
+
+export async function createOneOnOneRequest(payload: OneOnOneRequestDto): Promise<MyOneOnOneRequest> {
+  const res = await fetch(`${API_URL}/one-on-one/requests`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, 'Failed to submit coaching request');
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function fetchMyOneOnOneRequests(): Promise<MyOneOnOneRequest[]> {
+  const res = await fetch(`${API_URL}/one-on-one/my-requests`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, 'Failed to fetch coaching requests');
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function cancelOneOnOneRequest(id: string): Promise<MyOneOnOneRequest> {
+  const res = await fetch(`${API_URL}/one-on-one/requests/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, 'Failed to cancel coaching request');
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 5: MISSION STATEMENTS (D1-041)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MissionStatementSubmission {
+  id: string;
+  enrolmentId: string;
+  userId: string;
+  version: number;
+  storageKey: string;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  status: "SUBMITTED" | "APPROVED" | "REJECTED";
+  reviewerId?: string | null;
+  reviewedAt?: string | null;
+  feedback?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reviewer?: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+  } | null;
+}
+
+export async function fetchMyMissionStatements(enrolmentId?: string): Promise<MissionStatementSubmission[]> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const url = new URL(`${API_URL}/mission-statements/my-submissions`);
+  if (enrolmentId) {
+    url.searchParams.set("enrolmentId", enrolmentId);
+  }
+  const res = await fetch(url.toString(), {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to fetch mission statement submissions");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function submitMissionStatement(
+  enrolmentId: string,
+  file: File
+): Promise<MissionStatementSubmission> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("enrolmentId", enrolmentId);
+  formData.append("file", file);
+
+  const res = await fetch(`${API_URL}/mission-statements/submit`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to submit mission statement");
+    throw new Error(err.message);
   }
   return res.json();
 }

@@ -435,6 +435,16 @@ export function logSlowApiCall(
   }
 }
 
+function createSafeJsonResponse(bodyText: string, init: ResponseInit): Response {
+  const response = new Response(bodyText, init);
+  const origJson = response.json.bind(response);
+  response.json = async () => {
+    if (!bodyText || !bodyText.trim()) return null;
+    return origJson();
+  };
+  return response;
+}
+
 /**
  * Upgraded fetch with:
  * 1. In-flight request deduplication for identical concurrent GET requests
@@ -516,7 +526,7 @@ export async function cachedFetch(
 
       const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
       logSlowApiCall(method, url, cached.status, durationMs, cached.headers, "Cache");
-      return new Response(cached.bodyText, {
+      return createSafeJsonResponse(cached.bodyText, {
         status: cached.status,
         statusText: cached.statusText,
         headers: new Headers(cached.headers),
@@ -530,7 +540,7 @@ export async function cachedFetch(
     const resPayload = await inFlight;
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
-    return new Response(resPayload.bodyText, {
+    return createSafeJsonResponse(resPayload.bodyText, {
       status: resPayload.status,
       statusText: resPayload.statusText,
       headers: new Headers(resPayload.headers),
@@ -704,7 +714,7 @@ export async function cachedFetch(
   }
   const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
   logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
-  return new Response(result.bodyText, {
+  return createSafeJsonResponse(result.bodyText, {
     status: result.status,
     statusText: result.statusText,
     headers: new Headers(result.headers),
@@ -2070,6 +2080,7 @@ export interface CreateSessionInput {
   endTime: string;
   sessionType: string;
   capacity?: number;
+  minAttendanceMinutes?: number;
   meetingProvider?: string;
   joinUrl?: string;
   hostTrainerId?: string;
@@ -2078,6 +2089,18 @@ export interface CreateSessionInput {
   quizId?: string;
   description?: string;
   agenda?: string;
+}
+
+export interface RecordSessionProgressInput {
+  positionSec: number;
+  fromSec?: number;
+  toSec?: number;
+  isEnded?: boolean;
+  videoDurationSec?: number;
+}
+
+export async function recordSessionProgress(sessionId: string, data: RecordSessionProgressInput): Promise<any> {
+  return apiPost<any>(`/sessions/${sessionId}/recording-progress`, data);
 }
 
 export async function getAllSessions(): Promise<any[]> {
@@ -3075,4 +3098,423 @@ export function getLearnerResumeState(): LearnerResumeState | null {
   }
   return null;
 }
+
+// -----------------------------------------------------------------------------
+// FINAL EXAM MANAGEMENT (STAGE 2)
+// -----------------------------------------------------------------------------
+
+export interface ExamConfig {
+  id: string;
+  programId: string;
+  title: string;
+  description?: string | null;
+  questionCount: number;
+  passMark: number;
+  timeLimitMin: number;
+  maxAttempts: number;
+  cooldownHours: number;
+  shuffleQuestions?: boolean;
+  retryGuidance?: string | null;
+  status: "DRAFT" | "PUBLISHED";
+  activePoolSize?: number;
+}
+
+export interface CreateExamPayload {
+  programId: string;
+  title: string;
+  description?: string;
+  questionCount?: number;
+  passMark?: number;
+  timeLimitMin?: number;
+  maxAttempts?: number;
+  cooldownHours?: number;
+  shuffleQuestions?: boolean;
+  retryGuidance?: string;
+}
+
+export interface UpdateExamPayload {
+  title?: string;
+  description?: string;
+  questionCount?: number;
+  passMark?: number;
+  timeLimitMin?: number;
+  maxAttempts?: number;
+  cooldownHours?: number;
+  shuffleQuestions?: boolean;
+  retryGuidance?: string;
+}
+
+export async function fetchExamConfig(programId: string): Promise<ExamConfig | null> {
+  const res = await cachedFetch(`${API_URL}/programs/${programId}/exam`, { skipCache: true });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to load exam configuration"));
+  }
+  return res.json();
+}
+
+export async function createExam(payload: CreateExamPayload): Promise<ExamConfig> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to create exam"));
+  }
+  return res.json();
+}
+
+export async function updateExam(examId: string, payload: UpdateExamPayload): Promise<ExamConfig> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to update exam"));
+  }
+  return res.json();
+}
+
+export async function publishExam(examId: string): Promise<ExamConfig> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/publish`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to publish exam"));
+  }
+  return res.json();
+}
+
+export interface ExamQuestionOption {
+  id?: string;
+  text: string;
+  imageUrl?: string | null;
+  isCorrect: boolean;
+  order?: number;
+}
+
+export interface ExamQuestionItem {
+  id: string;
+  questionBankId?: string | null;
+  stepId?: string | null;
+  text: string;
+  type: "MULTIPLE_CHOICE" | "MULTI_SELECT" | "SHORT_ANSWER" | "TEXT_BOX";
+  points: number;
+  imageUrl?: string | null;
+  explanation?: string | null;
+  gradingMode?: string | null;
+  minCharacters?: number | null;
+  options: ExamQuestionOption[];
+  step?: { id: string; sequence: number; title: string } | null;
+}
+
+export interface ExamQuestionsPoolResponse {
+  exam: ExamConfig;
+  questionBankId: string;
+  dedicatedPoolCount: number;
+  fallbackStepPoolCount: number;
+  totalPoolCount: number;
+  recommendedPoolSize: number;
+  questionsPerAttempt: number;
+  totalMarks: number;
+  questions: ExamQuestionItem[];
+}
+
+export async function fetchProgramExamQuestions(programId: string): Promise<ExamQuestionsPoolResponse> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/programs/${programId}/exam/questions`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to load exam question pool"));
+  }
+  return res.json();
+}
+
+export async function createExamQuestion(
+  examId: string,
+  payload: Partial<ExamQuestionItem>
+): Promise<ExamQuestionItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to create exam question"));
+  }
+  return res.json();
+}
+
+export async function bulkCreateExamQuestions(
+  examId: string,
+  questions: Array<Partial<ExamQuestionItem>>,
+  replaceExisting = false
+): Promise<{
+  createdCount: number;
+  replaced?: boolean;
+  questionBankId: string;
+  questions: ExamQuestionItem[];
+}> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions/bulk`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ questions, replaceExisting }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to bulk create exam questions"));
+  }
+  return res.json();
+}
+
+export async function updateExamQuestion(
+  examId: string,
+  questionId: string,
+  payload: Partial<ExamQuestionItem>
+): Promise<ExamQuestionItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions/${questionId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to update exam question"));
+  }
+  return res.json();
+}
+
+export async function deleteExamQuestion(
+  examId: string,
+  questionId: string
+): Promise<{ success: boolean; deletedId: string }> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/exams/${examId}/questions/${questionId}`, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to delete exam question"));
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 4: 1-ON-1 REQUESTS & APPROVALS (PHASE 4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface OneOnOneRequestItem {
+  id: string;
+  enrolmentId: string;
+  userId: string;
+  requestedStart: string;
+  requestedEnd: string;
+  learnerTimezone?: string | null;
+  notes?: string | null;
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED" | "EXPIRED";
+  sessionId?: string | null;
+  session?: {
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    joinUrl?: string | null;
+    hostTrainer?: { id: string; name?: string | null; email?: string | null } | null;
+  } | null;
+  user?: {
+    id: string;
+    name?: string | null;
+    email: string;
+    phone?: string | null;
+  };
+  enrolment?: {
+    id: string;
+    program?: { id: string; title: string } | null;
+    batch?: { id: string; name: string } | null;
+  };
+  decidedBy?: { id: string; name?: string | null; email?: string | null } | null;
+  decidedAt?: string | null;
+  decisionReason?: string | null;
+  createdAt: string;
+}
+
+export async function fetchOneOnOneRequests(status?: string): Promise<OneOnOneRequestItem[]> {
+  const url = new URL(`${API_URL}/one-on-one/requests`);
+  if (status && status !== "ALL") {
+    url.searchParams.set("status", status);
+  }
+  const res = await cachedFetch(url.toString(), { skipCache: true });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to fetch 1-on-1 coaching requests"));
+  }
+  return res.json();
+}
+
+export async function approveOneOnOneRequest(
+  requestId: string,
+  payload: { hostTrainerId?: string; startTime?: string; endTime?: string; notes?: string }
+): Promise<OneOnOneRequestItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/one-on-one/requests/${requestId}/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to approve 1-on-1 coaching request"));
+  }
+  return res.json();
+}
+
+export async function rejectOneOnOneRequest(
+  requestId: string,
+  reason: string
+): Promise<OneOnOneRequestItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/one-on-one/requests/${requestId}/reject`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to reject 1-on-1 coaching request"));
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 5 MISSION STATEMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MissionStatementItem {
+  id: string;
+  enrolmentId: string;
+  userId: string;
+  version: number;
+  storageKey: string;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  status: "SUBMITTED" | "APPROVED" | "REJECTED";
+  reviewerId?: string | null;
+  reviewedAt?: string | null;
+  feedback?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  enrolment?: {
+    id: string;
+    program?: {
+      id: string;
+      title: string;
+    };
+    batch?: {
+      id: string;
+      name: string;
+    } | null;
+  };
+  reviewer?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+}
+
+export async function fetchMissionStatements(status?: string): Promise<MissionStatementItem[]> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const url = new URL(`${API_URL}/mission-statements`);
+  if (status && status !== "ALL") {
+    url.searchParams.set("status", status);
+  }
+  const res = await fetch(url.toString(), {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to fetch mission statement submissions"));
+  }
+  return res.json();
+}
+
+export async function approveMissionStatement(
+  id: string,
+  feedback?: string
+): Promise<MissionStatementItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/mission-statements/${id}/approve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ feedback }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to approve mission statement"));
+  }
+  return res.json();
+}
+
+export async function rejectMissionStatement(
+  id: string,
+  feedback: string
+): Promise<MissionStatementItem> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/mission-statements/${id}/reject`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ feedback }),
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, "Failed to reject mission statement"));
+  }
+  return res.json();
+}
+
 

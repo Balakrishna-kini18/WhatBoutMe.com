@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import styles from "./attendance.module.css";
+
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -311,20 +313,30 @@ export default function AttendancePage() {
               </div>
 
               {/* Weekday Names (Mon - Sun) */}
-              <div className={styles.weekHeader}>
+              <div className={styles.weekHeader} role="row">
                 {WEEKDAYS.map((wd) => (
-                  <div key={wd} className={styles.weekDayName}>
+                  <div key={wd} className={styles.weekDayName} role="columnheader">
                     {wd}
                   </div>
                 ))}
               </div>
 
               {/* 7-column Calendar Grid */}
-              <div className={styles.calendarGrid}>
+              <div className={styles.calendarGrid} role="grid" aria-label="Monthly Attendance Calendar">
                 {calendarDays.map((cd) => (
                   <div
                     key={cd.dateKey}
+                    role="gridcell"
+                    tabIndex={0}
+                    aria-selected={cd.isSelected}
+                    aria-label={`${cd.date.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
                     onClick={() => setSelectedKey(cd.dateKey)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedKey(cd.dateKey);
+                      }
+                    }}
                     className={`${styles.dayCell} ${!cd.isCurrentMonth ? styles.otherMonth : ""} ${cd.isSelected ? styles.selectedCell : ""}`}
                   >
                     <div className={styles.dayHeader}>
@@ -564,14 +576,12 @@ export default function AttendancePage() {
                                 <span>{isLive ? "Join Now" : "Join Class"}</span>
                               </a>
                             ) : s.recordingUrl ? (
-                              <a
-                                href={s.recordingUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              <Link
+                                href={`/sessions/${s.id}/recording`}
                                 className={styles.recordingLink}
                               >
-                                Recording
-                              </a>
+                                Watch Recording
+                              </Link>
                             ) : null}
                           </div>
                         );

@@ -20,6 +20,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { randomBytes } from 'node:crypto';
 import { CreateProgressShareDto } from './dto/index.js';
+import { WatchIntervalTracker, TimeRange } from './utils/watch-interval-tracker.js';
 
 export const DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT = 90.0;
 
@@ -52,6 +53,9 @@ export interface LessonProgressResult {
   lastPositionSec: number | null;
   completedAt: Date | null;
   durationSec?: number | null;
+  watchedRanges?: any;
+  accepted?: boolean;
+  rejectReason?: string;
 }
 
 export interface EnrolmentLessonsOverviewResponse {
@@ -837,6 +841,7 @@ export class ProgressionService {
               title: true,
               type: true,
               durationSec: true,
+              createdAt: true,
             },
           },
           quiz: {
@@ -977,10 +982,17 @@ export class ProgressionService {
         };
       }
 
+      // D9: Grandfather lessons added after a step was already marked completed
+      const stepCompletedAt = stepProgress?.completedAt;
+      const eligibleLessons = step.lessons.filter((l: any) => {
+        if (!stepCompletedAt || !l.createdAt) return true;
+        return new Date(l.createdAt).getTime() <= new Date(stepCompletedAt).getTime();
+      });
+
       // Check step completion criteria based on actual evidence
-      const hasLessons = step.lessons.length > 0;
+      const hasLessons = eligibleLessons.length > 0;
       const allLessonsCompleted = hasLessons
-        ? step.lessons.every((l) => viewedLessonIds.has(l.id))
+        ? eligibleLessons.every((l) => viewedLessonIds.has(l.id))
         : true;
       const quizCompleted = step.quiz
         ? passedQuizIds.has(step.quiz.id)
@@ -1093,14 +1105,18 @@ export class ProgressionService {
         });
       }
 
-      const stepTotalItems = step.lessons.length + (step.quiz ? 1 : 0);
-      const stepCompletedItems =
+      const rawStepTotalItems = step.lessons.length + (step.quiz ? 1 : 0);
+      const rawStepCompletedItems =
         step.lessons.filter((l) => viewedLessonIds.has(l.id)).length +
         (step.quiz && passedQuizIds.has(step.quiz.id) ? 1 : 0);
+      const stepTotalItems = rawStepTotalItems;
+      const stepCompletedItems = isStepCompleted
+        ? rawStepTotalItems
+        : rawStepCompletedItems;
       const stepProgressPercent =
         stepTotalItems > 0
           ? (isStepCompleted ? 100 : Math.floor((stepCompletedItems / stepTotalItems) * 100))
-          : 100;
+          : (isStepCompleted ? 100 : 0);
 
       evaluatedSteps.push({
         stepId: step.id,
@@ -1153,19 +1169,31 @@ export class ProgressionService {
     let completedItems = 0;
 
     for (const s of evaluatedSteps) {
-      totalItems += s.lessons.length;
-      completedItems += s.lessons.filter((l) => l.isCompleted).length;
-
-      if (s.quiz) {
+      const sTotal = s.lessons.length + (s.quiz ? 1 : 0);
+      if (sTotal > 0) {
+        totalItems += sTotal;
+        if (s.isCompleted) {
+          completedItems += sTotal;
+        } else {
+          completedItems += s.lessons.filter((l) => l.isCompleted).length;
+          if (s.quiz && s.quiz.isPassed) {
+            completedItems += 1;
+          }
+        }
+      } else {
         totalItems += 1;
-        if (s.quiz.isPassed) {
+        if (s.isCompleted) {
           completedItems += 1;
         }
       }
     }
 
-    const overallProgressPercent =
-      totalItems > 0
+    const allEvaluatedStepsCompleted =
+      evaluatedSteps.length > 0 && evaluatedSteps.every((s) => s.isCompleted);
+
+    const overallProgressPercent = allEvaluatedStepsCompleted
+      ? 100
+      : totalItems > 0
         ? (completedItems === totalItems ? 100 : Math.floor((completedItems / totalItems) * 100))
         : 0;
 
@@ -1299,6 +1327,9 @@ export class ProgressionService {
     positionSec: number,
     videoDurationSec?: number,
     isEnded?: boolean,
+    fromSec?: number,
+    toSec?: number,
+    deltaWatchedSec?: number,
   ): Promise<LessonProgressResult> {
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
@@ -1408,31 +1439,9 @@ export class ProgressionService {
       }
     }
 
-    // Determine effective duration
-    let effectiveDuration = lesson.durationSec;
-    if (videoDurationSec && videoDurationSec > 0) {
-      effectiveDuration = Math.round(videoDurationSec);
-      if (!lesson.durationSec || Math.abs(lesson.durationSec - effectiveDuration) > 5) {
-        await this.prisma.lesson.update({
-          where: { id: lesson.id },
-          data: { durationSec: effectiveDuration },
-        }).catch(() => {});
-      }
-    }
-
-    // Calculate percentage server-side
-    let clampedPosition = positionSec;
-    let calculatedPercent = 0;
-
-    if (effectiveDuration && effectiveDuration > 0) {
-      clampedPosition = Math.min(positionSec, effectiveDuration);
-      calculatedPercent = (clampedPosition / effectiveDuration) * 100;
-    }
-
-    if (isEnded || (effectiveDuration && clampedPosition >= effectiveDuration - 2)) {
-      calculatedPercent = 100;
-      clampedPosition = effectiveDuration || positionSec;
-    }
+    // Authoritative duration from server (Bug #2 fix: client never mutates lesson.durationSec)
+    const effectiveDuration = lesson.durationSec;
+    const minWatchPercent = (lesson as any).minWatchPercent ?? DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT;
 
     const existingProgress = await this.prisma.userLessonProgress.findUnique({
       where: {
@@ -1443,22 +1452,35 @@ export class ProgressionService {
       },
     });
 
-    const prevPercent = existingProgress?.progressPercent ?? 0;
-    const newProgressPercent = Math.max(prevPercent, calculatedPercent);
+    const isAlreadyCompleted = Boolean(existingProgress?.viewed);
+    const existingRanges = (existingProgress?.watchedRanges as TimeRange[]) || [];
 
-    // lastPositionSec represents latest accepted playback position and may move backward (e.g. rewind)
-    const lastPositionSec = clampedPosition;
+    const trackerResult = WatchIntervalTracker.validateAndCreditHeartbeat({
+      existingRanges,
+      lastHeartbeatAt: existingProgress?.lastHeartbeatAt,
+      serverNow: new Date(),
+      fromSec,
+      toSec,
+      positionSec,
+      furthestWatchedSec: existingProgress?.lastPositionSec ?? 0,
+      durationSec: effectiveDuration,
+      minWatchPercent,
+      maxRate: 2.0,
+      toleranceSec: 3.0,
+      isAlreadyCompleted,
+    });
 
     // Authoritative completion rule:
-    // Award completion if video is ended, 100% reached, or meets completion threshold
-    const earnedCompletion =
-      Boolean(isEnded) ||
-      newProgressPercent >= 90 ||
-      (effectiveDuration != null &&
-        effectiveDuration > 0 &&
-        newProgressPercent >= DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT);
+    // Only earned when interval coverage meets threshold against authoritative duration
+    const earnedCompletion = isAlreadyCompleted || trackerResult.earnedCompletion;
+    const viewed = earnedCompletion;
+    const newProgressPercent = Math.max(existingProgress?.progressPercent ?? 0, trackerResult.progressPercent);
 
-    const viewed = (existingProgress?.viewed ?? false) || earnedCompletion;
+    // Clamped position for resume bookmarking
+    let clampedPosition = positionSec;
+    if (effectiveDuration && effectiveDuration > 0) {
+      clampedPosition = Math.min(positionSec, effectiveDuration);
+    }
 
     // completedAt is immutable after first completion
     const completedAt =
@@ -1477,20 +1499,24 @@ export class ProgressionService {
         lessonId: lesson.id,
         viewed,
         progressPercent: newProgressPercent,
-        lastPositionSec,
+        lastPositionSec: clampedPosition,
+        watchedRanges: trackerResult.updatedRanges as any,
+        lastHeartbeatAt: new Date(),
         completedAt,
       },
       update: {
         viewed,
         progressPercent: newProgressPercent,
-        lastPositionSec,
+        lastPositionSec: clampedPosition,
+        watchedRanges: trackerResult.updatedRanges as any,
+        lastHeartbeatAt: new Date(),
         completedAt,
       },
     });
 
-    // Progression evaluation trigger whenever viewed changes or is completed or ended
+    // Progression evaluation trigger whenever viewed transitions to completed
     const transitionToCompleted = viewed && !(existingProgress?.viewed ?? false);
-    const shouldInvalidate = transitionToCompleted || Boolean(isEnded);
+    const shouldInvalidate = transitionToCompleted;
 
     if (shouldInvalidate && this.cacheHelper) {
       await Promise.allSettled([
@@ -1500,7 +1526,7 @@ export class ProgressionService {
       ]);
     }
 
-    if (transitionToCompleted || Boolean(isEnded)) {
+    if (transitionToCompleted) {
       // Fire-and-forget progression evaluation in background so heartbeat responds in <100ms
       this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true }).catch((err) => {
         this.logger.error(`Background progression evaluation failed: ${err.message}`);
@@ -1515,6 +1541,9 @@ export class ProgressionService {
       lastPositionSec: updatedProgress.lastPositionSec,
       completedAt: updatedProgress.completedAt,
       durationSec: lesson.durationSec,
+      watchedRanges: updatedProgress.watchedRanges,
+      accepted: trackerResult.accepted,
+      rejectReason: trackerResult.rejectReason,
     };
   }
 

@@ -57,10 +57,17 @@ function resolveJourneyPosition(
   return enrolmentStatus === "ACTIVE" ? "STEPS" : "CHECKOUT";
 }
 
-function buildCheckoutUrl(programId?: string, enrolmentId?: string): string {
+function buildCheckoutUrl(
+  programId?: string,
+  enrolmentId?: string,
+  batchId?: string | null,
+  coupon?: string | null,
+): string {
   if (!programId) return "/courses";
   const query = new URLSearchParams({ programId });
   if (enrolmentId) query.set("enrolmentId", enrolmentId);
+  if (batchId) query.set("batchId", batchId);
+  if (coupon) query.set("coupon", coupon);
   return `/checkout?${query.toString()}`;
 }
 
@@ -76,6 +83,9 @@ function AgreementSignContent() {
   const searchParams = useSearchParams();
   const queryProgramId = searchParams.get("programId");
   const queryEnrolmentId = searchParams.get("enrolmentId");
+  const queryBatchId = searchParams.get("batchId");
+  const queryCoupon = searchParams.get("coupon");
+  const queryAutoEnroll = searchParams.get("autoEnroll");
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -127,13 +137,25 @@ function AgreementSignContent() {
     }
 
     // Advance to Step 3: Payment Confirmation (/checkout)
-    router.push(buildCheckoutUrl(progId, enrolId));
+    router.push(buildCheckoutUrl(progId, enrolId, queryBatchId, queryCoupon));
   };
 
   useEffect(() => {
     document.body.classList.add("auth-page-active");
     return () => document.body.classList.remove("auth-page-active");
   }, []);
+
+  useEffect(() => {
+    if (queryAutoEnroll && typeof window !== "undefined") {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("autoEnroll");
+        window.history.replaceState({}, "", url.pathname + url.search);
+      } catch {
+        // ignore
+      }
+    }
+  }, [queryAutoEnroll]);
 
   useEffect(() => {
     initAgreementFlow();
@@ -145,8 +167,13 @@ function AgreementSignContent() {
 
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!token) {
+      const qs = new URLSearchParams();
+      if (queryProgramId) qs.set("programId", queryProgramId);
+      if (queryEnrolmentId) qs.set("enrolmentId", queryEnrolmentId);
+      if (queryBatchId) qs.set("batchId", queryBatchId);
+      if (queryCoupon) qs.set("coupon", queryCoupon);
       const returnUrl = encodeURIComponent(
-        `/agreement${queryProgramId ? `?programId=${queryProgramId}` : ""}${queryEnrolmentId ? `&enrolmentId=${queryEnrolmentId}` : ""}`
+        `/agreement${qs.toString() ? `?${qs.toString()}` : ""}`
       );
       router.push(`/login?portal=${returnUrl}`);
       return;
@@ -155,6 +182,7 @@ function AgreementSignContent() {
     try {
       let target: any = null;
       let tpl: any = null;
+      let alreadySigned = false;
 
       if (queryProgramId) {
         // Agreement-First Flow: get or initiate provisional enrolment & template
@@ -171,6 +199,7 @@ function AgreementSignContent() {
               target = initData.enrolment;
               tpl = initData.template;
               if (initData.hasSignedAgreement && initData.signedAgreement) {
+                alreadySigned = true;
                 setSignedRecord(initData.signedAgreement);
               }
             }
@@ -227,7 +256,7 @@ function AgreementSignContent() {
       // Note: We deliberately do NOT pre-fill casual display name to ensure explicit legal signing
 
       // Check if this enrolment already has a signed agreement
-      if (!signedRecord) {
+      if (!signedRecord && !alreadySigned) {
         const signedRes = await fetch(`${API_URL}/agreements/enrolments/${target.id}`, {
           headers: getAuthHeaders(),
         });
@@ -236,6 +265,7 @@ function AgreementSignContent() {
           const text = await signedRes.text();
           const existingSigned = text ? JSON.parse(text) : null;
           if (existingSigned && existingSigned.status === "SIGNED") {
+            alreadySigned = true;
             setSignedRecord(existingSigned);
             setTypedName(existingSigned.typedName || "");
             setTypedAcknowledgement("I AGREE");
@@ -248,6 +278,17 @@ function AgreementSignContent() {
             }
           }
         }
+      }
+
+      // Already Enrolled Detection: if the user already owns this course (ACTIVE / COMPLETED)
+      // and has already signed the agreement, route directly to the learning path with a Welcome Back toast!
+      if (
+        alreadySigned &&
+        (target.status === "ACTIVE" || target.status === "COMPLETED") &&
+        target.programId
+      ) {
+        router.replace(`/programs/${target.programId}/steps?welcomeBack=1`);
+        return;
       }
 
       // Pre-fill user's legal name from profile if still empty
@@ -465,7 +506,12 @@ function AgreementSignContent() {
     const nextUrl =
       position === "CHECKOUT"
         ? justSignedSuccess.checkoutUrl ||
-          buildCheckoutUrl(enrolment?.programId || queryProgramId || undefined, enrolment?.id || queryEnrolmentId || undefined)
+          buildCheckoutUrl(
+            enrolment?.programId || queryProgramId || undefined,
+            enrolment?.id || queryEnrolmentId || undefined,
+            queryBatchId,
+            queryCoupon,
+          )
         : `/programs/${enrolment?.programId || queryProgramId}/steps`;
 
     return (

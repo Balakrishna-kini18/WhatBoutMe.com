@@ -7,6 +7,7 @@ import {
   BookingStatus,
   CertificateType,
   ContentStatus,
+  MissionStatementStatus,
   OralAssessmentStatus,
   SessionStatus,
   SessionType,
@@ -89,6 +90,16 @@ describe('D1-051 & D1-051b: CertificateEligibilityService', () => {
             endTime: new Date(),
             bookings: [{ status: BookingStatus.ATTENDED, userId: 'user-1' }],
             attendances: [{ status: AttendanceStatus.PRESENT_AUTO, enrolmentId: 'enrol-1' }],
+          },
+        ]),
+      },
+      missionStatementSubmission: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'mission-1',
+            enrolmentId: 'enrol-1',
+            status: MissionStatementStatus.APPROVED,
+            reviewedAt: new Date(),
           },
         ]),
       },
@@ -226,7 +237,7 @@ describe('D1-051 & D1-051b: CertificateEligibilityService', () => {
       expect(result.finalExam.isMet).toBe(false);
       expect(result.oralAssessment.isMet).toBe(false);
       expect(result.closingCall.isMet).toBe(false);
-      expect(result.unmetRequirements).toHaveLength(3);
+      expect(result.unmetRequirements).toHaveLength(4);
     });
 
     it('handles missing prerequisite records gracefully without throwing 500 error', async () => {

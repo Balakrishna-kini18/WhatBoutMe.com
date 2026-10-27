@@ -21,10 +21,13 @@ import Step6AddPdfLesson from "./components/Step6AddPdfLesson";
 import Step9ReviewPublish from "./components/Step9ReviewPublish";
 import BackgroundUploadTray, { BackgroundUploadTask } from "./components/BackgroundUploadTray";
 
-// Lazy-load heavy off-screen modals and builders
 const Step3CreateModuleModal = dynamic(() => import("./components/Step3CreateModuleModal"), { ssr: false });
 const Step7QuizBuilder = dynamic(() => import("./components/Step7QuizBuilder"), { ssr: false });
 const Step8ModulePreview = dynamic(() => import("./components/Step8ModulePreview"), { ssr: false });
+const FinalExamPanel = dynamic(() => import("./components/FinalExamPanel"), { ssr: false });
+const ProgramSettingsPanel = dynamic(() => import("./components/ProgramSettingsPanel"), { ssr: false });
+const ProgramEnrolmentsPanel = dynamic(() => import("./components/ProgramEnrolmentsPanel"), { ssr: false });
+const ProgramAnalyticsPanel = dynamic(() => import("./components/ProgramAnalyticsPanel"), { ssr: false });
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -38,7 +41,7 @@ export type WizardStep =
   | "PRICING_ACCESS"
   | "REVIEW_PUBLISH";
 
-export type ProgramTab = "MODULES" | "OVERVIEW" | "ENROLMENTS" | "ANALYTICS" | "SETTINGS";
+export type ProgramTab = "MODULES" | "OVERVIEW" | "FINAL_EXAM" | "ENROLMENTS" | "ANALYTICS" | "SETTINGS";
 
 interface Step {
   id: string;
@@ -177,6 +180,12 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         earlyBirdCurrency: updatedData.earlyBirdCurrency || null,
         earlyBirdDeadline: updatedData.earlyBirdDeadline ? new Date(updatedData.earlyBirdDeadline).toISOString() : null,
         hasCertificate: Boolean(updatedData.hasCertificate),
+        requireExam: updatedData.requireExam !== undefined ? Boolean(updatedData.requireExam) : undefined,
+        requireCoaching: updatedData.requireCoaching !== undefined ? Boolean(updatedData.requireCoaching) : undefined,
+        requireMissionStatement: updatedData.requireMissionStatement !== undefined ? Boolean(updatedData.requireMissionStatement) : undefined,
+        sequentialProgressionEnabled: updatedData.sequentialProgressionEnabled !== undefined ? Boolean(updatedData.sequentialProgressionEnabled) : undefined,
+        attendanceRequired: updatedData.attendanceRequired !== undefined ? Boolean(updatedData.attendanceRequired) : undefined,
+        attendanceThreshold: updatedData.attendanceThreshold !== undefined ? Number(updatedData.attendanceThreshold) : undefined,
         shortDescription: updatedData.shortDescription || "",
         thumbnailUrl: updatedData.thumbnailUrl || "",
         category: updatedData.category || "",
@@ -202,6 +211,33 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       setWizardStep("MODULE_LIST");
     } catch (err: any) {
       alert(err.message || "Failed to save course details");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Dedicated Program Progression & Milestone Settings Handler
+  const handleUpdateProgramSettings = async (updatedSettings: any) => {
+    setIsSaving(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/programs/${programId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(updatedSettings),
+      });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to update program progression settings"));
+      }
+
+      const updated = await res.json();
+      setProgramData((prev: any) => ({ ...prev, ...updated, ...updatedSettings }));
+    } catch (err: any) {
+      throw err;
     } finally {
       setIsSaving(false);
     }
@@ -696,6 +732,15 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         <button
           type="button"
           role="tab"
+          aria-selected={activeProgramTab === "FINAL_EXAM"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "FINAL_EXAM" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("FINAL_EXAM")}
+        >
+          Final Exam
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={activeProgramTab === "ENROLMENTS"}
           className={`${styles.programTabBtn} ${activeProgramTab === "ENROLMENTS" ? styles.programTabBtnActive : ""}`}
           onClick={() => setActiveProgramTab("ENROLMENTS")}
@@ -717,11 +762,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           aria-selected={activeProgramTab === "SETTINGS"}
           className={`${styles.programTabBtn} ${activeProgramTab === "SETTINGS" ? styles.programTabBtnActive : ""}`}
           onClick={() => {
-            setActiveProgramTab("MODULES");
-            setWizardStep("COURSE_SETUP");
+            setActiveProgramTab("SETTINGS");
           }}
         >
-          Settings
+          Settings &amp; Milestones
         </button>
 
         <button
@@ -742,6 +786,26 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Alternate Tab Views */}
+      {activeProgramTab === "FINAL_EXAM" && (
+        <FinalExamPanel
+          programId={programId}
+          programTitle={programData?.title}
+          requireExam={programData?.requireExam !== false}
+          onToggleRequireExam={async (required: boolean) => {
+            await handleUpdateProgramSettings({ requireExam: required });
+          }}
+        />
+      )}
+
+      {activeProgramTab === "SETTINGS" && (
+        <ProgramSettingsPanel
+          programId={programId}
+          programData={programData}
+          onUpdateProgram={handleUpdateProgramSettings}
+          onNavigateTab={(tab) => setActiveProgramTab(tab)}
+        />
+      )}
+
       {activeProgramTab === "OVERVIEW" && (
         <section className={styles.cardSurface}>
           <div className={styles.cardHeaderArea}>
@@ -784,35 +848,21 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
 
       {activeProgramTab === "ENROLMENTS" && (
         <section className={styles.cardSurface}>
-          <div className={styles.cardHeaderArea}>
-            <h2 className={styles.stepTitle}>Active Enrolments</h2>
-            <p className={styles.stepSubtitle}>
-              Registered students actively advancing through this curriculum.
-            </p>
-          </div>
-          <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "#fdfbf7", borderRadius: 12, border: "1px dashed #ece6dd", color: "#78716a" }}>
-            <p style={{ margin: "0 0 0.5rem", fontWeight: 600, color: "#14110f" }}>Enrolment management active</p>
-            <p style={{ margin: 0, fontSize: "0.88rem" }}>
-              View learner progress, step unlocking overrides, and batch attendance.
-            </p>
-          </div>
+          <ProgramEnrolmentsPanel
+            programId={programId}
+            programTitle={programData?.title}
+            totalStepsCount={steps.length}
+          />
         </section>
       )}
 
       {activeProgramTab === "ANALYTICS" && (
         <section className={styles.cardSurface}>
-          <div className={styles.cardHeaderArea}>
-            <h2 className={styles.stepTitle}>Learning Analytics</h2>
-            <p className={styles.stepSubtitle}>
-              Drop-off telemetry, compulsory video completion rates, and quiz scores.
-            </p>
-          </div>
-          <div style={{ padding: "2.5rem 1rem", textAlign: "center", background: "#fdfbf7", borderRadius: 12, border: "1px dashed #ece6dd", color: "#78716a" }}>
-            <p style={{ margin: "0 0 0.5rem", fontWeight: 600, color: "#14110f" }}>Telemetry active</p>
-            <p style={{ margin: 0, fontSize: "0.88rem" }}>
-              Watch heartbeat completion and quiz diagnostic scores are monitored in real time.
-            </p>
-          </div>
+          <ProgramAnalyticsPanel
+            programId={programId}
+            programTitle={programData?.title}
+            steps={steps}
+          />
         </section>
       )}
 
@@ -866,6 +916,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
               onUpdateModule={handleUpdateModule}
               onBackToBasicDetails={() => setWizardStep("COURSE_SETUP")}
               onContinueToPricing={() => setWizardStep("PRICING_ACCESS")}
+              onOpenFinalExam={() => setActiveProgramTab("FINAL_EXAM")}
             />
           )}
 

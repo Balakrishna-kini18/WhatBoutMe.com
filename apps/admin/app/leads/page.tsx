@@ -469,15 +469,20 @@ function LeadsContent() {
                       {/* Message & Details Column */}
                       <td>
                         <div className={leadStyles.messageStack}>
-                          {/* Badges: High Intent Course Lead or 1-on-1 Discovery */}
-                          {(parsed.isCourseInquiry || parsed.discovery) && (
+                          {/* Badges: WhatsApp General, Course Inquiry, or 1-on-1 Discovery */}
+                          {(parsed.isWhatsAppGeneral || parsed.isCourseInquiry || parsed.discovery) && (
                             <div className={leadStyles.badgesRow}>
+                              {parsed.isWhatsAppGeneral && (
+                                <span className={leadStyles.badgeWhatsApp}>
+                                  <span>WhatsApp General Enquiry</span>
+                                </span>
+                              )}
                               {parsed.isCourseInquiry && (
                                 <span className={leadStyles.badgeHighIntent}>
                                   <span>
                                     {parsed.courseInquiry?.title
                                       ? `Course: ${parsed.courseInquiry.title}`
-                                      : "High-Intent Course Lead"}
+                                      : "Course Enquiry (1-on-1 Call)"}
                                   </span>
                                 </span>
                               )}

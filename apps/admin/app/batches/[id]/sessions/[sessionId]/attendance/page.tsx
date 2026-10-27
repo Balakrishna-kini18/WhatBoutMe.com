@@ -17,6 +17,8 @@ interface LearnerAttendanceItem {
   joinTimeUtc: string | null;
   leaveTimeUtc: string | null;
   minutesPresent: number;
+  liveMinutes?: number | null;
+  recordedMinutes?: number | null;
   attendancePercentage: number;
   status: string;
   source: string;
@@ -31,6 +33,7 @@ interface AttendanceResponse {
     startTimeUtc: string;
     endTimeUtc: string;
     durationMinutes: number;
+    minAttendanceMinutes?: number | null;
     meetingProvider: string;
     meetingLink: string | null;
     recordingLink: string | null;
@@ -464,7 +467,9 @@ export default function SessionAttendancePage({
                               learner.status === "PRESENT" ||
                               learner.status === "PRESENT_AUTO" ||
                               learner.status === "PRESENT_MANUAL" ||
-                              learner.status === "CORRECTED"
+                              learner.status === "CORRECTED" ||
+                              learner.status === "PRESENT_LIVE" ||
+                              learner.status === "PRESENT_RECORDED"
                                 ? "active"
                                 : learner.status === "EXCUSED"
                                   ? "pending"
@@ -532,6 +537,13 @@ export default function SessionAttendancePage({
                               ({Math.round(learner.attendancePercentage)}%)
                             </span>
                           </div>
+                          {(learner.liveMinutes != null || learner.recordedMinutes != null) && (
+                            <div style={{ display: "flex", gap: "6px", fontSize: "0.72rem", color: "#64748b" }}>
+                              <span>Live: {Math.round((learner.liveMinutes ?? 0) * 10) / 10}m</span>
+                              <span>•</span>
+                              <span>Rec: {Math.round((learner.recordedMinutes ?? 0) * 10) / 10}m</span>
+                            </div>
+                          )}
                           {learner.joinTimeUtc && (
                             <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
                               {learner.leaveTimeUtc

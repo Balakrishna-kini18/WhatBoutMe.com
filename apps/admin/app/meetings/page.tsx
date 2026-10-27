@@ -3,7 +3,16 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import calStyles from "./calendar.module.css";
-import { API_URL, errorMessage, detectCalendarConflict, cachedFetch } from "../lib/api";
+import {
+  API_URL,
+  errorMessage,
+  detectCalendarConflict,
+  cachedFetch,
+  fetchOneOnOneRequests,
+  approveOneOnOneRequest,
+  rejectOneOnOneRequest,
+  type OneOnOneRequestItem,
+} from "../lib/api";
 import {
   getTimezoneOptions,
   getSystemTimezone,
@@ -208,6 +217,11 @@ const Icons = {
       <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
   ),
+  Users: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
 };
 
 export default function MeetingsPage() {
@@ -216,9 +230,28 @@ export default function MeetingsPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // View state: 'calendar' (Single Calendar System) or 'table'
-  const [viewMode, setViewMode] = useState<"calendar" | "table">("calendar");
+  // View state: 'calendar', 'table', or 'requests' (Stage 4 1-on-1 Coaching Queue)
+  const [viewMode, setViewMode] = useState<"calendar" | "table" | "requests">("calendar");
   const [currentCalendarDate, setCurrentCalendarDate] = useState<Date>(new Date());
+
+  // 1-on-1 Requests Queue state (Phase 4)
+  const [oneOnOneRequests, setOneOnOneRequests] = useState<OneOnOneRequestItem[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [requestsFilter, setRequestsFilter] = useState<string>("ALL");
+
+  // Approve 1-on-1 Request Modal state
+  const [approvingRequest, setApprovingRequest] = useState<OneOnOneRequestItem | null>(null);
+  const [approvalHostTrainerId, setApprovalHostTrainerId] = useState<string>("");
+  const [approvalDate, setApprovalDate] = useState<string>("");
+  const [approvalStartTime, setApprovalStartTime] = useState<string>("10:00");
+  const [approvalEndTime, setApprovalEndTime] = useState<string>("10:30");
+  const [approvalNotes, setApprovalNotes] = useState<string>("");
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+
+  // Reject 1-on-1 Request state
+  const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(null);
+  const [isSubmittingReject, setIsSubmittingReject] = useState(false);
 
   // Modals state
   const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
@@ -253,6 +286,49 @@ export default function MeetingsPage() {
   const router = useRouter();
   const [commitmentCategory, setCommitmentCategory] = useState<CommitmentCategory>("ALL");
   const [isCompletingAndConverting, setIsCompletingAndConverting] = useState(false);
+  const [isCompletingCoaching, setIsCompletingCoaching] = useState(false);
+
+  // Sync with ?date=YYYY-MM-DD and ?sessionId=XYZ from Approvals or LMS links
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const dateParam = params.get("date");
+    if (dateParam) {
+      const parsed = new Date(dateParam);
+      if (!isNaN(parsed.getTime())) {
+        setCurrentCalendarDate(parsed);
+      }
+    }
+    const sessionIdParam = params.get("sessionId");
+    if (sessionIdParam && meetings.length > 0) {
+      const target = meetings.find((m) => m.id === sessionIdParam);
+      if (target) {
+        setSelectedMeeting(target);
+      }
+    }
+  }, [meetings]);
+
+  const handleCompleteCoachingSession = async (meeting: Meeting) => {
+    setIsCompletingCoaching(true);
+    try {
+      await cachedFetch(`${API_URL}/sessions/${meeting.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "COMPLETED" }),
+      });
+      setMeetings((prev) =>
+        prev.map((m) => (m.id === meeting.id ? { ...m, status: "COMPLETED" as const } : m))
+      );
+      setSelectedMeeting((prev) =>
+        prev && prev.id === meeting.id ? { ...prev, status: "COMPLETED" as const } : prev
+      );
+      toastSuccess("1-on-1 Coaching session marked Completed! Stage 5 (Mission Statement) unlocked for learner.");
+    } catch (err: any) {
+      toastError(err?.message || "Failed to mark coaching session completed");
+    } finally {
+      setIsCompletingCoaching(false);
+    }
+  };
 
   const commitmentCounts = useMemo(() => {
     let discovery = 0;
@@ -412,6 +488,124 @@ export default function MeetingsPage() {
       }));
   }, [currentBatch]);
 
+  const allTrainers = useMemo(() => {
+    const map = new Map<string, { id: string; label: string }>();
+    batches.forEach((b) => {
+      if (b.manager) {
+        map.set(b.manager.id, {
+          id: b.manager.id,
+          label: `${b.manager.name || b.manager.email} (Batch Manager)`,
+        });
+      }
+      b.trainers?.forEach((t) => {
+        if (t.trainer) {
+          map.set(t.trainer.id, {
+            id: t.trainer.id,
+            label: `${t.trainer.name || t.trainer.email} (Trainer)`,
+          });
+        }
+      });
+    });
+    return Array.from(map.values());
+  }, [batches]);
+
+  const loadRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const data = await fetchOneOnOneRequests(requestsFilter);
+      setOneOnOneRequests(data);
+    } catch (e) {
+      console.error("Failed to load 1-on-1 coaching requests", e);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
+
+  const pendingRequests = useMemo(() => {
+    return oneOnOneRequests.filter((r) => r.status === "PENDING_APPROVAL");
+  }, [oneOnOneRequests]);
+
+  const pendingRequestsCount = pendingRequests.length;
+
+  const openApproveModal = (req: OneOnOneRequestItem) => {
+    setApprovingRequest(req);
+    setApprovalError(null);
+    setApprovalHostTrainerId(allTrainers[0]?.id || "");
+    const startD = new Date(req.requestedStart);
+    const endD = new Date(req.requestedEnd);
+    const isPast = startD.getTime() < Date.now();
+
+    if (isPast) {
+      // Slot in past! Default to tomorrow so user cannot approve a past time
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
+      setApprovalStartTime("10:00");
+      setApprovalEndTime("10:45");
+    } else {
+      setApprovalDate(startD.toISOString().split("T")[0] || "");
+      setApprovalStartTime(startD.toTimeString().slice(0, 5) || "10:00");
+      setApprovalEndTime(endD.toTimeString().slice(0, 5) || "10:30");
+    }
+    setApprovalNotes(req.notes || "");
+  };
+
+  const handleConfirmApproval = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!approvingRequest) return;
+    setApprovalError(null);
+
+    const start = localWallTimeToUtc(approvalDate, approvalStartTime, displayTimezone);
+    const end = localWallTimeToUtc(approvalDate, approvalEndTime, displayTimezone);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      setApprovalError("Invalid date or time selected.");
+      return;
+    }
+
+    if (end.getTime() <= start.getTime()) {
+      setApprovalError("Session end time must be strictly after start time.");
+      return;
+    }
+
+    if (start.getTime() < Date.now() - 60 * 1000) {
+      setApprovalError("Cannot schedule a coaching call in the past. Please select an upcoming date and time.");
+      return;
+    }
+
+    setIsSubmittingApproval(true);
+    try {
+      await approveOneOnOneRequest(approvingRequest.id, {
+        hostTrainerId: approvalHostTrainerId || undefined,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        notes: approvalNotes,
+      });
+      toastSuccess("1-on-1 coaching call approved and Zoom meeting generated!");
+      setApprovingRequest(null);
+      loadRequests();
+      load();
+    } catch (err: any) {
+      setApprovalError(err?.message || "Failed to approve 1-on-1 request");
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  };
+
+  const handleConfirmReject = async (reason: string) => {
+    if (!rejectingRequestId) return;
+    setIsSubmittingReject(true);
+    try {
+      await rejectOneOnOneRequest(rejectingRequestId, reason);
+      toastSuccess("1-on-1 request rejected.");
+      setRejectingRequestId(null);
+      loadRequests();
+    } catch (err: any) {
+      toastError(err?.message || "Failed to reject request");
+    } finally {
+      setIsSubmittingReject(false);
+    }
+  };
+
   const load = async () => {
     try {
       const [meetingsRes, batchesRes] = await Promise.all([
@@ -420,6 +614,7 @@ export default function MeetingsPage() {
       ]);
       if (meetingsRes.ok) setMeetings(await meetingsRes.json());
       if (batchesRes.ok) setBatches(await batchesRes.json());
+      loadRequests();
     } catch (e) {
       console.error("Failed to load meetings", e);
     } finally {
@@ -428,8 +623,21 @@ export default function MeetingsPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const v = searchParams.get("view") || searchParams.get("tab");
+      if (v === "requests" || v === "coaching") {
+        setViewMode("requests");
+      }
+    }
     load();
   }, []);
+
+  useEffect(() => {
+    if (viewMode === "requests") {
+      loadRequests();
+    }
+  }, [requestsFilter, viewMode]);
 
   // Sync capacity when cohort or sessionType changes
   useEffect(() => {
@@ -1007,6 +1215,34 @@ export default function MeetingsPage() {
               <Icons.Table />
               Table View
             </button>
+            <button
+              type="button"
+              className={`${calStyles.viewSwitcherBtn} ${
+                viewMode === "requests" ? calStyles.viewSwitcherBtnActive : ""
+              }`}
+              onClick={() => {
+                setViewMode("requests");
+                loadRequests();
+              }}
+            >
+              <Icons.Users />
+              1-on-1 Requests
+              {pendingRequestsCount > 0 && (
+                <span
+                  style={{
+                    marginLeft: 6,
+                    padding: "1px 7px",
+                    borderRadius: "10px",
+                    background: "#e11d48",
+                    color: "#fff",
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  {pendingRequestsCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Timezone Selector Dropdown */}
@@ -1028,6 +1264,86 @@ export default function MeetingsPage() {
           </div>
         </div>
       </div>
+
+      {/* High-Visibility Banner for Pending Coaching Requests */}
+      {pendingRequestsCount > 0 && viewMode !== "requests" && (
+        <div style={{
+          background: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: 10,
+          padding: "12px 18px",
+          marginBottom: "1.25rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "12px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#92400e" }}>
+            <span style={{ fontSize: "1.25rem" }}>⚡</span>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>
+                {pendingRequestsCount} 1-on-1 Coaching Booking Request{pendingRequestsCount > 1 ? "s" : ""} Pending Approval
+              </span>
+              {pendingRequests[0]?.user && (
+                <div style={{ fontSize: "0.8rem", color: "#b45309", marginTop: 2 }}>
+                  Latest request: <strong>{pendingRequests[0].user.name || pendingRequests[0].user.email}</strong>
+                  {pendingRequests[0].enrolment?.program?.title && ` for ${pendingRequests[0].enrolment.program.title}`}
+                  {` (Preferred: ${new Date(pendingRequests[0].requestedStart).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})`}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {pendingRequests[0] && (
+              <button
+                type="button"
+                onClick={() => {
+                  const req = pendingRequests[0];
+                  if (req) openApproveModal(req);
+                }}
+                style={{
+                  background: "#b8860b",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: "7px 16px",
+                  borderRadius: 6,
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span>Approve &amp; Place on Calendar</span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode("requests");
+                loadRequests();
+              }}
+              style={{
+                background: "#ffffff",
+                color: "#92400e",
+                border: "1px solid #fde68a",
+                padding: "7px 14px",
+                borderRadius: 6,
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Review Requests Queue ({pendingRequestsCount})
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── 3. View 1: Calendar View ── */}
       {viewMode === "calendar" && (
@@ -1348,6 +1664,178 @@ export default function MeetingsPage() {
                             >
                               Cancel
                             </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── 4. View 3: 1-on-1 Coaching Requests Queue (Stage 4) ── */}
+      {viewMode === "requests" && (
+        <div className={calStyles.tableViewContainer}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {(["ALL", "PENDING_APPROVAL", "APPROVED", "REJECTED"] as const).map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  className={calStyles.tableActionBtn}
+                  style={{
+                    background: requestsFilter === st ? "#0f172a" : "#fff",
+                    color: requestsFilter === st ? "#fff" : "var(--text-primary)",
+                    borderColor: requestsFilter === st ? "#0f172a" : "#e2e8f0",
+                    fontWeight: requestsFilter === st ? 700 : 500,
+                  }}
+                  onClick={() => setRequestsFilter(st)}
+                >
+                  {st.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={calStyles.tableActionBtn}
+              onClick={loadRequests}
+              disabled={loadingRequests}
+            >
+              {loadingRequests ? "Refreshing..." : "Refresh Queue"}
+            </button>
+          </div>
+
+          <div className={calStyles.tableResponsiveWrapper}>
+            <table className={calStyles.meetingsTable}>
+              <thead>
+                <tr>
+                  <th>Learner</th>
+                  <th>Program / Cohort</th>
+                  <th>Requested Slot</th>
+                  <th>Learner Timezone</th>
+                  <th>Notes</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingRequests ? (
+                  <TableSkeleton rows={4} columns={7} />
+                ) : oneOnOneRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={7}>
+                      <EmptyState
+                        title="No 1-on-1 Coaching Requests"
+                        description="There are currently no 1-on-1 coaching requests matching the selected filter."
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  oneOnOneRequests.map((req) => (
+                    <tr key={req.id}>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontWeight: 600 }}>{req.user?.name || "Learner"}</span>
+                          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                            {req.user?.email}
+                          </span>
+                          {req.user?.phone && (
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              {req.user.phone}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontWeight: 500 }}>
+                            {req.enrolment?.program?.title || "Enrolled Program"}
+                          </span>
+                          {req.enrolment?.batch?.name && (
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              Cohort: {req.enrolment.batch.name}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "0.82rem", fontWeight: 500 }}>
+                          {formatWhen(req.requestedStart, req.requestedEnd, displayTimezone)}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                          {req.learnerTimezone || "UTC"}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: "0.8rem", maxWidth: "200px", display: "inline-block" }}>
+                          {req.notes || "—"}
+                        </span>
+                      </td>
+                      <td>
+                        <StatusBadge
+                          status={req.status}
+                          tone={
+                            req.status === "PENDING_APPROVAL"
+                              ? "pending"
+                              : req.status === "APPROVED"
+                              ? "completed"
+                              : "error"
+                          }
+                        />
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div className={calStyles.actionBtnGroup}>
+                          {req.status === "PENDING_APPROVAL" && (
+                            <>
+                              <button
+                                type="button"
+                                className={calStyles.tableActionBtn}
+                                style={{
+                                  background: "#10b981",
+                                  color: "#fff",
+                                  borderColor: "#10b981",
+                                  fontWeight: 600,
+                                }}
+                                onClick={() => openApproveModal(req)}
+                              >
+                                Approve &amp; Schedule
+                              </button>
+                              <button
+                                type="button"
+                                className={`${calStyles.tableActionBtn} ${calStyles.tableCancelBtn}`}
+                                onClick={() => setRejectingRequestId(req.id)}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {req.status === "APPROVED" && req.session?.joinUrl && (
+                            <a
+                              href={req.session.joinUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={calStyles.tableActionBtn}
+                              style={{
+                                color: "var(--accent-primary)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                textDecoration: "none",
+                              }}
+                            >
+                              Join Zoom
+                              <Icons.ExternalLink />
+                            </a>
+                          )}
+                          {req.status === "REJECTED" && req.decisionReason && (
+                            <span style={{ fontSize: "0.75rem", color: "#dc2626" }}>
+                              Reason: {req.decisionReason}
+                            </span>
                           )}
                         </div>
                       </td>
@@ -1719,6 +2207,20 @@ export default function MeetingsPage() {
         maxWidth="580px"
         footer={
           <div className={calStyles.modalFooterActions}>
+            {selectedMeeting && isCoachingCall(selectedMeeting) && selectedMeeting.status !== "COMPLETED" && selectedMeeting.status !== "CANCELLED" && (
+              <button
+                type="button"
+                className={calStyles.primaryOrangeBtn}
+                style={{
+                  background: "#15803d",
+                  boxShadow: "0 2px 6px rgba(21, 128, 61, 0.3)",
+                }}
+                disabled={isCompletingCoaching}
+                onClick={() => handleCompleteCoachingSession(selectedMeeting)}
+              >
+                {isCompletingCoaching ? "Marking Completed..." : "Mark Coaching Completed (Unlock Stage 5) ✓"}
+              </button>
+            )}
             {selectedMeeting && isDiscoveryCall(selectedMeeting) && selectedMeeting.status !== "CANCELLED" && (
               <button
                 type="button"
@@ -2091,6 +2593,150 @@ export default function MeetingsPage() {
           setDeletingSessionId(null);
           setDeleteSessionError(null);
         }}
+      />
+
+      {/* ── 11. Approve 1-on-1 Request Modal ── */}
+      <Modal
+        isOpen={Boolean(approvingRequest)}
+        onClose={() => setApprovingRequest(null)}
+        title="Approve 1-on-1 Coaching Session"
+        subtitle={`Schedule coaching call for ${approvingRequest?.user?.name || approvingRequest?.user?.email || "Learner"}`}
+        maxWidth="600px"
+        footer={
+          <div className={calStyles.modalFooterActions}>
+            <button
+              type="button"
+              className={calStyles.modalCancelBtn}
+              onClick={() => setApprovingRequest(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="approve-one-on-one-form"
+              className={calStyles.modalSubmitBtn}
+              disabled={isSubmittingApproval}
+            >
+              {isSubmittingApproval ? "Scheduling & Generating Zoom..." : "Confirm & Schedule"}
+            </button>
+          </div>
+        }
+      >
+        <form
+          id="approve-one-on-one-form"
+          onSubmit={handleConfirmApproval}
+          className={calStyles.modalForm}
+        >
+          {approvalError && (
+            <div className={calStyles.errorBanner} role="alert">
+              <span>&bull;</span>
+              <span>{approvalError}</span>
+            </div>
+          )}
+
+          {approvingRequest && new Date(approvingRequest.requestedStart).getTime() < Date.now() && (
+            <div
+              style={{
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: 8,
+                padding: "10px 14px",
+                marginBottom: "12px",
+                color: "#991b1b",
+                fontSize: "0.85rem",
+              }}
+            >
+              <strong>⚠️ Requested Slot Has Passed:</strong> The slot originally requested by the learner (
+              {new Date(approvingRequest.requestedStart).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+              ) has already passed. A past slot cannot be accepted. Please select a future date and time below to schedule this session.
+            </div>
+          )}
+
+          <div className={calStyles.formField}>
+            <label className={calStyles.formLabel}>
+              Assign Host Trainer <span className={calStyles.requiredStar}>*</span>
+            </label>
+            <CustomSelect
+              ariaLabel="Select Host Trainer"
+              value={approvalHostTrainerId}
+              onChange={(val) => setApprovalHostTrainerId(val)}
+              options={
+                allTrainers.length > 0
+                  ? allTrainers.map((t) => ({ value: t.id, label: t.label }))
+                  : [{ value: "", label: "Roweena Kini / Lead Instructor" }]
+              }
+            />
+          </div>
+
+          <div className={calStyles.formGrid3}>
+            <div className={calStyles.formField}>
+              <label className={calStyles.formLabel}>
+                Session Date <span className={calStyles.requiredStar}>*</span>
+              </label>
+              <input
+                type="date"
+                required
+                min={new Date().toISOString().split("T")[0]}
+                value={approvalDate}
+                onChange={(e) => setApprovalDate(e.target.value)}
+                className={calStyles.formInput}
+              />
+            </div>
+            <div className={calStyles.formField}>
+              <label className={calStyles.formLabel}>
+                Start Time <span className={calStyles.requiredStar}>*</span>
+              </label>
+              <input
+                type="time"
+                required
+                value={approvalStartTime}
+                onChange={(e) => setApprovalStartTime(e.target.value)}
+                className={calStyles.formInput}
+              />
+            </div>
+            <div className={calStyles.formField}>
+              <label className={calStyles.formLabel}>
+                End Time <span className={calStyles.requiredStar}>*</span>
+              </label>
+              <input
+                type="time"
+                required
+                value={approvalEndTime}
+                onChange={(e) => setApprovalEndTime(e.target.value)}
+                className={calStyles.formInput}
+              />
+            </div>
+          </div>
+
+          <div className={calStyles.formField}>
+            <label className={calStyles.formLabel}>Session Notes / Agenda</label>
+            <textarea
+              rows={3}
+              value={approvalNotes}
+              onChange={(e) => setApprovalNotes(e.target.value)}
+              placeholder="Key topics, Stage 4 milestones..."
+              className={calStyles.formInput}
+            />
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── 12. Reject 1-on-1 Request Dialog ── */}
+      <InputDialog
+        isOpen={Boolean(rejectingRequestId)}
+        title="Reject 1-on-1 Coaching Request"
+        description="Please provide a reason for declining this request. The learner will be notified to pick another time."
+        label="Reason for Declining"
+        placeholder="e.g., Coach unavailable during requested slot, please pick another afternoon slot..."
+        initialValue=""
+        confirmText={isSubmittingReject ? "Declining..." : "Decline Request"}
+        tone="danger"
+        isLoading={isSubmittingReject}
+        onClose={() => setRejectingRequestId(null)}
+        onSubmit={handleConfirmReject}
       />
     </div>
   );

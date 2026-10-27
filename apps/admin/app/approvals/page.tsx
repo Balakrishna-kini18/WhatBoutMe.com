@@ -3,8 +3,17 @@
 import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 import styles from "../page.module.css";
-import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, StatusBadge } from "../components";
+import {
+  API_URL,
+  errorMessage,
+  fetchMissionStatements,
+  approveMissionStatement,
+  rejectMissionStatement,
+  type MissionStatementItem,
+} from "../lib/api";
+import { CustomSelect, StatusBadge, Modal, LearnerPortalFlow } from "../components";
+import CoachingApprovalsTab from "./components/CoachingApprovalsTab";
+import { fetchOneOnOneRequests } from "../lib/api";
 
 interface Batch {
   id: string;
@@ -153,7 +162,26 @@ const DEFAULT_RUBRIC: RubricScoreItem[] = [
 ];
 
 export default function ApprovalsPage() {
-  const [activeTab, setActiveTab] = useState<"certificates" | "oral">("certificates");
+  const [activeTab, setActiveTab] = useState<"certificates" | "coaching" | "missions" | "oral">("certificates");
+  const [pendingCoachingCount, setPendingCoachingCount] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const tabParam = searchParams.get("tab");
+      if (tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral") {
+        setActiveTab(tabParam as any);
+      }
+    }
+
+    fetchOneOnOneRequests("PENDING_APPROVAL")
+      .then((reqs) => {
+        if (Array.isArray(reqs)) {
+          setPendingCoachingCount(reqs.length);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Common notification state
   const [pageError, setPageError] = useState<string | null>(null);
@@ -201,10 +229,26 @@ export default function ApprovalsPage() {
   const [submittingSchedule, setSubmittingSchedule] = useState(false);
   const [scheduleModalError, setScheduleModalError] = useState<string | null>(null);
 
-  // Load certificates on mount
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. Stage 5: Mission Statements Review Queue & Auto-Cert State
+  // ─────────────────────────────────────────────────────────────────────────────
+  const [missionStatements, setMissionStatements] = useState<MissionStatementItem[]>([]);
+  const [loadingMissions, setLoadingMissions] = useState(false);
+  const [missionFilter, setMissionFilter] = useState<string>("ALL");
+
+  const [approvingMission, setApprovingMission] = useState<MissionStatementItem | null>(null);
+  const [approvalFeedback, setApprovalFeedback] = useState("");
+  const [submittingApproval, setSubmittingApproval] = useState(false);
+
+  const [rejectingMission, setRejectingMission] = useState<MissionStatementItem | null>(null);
+  const [rejectionFeedback, setRejectionFeedback] = useState("");
+  const [submittingMissionReject, setSubmittingMissionReject] = useState(false);
+
+  // Load certificates and mission statements on mount
   useEffect(() => {
     fetchCertificates();
     loadBatches();
+    loadMissionStatements();
   }, []);
 
   // Load assessments when selected batch changes
@@ -259,6 +303,66 @@ export default function ApprovalsPage() {
       await fetchCertificates();
     } catch (err: any) {
       setPageError(err.message || `Failed to ${action} certificate`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Mission Statements Queue & Reviews API Calls
+  // ─────────────────────────────────────────────────────────────────────────────
+  async function loadMissionStatements() {
+    setLoadingMissions(true);
+    try {
+      const data = await fetchMissionStatements();
+      setMissionStatements(data);
+    } catch (err: any) {
+      console.error("Failed to load mission statements:", err);
+    } finally {
+      setLoadingMissions(false);
+    }
+  }
+
+  async function handleApproveMission(e?: FormEvent) {
+    if (e) e.preventDefault();
+    if (!approvingMission) return;
+    setSubmittingApproval(true);
+    setPageError(null);
+    try {
+      await approveMissionStatement(approvingMission.id, approvalFeedback.trim() || undefined);
+      setPageSuccess(
+        `Mission statement for ${approvingMission.user?.name || "learner"} approved! Certificate has been automatically issued.`
+      );
+      setApprovingMission(null);
+      setApprovalFeedback("");
+      await loadMissionStatements();
+      await fetchCertificates();
+    } catch (err: any) {
+      setPageError(err.message || "Failed to approve mission statement");
+    } finally {
+      setSubmittingApproval(false);
+    }
+  }
+
+  async function handleRejectMission(e?: FormEvent) {
+    if (e) e.preventDefault();
+    if (!rejectingMission) return;
+    if (!rejectionFeedback.trim()) {
+      setPageError("Feedback is required when requesting revisions on a mission statement.");
+      return;
+    }
+    setSubmittingMissionReject(true);
+    setPageError(null);
+    try {
+      await rejectMissionStatement(rejectingMission.id, rejectionFeedback.trim());
+      setPageSuccess(
+        `Mission statement revision requested for ${rejectingMission.user?.name || "learner"}.`
+      );
+      setRejectingMission(null);
+      setRejectionFeedback("");
+      await loadMissionStatements();
+    } catch (err: any) {
+      setPageError(err.message || "Failed to reject mission statement");
+    } finally {
+      setSubmittingMissionReject(false);
     }
   }
 
@@ -614,6 +718,11 @@ export default function ApprovalsPage() {
   const pendingCount = certificates.filter((c) => c.status === "PENDING").length;
   const approvedCount = certificates.filter((c) => c.status === "APPROVED").length;
   const issuedCount = certificates.filter((c) => c.status === "ISSUED").length;
+  const pendingMissionsCount = missionStatements.filter((m) => m.status === "SUBMITTED").length;
+  const filteredMissions = missionStatements.filter((m) => {
+    if (missionFilter === "ALL") return true;
+    return m.status === missionFilter;
+  });
   const marketingBase = process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000";
 
   return (
@@ -638,7 +747,17 @@ export default function ApprovalsPage() {
               </svg>
               <span>Issue Certificates</span>
             </Link>
-          ) : (
+          ) : activeTab === "coaching" ? (
+            <Link href="/meetings" className={styles.primaryBtn} style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span>Open Admin Calendar &rarr;</span>
+            </Link>
+          ) : activeTab === "oral" ? (
             <button
               type="button"
               className={styles.primaryBtn}
@@ -651,6 +770,20 @@ export default function ApprovalsPage() {
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
               <span>Schedule Oral Assessment</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={loadMissionStatements}
+              style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+              <span>Refresh Queue</span>
             </button>
           )}
         </div>
@@ -700,6 +833,40 @@ export default function ApprovalsPage() {
         </div>
       )}
 
+      {pendingCoachingCount > 0 && activeTab !== "coaching" && (
+        <div style={{
+          background: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: 8,
+          padding: "10px 16px",
+          marginBottom: "1rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1rem",
+        }}>
+          <span style={{ fontSize: "0.88rem", color: "#92400e", fontWeight: 600 }}>
+            ⚡ You have {pendingCoachingCount} pending 1-on-1 Coaching Session request{pendingCoachingCount > 1 ? "s" : ""} awaiting review &amp; slot scheduling.
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveTab("coaching")}
+            style={{
+              background: "#b8860b",
+              color: "#ffffff",
+              border: "none",
+              padding: "6px 14px",
+              borderRadius: 6,
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Review Coaching Requests &rarr;
+          </button>
+        </div>
+      )}
+
       {/* Primary Tab Bar */}
       <div style={{
         display: "flex",
@@ -743,6 +910,39 @@ export default function ApprovalsPage() {
 
         <button
           type="button"
+          onClick={() => setActiveTab("coaching")}
+          style={{
+            background: "transparent",
+            border: "none",
+            borderBottom: activeTab === "coaching" ? "3px solid #b8860b" : "3px solid transparent",
+            padding: "8px 18px",
+            fontSize: "0.95rem",
+            fontWeight: activeTab === "coaching" ? 700 : 500,
+            color: activeTab === "coaching" ? "var(--text-primary)" : "var(--text-muted)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <span>1-on-1 Coaching (Stage 4)</span>
+          {pendingCoachingCount > 0 && (
+            <span style={{
+              background: "#b8860b",
+              color: "#ffffff",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: "10px"
+            }}>
+              {pendingCoachingCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab("oral")}
           style={{
             background: "transparent",
@@ -771,7 +971,48 @@ export default function ApprovalsPage() {
             {assessments.length}
           </span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("missions")}
+          style={{
+            background: "transparent",
+            border: "none",
+            borderBottom: activeTab === "missions" ? "3px solid #b8860b" : "3px solid transparent",
+            padding: "8px 18px",
+            fontSize: "0.95rem",
+            fontWeight: activeTab === "missions" ? 700 : 500,
+            color: activeTab === "missions" ? "var(--text-primary)" : "var(--text-muted)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <span>Mission Statements (Stage 5)</span>
+          {pendingMissionsCount > 0 && (
+            <span style={{
+              background: "#b8860b",
+              color: "#ffffff",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: "10px"
+            }}>
+              {pendingMissionsCount}
+            </span>
+          )}
+        </button>
       </div>
+
+            {activeTab === "coaching" && (
+        <CoachingApprovalsTab
+          onError={(msg) => setPageError(msg)}
+          onSuccess={(msg) => setPageSuccess(msg)}
+          onPendingCountChange={(cnt) => setPendingCoachingCount(cnt)}
+        />
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           TAB 1: CERTIFICATE APPROVALS QUEUE & ELIGIBILITY GATE
@@ -1127,6 +1368,225 @@ export default function ApprovalsPage() {
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
+          TAB 3: MISSION STATEMENTS (STAGE 5 SUBMISSIONS & REVIEWS)
+         ───────────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "missions" && (
+        <div>
+          {/* Submissions Filter Toolbar */}
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "12px",
+            marginBottom: "1.25rem",
+            flexWrap: "wrap",
+          }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {["ALL", "SUBMITTED", "APPROVED", "REJECTED"].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setMissionFilter(st)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "20px",
+                    border: "1px solid",
+                    borderColor: missionFilter === st ? "#b8860b" : "var(--border-light)",
+                    background: missionFilter === st ? "#b8860b" : "var(--bg-card)",
+                    color: missionFilter === st ? "#ffffff" : "var(--text-secondary)",
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {st === "ALL"
+                    ? `All (${missionStatements.length})`
+                    : st === "SUBMITTED"
+                    ? `Pending Review (${pendingMissionsCount})`
+                    : st === "APPROVED"
+                    ? `Approved (${missionStatements.filter((m) => m.status === "APPROVED").length})`
+                    : `Revision Requested (${missionStatements.filter((m) => m.status === "REJECTED").length})`}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              {filteredMissions.length} submission{filteredMissions.length === 1 ? "" : "s"} shown
+            </div>
+          </div>
+
+          <section className={styles.tableCard}>
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Learner</th>
+                    <th>Program &amp; Batch</th>
+                    <th>Version</th>
+                    <th>Document</th>
+                    <th>Submitted At</th>
+                    <th>Status</th>
+                    <th>Reviewer &amp; Feedback</th>
+                    <th className={styles.alignRight}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingMissions ? (
+                    <tr>
+                      <td colSpan={8} className={styles.emptyState}>
+                        Loading mission statements...
+                      </td>
+                    </tr>
+                  ) : filteredMissions.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className={styles.emptyState}>
+                        No mission statement submissions found for this filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredMissions.map((m) => {
+                      const fileLink = m.fileUrl.startsWith("http")
+                        ? m.fileUrl
+                        : `${API_URL}${m.fileUrl}`;
+                      const sizeMb = (m.sizeBytes / (1024 * 1024)).toFixed(2);
+
+                      return (
+                        <tr key={m.id}>
+                          <td>
+                            <strong className={styles.cellTextPrimary}>
+                              {m.user?.name || "Learner"}
+                            </strong>
+                            <div className={styles.cellTextMuted}>{m.user?.email}</div>
+                          </td>
+                          <td>
+                            <span className={styles.cellText}>
+                              {m.enrolment?.program?.title || "Program"}
+                            </span>
+                            {m.enrolment?.batch?.name && (
+                              <div className={styles.cellTextMuted}>
+                                Batch: {m.enrolment.batch.name}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              borderRadius: "12px",
+                              background: "#f1f5f9",
+                              color: "#334155",
+                              fontWeight: 700,
+                              fontSize: "0.78rem"
+                            }}>
+                              v{m.version}
+                            </span>
+                          </td>
+                          <td>
+                            <a
+                              href={fileLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                color: "#b8860b",
+                                textDecoration: "none",
+                                fontWeight: 600,
+                                fontSize: "0.82rem",
+                              }}
+                              title="Download & View Document"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="12" y1="18" x2="12" y2="12"></line>
+                                <line x1="9" y1="15" x2="15" y2="15"></line>
+                              </svg>
+                              <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {m.fileName}
+                              </span>
+                            </a>
+                            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              {sizeMb} MB · {m.mimeType.split("/")[1]?.toUpperCase() || "PDF"}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={styles.cellTextMuted}>
+                              {new Date(m.createdAt).toLocaleDateString()}
+                            </span>
+                            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          </td>
+                          <td>
+                            <StatusBadge status={m.status === "SUBMITTED" ? "PENDING" : m.status} />
+                          </td>
+                          <td>
+                            {m.reviewer ? (
+                              <div>
+                                <span className={styles.cellText} style={{ fontSize: "0.8rem", fontWeight: 600 }}>
+                                  {m.reviewer.name}
+                                </span>
+                                {m.feedback && (
+                                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontStyle: "italic", maxWidth: "220px" }}>
+                                    "{m.feedback}"
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className={styles.cellTextMuted} style={{ fontSize: "0.8rem" }}>
+                                Awaiting Review
+                              </span>
+                            )}
+                          </td>
+                          <td className={styles.alignRight}>
+                            {m.status === "SUBMITTED" ? (
+                              <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                                <button
+                                  type="button"
+                                  className={styles.primaryBtnSmall}
+                                  onClick={() => {
+                                    setApprovingMission(m);
+                                    setApprovalFeedback("Outstanding mission statement. Approved for professional certification.");
+                                  }}
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.dangerBtnSmall}
+                                  onClick={() => {
+                                    setRejectingMission(m);
+                                    setRejectionFeedback("");
+                                  }}
+                                >
+                                  Request Revisions
+                                </button>
+                              </div>
+                            ) : m.status === "APPROVED" ? (
+                              <span style={{ fontSize: "0.8rem", color: "#166534", fontWeight: 700 }}>
+                                ✓ Cert Auto-Issued
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: "0.8rem", color: "#991b1b", fontWeight: 600 }}>
+                                Revisions Sent
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
           ELIGIBILITY GATE INSPECTION MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {inspectingCert && (
@@ -1194,7 +1654,15 @@ export default function ApprovalsPage() {
                     </span>
                   </div>
 
-                  {/* 6 Gate Verification Checklist */}
+                  {/* 5-Stage Sequential Progression Pipeline Flow Visualizer */}
+                  {inspectingCert.enrolment?.id && (
+                    <LearnerPortalFlow
+                      enrolmentId={inspectingCert.enrolment.id}
+                      learnerName={inspectingCert.enrolment.user?.name}
+                    />
+                  )}
+
+                  {/* Gate Verification Checklist */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                     {/* Gate 1: 11 Steps */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
@@ -1686,6 +2154,129 @@ export default function ApprovalsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          STAGE 5: APPROVE MISSION STATEMENT & AUTO-ISSUE CERTIFICATE MODAL
+         ───────────────────────────────────────────────────────────────────────────── */}
+      {approvingMission && (
+        <Modal
+          isOpen={true}
+          onClose={() => setApprovingMission(null)}
+          title="Approve Mission Statement & Auto-Issue Certificate"
+          subtitle={`Review and approve Stage 5 completion for ${approvingMission.user?.name || "Learner"}.`}
+        >
+          <form onSubmit={handleApproveMission}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
+              <div style={{
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                padding: "12px 14px",
+                borderRadius: "8px",
+                fontSize: "0.85rem",
+                color: "#166534"
+              }}>
+                <strong>Automated Certification Trigger:</strong> Approving this mission statement marks <strong>Stage 5 Complete</strong> and immediately generates a verified, signed graduation certificate for the learner!
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  Feedback / Approval Note (included in confirmation)
+                </label>
+                <textarea
+                  value={approvalFeedback}
+                  onChange={(e) => setApprovalFeedback(e.target.value)}
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-light)",
+                    fontSize: "0.88rem",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                  placeholder="Outstanding mission statement. Approved for professional certification."
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => setApprovingMission(null)}
+                  disabled={submittingApproval}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={styles.primaryBtn}
+                  disabled={submittingApproval}
+                >
+                  {submittingApproval ? "Approving & Issuing..." : "Approve & Issue Certificate"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          STAGE 5: REJECT MISSION STATEMENT MODAL
+         ───────────────────────────────────────────────────────────────────────────── */}
+      {rejectingMission && (
+        <Modal
+          isOpen={true}
+          onClose={() => setRejectingMission(null)}
+          title="Request Mission Statement Revision"
+          subtitle={`Provide actionable guidance to ${rejectingMission.user?.name || "the learner"} so they can revise and resubmit.`}
+        >
+          <form onSubmit={handleRejectMission}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  Revision Guidance &amp; Required Changes <span style={{ color: "#dc2626" }}>*</span>
+                </label>
+                <textarea
+                  value={rejectionFeedback}
+                  onChange={(e) => setRejectionFeedback(e.target.value)}
+                  rows={4}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-light)",
+                    fontSize: "0.88rem",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                  placeholder="e.g., Please articulate your specific 12-month coaching vision in Section 2, and clarify your target demographic."
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => setRejectingMission(null)}
+                  disabled={submittingMissionReject}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={styles.dangerBtnSmall}
+                  style={{ padding: "8px 16px", fontSize: "0.88rem" }}
+                  disabled={submittingMissionReject || !rejectionFeedback.trim()}
+                >
+                  {submittingMissionReject ? "Sending..." : "Send Revision Request"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

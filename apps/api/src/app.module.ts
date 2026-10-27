@@ -33,6 +33,7 @@ import { EventsModule } from './modules/events/events.module.js';
 import { GalleryModule } from './modules/gallery/gallery.module.js';
 import { PaymentsModule } from './modules/payments/payments.module.js';
 import { NotesModule } from './modules/notes/notes.module.js';
+import { MissionStatementsModule } from './modules/mission-statements/mission-statements.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { SentryModule } from '@sentry/nestjs/setup';
@@ -108,6 +109,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     GalleryModule,
     PaymentsModule,
     NotesModule,
+    MissionStatementsModule,
   ],
   controllers: [AppController],
   providers: [

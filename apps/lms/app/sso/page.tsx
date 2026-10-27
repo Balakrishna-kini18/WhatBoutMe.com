@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { siteLoginUrl } from "../lib/site";
+import { consumeEnrollmentIntent, sanitizeReturnUrl } from "../lib/auth-redirect";
 
 /**
  * Sign-in handoff from the public website. The website links here with the
@@ -25,9 +26,12 @@ export default function SsoPage() {
     const token = params.get("token");
     const user = params.get("user");
     const refresh = params.get("refresh");
-    const next = params.get("next") ?? "/";
-    // only same-site paths, so this page cannot be used to redirect elsewhere
-    const target = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    const rawNext = params.get("next");
+    // Strictly sanitize next path or consume stored 30-min enrollment intent
+    const target =
+      rawNext && rawNext !== "/"
+        ? consumeEnrollmentIntent(rawNext, "/")
+        : consumeEnrollmentIntent(null, sanitizeReturnUrl(rawNext, "/"));
 
     let userIsValid = false;
     try {

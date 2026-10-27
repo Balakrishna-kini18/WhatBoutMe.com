@@ -171,4 +171,52 @@ describe('AttendanceComplianceService', () => {
     expect(result.attendedSessionCount).toBe(0);
     expect(result.attendancePercentage).toBe(100);
   });
+
+  it('15. PRESENT status counts towards compliance (Bug #1 backward compatibility)', async () => {
+    setupMocks(80, null, 2, [AttendanceStatus.PRESENT, AttendanceStatus.PRESENT_AUTO]);
+    const result = await service.calculateCompliance('enrol-1');
+    expect(result.attendancePercentage).toBe(100);
+    expect(result.status).toBe('COMPLIANT');
+  });
+
+  it('16. PRESENT_LIVE and PRESENT_RECORDED statuses count towards compliance', async () => {
+    setupMocks(80, null, 2, [
+      (AttendanceStatus as any).PRESENT_LIVE,
+      (AttendanceStatus as any).PRESENT_RECORDED,
+    ]);
+    const result = await service.calculateCompliance('enrol-1');
+    expect(result.attendancePercentage).toBe(100);
+    expect(result.status).toBe('COMPLIANT');
+  });
+
+  it('17. Hybrid attendance: cumulative live + recorded minutes satisfy session threshold', async () => {
+    prismaMock.enrolment.findUnique.mockResolvedValue({
+      id: 'enrol-1',
+      batchId: 'batch-1',
+      batch: {
+        attendanceThreshold: 75,
+        program: { attendanceThreshold: 75 },
+      },
+    });
+
+    prismaMock.session.findMany.mockResolvedValue([
+      { id: 'sess-1', durationMinutes: 60, minAttendanceMinutes: 45 },
+    ]);
+
+    // 20 min live + 25 min recorded = 45 min >= 45 min threshold (even if status is still ABSENT)
+    prismaMock.attendance.findMany.mockResolvedValue([
+      {
+        sessionId: 'sess-1',
+        status: AttendanceStatus.ABSENT,
+        liveMinutes: 20,
+        recordedMinutes: 25,
+      },
+    ]);
+
+    const result = await service.calculateCompliance('enrol-1');
+    expect(result.attendedSessionCount).toBe(1);
+    expect(result.attendancePercentage).toBe(100);
+    expect(result.status).toBe('COMPLIANT');
+  });
 });
+

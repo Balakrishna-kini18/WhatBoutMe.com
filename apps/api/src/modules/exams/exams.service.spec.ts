@@ -116,9 +116,22 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
       enrolment: {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      questionBank: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
       },
       question: {
         findMany: vi.fn(),
+        findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      option: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 4 }),
       },
       batch: {
         findUnique: vi.fn(),
@@ -698,6 +711,317 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
           mockManager,
         ),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 6. REAL-WORLD SECURITY, SCALE & HIGH-CONCURRENCY SCENARIOS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe('6. Real-World Security, Scale & High-Concurrency Scenarios', () => {
+    it('blocks learners (Role.USER) from reading or mutating the 70-question pool & answer keys', async () => {
+      await expect(
+        service.getProgramExamQuestions('prog-1', mockLearner),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.getExamQuestions('exam-final-1', mockLearner),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.createExamQuestion(
+          'exam-final-1',
+          { text: 'Injected question?' },
+          mockLearner,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.bulkCreateExamQuestions(
+          'exam-final-1',
+          [{ text: 'Injected bulk question?' }],
+          mockLearner,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.updateExamQuestion(
+          'exam-final-1',
+          'q-exam-1',
+          { text: 'Tampered prompt' },
+          mockLearner,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        service.deleteExamQuestion('exam-final-1', 'q-exam-1', mockLearner),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('blocks cross-bank IDOR tampering when updating or deleting a question from another question bank', async () => {
+      prismaMock.exam.findUnique.mockResolvedValue(mockExam);
+      prismaMock.questionBank.findFirst.mockResolvedValue({
+        id: 'bank-exam-1',
+        examId: 'exam-final-1',
+        programId: 'prog-1',
+      });
+
+      // Question belongs to a completely different question bank
+      prismaMock.question.findUnique.mockResolvedValue({
+        id: 'q-foreign-99',
+        questionBankId: 'bank-other-program-99',
+        text: 'Foreign question',
+        type: 'MULTIPLE_CHOICE',
+        points: 1,
+        options: [],
+      });
+
+      await expect(
+        service.updateExamQuestion(
+          'exam-final-1',
+          'q-foreign-99',
+          { text: 'Overwritten via IDOR' },
+          mockAdmin,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.deleteExamQuestion('exam-final-1', 'q-foreign-99', mockAdmin),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('enforces bulk DoS cap (<= 100 questions) and rejects unsolvable objective questions (no correct option or < 2 options)', async () => {
+      const oversizedBatch = Array.from({ length: 101 }, (_, i) => ({
+        text: `Question ${i + 1}`,
+      }));
+
+      await expect(
+        service.bulkCreateExamQuestions('exam-final-1', oversizedBatch, mockAdmin),
+      ).rejects.toThrow(BadRequestException);
+
+      prismaMock.exam.findUnique.mockResolvedValue(mockExam);
+      prismaMock.questionBank.findFirst.mockResolvedValue({
+        id: 'bank-exam-1',
+        examId: 'exam-final-1',
+        programId: 'prog-1',
+      });
+
+      // Reject < 2 options
+      await expect(
+        service.createExamQuestion(
+          'exam-final-1',
+          {
+            text: 'Single option question?',
+            type: 'MULTIPLE_CHOICE',
+            options: [{ text: 'Only A', isCorrect: true }],
+          },
+          mockAdmin,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      // Reject 0 correct options
+      await expect(
+        service.createExamQuestion(
+          'exam-final-1',
+          {
+            text: 'Unsolvable question with no correct answer?',
+            type: 'MULTIPLE_CHOICE',
+            options: [
+              { text: 'Wrong A', isCorrect: false },
+              { text: 'Wrong B', isCorrect: false },
+            ],
+          },
+          mockAdmin,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      // Ensure updateExamQuestion validates options BEFORE deleting existing options
+      prismaMock.question.findUnique.mockResolvedValue({
+        id: 'q-exam-1',
+        questionBankId: 'bank-exam-1',
+        text: 'Valid question',
+        type: 'MULTIPLE_CHOICE',
+        points: 1,
+        options: [],
+      });
+
+      await expect(
+        service.updateExamQuestion(
+          'exam-final-1',
+          'q-exam-1',
+          {
+            options: [
+              { text: 'Wrong A', isCorrect: false },
+              { text: 'Wrong B', isCorrect: false },
+            ],
+          },
+          mockAdmin,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.option.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('samples 50 shuffled questions from a 70-question dedicated pool and strips isCorrect from client payload', async () => {
+      const poolOf70 = generateQuestions(70);
+      prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
+      prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
+      prismaMock.examAttempt.findMany.mockResolvedValueOnce([]);
+      prismaMock.questionBank.findFirst.mockResolvedValueOnce({
+        id: 'bank-dedicated-70',
+        examId: 'exam-final-1',
+      });
+      prismaMock.question.findMany.mockResolvedValueOnce(poolOf70);
+
+      prismaMock.examAttempt.create.mockImplementationOnce(async ({ data }: any) => ({
+        id: 'attempt-70-pool',
+        ...data,
+        startedAt: new Date(),
+      }));
+
+      const res = await service.startExam('exam-final-1', mockLearner);
+
+      expect(res.questionCount).toBe(50);
+      expect(res.questions).toHaveLength(50);
+
+      const uniqueIds = new Set(res.questions.map((q: any) => q.id));
+      expect(uniqueIds.size).toBe(50);
+
+      for (const q of res.questions) {
+        for (const opt of q.options) {
+          expect(opt).not.toHaveProperty('isCorrect');
+        }
+      }
+    });
+
+    it('blocks autosave payload tampering when a learner injects a foreign questionId not bound to their attempt', async () => {
+      prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
+      prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
+      prismaMock.examAttempt.findFirst.mockResolvedValueOnce({
+        id: 'attempt-active-1',
+        enrolmentId: 'enrolment-1',
+        examId: 'exam-final-1',
+        status: AttemptStatus.IN_PROGRESS,
+        startedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        answers: {
+          boundQuestionIds: ['q-exam-1', 'q-exam-2'],
+        },
+      });
+
+      await expect(
+        service.saveExamAnswers(
+          'exam-final-1',
+          {
+            answers: [
+              { questionId: 'q-exam-1', selectedOptionId: 'opt-1-1' },
+              { questionId: 'q-injected-999', selectedOptionId: 'opt-999-1' },
+            ],
+          },
+          mockLearner,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.examAttempt.update).not.toHaveBeenCalled();
+    });
+
+    it('accurately grades autosaved answers during finalizeExpiredAttempts() instead of failing with Enrolment not found', async () => {
+      const pool = generateQuestions(50);
+      const boundQuestions = pool.map((q, idx) => ({
+        id: q.id,
+        order: idx + 1,
+        text: q.text,
+        type: q.type,
+        points: 1,
+        stepId: q.stepId,
+        step: q.step,
+        options: q.options.map((o) => ({ id: o.id, text: o.text, order: o.order })),
+      }));
+
+      // Learner autosaved 45/50 correct answers (90% >= 75% passMark) before timer expired
+      const savedAnswers = pool.slice(0, 45).map((q) => ({
+        questionId: q.id,
+        selectedOptionId: q.options[0].id, // Option A isCorrect: true
+      }));
+
+      const expiredAttempt = {
+        id: 'attempt-expired-1',
+        enrolmentId: 'enrolment-1',
+        examId: 'exam-final-1',
+        attemptNumber: 1,
+        status: AttemptStatus.IN_PROGRESS,
+        startedAt: new Date(Date.now() - 100 * 60 * 1000), // 100 mins ago (> 90 min limit)
+        expiresAt: new Date(Date.now() - 10 * 60 * 1000),
+        answers: {
+          boundQuestionIds: pool.map((q) => q.id),
+          boundQuestions,
+          savedAnswers,
+        },
+      };
+
+      prismaMock.examAttempt.findMany.mockResolvedValueOnce([expiredAttempt]);
+      prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
+      prismaMock.examAttempt.findFirst.mockResolvedValueOnce(expiredAttempt);
+      prismaMock.question.findMany.mockResolvedValueOnce(pool);
+      prismaMock.examAttempt.findUnique.mockResolvedValueOnce(expiredAttempt);
+      prismaMock.examAttempt.update.mockResolvedValueOnce({
+        ...expiredAttempt,
+        status: AttemptStatus.PASSED,
+        score: 90,
+        passed: true,
+      });
+
+      const finalizedCount = await service.finalizeExpiredAttempts();
+
+      expect(finalizedCount).toBe(1);
+      expect(prismaMock.examAttempt.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'attempt-expired-1' },
+          data: expect.objectContaining({
+            score: 90,
+            passed: true,
+            status: AttemptStatus.PASSED,
+          }),
+        }),
+      );
+    });
+
+    it('gracefully recovers from P2002 race condition when concurrent startExam calls fire simultaneously', async () => {
+      const pool = generateQuestions(60);
+      prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
+      prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
+      prismaMock.examAttempt.findMany.mockResolvedValueOnce([]);
+      prismaMock.questionBank.findFirst.mockResolvedValueOnce(null);
+      prismaMock.question.findMany.mockResolvedValueOnce(pool);
+
+      // Simulate concurrent insert winning the race and throwing Prisma P2002
+      const p2002Error = Object.assign(new Error('Unique constraint failed'), {
+        code: 'P2002',
+      });
+      prismaMock.examAttempt.create.mockRejectedValueOnce(p2002Error);
+
+      prismaMock.examAttempt.findFirst.mockResolvedValueOnce({
+        id: 'attempt-concurrent-winner',
+        enrolmentId: 'enrolment-1',
+        examId: 'exam-final-1',
+        attemptNumber: 1,
+        status: AttemptStatus.IN_PROGRESS,
+        startedAt: new Date(),
+        answers: {
+          boundQuestions: pool.slice(0, 50).map((q, idx) => ({
+            id: q.id,
+            order: idx + 1,
+            text: q.text,
+            type: q.type,
+            points: 1,
+            options: q.options.map((o) => ({ id: o.id, text: o.text, order: o.order })),
+          })),
+        },
+      });
+
+      const res = await service.startExam('exam-final-1', mockLearner);
+      expect(res.attemptId).toBe('attempt-concurrent-winner');
+      expect(res.status).toBe(AttemptStatus.IN_PROGRESS);
+      expect(res.questions).toHaveLength(50);
     });
   });
 });

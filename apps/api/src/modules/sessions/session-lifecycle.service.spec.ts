@@ -299,6 +299,49 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       });
     });
 
+    it('sends 10-minute reminder for session starting in 10 minutes', async () => {
+      const tenMinSession = {
+        id: 'sess-10m',
+        title: 'Starting Soon Session',
+        startTime: new Date('2026-10-20T10:10:00.000Z'),
+        endTime: new Date('2026-10-20T11:00:00.000Z'),
+        status: SessionStatus.SCHEDULED,
+        joinUrl: 'https://whatboutme.com/meetings/10m',
+        learner: {
+          id: 'user-dubai-10m',
+          email: 'dubai10@example.com',
+          name: 'Ahmed',
+          timezone: 'Asia/Dubai',
+        },
+        bookings: [],
+        batch: null,
+      };
+
+      prismaMock.session.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([tenMinSession]);
+
+      prismaMock.notification.findFirst.mockResolvedValueOnce(null);
+
+      const stats = await service.processLifecycleTransitions();
+
+      expect(stats.reminders10mSent).toBe(1);
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith({
+        to: 'dubai10@example.com',
+        subject: 'Reminder: Starting Soon Session starts in 10 minutes',
+        template: 'SessionReminderEmail',
+        props: expect.objectContaining({
+          firstName: 'Ahmed',
+          sessionTitle: 'Starting Soon Session',
+          timeframe: '10 minutes',
+          time: expect.stringContaining('Asia/Dubai'),
+        }),
+      });
+    });
+
     it('recovers missed reminders after worker downtime', async () => {
       // Session starts in 18 hours (worker was down during 24h mark)
       const missedSession = {

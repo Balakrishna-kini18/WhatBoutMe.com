@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 
 :root {
   /* WhatBoutMe Brand Palette (Cream, Ivory, Deep Ink, Golden Amber) */
@@ -22,8 +22,8 @@
   --text-muted: #78716a;
   --text-disabled: #cfc8bd;
 
-  /* Fonts */
-  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
+  /* Fonts (Apple System UI stack with SF Pro / DM Sans fallbacks) */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
   --font-heading: var(--font-sans);
   --font-serif: var(--font-sans);
   --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
@@ -64,8 +64,10 @@
   --radius-2xl: 24px;
   --radius-pill: 9999px;
 
+  /* Apple Ergonomics */
   --control-height: 2.75rem;
-  --topbar-h: 3rem;
+  --topbar-h: 3.5rem;
+  --touch-target-min: 44px;
 }
 
 html, body {
@@ -74,10 +76,7 @@ html, body {
 }
 
 body {
-  /* next/font sets --font-dm-sans etc. on body, so the font tokens must be
-     declared here too; on :root those variables do not exist yet and the
-     tokens resolve to nothing (the page falls back to Times) */
-  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "SF Pro", var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
   --font-heading: var(--font-sans);
   --font-serif: var(--font-sans);
   --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
@@ -127,7 +126,7 @@ h1, h2, h3, h4, h5, h6 {
   margin-top: 0;
   font-family: var(--font-sans);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 ::selection {
@@ -135,15 +134,49 @@ h1, h2, h3, h4, h5, h6 {
   color: #14110f;
 }
 
-/* Glassmorphism utility */
+/* -------------------------------------------------------------------------
+   Apple Liquid Glass Material Utilities (HIG Materials & Liquid Glass)
+   Strictly for floating navigation chrome, toolbars, HUDs, and sheets
+   ------------------------------------------------------------------------- */
+.liquidGlassRegular {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 20px -2px rgba(20, 17, 15, 0.05);
+}
+
+.liquidGlassClear {
+  background: rgba(15, 23, 42, 0.70);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .liquidGlassRegular {
+    background: var(--bg-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--border-light);
+  }
+  .liquidGlassClear {
+    background: #0f172a;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Backward-compatible card styling (Opaque content containers) */
 .glass {
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 20px;
-  box-shadow: 0 4px 20px -2px rgba(180, 140, 100, 0.08);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Skeleton Loading Shimmer */
+/* Skeleton Loading Shimmer (Apple HIG Standard) */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -154,10 +187,22 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, #f0e9df 25%, #faf6f0 50%, #f0e9df 75%);
+  background: linear-gradient(90deg, #ece4d7 0%, #f7f3ec 50%, #ece4d7 100%);
   background-size: 200% 100%;
-  animation: shimmer 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
-  border-radius: var(--radius-sm);
+  animation: shimmer 1.5s infinite ease-in-out;
+  border-radius: var(--radius-sm, 6px);
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: skeletonPulse 1.8s infinite ease-in-out;
+    background: #ece4d7;
+  }
+  @keyframes skeletonPulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 0.85; }
+  }
 }
 
 /* Fade In Animation */
@@ -214,4 +259,3 @@ body.auth-page-active main {
     max-width: none !important;
   }
 }
-

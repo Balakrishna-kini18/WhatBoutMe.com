@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./page.module.css";
+import DashboardLoading from "./loading";
 import Image from "next/image";
 import Link from "next/link";
 import { SITE_URL } from "./lib/site";
@@ -160,48 +161,9 @@ export default function LearnerDashboard() {
     };
   }, [loadDashboard]);
 
-  // SKELETON PLACEHOLDER DURING INITIAL LOAD
+  // SKELETON PLACEHOLDER DURING INITIAL LOAD (Apple HIG Standard)
   if (loading) {
-    return (
-      <div className={styles.dashboard}>
-        {/* Top Greeting Skeleton */}
-        <div className={styles.topGreetingBar}>
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <div className={styles.skeletonPulse} style={{ width: 42, height: 42, borderRadius: "50%" }} />
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div className={styles.skeletonPulse} style={{ width: 280, height: 32, borderRadius: 8 }} />
-              <div className={styles.skeletonPulse} style={{ width: 340, height: 16, borderRadius: 6 }} />
-            </div>
-          </div>
-        </div>
-
-        {/* 2-Column Grid Skeleton */}
-        <div className={styles.dashboardGrid}>
-          <div className={styles.skeletonCard} style={{ minHeight: 460 }}>
-            <div className={styles.skeletonPulse} style={{ width: 140, height: 24, marginBottom: 20 }} />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className={styles.skeletonPulse} style={{ height: 220, borderRadius: 14 }} />
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            <div className={styles.skeletonCard} style={{ height: 210 }}>
-              <div className={styles.skeletonPulse} style={{ width: 120, height: 24, marginBottom: 20 }} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <div className={styles.skeletonPulse} style={{ height: 116, borderRadius: "50%" }} />
-                <div className={styles.skeletonPulse} style={{ height: 116, borderRadius: "50%" }} />
-              </div>
-            </div>
-            <div className={styles.skeletonCard} style={{ height: 200 }}>
-              <div className={styles.skeletonPulse} style={{ width: 120, height: 24, marginBottom: 20 }} />
-              <div className={styles.skeletonPulse} style={{ width: "80%", height: 60, margin: "0 auto" }} />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <DashboardLoading />;
   }
 
   // ERROR RECOVERY VIEW
@@ -227,73 +189,39 @@ export default function LearnerDashboard() {
   }
 
   // GREETING DATA
-  const firstName = user?.name ? user.name.split(" ")[0] : "sahyadri";
+  const firstName = user?.name ? user.name.split(" ")[0] : "Learner";
   const hour = new Date().getHours();
   const greetingText = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
 
-  // ENROLLED COURSES & REFERENCE DATA FOR PIXEL-ACCURACY
+  // ENROLLED COURSES: Ground truth data only
   const enrolled = user?.enrolledPrograms || [];
-  const activeCount = enrolled.length > 0 ? enrolled.length : 3;
+  const activeCount = enrolled.length;
 
-  // Build the 4 display courses matching the reference screenshot:
-  // 1: Sigma 1 (22%)
-  // 2: first step to program (100%)
-  // 3: Web Development Basics (18%)
-  // 4: UI/UX Design Fundamentals (45%)
-  const defaultCourses = [
-    {
-      key: "sigma-1",
-      title: "Sigma 1",
-      progress: 22,
-      image: "/brand/course-celebrate.webp",
-      route: enrolled[0] ? `/programs/${enrolled[0].programId}/steps` : "/courses",
-    },
-    {
-      key: "first-step",
-      title: "first step to program",
-      progress: 100,
-      image: "/brand/course-learning.webp",
-      route: enrolled[1] ? `/programs/${enrolled[1].programId}/steps` : "/courses",
-    },
-    {
-      key: "web-dev",
-      title: "Web Development Basics",
-      progress: 18,
-      image: "/brand/session.webp",
-      route: enrolled[2] ? `/programs/${enrolled[2].programId}/steps` : "/courses",
-    },
-    {
-      key: "ui-ux",
-      title: "UI/UX Design Fundamentals",
-      progress: 45,
-      image: "/brand/course-photo.webp",
-      route: enrolled[3] ? `/programs/${enrolled[3].programId}/steps` : "/courses",
-    },
+  const courseImages = [
+    "/brand/course-celebrate.webp",
+    "/brand/course-learning.webp",
+    "/brand/session.webp",
+    "/brand/course-photo.webp",
   ];
 
-  // If the user has real enrolled courses, map them into the cards while preserving the reference structure
-  const displayCourses = defaultCourses.map((def, idx) => {
-    if (enrolled[idx]) {
-      return {
-        ...def,
-        title: enrolled[idx].programTitle || def.title,
-        progress: typeof enrolled[idx].progress === "number" ? enrolled[idx].progress : def.progress,
-        route: `/programs/${enrolled[idx].programId}/steps`,
-      };
-    }
-    return def;
-  });
+  const displayCourses = enrolled.map((p, idx) => ({
+    key: p.enrolmentId || `course-${p.programId || idx}`,
+    title: p.programTitle || "Certified Resilience Program",
+    progress: typeof p.progress === "number" ? p.progress : 0,
+    image: courseImages[idx % courseImages.length] || "/brand/course-learning.webp",
+    route: `/programs/${p.programId}/steps`,
+  }));
 
-  // PROGRESS CALCULATIONS FOR THE TWO DONUTS
-  const totalCourses = enrolled.length > 0 ? enrolled.length : 3;
-  const completedCourses = enrolled.filter((p) => p.progress === 100).length || 1;
+  // PROGRESS CALCULATIONS FOR THE TWO DONUTS (Apple Activity Rings)
+  const totalCourses = enrolled.length;
+  const completedCourses = enrolled.filter((p) => p.progress === 100).length;
   const overallPct = enrolled.length > 0
     ? Math.round(enrolled.reduce((sum, p) => sum + (p.progress || 0), 0) / enrolled.length)
-    : 41;
+    : 0;
 
   const attendancePct = attendanceSummary?.overallAttendancePercentage ?? 0;
   const attendedSessions = attendanceSummary?.totalAttendedSessions ?? 0;
-  const totalSessions = attendanceSummary?.totalScheduledSessions ?? 2;
+  const totalSessions = attendanceSummary?.totalScheduledSessions ?? 0;
 
   // SVG Circle Geometry for 116px Donut: radius 48, strokeWidth 10
   const CIRCLE_RADIUS = 48;
@@ -301,20 +229,34 @@ export default function LearnerDashboard() {
   const overallOffset = CIRCLE_CIRCUMFERENCE - (CIRCLE_CIRCUMFERENCE * Math.min(100, Math.max(0, overallPct))) / 100;
   const attendanceOffset = CIRCLE_CIRCUMFERENCE - (CIRCLE_CIRCUMFERENCE * Math.min(100, Math.max(0, attendancePct))) / 100;
 
+  const greetingSubtitle = activeCount > 0
+    ? `You have ${activeCount} active ${activeCount === 1 ? "course" : "courses"} in progress — rewiring your brain for sustainable action.`
+    : "Welcome to your personal resilience workspace. Explore certified programs to begin.";
+
   return (
     <div className={styles.dashboard}>
       {/* 1. TOP GREETING BAR */}
       <section className={styles.topGreetingBar} aria-label="Welcome greeting">
         <div className={styles.greetingLeft}>
-          <span className={styles.sunIconWrap} aria-hidden="true">
-            ☀️
-          </span>
+          <div className={styles.sunIconWrap} aria-hidden="true" style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--accent-primary-tint, rgba(201, 122, 30, 0.12))", color: "var(--accent-primary, #c97a1e)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+          </div>
           <div>
             <h1 className={styles.greetingTitle}>
               {greetingText}, {firstName}
             </h1>
             <p className={styles.greetingSubtitle}>
-              You have {activeCount} active {activeCount === 1 ? "course" : "courses"} in progress — rewiring your brain for sustainable action.
+              {greetingSubtitle}
             </p>
           </div>
         </div>
@@ -332,68 +274,87 @@ export default function LearnerDashboard() {
             </Link>
           </div>
 
-          {/* 2x2 Course Cards Grid */}
-          <div className={styles.coursesGrid2x2}>
-            {displayCourses.map((course) => {
-              const isCompleted = course.progress === 100;
+          {/* 2x2 Course Cards Grid or Empty Discovery State */}
+          {displayCourses.length > 0 ? (
+            <div className={styles.coursesGrid2x2}>
+              {displayCourses.map((course) => {
+                const isCompleted = course.progress === 100;
 
-              return (
-                <article key={course.key} className={styles.courseCard}>
-                  {/* 16:9 Cover Image */}
-                  <div className={styles.courseCoverWrap}>
-                    <Image
-                      src={course.image}
-                      alt={course.title}
-                      fill
-                      sizes="(max-width: 768px) 100vw, 360px"
-                      className={styles.courseCoverImg}
-                      priority={course.key === "sigma-1"}
-                    />
-                  </div>
-
-                  {/* Card Body */}
-                  <div className={styles.courseCardBody}>
-                    <div className={styles.courseTitleRow}>
-                      <h3 className={styles.courseTitle} title={course.title}>
-                        {course.title}
-                      </h3>
-                      <span className={styles.coursePercentage}>
-                        {course.progress}%
-                      </span>
-                    </div>
-
-                    {/* 6px Progress Bar */}
-                    <div
-                      className={styles.progressBarTrack}
-                      role="progressbar"
-                      aria-valuenow={course.progress}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={`${course.title} completion progress`}
-                    >
-                      <div
-                        className={styles.progressBarFill}
-                        style={{ width: `${Math.min(100, Math.max(0, course.progress))}%` }}
+                return (
+                  <article key={course.key} className={styles.courseCard}>
+                    {/* 16:9 Cover Image */}
+                    <div className={styles.courseCoverWrap}>
+                      <Image
+                        src={course.image}
+                        alt={course.title}
+                        fill
+                        sizes="(max-width: 768px) 100vw, 360px"
+                        className={styles.courseCoverImg}
                       />
                     </div>
 
-                    {/* CTA Button */}
-                    {isCompleted ? (
-                      <Link href={course.route} className={styles.viewCourseBtn}>
-                        <span>View Course</span>
-                        <span aria-hidden="true">&rarr;</span>
-                      </Link>
-                    ) : (
-                      <Link href={course.route} className={styles.continueCourseBtn}>
-                        <span>Continue Course</span>
-                        <span aria-hidden="true">&rarr;</span>
-                      </Link>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+                    {/* Card Body */}
+                    <div className={styles.courseCardBody}>
+                      <div className={styles.courseTitleRow}>
+                        <h3 className={styles.courseTitle} title={course.title}>
+                          {course.title}
+                        </h3>
+                        <span className={styles.coursePercentage}>
+                          {course.progress}%
+                        </span>
+                      </div>
+
+                      {/* 6px Progress Bar */}
+                      <div
+                        className={styles.progressBarTrack}
+                        role="progressbar"
+                        aria-valuenow={course.progress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${course.title} completion progress`}
+                      >
+                        <div
+                          className={styles.progressBarFill}
+                          style={{ width: `${Math.min(100, Math.max(0, course.progress))}%` }}
+                        />
+                      </div>
+
+                      {/* CTA Button */}
+                      {isCompleted ? (
+                        <Link href={course.route} className={styles.viewCourseBtn}>
+                          <span>View Course</span>
+                          <span aria-hidden="true">&rarr;</span>
+                        </Link>
+                      ) : (
+                        <Link href={course.route} className={styles.continueCourseBtn}>
+                          <span>Continue Course</span>
+                          <span aria-hidden="true">&rarr;</span>
+                        </Link>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: "48px 20px" }}>
+              <div style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--accent-primary-tint, rgba(201, 122, 30, 0.12))", color: "var(--accent-primary, #c97a1e)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                </svg>
+              </div>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: "0 0 6px", color: "var(--text-primary)" }}>
+                Start Your First Program
+              </h3>
+              <p style={{ fontSize: "0.875rem", color: "var(--text-muted)", margin: "0 0 18px", maxWidth: 360, marginLeft: "auto", marginRight: "auto" }}>
+                You have not enrolled in a course yet. Explore our certified neuroplasticity and resilience curriculums.
+              </p>
+              <Link href="/courses" className={styles.continueCourseBtn} style={{ width: "auto", display: "inline-flex", padding: "0 20px" }}>
+                Explore Courses &rarr;
+              </Link>
+            </div>
+          )}
         </section>
 
         {/* RIGHT COLUMN: YOUR PROGRESS & CERTIFICATES CARDS */}

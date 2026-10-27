@@ -208,7 +208,49 @@ function Courses() {
           </div>
 
           {loading ? (
-            <p className={dash.empty}>Loading your courses...</p>
+            <div className={styles.cardGrid} aria-hidden="true">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className={styles.block} style={{ pointerEvents: "none" }}>
+                  <div className={styles.blockHead}>
+                    <div
+                      className="skeleton"
+                      style={{ width: "100%", aspectRatio: "16 / 10", borderRadius: 0 }}
+                    />
+                    <div className={dash.rowMain}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          margin: "0.65rem 0",
+                        }}
+                      >
+                        <div
+                          className="skeleton"
+                          style={{ width: "50%", height: 18, borderRadius: 4 }}
+                        />
+                        <div
+                          className="skeleton"
+                          style={{ width: 85, height: 20, borderRadius: 999 }}
+                        />
+                      </div>
+                      <div
+                        className="skeleton"
+                        style={{ width: "100%", height: 8, borderRadius: 999, margin: "0.5rem 0 0.85rem" }}
+                      />
+                      <div
+                        className="skeleton"
+                        style={{ width: "70%", height: 14, borderRadius: 4, marginBottom: "1.25rem" }}
+                      />
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.65rem" }}>
+                        <div className="skeleton" style={{ height: 38, borderRadius: 10 }} />
+                        <div className="skeleton" style={{ height: 38, borderRadius: 10 }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : error ? null : courses.length === 0 ? (
             <div className={styles.emptyState}>
               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

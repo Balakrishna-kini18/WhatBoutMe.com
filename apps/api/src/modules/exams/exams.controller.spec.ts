@@ -89,6 +89,45 @@ describe('D1-038: ExamsController - Controller & Route Tests', () => {
         req.user,
       );
     });
+
+    it('delegates createExam to service', async () => {
+      serviceMock.createExam = vi.fn().mockResolvedValueOnce({ id: 'exam-1' });
+      const req = { user: { id: 'admin-1' } };
+      const dto = { programId: 'prog-1', title: 'Final Exam' };
+
+      const res = await controller.createExam(dto as any, req);
+      expect(res).toEqual({ id: 'exam-1' });
+      expect(serviceMock.createExam).toHaveBeenCalledWith(dto, req.user);
+    });
+
+    it('delegates updateExam to service', async () => {
+      serviceMock.updateExam = vi.fn().mockResolvedValueOnce({ id: 'exam-1', passMark: 80 });
+      const req = { user: { id: 'admin-1' } };
+      const dto = { passMark: 80 };
+
+      const res = await controller.updateExam('exam-1', dto, req);
+      expect(res).toEqual({ id: 'exam-1', passMark: 80 });
+      expect(serviceMock.updateExam).toHaveBeenCalledWith('exam-1', dto, req.user);
+    });
+
+    it('delegates publishExam to service', async () => {
+      serviceMock.publishExam = vi.fn().mockResolvedValueOnce({ id: 'exam-1', status: 'PUBLISHED' });
+      const req = { user: { id: 'admin-1' } };
+
+      const res = await controller.publishExam('exam-1', req);
+      expect(res).toEqual({ id: 'exam-1', status: 'PUBLISHED' });
+      expect(serviceMock.publishExam).toHaveBeenCalledWith('exam-1', req.user);
+    });
+
+    it('delegates saveAnswers to service', async () => {
+      serviceMock.saveExamAnswers = vi.fn().mockResolvedValueOnce({ success: true });
+      const req = { user: { id: 'learner-1' } };
+      const dto = { answers: [] };
+
+      const res = await controller.saveAnswers('exam-1', dto as any, req);
+      expect(res).toEqual({ success: true });
+      expect(serviceMock.saveExamAnswers).toHaveBeenCalledWith('exam-1', dto, req.user);
+    });
   });
 
   describe('Route Permission Annotations', () => {
@@ -106,6 +145,18 @@ describe('D1-038: ExamsController - Controller & Route Tests', () => {
         ExamsController.prototype.getEnrolmentAttempts,
       );
       expect(perm).toEqual([Permission.QUIZZES_READ]);
+    });
+
+    it('decorates createExam, updateExam, publishExam with PROGRAMS_UPDATE permission', () => {
+      expect(reflector.get(PERMISSIONS_KEY, ExamsController.prototype.createExam)).toEqual([
+        Permission.PROGRAMS_UPDATE,
+      ]);
+      expect(reflector.get(PERMISSIONS_KEY, ExamsController.prototype.updateExam)).toEqual([
+        Permission.PROGRAMS_UPDATE,
+      ]);
+      expect(reflector.get(PERMISSIONS_KEY, ExamsController.prototype.publishExam)).toEqual([
+        Permission.PROGRAMS_UPDATE,
+      ]);
     });
   });
 });

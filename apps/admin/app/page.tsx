@@ -5,7 +5,7 @@ import styles from "./page.module.css";
 import Link from "next/link";
 import Image from "next/image";
 import { ActionMenu } from "./components";
-import { apiGet } from "./lib/api";
+import { apiGet, fetchOneOnOneRequests, type OneOnOneRequestItem } from "./lib/api";
 import { parseLeadMessage } from "./leads/page";
 import { filterUpcomingDiscoveryCalls } from "./lib/discovery-calls";
 
@@ -138,6 +138,7 @@ export default function AdminDashboard() {
   const [leadsData, setLeadsData] = useState<any[]>([]);
   const [certificatesData, setCertificatesData] = useState<any[]>([]);
   const [batchesData, setBatchesData] = useState<any[]>([]);
+  const [coachingRequests, setCoachingRequests] = useState<OneOnOneRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
 
@@ -158,7 +159,7 @@ export default function AdminDashboard() {
     let active = true;
     const fetchDashboardMetrics = async () => {
       try {
-        const [dash, leads, certs, batches] = await Promise.all([
+        const [dash, leads, certs, batches, coachingReqs] = await Promise.all([
           apiGet<any>('/admin/dashboard').catch((e) => {
             console.warn("Dashboard fetch error:", e);
             return null;
@@ -166,6 +167,7 @@ export default function AdminDashboard() {
           apiGet<any>('/leads').catch(() => []),
           apiGet<any>('/certificates').catch(() => []),
           apiGet<any>('/batches').catch(() => []),
+          fetchOneOnOneRequests('PENDING_APPROVAL').catch(() => []),
         ]);
 
         if (active) {
@@ -174,6 +176,7 @@ export default function AdminDashboard() {
           else if (leads?.data && Array.isArray(leads.data)) setLeadsData(leads.data);
           if (Array.isArray(certs)) setCertificatesData(certs);
           if (Array.isArray(batches)) setBatchesData(batches);
+          if (Array.isArray(coachingReqs)) setCoachingRequests(coachingReqs);
         }
       } catch (e: any) {
         console.error("Dashboard parallel fetch error:", e);
@@ -630,6 +633,69 @@ export default function AdminDashboard() {
                   View Issued Certificates →
                 </Link>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* Queue 4: 1-on-1 Coaching Session Requests (Stage 4) */}
+        <div className={styles.actionQueueCard}>
+          <div className={styles.actionQueueHeader}>
+            <h3 className={styles.actionQueueTitle}>
+              1-on-1 Coaching Queue
+            </h3>
+            {coachingRequests.length > 0 && (
+              <span className={`${styles.actionQueueBadge} ${styles.badgePendingAlert}`}>
+                {coachingRequests.length} Pending
+              </span>
+            )}
+          </div>
+
+          <div className={styles.actionQueueList}>
+            {coachingRequests.length === 0 ? (
+              <div className={styles.actionQueueHero}>
+                <div className={styles.emptyQueueState}>
+                  <span>✓ All caught up</span>
+                  <span>No 1-on-1 coaching requests pending</span>
+                </div>
+                <Link href="/meetings?view=requests" className={styles.secondaryActionBtn}>
+                  View All Coaching Sessions →
+                </Link>
+              </div>
+            ) : (
+              <>
+                {coachingRequests.slice(0, 3).map((req) => (
+                  <div key={req.id} className={styles.discoveryItem}>
+                    <div className={styles.discoveryAttendee}>
+                      <span className={styles.attendeeName}>{req.user?.name || req.user?.email || "Learner"}</span>
+                      <span className={styles.attendeeTime}>
+                        {new Date(req.requestedStart).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    {req.enrolment?.program?.title && (
+                      <div className={styles.discoveryMeta}>
+                        Program: {req.enrolment.program.title}
+                      </div>
+                    )}
+                    <div className={styles.discoveryActions}>
+                      <Link
+                        href="/approvals?tab=coaching"
+                        className={styles.joinZoomBtn}
+                        style={{ background: "#b8860b", color: "#fff", border: "none" }}
+                      >
+                        <span>Review &amp; Schedule →</span>
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+                <Link href="/approvals?tab=coaching" className={styles.secondaryActionBtn}>
+                  Manage All Coaching Requests ({coachingRequests.length}) →
+                </Link>
+              </>
             )}
           </div>
         </div>

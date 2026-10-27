@@ -38,6 +38,11 @@ export class UpdateSessionDto {
   capacity?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  minAttendanceMinutes?: number;
+
+  @IsOptional()
   @IsUUID()
   hostTrainerId?: string;
 

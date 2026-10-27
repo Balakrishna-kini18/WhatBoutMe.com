@@ -59,26 +59,30 @@
 .searchIcon {
   position: absolute;
   left: 12px;
-  color: #94a3b8;
+  color: var(--text-muted, #57534e);
   pointer-events: none;
 }
 
 .searchInput {
   width: 100%;
   padding: 9px 12px 9px 36px;
-  border-radius: 8px;
-  border: 1px solid var(--border-light, #cbd5e1);
-  background: var(--bg-soft, #f8fafc);
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border-light, #ece4d7);
+  background: var(--bg-soft, #f5ece1);
   font-size: 0.88rem;
-  color: var(--text-primary, #0f172a);
+  color: var(--text-primary, #14110f);
   outline: none;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted, #57534e);
 }
 
 .searchInput:focus {
-  border-color: var(--accent-primary, #0284c7);
+  border-color: var(--accent-primary, #c97a1e);
   background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+  box-shadow: 0 0 0 3px var(--accent-primary-tint, rgba(201, 122, 30, 0.15));
 }
 
 .filterControls {
@@ -413,9 +417,9 @@
 
 /* Loading Skeletons */
 .skeleton {
-  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background: linear-gradient(90deg, #ece4d7 0%, #f7f3ec 50%, #ece4d7 100%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s infinite ease-in-out;
   border-radius: 12px;
   height: 120px;
 }

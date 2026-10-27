@@ -10,7 +10,14 @@ export interface CompulsoryVideoPlayerProps {
   userName?: string;
   userEmail?: string;
   durationSec?: number;
-  onHeartbeat: (positionSec: number, isEnded?: boolean, videoDurationSec?: number, deltaSec?: number) => void;
+  onHeartbeat: (
+    positionSec: number,
+    isEnded?: boolean,
+    videoDurationSec?: number,
+    deltaSec?: number,
+    fromSec?: number,
+    toSec?: number,
+  ) => void;
   onComplete: () => void;
   onRestart?: () => void;
   onTimeUpdate?: (currentSec: number) => void;
@@ -156,12 +163,22 @@ export default function CompulsoryVideoPlayer({
         if (video) {
           const effectiveDur = duration > 0 ? duration : (video.duration || 0);
           const target = Math.min(effectiveDur > 0 ? effectiveDur : video.currentTime + 10, video.currentTime + 10);
-          video.currentTime = target;
-          setCurrentTime(target);
-          lastValidTimeRef.current = target;
-          if (target > maxWatchedSecRef.current) {
-            maxWatchedSecRef.current = target;
+          const validation = validateSeek(
+            target,
+            lastValidTimeRef.current,
+            maxWatchedSecRef.current,
+            effectiveDur,
+            hasCompletedRef.current
+          );
+          if (!validation.allowed) {
+            triggerSeekWarning(validation.reason);
+            video.currentTime = validation.effectiveTime;
+            setCurrentTime(validation.effectiveTime);
+            return;
           }
+          video.currentTime = validation.effectiveTime;
+          setCurrentTime(validation.effectiveTime);
+          lastValidTimeRef.current = validation.effectiveTime;
         }
         return;
       }
@@ -251,15 +268,25 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Seeking handler: update current time and progress
+  // Seeking handler: update current time and progress safely against anti-skip rules
   const handleSeeking = () => {
     const video = videoRef.current;
     if (!video) return;
+    const validation = validateSeek(
+      video.currentTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      video.currentTime = validation.effectiveTime;
+      setCurrentTime(validation.effectiveTime);
+      return;
+    }
     lastValidTimeRef.current = video.currentTime;
     setCurrentTime(video.currentTime);
-    if (video.currentTime > maxWatchedSecRef.current) {
-      maxWatchedSecRef.current = video.currentTime;
-    }
   };
 
   // Playback rate: ensure video adheres to selected speed
@@ -270,7 +297,7 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Interactive timeline click handler: seek directly to clicked position
+  // Interactive timeline click handler: seek directly to clicked position with anti-skip validation
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     if (!video || !duration || duration <= 0) return;
@@ -279,12 +306,24 @@ export default function CompulsoryVideoPlayer({
     const clickX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const targetTime = Math.max(0, Math.min(duration, (clickX / rect.width) * duration));
 
-    video.currentTime = targetTime;
-    setCurrentTime(targetTime);
-    lastValidTimeRef.current = targetTime;
-    if (targetTime > maxWatchedSecRef.current) {
-      maxWatchedSecRef.current = targetTime;
+    const validation = validateSeek(
+      targetTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      video.currentTime = validation.effectiveTime;
+      setCurrentTime(validation.effectiveTime);
+      return;
     }
+
+    video.currentTime = validation.effectiveTime;
+    setCurrentTime(validation.effectiveTime);
+    lastValidTimeRef.current = validation.effectiveTime;
     setHasEnded(false);
   };
 
@@ -305,13 +344,22 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send 15-second periodic heartbeat (reduces connection churn while preserving accreditation)
+    // Send 15-second periodic heartbeat with exact interval segments
     const now = Date.now();
     if (now - lastHeartbeatTimeRef.current >= 15000) {
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = current;
-      onHeartbeat(Math.floor(current), false, dur > 0 ? dur : undefined, Math.floor(delta));
+      onHeartbeat(
+        Math.floor(current),
+        false,
+        dur > 0 ? dur : undefined,
+        Math.floor(delta),
+        Math.floor(fromSec),
+        Math.floor(toSec),
+      );
     }
 
     // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95
@@ -536,31 +584,34 @@ export default function CompulsoryVideoPlayer({
         }
       `}</style>
 
-      {/* 4. Seek Blocked Toast Warning */}
+      {/* 4. Seek Blocked Toast Warning (Apple HIG Accessibility Announcement) */}
       {seekWarning && (
         <div
+          role="status"
+          aria-live="polite"
           style={{
             position: "absolute",
             top: "20px",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "rgba(15, 23, 42, 0.92)",
-            border: "1px solid rgba(239, 68, 68, 0.5)",
-            color: "#fecaca",
-            padding: "8px 16px",
-            borderRadius: "20px",
+            background: "rgba(15, 23, 42, 0.82)",
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            color: "#ffffff",
+            padding: "8px 18px",
+            borderRadius: "9999px",
             fontSize: "0.82rem",
             fontWeight: 600,
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            boxShadow: "0 8px 20px rgba(0,0,0,0.4)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
             zIndex: 60,
-            backdropFilter: "blur(6px)",
+            backdropFilter: "blur(20px) saturate(160%)",
+            WebkitBackdropFilter: "blur(20px) saturate(160%)",
             pointerEvents: "none",
           }}
         >
-          <Lock size={14} color="#ef4444" />
+          <Lock size={14} color="#f59e0b" />
           <span>{seekWarning}</span>
         </div>
       )}
@@ -634,21 +685,26 @@ export default function CompulsoryVideoPlayer({
         </button>
       ) : null}
 
-      {/* 6. Custom Stripped-Down Compulsory Player Control Bar */}
+      {/* 6. Apple Liquid Glass Floating Player Transport Bar (HIG Playing Video & Liquid Glass) */}
       <div
         style={{
           position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 65%, transparent 100%)",
-          padding: "16px 18px 12px",
+          bottom: "12px",
+          left: "14px",
+          right: "14px",
+          background: "rgba(15, 23, 42, 0.72)",
+          backdropFilter: "blur(24px) saturate(160%)",
+          WebkitBackdropFilter: "blur(24px) saturate(160%)",
+          border: "1px solid rgba(255, 255, 255, 0.15)",
+          borderRadius: "14px",
+          padding: "10px 16px",
           display: "flex",
           flexDirection: "column",
           gap: "8px",
           opacity: showControls || !isPlaying ? 1 : 0,
           pointerEvents: showControls || !isPlaying ? "auto" : "none",
-          transition: "opacity 0.25s ease",
+          transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+          boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
           zIndex: 50,
         }}
       >

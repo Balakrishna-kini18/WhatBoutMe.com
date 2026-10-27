@@ -100,7 +100,7 @@ export class AdminDashboardController {
           progCounts[title] = (progCounts[title] || 0) + 1;
         });
         const totalProgEnrolments = allEnrolments.length;
-        const brandColors = ['#c97a1e', '#d8a86a', '#d97706', '#e09f3e', '#b45309', '#e8a87c'];
+        const brandColors = ['#c97a1e', '#2563eb', '#059669', '#7c3aed', '#e11d48', '#0891b2', '#d97706', '#475569'];
         const programDistribution = Object.entries(progCounts).map(([name, count], index) => ({
           name,
           count,
@@ -244,7 +244,7 @@ export class AdminDashboardController {
         progCounts[title] = (progCounts[title] || 0) + 1;
       });
       const totalProgEnrolments = allEnrolments.length;
-      const brandColors = ['#c97a1e', '#d8a86a', '#d97706', '#e09f3e', '#b45309', '#e8a87c'];
+      const brandColors = ['#c97a1e', '#2563eb', '#059669', '#7c3aed', '#e11d48', '#0891b2', '#d97706', '#475569'];
       const programDistribution = Object.entries(progCounts).map(([name, count], index) => ({
         name,
         count,
@@ -304,7 +304,7 @@ export class AdminDashboardController {
     }
 
     const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(limitStr || '25', 10) || 25));
+    const limit = Math.min(1000, Math.max(1, parseInt(limitStr || '25', 10) || 25));
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -334,11 +334,24 @@ export class AdminDashboardController {
 
     if (search && search.trim()) {
       const q = search.trim();
+      const matchingUsers = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+        take: 50,
+      });
+      const matchingUserIds = matchingUsers.map((u) => u.id);
+
       where.OR = [
         { action: { contains: q, mode: 'insensitive' } },
         { entity: { contains: q, mode: 'insensitive' } },
         { entityId: { contains: q, mode: 'insensitive' } },
         { actorId: { contains: q, mode: 'insensitive' } },
+        ...(matchingUserIds.length > 0 ? [{ actorId: { in: matchingUserIds } }] : []),
       ];
     }
 

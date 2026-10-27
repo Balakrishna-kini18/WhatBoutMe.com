@@ -155,5 +155,49 @@ describe('AdminDashboardController', () => {
     expect(result.data[0].action).toBe('CERTIFICATE_APPROVAL');
     expect(result.data[0].meta.reason).toBe('Passed all exams');
   });
+
+  it('7. getAuditLogs allows limits up to 1000 for full CSV export and respects action/date filters', async () => {
+    prismaMock.auditLog.count = vi.fn().mockImplementation(({ where }) => {
+      if (where?.action === 'LOGIN') return Promise.resolve(197);
+      return Promise.resolve(0);
+    });
+    prismaMock.auditLog.findMany = vi.fn().mockImplementation(({ take, where }) => {
+      expect(take).toBe(1000); // Verify limit was raised to 1000, not capped at 100
+      expect(where.action).toBe('LOGIN');
+      expect(where.createdAt.gte).toBeInstanceOf(Date);
+      expect(where.createdAt.lte).toBeInstanceOf(Date);
+      return Promise.resolve(
+        Array.from({ length: 197 }, (_, i) => ({
+          id: `log-${i}`,
+          actorId: 'admin-1',
+          action: 'LOGIN',
+          entity: 'User',
+          entityId: `user-${i}`,
+          meta: {},
+          ip: '127.0.0.1',
+          createdAt: new Date(),
+        }))
+      );
+    });
+    prismaMock.user.findMany = vi.fn().mockResolvedValue([
+      { id: 'admin-1', name: 'Super Admin Roweena', email: 'super@whatboutme.com', role: Role.SUPER_ADMIN },
+    ]);
+
+    const result = await controller.getAuditLogs(
+      { user: { role: Role.SUPER_ADMIN } },
+      '1',
+      '1000',
+      undefined,
+      'LOGIN',
+      undefined,
+      '2026-10-01',
+      '2026-10-26'
+    );
+
+    expect(result.total).toBe(197);
+    expect(result.data).toHaveLength(197);
+    expect(result.limit).toBe(1000);
+  });
 });
+
 

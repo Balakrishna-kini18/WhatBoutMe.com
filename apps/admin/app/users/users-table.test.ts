@@ -28,6 +28,7 @@ function computeColumns(roleFilter: RoleFilter): TableColumnConfig[] {
       { id: "unlocked_step", header: "Unlocked Step", visible: true },
       { id: "agreement", header: "Agreement", visible: true },
       { id: "batch", header: "Batch", visible: true },
+      { id: "enrolled_on", header: "Enrolled On", visible: true },
       { id: "action", header: "Action", visible: true },
     ];
   }
@@ -125,15 +126,16 @@ describe('Users & Enrolments Table Specification', () => {
       ]);
     });
 
-    it('has exactly 6 columns when Learners (USER) tab is selected', () => {
+    it('has exactly 7 columns including Enrolled On when Learners (USER) tab is selected', () => {
       const learnerCols = computeColumns("USER");
-      expect(learnerCols).toHaveLength(6);
+      expect(learnerCols).toHaveLength(7);
       expect(learnerCols.map(c => c.header)).toEqual([
         "User & Profile",
         "Enrolled Programs",
         "Unlocked Step",
         "Agreement",
         "Batch",
+        "Enrolled On",
         "Action",
       ]);
       expect(learnerCols.map(c => c.id)).not.toContain("role");
@@ -198,8 +200,8 @@ describe('Users & Enrolments Table Specification', () => {
 
       // When All Roles is selected, skeleton & colSpan must be 7
       expect(allRolesCols).toBe(7);
-      // When Learners is selected, skeleton & colSpan must be 6
-      expect(learnerCols).toBe(6);
+      // When Learners is selected, skeleton & colSpan must be 7
+      expect(learnerCols).toBe(7);
       // When Staff roles are selected, skeleton & colSpan must be 5
       expect(managerCols).toBe(5);
       expect(adminCols).toBe(5);
@@ -644,6 +646,171 @@ describe('Users & Enrolments Table Specification', () => {
       expect(lines[2]).toContain('"Step 4 / 11"');
       expect(lines[2]).toContain('"Signed"');
       expect(lines[2]).toContain('"Alpha 2026"');
+    });
+  });
+
+  describe('Learners Tab Enrolled On Numeric Date Formatting & Sorting', () => {
+    function parseDate(rawDate: string | Date | number | null | undefined): Date | null {
+      if (!rawDate) return null;
+      if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? null : rawDate;
+      if (typeof rawDate === "number") {
+        const d = new Date(rawDate);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      if (typeof rawDate === "string") {
+        const s = rawDate.trim();
+        if (!s || s === "—" || s === "-") return null;
+        const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (dmy && dmy[1] && dmy[2] && dmy[3]) {
+          const day = parseInt(dmy[1], 10);
+          const month = parseInt(dmy[2], 10) - 1;
+          const year = parseInt(dmy[3], 10);
+          const d = new Date(year, month, day);
+          return isNaN(d.getTime()) ? null : d;
+        }
+        const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (ymd && ymd[1] && ymd[2] && ymd[3]) {
+          const year = parseInt(ymd[1], 10);
+          const month = parseInt(ymd[2], 10) - 1;
+          const day = parseInt(ymd[3], 10);
+          const d = new Date(year, month, day);
+          return isNaN(d.getTime()) ? null : d;
+        }
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    }
+
+    function formatNumericDate(rawDate: string | Date | number | null | undefined): string {
+      const d = parseDate(rawDate);
+      if (!d) return typeof rawDate === "string" && rawDate !== "—" ? rawDate : "—";
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+
+    const getEnrolledDate = (user: any) => {
+      const isEnrolled = user.enrolments && user.enrolments.length > 0;
+      if (!isEnrolled) return "—";
+      const rawDate = user.enrolments?.[0]?.createdAt || user.enrolledAt || user.createdAt || user.joined;
+      if (!rawDate) return "—";
+      return formatNumericDate(rawDate);
+    };
+
+    it('formats ISO dates into strictly numeric DD/MM/YYYY without month names', () => {
+      const user = {
+        name: 'Alice Learner',
+        enrolments: [{ programTitle: 'Sigma 1', createdAt: '2026-07-10T12:00:00.000Z' }]
+      };
+      const formatted = getEnrolledDate(user);
+      expect(formatted).toBe('10/07/2026');
+      expect(formatted).not.toContain('Jul');
+      expect(formatted).not.toContain('July');
+    });
+
+    it('preserves existing DD/MM/YYYY strings and normalizes single digit days/months', () => {
+      const user = {
+        name: 'siddesha',
+        enrolments: [{ programTitle: 'DELTA X BATCH' }],
+        joined: '23/10/2026'
+      };
+      expect(getEnrolledDate(user)).toBe('23/10/2026');
+
+      const user2 = {
+        name: 'Test',
+        enrolments: [{ programTitle: 'P1' }],
+        joined: '5/7/2026'
+      };
+      expect(getEnrolledDate(user2)).toBe('05/07/2026');
+    });
+
+    it('returns em-dash (—) for unenrolled users with no enrolments', () => {
+      const unenrolledUser = {
+        name: 'Verification Lead',
+        enrolments: []
+      };
+      expect(getEnrolledDate(unenrolledUser)).toBe('—');
+    });
+
+    it('accurately sorts users by timestamp when dates are formatted in mixed styles', () => {
+      const users = [
+        { name: 'Alice', enrolments: [{ createdAt: '2026-07-10T12:00:00.000Z' }] },
+        { name: 'Siddesha', enrolments: [{ createdAt: '23/10/2026' }] },
+        { name: 'BK', enrolments: [{ createdAt: '16/10/2026' }] },
+      ];
+
+      const sortedAsc = [...users].sort((a, b) => {
+        const valA = parseDate(a.enrolments[0]?.createdAt)?.getTime() || 0;
+        const valB = parseDate(b.enrolments[0]?.createdAt)?.getTime() || 0;
+        return valA - valB;
+      });
+
+      expect(sortedAsc.map(u => u.name)).toEqual(['Alice', 'BK', 'Siddesha']);
+    });
+  });
+
+  describe('9. Action Menu & Profile Scoping per Role', () => {
+    function computeActionMenuItems(user: { id: string; role: string; enrolments?: any[] }, currentUserRole = 'ADMIN'): string[] {
+      const isManager = currentUserRole === 'MANAGER';
+      const isSuperAdmin = currentUserRole === 'SUPER_ADMIN';
+
+      const items: string[] = [];
+
+      // View Full Profile is learner-only
+      if (user.role === 'USER') {
+        items.push('View Full Profile');
+      }
+
+      // Assign Batch is for learners and batch managers
+      if (user.role === 'USER' || user.role === 'MANAGER') {
+        items.push('Assign Batch');
+      }
+
+      if (!isManager) {
+        if (!(!isSuperAdmin && user.role === 'SUPER_ADMIN')) {
+          items.push('Edit Role / Profile');
+        }
+        if (user.role === 'USER' || (user.enrolments && user.enrolments.length > 0)) {
+          items.push('Change Password');
+        }
+        if (!(!isSuperAdmin && user.role === 'SUPER_ADMIN')) {
+          items.push('Revoke Access');
+        }
+      }
+
+      return items;
+    }
+
+    it('displays View Full Profile ONLY for Learners (USER)', () => {
+      const learner = { id: 'u1', role: 'USER', enrolments: [] };
+      const items = computeActionMenuItems(learner);
+      expect(items).toContain('View Full Profile');
+    });
+
+    it('omits View Full Profile for Batch Managers (MANAGER)', () => {
+      const manager = { id: 'm1', role: 'MANAGER' };
+      const items = computeActionMenuItems(manager);
+      expect(items).not.toContain('View Full Profile');
+      expect(items).toContain('Assign Batch');
+      expect(items).toContain('Edit Role / Profile');
+      expect(items).toContain('Revoke Access');
+    });
+
+    it('omits View Full Profile for Admins and Super Admins', () => {
+      const admin = { id: 'a1', role: 'ADMIN' };
+      const superAdmin = { id: 'sa1', role: 'SUPER_ADMIN' };
+
+      expect(computeActionMenuItems(admin)).not.toContain('View Full Profile');
+      expect(computeActionMenuItems(superAdmin, 'SUPER_ADMIN')).not.toContain('View Full Profile');
+    });
+
+    it('prevents standard Admins from modifying Super Admin accounts', () => {
+      const superAdmin = { id: 'sa1', role: 'SUPER_ADMIN' };
+      const itemsForAdmin = computeActionMenuItems(superAdmin, 'ADMIN');
+      expect(itemsForAdmin).not.toContain('Edit Role / Profile');
+      expect(itemsForAdmin).not.toContain('Revoke Access');
     });
   });
 });

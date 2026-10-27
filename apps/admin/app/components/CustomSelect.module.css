@@ -97,7 +97,7 @@
 
 .menuPortal {
   position: fixed;
-  max-height: 280px;
+  max-height: 380px;
   overflow-y: auto;
   background: #ffffff;
   border: 1px solid var(--border-light, #e7decb);

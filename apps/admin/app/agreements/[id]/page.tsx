@@ -297,6 +297,18 @@ export default function AgreementTemplateDetailPage({
     }
   };
 
+  // Deep-link auto-open for signed records (e.g. ?signedId=uuid)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const targetSignedId = searchParams.get('signedId');
+      if (targetSignedId) {
+        setActiveTab('signed');
+        handleOpenSignedDetails({ id: targetSignedId } as any);
+      }
+    }
+  }, [templateId]);
+
   const fetchTemplateData = async () => {
     setIsLoading(true);
     setStatusMsg(null);

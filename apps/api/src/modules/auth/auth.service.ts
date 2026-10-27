@@ -142,22 +142,61 @@ export class AuthService {
       }
 
       // PDF Page 13: Log unusual activity, such as many logins from different countries, for admin review
-      if (isSuspicious && typeof (this.prisma as any).auditLog?.create === 'function') {
-        await (this.prisma as any).auditLog.create({
-          data: {
-            actorId: params.userId,
-            action: 'UNUSUAL_LOGIN_DETECTED',
-            entity: 'User',
-            entityId: params.userId,
-            meta: {
-              country: params.country ?? null,
-              ipAddress: params.ipAddress ?? null,
-              userAgent: params.userAgent ?? null,
-              reason: params.reason || 'Unusual login activity detected (country hopping or suspicious pattern)',
-            },
-            ip: params.ipAddress ?? null,
+      if (isSuspicious) {
+        const suspiciousAuditData = {
+          actorId: params.userId,
+          action: 'UNUSUAL_LOGIN_DETECTED',
+          entity: 'User',
+          entityId: params.userId,
+          meta: {
+            country: params.country ?? null,
+            ipAddress: params.ipAddress ?? null,
+            userAgent: params.userAgent ?? null,
+            reason: params.reason || 'Unusual login activity detected (country hopping or suspicious pattern)',
           },
-        }).catch(() => null);
+          ip: params.ipAddress ?? null,
+        };
+        if (typeof (this.prisma as any).logAction === 'function') {
+          await (this.prisma as any).logAction(suspiciousAuditData).catch(() => null);
+        } else if (typeof (this.prisma as any).auditLog?.create === 'function') {
+          await (this.prisma as any).auditLog.create({ data: suspiciousAuditData }).catch(() => null);
+        }
+      }
+
+      // PDF Pages 4, 5 & 13: Log successful user sign-in to immutable AuditLog for admin review and compliance
+      if (
+        !isSuspicious &&
+        (params.reason === 'SUCCESS' ||
+          params.reason === 'SUCCESS_SETUP_REQUIRED' ||
+          params.reason === '2FA_SUCCESS')
+      ) {
+        let loginDetail = 'User signed in successfully';
+        if (params.reason === '2FA_SUCCESS') {
+          loginDetail = 'Signed in with two-factor authentication';
+        } else if (params.reason === 'SUCCESS_SETUP_REQUIRED') {
+          loginDetail = 'Signed in successfully (2FA setup pending)';
+        }
+
+        const loginAuditData = {
+          actorId: params.userId,
+          action: 'LOGIN',
+          entity: 'UserSession',
+          entityId: params.userId,
+          meta: {
+            country: params.country ?? null,
+            ipAddress: params.ipAddress ?? null,
+            userAgent: params.userAgent ?? null,
+            deviceFingerprint: params.deviceFingerprint ?? null,
+            reason: loginDetail,
+          },
+          ip: params.ipAddress ?? null,
+        };
+
+        if (typeof (this.prisma as any).logAction === 'function') {
+          await (this.prisma as any).logAction(loginAuditData).catch(() => null);
+        } else if (typeof (this.prisma as any).auditLog?.create === 'function') {
+          await (this.prisma as any).auditLog.create({ data: loginAuditData }).catch(() => null);
+        }
       }
     } catch {
       // Non-blocking: audit write failure must not break the authentication flow
@@ -551,6 +590,20 @@ export class AuthService {
       sessionId,
     };
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
+
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: user.id,
+        action: 'USER_REGISTERED',
+        entity: 'User',
+        entityId: user.id,
+        meta: {
+          email: user.email,
+          country: user.country,
+          reason: 'Learner registered new account',
+        },
+      }).catch(() => {});
+    }
 
     return {
       access_token: accessToken,
@@ -1211,6 +1264,7 @@ export class AuthService {
           action: 'LOGOUT',
           entity: 'UserSession',
           entityId: sessionId,
+          meta: { reason: 'User session signed out' },
         }).catch(() => {});
       }
     } else {
@@ -1238,7 +1292,7 @@ export class AuthService {
         action: 'LOGOUT_ALL_SESSIONS',
         entity: 'User',
         entityId: userId,
-        meta: { count: res.count },
+        meta: { count: res.count, reason: 'All active sessions revoked' },
       }).catch(() => {});
     }
 
@@ -1352,6 +1406,7 @@ export class AuthService {
         action: 'REVOKE_SESSION',
         entity: 'UserSession',
         entityId: sessionIdToRevoke,
+        meta: { reason: 'Specific user session revoked' },
       }).catch(() => {});
     }
 
@@ -1516,6 +1571,7 @@ export class AuthService {
         action: 'PASSWORD_RESET',
         entity: 'User',
         entityId: resetToken.userId,
+        meta: { reason: 'Password reset confirmed via token' },
       }).catch(() => {});
     }
 

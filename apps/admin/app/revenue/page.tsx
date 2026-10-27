@@ -3,18 +3,21 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import styles from "../page.module.css";
 import { API_URL, cachedFetch } from "../lib/api";
-import { TableSkeleton, EmptyState, CustomSelect, Pagination, type CustomSelectOption } from "../components";
-import { isDateInRange, type DateRangeFilter } from "./date-range";
+import { TableSkeleton, EmptyState, CustomSelect, Pagination, DatePicker, type CustomSelectOption } from "../components";
+import { isDateInRange, calculateRevenuePeriodDates, type DateRangeFilter } from "./date-range";
 import { formatRevenueMetric, formatCurrencyAmount, getCurrencyParts } from "./revenue-utils";
 
 export { isDateInRange, type DateRangeFilter };
 
 const DATE_FILTER_OPTIONS: CustomSelectOption[] = [
-  { value: "all", label: "All Time" },
-  { value: "today", label: "Today" },
-  { value: "week", label: "This Week" },
-  { value: "month", label: "This Month" },
-  { value: "year", label: "This Year" },
+  { value: "THIS_MONTH", label: "This Month" },
+  { value: "ALL", label: "All Time" },
+  { value: "TODAY", label: "Today" },
+  { value: "YESTERDAY", label: "Yesterday" },
+  { value: "LAST_7_DAYS", label: "Last 7 Days" },
+  { value: "LAST_30_DAYS", label: "Last 30 Days" },
+  { value: "THIS_YEAR", label: "This Year" },
+  { value: "CUSTOM", label: "Custom Range" },
 ];
 
 const STATUS_FILTER_OPTIONS: CustomSelectOption[] = [
@@ -75,7 +78,12 @@ export default function RevenuePage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [dateFilter, setDateFilter] = useState<DateRangeFilter>("all");
+  const initialDates = calculateRevenuePeriodDates("THIS_MONTH");
+  const [dateFilter, setDateFilter] = useState<DateRangeFilter>("THIS_MONTH");
+  const [startDate, setStartDate] = useState<string>(initialDates.startDate);
+  const [endDate, setEndDate] = useState<string>(initialDates.endDate);
+  const [isFromPickerOpen, setIsFromPickerOpen] = useState(false);
+  const [isToPickerOpen, setIsToPickerOpen] = useState(false);
   const [programFilter, setProgramFilter] = useState<string>("all");
   const [batchFilter, setBatchFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -101,7 +109,12 @@ export default function RevenuePage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const url = `${API_URL}/revenue?period=${dateFilter}`;
+      const params = new URLSearchParams();
+      params.set("period", String(dateFilter));
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+
+      const url = `${API_URL}/revenue?${params.toString()}`;
       const res = await cachedFetch(url, {
         skipCache: true,
         headers,
@@ -129,7 +142,22 @@ export default function RevenuePage() {
 
   useEffect(() => {
     fetchRevenue();
-  }, [dateFilter]);
+  }, [dateFilter, startDate, endDate]);
+
+  const handlePeriodChange = (period: string) => {
+    const pf = period as DateRangeFilter;
+    setDateFilter(pf);
+    if (period !== "CUSTOM") {
+      setIsFromPickerOpen(false);
+      setIsToPickerOpen(false);
+      const { startDate: s, endDate: e } = calculateRevenuePeriodDates(period);
+      setStartDate(s);
+      setEndDate(e);
+    } else {
+      setIsFromPickerOpen(true);
+      setIsToPickerOpen(false);
+    }
+  };
 
   // ─────────────────────────────────────────────────────────────────────────────
   // DYNAMIC FILTER DROPDOWNS (PROGRAMS & BATCHES)
@@ -180,7 +208,7 @@ export default function RevenuePage() {
   // Reset page to 1 whenever any filter or search query changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateFilter, programFilter, batchFilter, statusFilter, searchQuery]);
+  }, [dateFilter, startDate, endDate, programFilter, batchFilter, statusFilter, searchQuery]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // FILTERING & COLUMN SORTING LOGIC
@@ -191,7 +219,7 @@ export default function RevenuePage() {
 
     const filtered = allTx.filter((tx) => {
       // 1. Date Range
-      if (!isDateInRange(tx.createdAt, dateFilter)) return false;
+      if (!isDateInRange(tx.createdAt, dateFilter, new Date(), { startDate, endDate })) return false;
 
       // 2. Program Filter
       if (programFilter !== "all") {
@@ -287,7 +315,7 @@ export default function RevenuePage() {
     }
 
     const isUnfilteredAllTime =
-      dateFilter === "all" &&
+      (dateFilter === "all" || dateFilter === "ALL") &&
       programFilter === "all" &&
       batchFilter === "all" &&
       statusFilter === "all" &&
@@ -340,14 +368,19 @@ export default function RevenuePage() {
 
   // Active filters summary
   const hasActiveFilters =
-    dateFilter !== "all" ||
+    dateFilter !== "THIS_MONTH" ||
     programFilter !== "all" ||
     batchFilter !== "all" ||
     statusFilter !== "all" ||
     searchQuery.trim() !== "";
 
   const resetAllFilters = () => {
-    setDateFilter("all");
+    setDateFilter("THIS_MONTH");
+    const { startDate: s, endDate: e } = calculateRevenuePeriodDates("THIS_MONTH");
+    setStartDate(s);
+    setEndDate(e);
+    setIsFromPickerOpen(false);
+    setIsToPickerOpen(false);
     setProgramFilter("all");
     setBatchFilter("all");
     setStatusFilter("all");
@@ -361,7 +394,9 @@ export default function RevenuePage() {
     if (!filteredAndSortedTransactions.length) return;
     const dateStr = new Date().toISOString().split("T")[0];
     const filterParts = [
-      dateFilter !== "all" ? dateFilter : null,
+      dateFilter !== "all" && dateFilter !== "ALL" ? dateFilter : null,
+      startDate ? `from_${startDate}` : null,
+      endDate ? `to_${endDate}` : null,
       programFilter !== "all" ? programFilter.replace(/[^a-z0-9]+/gi, "_").toLowerCase() : null,
       batchFilter !== "all" ? batchFilter.replace(/[^a-z0-9]+/gi, "_").toLowerCase() : null,
       statusFilter !== "all" ? statusFilter.toLowerCase() : null,
@@ -478,149 +513,370 @@ export default function RevenuePage() {
       </header>
 
       {/* ───────────────────────────────────────────────────────────────────────
-          UNIFIED FILTER TOOLBAR WITH INTEGRATED EXPORT ACTION
+          UNIFIED FILTER TOOLBAR WITH STRUCTURED RESPONSIVE TIERS & EXPORT ACTION
       ───────────────────────────────────────────────────────────────────────── */}
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          columnGap: "1rem",
-          rowGap: "0.75rem",
           background: "var(--card-bg, #ffffff)",
           padding: "0.75rem 1.15rem",
           borderRadius: "8px",
           border: "1px solid var(--border-light, #e7decb)",
           marginBottom: "1.25rem",
           boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
+          display: "flex",
+          flexDirection: "column",
+          gap: dateFilter === "CUSTOM" ? "0.75rem" : "0",
         }}
       >
-        {/* Filter Selectors Group */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            flexWrap: "wrap",
-            columnGap: "1rem",
-            rowGap: "0.5rem",
-            flex: "1 1 auto",
-          }}
-        >
-          {/* Period Filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Period:
-            </span>
-            <CustomSelect
-              options={DATE_FILTER_OPTIONS}
-              value={dateFilter}
-              onChange={(v) => setDateFilter(v as DateRangeFilter)}
-              minWidth="130px"
-              ariaLabel="Filter transactions by date period"
-            />
-          </div>
-
-          {/* Program Filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Program:
-            </span>
-            <CustomSelect
-              options={programOptions}
-              value={programFilter}
-              onChange={(v) => setProgramFilter(v)}
-              minWidth="160px"
-              menuMinWidth="260px"
-              ariaLabel="Filter transactions by program"
-            />
-          </div>
-
-          {/* Batch Filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Batch:
-            </span>
-            <CustomSelect
-              options={batchOptions}
-              value={batchFilter}
-              onChange={(v) => setBatchFilter(v)}
-              minWidth="160px"
-              menuMinWidth="280px"
-              ariaLabel="Filter transactions by cohort batch"
-            />
-          </div>
-
-          {/* Status Filter */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Status:
-            </span>
-            <CustomSelect
-              options={STATUS_FILTER_OPTIONS}
-              value={statusFilter}
-              onChange={(v) => setStatusFilter(v)}
-              minWidth="130px"
-              menuMinWidth="150px"
-              ariaLabel="Filter transactions by payment status"
-            />
-          </div>
-
-          {/* Reset Filters */}
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={resetAllFilters}
+        {dateFilter === "CUSTOM" ? (
+          <>
+            {/* Tier 1: Date Range Controls & Top-Right Export Action */}
+            <div
               style={{
-                background: "transparent",
-                border: "1px dashed var(--border-light, #e7decb)",
-                color: "var(--accent-primary, #c97a1e)",
-                fontSize: "0.78rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                padding: "0.4rem 0.75rem",
-                display: "inline-flex",
+                display: "flex",
                 alignItems: "center",
-                gap: "0.35rem",
-                borderRadius: "6px",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "0.75rem",
               }}
-              title="Reset all filters to default"
             >
-              <Icons.Refresh />
-              <span>Reset Filters</span>
-            </button>
-          )}
-        </div>
+              {/* Left: Period Selector & Inline Custom Range Pickers */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                }}
+              >
+                {/* Period Filter */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    Period:
+                  </span>
+                  <CustomSelect
+                    options={DATE_FILTER_OPTIONS}
+                    value={dateFilter}
+                    onChange={handlePeriodChange}
+                    minWidth="140px"
+                    menuMinWidth="165px"
+                    menuMaxHeight="400px"
+                    ariaLabel="Filter transactions by date period"
+                  />
+                </div>
 
-        {/* Integrated Export CSV Button (Collapses to Icon-Only to Stay on Single Row) */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-          <button
-            type="button"
-            className={styles.secondaryBtn}
-            onClick={handleExportCSV}
-            disabled={isLoading || !filteredAndSortedTransactions.length}
-            title={
-              filteredAndSortedTransactions.length > 0
-                ? `Export all ${filteredAndSortedTransactions.length} filtered transactions to CSV (full dataset)`
-                : "No matching transactions to export"
-            }
+                {/* Date Range: From & To */}
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "0.75rem",
+                    background: "#faf7f2",
+                    border: "1px solid #ebdccb",
+                    padding: "0.25rem 0.65rem",
+                    borderRadius: "8px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      From:
+                    </span>
+                    <DatePicker
+                      value={startDate}
+                      isOpen={isFromPickerOpen}
+                      onOpenChange={setIsFromPickerOpen}
+                      onChange={(val) => {
+                        setStartDate(val);
+                        setIsFromPickerOpen(false);
+                        if (val && !endDate) {
+                          setTimeout(() => setIsToPickerOpen(true), 50);
+                        }
+                      }}
+                      placeholder="dd-mm-yyyy"
+                      minWidth="135px"
+                      ariaLabel="Filter revenue from date"
+                      maxDate={endDate || undefined}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      To:
+                    </span>
+                    <DatePicker
+                      value={endDate}
+                      isOpen={isToPickerOpen}
+                      onOpenChange={setIsToPickerOpen}
+                      onChange={(val) => {
+                        setEndDate(val);
+                        setIsToPickerOpen(false);
+                      }}
+                      placeholder="dd-mm-yyyy"
+                      minWidth="135px"
+                      ariaLabel="Filter revenue to date"
+                      minDate={startDate || undefined}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Export CSV Button (anchored to top-right) */}
+              <div style={{ display: "flex", alignItems: "center", flexShrink: 0, marginLeft: "auto" }}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={handleExportCSV}
+                  disabled={isLoading || !filteredAndSortedTransactions.length}
+                  title={
+                    filteredAndSortedTransactions.length > 0
+                      ? `Export all ${filteredAndSortedTransactions.length} filtered transactions to CSV (full dataset)`
+                      : "No matching transactions to export"
+                  }
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "0.45rem",
+                    padding: "0 0.95rem",
+                    height: "36px",
+                    borderRadius: "6px",
+                    whiteSpace: "nowrap",
+                    fontWeight: 600,
+                    fontSize: "0.82rem",
+                  }}
+                  aria-label="Export all filtered transactions to CSV"
+                >
+                  <Icons.Export />
+                  <span>Export CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Tier 2: Categorical Entity Filters & Reset Action */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "1rem",
+                paddingTop: "0.65rem",
+                borderTop: "1px dashed #f0e9dc",
+              }}
+            >
+              {/* Program Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Program:
+                </span>
+                <CustomSelect
+                  options={programOptions}
+                  value={programFilter}
+                  onChange={(v) => setProgramFilter(v)}
+                  minWidth="160px"
+                  menuMinWidth="260px"
+                  ariaLabel="Filter transactions by program"
+                />
+              </div>
+
+              {/* Batch Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Batch:
+                </span>
+                <CustomSelect
+                  options={batchOptions}
+                  value={batchFilter}
+                  onChange={(v) => setBatchFilter(v)}
+                  minWidth="160px"
+                  menuMinWidth="280px"
+                  ariaLabel="Filter transactions by cohort batch"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Status:
+                </span>
+                <CustomSelect
+                  options={STATUS_FILTER_OPTIONS}
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v)}
+                  minWidth="130px"
+                  menuMinWidth="150px"
+                  ariaLabel="Filter transactions by payment status"
+                />
+              </div>
+
+              {/* Reset Filters */}
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={resetAllFilters}
+                  style={{
+                    background: "transparent",
+                    border: "1px dashed var(--border-light, #e7decb)",
+                    color: "var(--accent-primary, #c97a1e)",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    padding: "0.4rem 0.75rem",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    borderRadius: "6px",
+                  }}
+                  title="Reset all filters to default"
+                >
+                  <Icons.Refresh />
+                  <span>Reset Filters</span>
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Single-line Standard Toolbar when Custom Range is not active */
+          <div
             style={{
-              display: "inline-flex",
+              display: "flex",
               alignItems: "center",
-              justifyContent: "center",
-              gap: "0.45rem",
-              padding: hasActiveFilters ? "0 0.65rem" : "0 0.85rem",
-              height: "36px",
-              minWidth: "36px",
-              borderRadius: "6px",
-              whiteSpace: "nowrap",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              columnGap: "1rem",
+              rowGap: "0.65rem",
             }}
-            aria-label="Export all filtered transactions to CSV"
           >
-            <Icons.Export />
-            {!hasActiveFilters && <span>Export CSV</span>}
-          </button>
-        </div>
+            {/* Left Filter Group */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                columnGap: "1rem",
+                rowGap: "0.5rem",
+                flex: "1 1 auto",
+              }}
+            >
+              {/* Period Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Period:
+                </span>
+                <CustomSelect
+                  options={DATE_FILTER_OPTIONS}
+                  value={dateFilter}
+                  onChange={handlePeriodChange}
+                  minWidth="140px"
+                  menuMinWidth="165px"
+                  menuMaxHeight="400px"
+                  ariaLabel="Filter transactions by date period"
+                />
+              </div>
+
+              {/* Program Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Program:
+                </span>
+                <CustomSelect
+                  options={programOptions}
+                  value={programFilter}
+                  onChange={(v) => setProgramFilter(v)}
+                  minWidth="160px"
+                  menuMinWidth="260px"
+                  ariaLabel="Filter transactions by program"
+                />
+              </div>
+
+              {/* Batch Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Batch:
+                </span>
+                <CustomSelect
+                  options={batchOptions}
+                  value={batchFilter}
+                  onChange={(v) => setBatchFilter(v)}
+                  minWidth="160px"
+                  menuMinWidth="280px"
+                  ariaLabel="Filter transactions by cohort batch"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary, #78716a)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Status:
+                </span>
+                <CustomSelect
+                  options={STATUS_FILTER_OPTIONS}
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v)}
+                  minWidth="130px"
+                  menuMinWidth="150px"
+                  ariaLabel="Filter transactions by payment status"
+                />
+              </div>
+
+              {/* Reset Filters */}
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={resetAllFilters}
+                  style={{
+                    background: "transparent",
+                    border: "1px dashed var(--border-light, #e7decb)",
+                    color: "var(--accent-primary, #c97a1e)",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    padding: "0.4rem 0.75rem",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    borderRadius: "6px",
+                  }}
+                  title="Reset all filters to default"
+                >
+                  <Icons.Refresh />
+                  <span>Reset Filters</span>
+                </button>
+              )}
+            </div>
+
+            {/* Right Export Action */}
+            <div style={{ display: "flex", alignItems: "center", flexShrink: 0, marginLeft: "auto" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={handleExportCSV}
+                disabled={isLoading || !filteredAndSortedTransactions.length}
+                title={
+                  filteredAndSortedTransactions.length > 0
+                    ? `Export all ${filteredAndSortedTransactions.length} filtered transactions to CSV (full dataset)`
+                    : "No matching transactions to export"
+                }
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "0.45rem",
+                  padding: "0 0.95rem",
+                  height: "36px",
+                  borderRadius: "6px",
+                  whiteSpace: "nowrap",
+                  fontWeight: 600,
+                  fontSize: "0.82rem",
+                }}
+                aria-label="Export all filtered transactions to CSV"
+              >
+                <Icons.Export />
+                <span>Export CSV</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Polished Error Banner */}

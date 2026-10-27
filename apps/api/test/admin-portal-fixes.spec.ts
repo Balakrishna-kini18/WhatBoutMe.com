@@ -260,7 +260,7 @@ describe('Admin Portal Audit Findings - Regression Test Suite', () => {
         name: 'Program B',
         count: 1,
         percentage: 25,
-        color: '#d8a86a',
+        color: '#2563eb',
       });
     });
   });

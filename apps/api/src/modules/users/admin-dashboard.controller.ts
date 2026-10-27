@@ -100,7 +100,7 @@ export class AdminDashboardController {
           progCounts[title] = (progCounts[title] || 0) + 1;
         });
         const totalProgEnrolments = allEnrolments.length;
-        const brandColors = ['#c97a1e', '#d8a86a', '#2c2825', '#8c8275', '#a39887'];
+        const brandColors = ['#c97a1e', '#2563eb', '#059669', '#7c3aed', '#e11d48', '#0891b2', '#d97706', '#475569'];
         const programDistribution = Object.entries(progCounts).map(([name, count], index) => ({
           name,
           count,
@@ -173,7 +173,7 @@ export class AdminDashboardController {
         this.prisma.enrolment.findMany({
           select: { program: { select: { id: true, title: true } } },
         }),
-        typeof this.prisma.auditLog?.findMany === 'function'
+typeof this.prisma.auditLog?.findMany === 'function'
           ? this.prisma.auditLog
               .findMany({
                 where: {
@@ -211,9 +211,9 @@ export class AdminDashboardController {
         }
       }
 
-      // Convert to normalized USD (1 USD = 83 INR, 1 USD = 3.67 AED)
-      const normalizedUSD = (byCurrency.USD || 0) + ((byCurrency.AED || 0) / 3.67) + ((byCurrency.INR || 0) / 83);
-      const formattedRevenue = `$${Math.round(normalizedUSD).toLocaleString()}`;
+      // Total Revenue in USD (matches Revenue page multi-currency ledger separation)
+      const usdTotal = byCurrency.USD || 0;
+      const formattedRevenue = `$${Math.round(usdTotal).toLocaleString()}`;
 
       // Clean USD-only subtitle per client specification
       const revenueSubtitle = 'Program & workshop revenue (USD)';
@@ -248,7 +248,7 @@ export class AdminDashboardController {
         progCounts[title] = (progCounts[title] || 0) + 1;
       });
       const totalProgEnrolments = allEnrolments.length;
-      const brandColors = ['#c97a1e', '#d8a86a', '#2c2825', '#8c8275', '#a39887'];
+      const brandColors = ['#c97a1e', '#2563eb', '#059669', '#7c3aed', '#e11d48', '#0891b2', '#d97706', '#475569'];
       const programDistribution = Object.entries(progCounts).map(([name, count], index) => ({
         name,
         count,
@@ -308,7 +308,7 @@ export class AdminDashboardController {
     }
 
     const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(limitStr || '25', 10) || 25));
+    const limit = Math.min(1000, Math.max(1, parseInt(limitStr || '25', 10) || 25));
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -338,11 +338,24 @@ export class AdminDashboardController {
 
     if (search && search.trim()) {
       const q = search.trim();
+      const matchingUsers = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+        take: 50,
+      });
+      const matchingUserIds = matchingUsers.map((u) => u.id);
+
       where.OR = [
         { action: { contains: q, mode: 'insensitive' } },
         { entity: { contains: q, mode: 'insensitive' } },
         { entityId: { contains: q, mode: 'insensitive' } },
         { actorId: { contains: q, mode: 'insensitive' } },
+        ...(matchingUserIds.length > 0 ? [{ actorId: { in: matchingUserIds } }] : []),
       ];
     }
 

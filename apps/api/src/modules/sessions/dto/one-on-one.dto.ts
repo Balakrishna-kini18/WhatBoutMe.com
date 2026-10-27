@@ -1,4 +1,4 @@
-import { IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateOneOnOneRequestDto {
   @IsUUID()
@@ -20,6 +20,10 @@ export class CreateOneOnOneRequestDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  reschedule?: boolean;
 }
 
 export class ApproveOneOnOneRequestDto {

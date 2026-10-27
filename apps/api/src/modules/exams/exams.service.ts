@@ -146,23 +146,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Active enrolment required to take this exam');
     }
 
-    // ── Prerequisite Gate: Verify all program steps are completed ─────────────
-    const progressionOverview = await this.progressionService.getEnrolmentProgression(
-      enrolment.id,
-      actor,
-    );
-
-    const allStepsCompleted =
-      progressionOverview.steps.length > 0 &&
-      progressionOverview.steps.every((s: any) => s.isCompleted);
-
-    if (!allStepsCompleted) {
-      throw new BadRequestException(
-        'Prerequisite incomplete: You must complete all program steps and step quizzes before taking the final exam',
-      );
-    }
-
-    // ── Resume Active IN_PROGRESS Attempt ─────────────────────────────────────
+    // ── Resume Active IN_PROGRESS Attempt (Fast Path: 0ms overhead) ───────────
     const existingActiveAttempt = await this.prisma.examAttempt.findFirst({
       where: {
         enrolmentId: enrolment.id,
@@ -173,6 +157,35 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
 
     if (existingActiveAttempt) {
       return this.formatExamAttemptResponse(existingActiveAttempt, exam);
+    }
+
+    // ── Prerequisite Gate: Fast check without redundant DB persistence ────────
+    const publishedStepCount = exam.program?.steps?.length || 0;
+    const completedStepProgressCount = this.prisma.stepProgress?.count
+      ? await this.prisma.stepProgress.count({
+          where: {
+            enrolmentId: enrolment.id,
+            isCompleted: true,
+          },
+        })
+      : 0;
+
+    let allStepsCompleted = publishedStepCount > 0 && completedStepProgressCount >= publishedStepCount;
+    if (!allStepsCompleted) {
+      const progressionOverview = await this.progressionService.getEnrolmentProgression(
+        enrolment.id,
+        actor,
+        { persist: false },
+      );
+      allStepsCompleted =
+        progressionOverview.steps.length > 0 &&
+        progressionOverview.steps.every((s: any) => s.isCompleted);
+    }
+
+    if (!allStepsCompleted) {
+      throw new BadRequestException(
+        'Prerequisite incomplete: You must complete all program steps and step quizzes before taking the final exam',
+      );
     }
 
     // ── Check Attempts & Cooldown Throttling ──────────────────────────────────
@@ -772,6 +785,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         expiresAt: true,
         completedAt: true,
         createdAt: true,
+        answers: true,
       },
     });
 
@@ -1188,58 +1202,80 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
 
       const steps = Array.isArray(exam.program?.steps) ? exam.program.steps : [];
       const needed = Math.max(0, 70 - existingCount);
-      const created: any[] = [];
+      if (needed <= 0) return [];
+
+      const newQuestionIds: string[] = [];
+      const questionData: any[] = [];
+      const optionData: any[] = [];
 
       for (let i = 0; i < needed; i++) {
+        const qId = crypto.randomUUID();
+        newQuestionIds.push(qId);
         const qNum = existingCount + i + 1;
         const stepObj = steps.length > 0 ? steps[i % steps.length] : null;
         const stepLabel = stepObj ? `Step ${stepObj.sequence} (${stepObj.title})` : 'Core Curriculum';
 
-        const q = await this.prisma.question.create({
-          data: {
-            questionBankId: bank.id,
-            stepId: stepObj?.id ?? null,
-            text: `Final Certification Q${qNum}: Which principle best demonstrates mastery of ${stepLabel}?`,
-            type: 'MULTIPLE_CHOICE' as any,
-            points: 1,
-            options: {
-              create: [
-                {
-                  text: `Applying structured self-awareness and intentional action from ${stepLabel}`,
-                  isCorrect: true,
-                  order: 1,
-                },
-                {
-                  text: 'Reacting impulsively without reflection or milestone alignment',
-                  isCorrect: false,
-                  order: 2,
-                },
-                {
-                  text: 'Skipping foundational exercises and avoiding accountability',
-                  isCorrect: false,
-                  order: 3,
-                },
-                {
-                  text: 'Relying solely on external validation rather than internal clarity',
-                  isCorrect: false,
-                  order: 4,
-                },
-              ],
-            },
-          },
-          include: {
-            options: {
-              select: { id: true, text: true, imageUrl: true, order: true },
-              orderBy: { order: 'asc' },
-            },
-            step: { select: { id: true, sequence: true, title: true } },
-          },
+        questionData.push({
+          id: qId,
+          questionBankId: bank.id,
+          stepId: stepObj?.id ?? null,
+          text: `Final Certification Q${qNum}: Which principle best demonstrates mastery of ${stepLabel}?`,
+          type: 'MULTIPLE_CHOICE' as any,
+          points: 1,
         });
-        created.push(q);
+
+        optionData.push(
+          {
+            id: crypto.randomUUID(),
+            questionId: qId,
+            text: `Applying structured self-awareness and intentional action from ${stepLabel}`,
+            isCorrect: true,
+            order: 1,
+          },
+          {
+            id: crypto.randomUUID(),
+            questionId: qId,
+            text: 'Reacting impulsively without reflection or milestone alignment',
+            isCorrect: false,
+            order: 2,
+          },
+          {
+            id: crypto.randomUUID(),
+            questionId: qId,
+            text: 'Skipping foundational exercises and avoiding accountability',
+            isCorrect: false,
+            order: 3,
+          },
+          {
+            id: crypto.randomUUID(),
+            questionId: qId,
+            text: 'Relying solely on external validation rather than internal clarity',
+            isCorrect: false,
+            order: 4,
+          },
+        );
       }
 
+      // Fast batch insert with single transaction (down from 70 sequential DB round-trips to 1 batch)
+      await this.prisma.$transaction([
+        this.prisma.question.createMany({ data: questionData }),
+        this.prisma.option.createMany({ data: optionData }),
+      ]);
+
+      const created = await this.prisma.question.findMany({
+        where: { id: { in: newQuestionIds } },
+        include: {
+          options: {
+            select: { id: true, text: true, imageUrl: true, order: true },
+            orderBy: { order: 'asc' },
+          },
+          step: { select: { id: true, sequence: true, title: true } },
+        },
+      });
+
       return created;
-    } catch {
+    } catch (err) {
+      console.error('autoSeed70QuestionPool batch error:', err);
       return [];
     }
   }

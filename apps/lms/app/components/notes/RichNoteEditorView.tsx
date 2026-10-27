@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { ContextualNote, formatSecondsToTimestamp } from '../../types/learner-flow';
 import { extractPlainTextPreview } from '../../lib/notesAdapter';
+import { ConfirmModal } from '../ui/ConfirmModal';
 
 interface RichNoteEditorViewProps {
   note: ContextualNote;
@@ -27,6 +28,7 @@ export function RichNoteEditorView({
   const [isFavorite, setIsFavorite] = useState(note.isFavorite);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && newTagInput.trim()) {
@@ -65,13 +67,15 @@ export function RichNoteEditorView({
     }
   };
 
-  const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to permanently delete this note?')) {
-      return;
-    }
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
     setIsDeleting(true);
     try {
       await onDeleteNote(note.noteId);
+      setShowDeleteConfirm(false);
       onBackToNotes();
     } finally {
       setIsDeleting(false);
@@ -118,7 +122,7 @@ export function RichNoteEditorView({
 
           <button
             type="button"
-            onClick={handleDelete}
+            onClick={handleDeleteClick}
             disabled={isDeleting}
             style={{
               padding: '0.45rem 0.9rem',
@@ -430,6 +434,20 @@ export function RichNoteEditorView({
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          if (!isDeleting) setShowDeleteConfirm(false);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Note"
+        message="Are you sure you want to permanently delete this note? This action cannot be undone."
+        confirmText="Delete Note"
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={isDeleting}
+      />
     </div>
   );
 }

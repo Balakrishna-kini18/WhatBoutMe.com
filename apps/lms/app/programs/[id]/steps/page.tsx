@@ -16,6 +16,7 @@ import {
 import {
   API_URL,
   cachedFetch,
+  invalidateCache,
   getAuthHeaders,
   getAuthToken,
   parseApiError,
@@ -207,6 +208,7 @@ interface CoachingRequestItem {
   enrolmentId: string;
   requestedStart: string;
   requestedEnd: string;
+  learnerTimezone?: string | null;
   notes?: string | null;
   status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED" | "EXPIRED";
   decisionReason?: string | null;
@@ -217,6 +219,12 @@ interface CoachingRequestItem {
     endTime: string;
     joinUrl?: string | null;
     status?: string;
+    hostTrainer?: { id: string; name?: string | null; email?: string | null } | null;
+  } | null;
+  enrolment?: {
+    id: string;
+    programId?: string;
+    program?: { id: string; title: string } | null;
   } | null;
   createdAt: string;
 }
@@ -260,11 +268,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [preferredTime, setPreferredTime] = useState("10:00");
   const [coachingNotes, setCoachingNotes] = useState("");
   const [submittingCoaching, setSubmittingCoaching] = useState(false);
+  const [cancellingCoaching, setCancellingCoaching] = useState(false);
   const [coachingFeedbackMsg, setCoachingFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showRescheduleForm, setShowRescheduleForm] = useState(false);
   const [showReapplyForm, setShowReapplyForm] = useState(false);
 
   const [showMissionPanel, setShowMissionPanel] = useState(false);
+  const [showMissionReplaceForm, setShowMissionReplaceForm] = useState(false);
   const [selectedMissionFile, setSelectedMissionFile] = useState<File | null>(null);
   const [submittingMission, setSubmittingMission] = useState(false);
   const [missionFeedbackMsg, setMissionFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -299,6 +309,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         const res = await cachedFetch(`${API_URL}/progression/me/${id}`, {
           headers,
           ttlMs: 20_000,
+          skipCache: isRetry,
         });
 
         if (res.status === 401) {
@@ -328,19 +339,22 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                 ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
                     headers,
                     ttlMs: 30_000,
+                    skipCache: isRetry,
                   }).catch(() => null)
                 : Promise.resolve(null),
               cachedFetch(`${API_URL}/programs/${id}/exam`, {
                 headers,
                 ttlMs: 60_000,
+                skipCache: isRetry,
               }).catch(() => null),
               cachedFetch(
                 `${API_URL}/one-on-one/my-requests${enrolmentId ? `?enrolmentId=${enrolmentId}` : ""}`,
-                { headers, ttlMs: 30_000 }
+                { headers, ttlMs: 30_000, skipCache: isRetry }
               ).catch(() => null),
               cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
                 headers,
                 ttlMs: 30_000,
+                skipCache: isRetry,
               }).catch(() => null),
             ]);
 
@@ -362,6 +376,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                   const attRes = await cachedFetch(`${API_URL}/exams/${eConfig.id}/attempt`, {
                     headers,
                     ttlMs: 15_000,
+                    skipCache: isRetry,
                   });
                   if (attRes && attRes.ok) {
                     const attText = await attRes.text();
@@ -379,7 +394,15 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               const cList = await coachingRes.json();
               if (Array.isArray(cList)) {
                 setCoachingRequests(
-                  enrolmentId ? cList.filter((r: any) => r.enrolmentId === enrolmentId) : cList
+                  enrolmentId
+                    ? cList.filter(
+                        (r: any) =>
+                          r.enrolmentId === enrolmentId ||
+                          r.enrolment?.id === enrolmentId ||
+                          r.enrolment?.programId === id ||
+                          r.enrolment?.program?.id === id
+                      )
+                    : cList
                 );
               }
             }
@@ -417,11 +440,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
   const handleBookCoaching = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingCoaching) return;
+
     const built = buildCoachingRequestPayload({
       enrolmentId: progression?.enrolmentId,
       preferredDate,
       preferredTime,
       notes: coachingNotes,
+      reschedule: showRescheduleForm,
     });
 
     if (!built.ok) {
@@ -445,6 +471,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         throw new Error(err.message);
       }
       const created = await res.json();
+      invalidateCache("/one-on-one");
+      invalidateCache("/progression");
       setCoachingRequests((prev) => [created, ...prev.filter((r) => r.id !== created.id)]);
       setCoachingNotes("");
       setShowRescheduleForm(false);
@@ -453,11 +481,112 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         type: "ok",
         text: "1-on-1 Coaching request submitted! You will receive a meeting link once approved.",
       });
-      loadProgression(true);
+      await loadProgression(true);
     } catch (err: any) {
-      setCoachingFeedbackMsg({ type: "err", text: err.message || "Failed to submit coaching request." });
+      const errMsg = err?.message || "Failed to submit coaching request.";
+      const isConflict =
+        errMsg.toLowerCase().includes("already pending review") ||
+        errMsg.toLowerCase().includes("conflict");
+
+      if (isConflict) {
+        invalidateCache("/one-on-one");
+        let foundExisting = false;
+        try {
+          const freshRes = await cachedFetch(
+            `${API_URL}/one-on-one/my-requests${progression?.enrolmentId ? `?enrolmentId=${progression.enrolmentId}` : ""}`,
+            { headers: getAuthHeaders(), skipCache: true }
+          );
+          if (freshRes.ok) {
+            const freshList = await freshRes.json();
+            if (Array.isArray(freshList) && freshList.length > 0) {
+              const matched = progression?.enrolmentId
+                ? freshList.filter(
+                    (r: any) =>
+                      r.enrolmentId === progression.enrolmentId ||
+                      r.enrolment?.id === progression.enrolmentId ||
+                      r.enrolment?.programId === id ||
+                      r.enrolment?.program?.id === id
+                  )
+                : freshList;
+              if (matched.length > 0) {
+                setCoachingRequests(matched);
+                foundExisting = true;
+              }
+            }
+          }
+        } catch {
+          // ignore background re-fetch failure
+        }
+
+        if (!foundExisting) {
+          const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+          const reqStart = `${preferredDate}T${preferredTime}:00`;
+          const reqEnd = new Date(new Date(reqStart).getTime() + 45 * 60000).toISOString();
+          setCoachingRequests((prev) => [
+            {
+              id: `pending-${Date.now()}`,
+              enrolmentId: progression?.enrolmentId || "",
+              status: "PENDING_APPROVAL",
+              requestedStart: reqStart,
+              requestedEnd: reqEnd,
+              learnerTimezone: tz,
+              notes: coachingNotes,
+              createdAt: new Date().toISOString(),
+            },
+            ...prev,
+          ]);
+        }
+
+        setShowRescheduleForm(false);
+        setShowReapplyForm(false);
+        setCoachingFeedbackMsg({
+          type: "err",
+          text: "A 1-on-1 coaching call request is already pending review for this enrolment. Showing your current request below.",
+        });
+        await loadProgression(true);
+      } else {
+        setCoachingFeedbackMsg({ type: "err", text: errMsg });
+      }
     } finally {
       setSubmittingCoaching(false);
+    }
+  };
+
+  const handleCancelCoaching = async (requestId: string) => {
+    if (
+      !confirm(
+        "Are you sure you want to cancel this coaching session request? You will be able to select a new date and time."
+      )
+    ) {
+      return;
+    }
+    setCancellingCoaching(true);
+    try {
+      const res = await fetch(`${API_URL}/one-on-one/requests/${requestId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await parseApiError(res, "Failed to cancel coaching request");
+        throw new Error(err.message);
+      }
+      invalidateCache("/one-on-one");
+      invalidateCache("/progression");
+      setCoachingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      setShowRescheduleForm(false);
+      setShowReapplyForm(false);
+      setCoachingFeedbackMsg({
+        type: "ok",
+        text: "Coaching session request cancelled. You can now choose a new slot whenever ready.",
+      });
+      await loadProgression(true);
+    } catch (err: any) {
+      setCoachingFeedbackMsg({
+        type: "err",
+        text: err?.message || "Failed to cancel coaching request.",
+      });
+    } finally {
+      setCancellingCoaching(false);
     }
   };
 
@@ -488,12 +617,16 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       }
 
       const uploaded = await res.json();
+      invalidateCache("/mission-statements");
+      invalidateCache("/progression");
       setMissionSubmissions((prev) => [uploaded, ...prev]);
       setSelectedMissionFile(null);
+      setShowMissionReplaceForm(false);
       setMissionFeedbackMsg({
         type: "ok",
         text: "Mission Statement uploaded! Our team will review and approve your submission shortly.",
       });
+      await loadProgression(true);
     } catch (err: any) {
       setMissionFeedbackMsg({ type: "err", text: err.message || "Upload failed." });
     } finally {
@@ -1026,35 +1159,166 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             border: "1px solid #ece4d7",
                           }}
                         >
-                          {activeCoachingReq && !showRescheduleForm ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                          {isCoachingCompleted ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
-                                <strong style={{ fontSize: "0.9rem", color: "#14110f" }}>
-                                  {activeCoachingReq.status === "APPROVED"
-                                    ? "Your 1-on-1 Coaching Call is Scheduled"
-                                    : "Your Booking Request is Pending Instructor Confirmation"}
+                                <strong style={{ fontSize: "0.98rem", color: "#166534" }}>
+                                  ✓ 1-on-1 Coaching Session Completed!
                                 </strong>
                                 <span
                                   style={{
                                     fontSize: "0.75rem",
                                     fontWeight: 700,
-                                    padding: "2px 8px",
+                                    padding: "3px 8px",
+                                    borderRadius: 6,
+                                    background: "#dcfce7",
+                                    color: "#166534",
+                                    border: "1px solid #86efac",
+                                  }}
+                                >
+                                  COMPLETED
+                                </span>
+                              </div>
+                              <div style={{ fontSize: "0.85rem", color: "#166534", lineHeight: 1.5, background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "0.75rem 0.95rem", borderRadius: 8 }}>
+                                Congratulations! You have satisfied your 1-on-1 coaching milestone with Roweena. Stage 5 (Mission Statement) is now unlocked.
+                              </div>
+                            </div>
+                          ) : activeCoachingReq && !showRescheduleForm ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "0.5rem",
+                                  paddingBottom: "0.45rem",
+                                  borderBottom: "1px solid #e7dfd3",
+                                }}
+                              >
+                                <div>
+                                  <div
+                                    style={{
+                                      fontSize: "0.74rem",
+                                      fontWeight: 700,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.05em",
+                                      color: activeCoachingReq.status === "APPROVED" ? "#166534" : "#92400e",
+                                    }}
+                                  >
+                                    {activeCoachingReq.status === "APPROVED" ? "Confirmed Milestone" : "Stage 4 Milestone"}
+                                  </div>
+                                  <strong style={{ fontSize: "1.02rem", color: "#14110f", fontWeight: 800 }}>
+                                    {activeCoachingReq.status === "APPROVED"
+                                      ? "Your 1-on-1 Coaching Session is Scheduled"
+                                      : "Your 1-on-1 Coaching Request is Under Review"}
+                                  </strong>
+                                </div>
+                                <span
+                                  style={{
+                                    fontSize: "0.76rem",
+                                    fontWeight: 700,
+                                    padding: "3px 9px",
                                     borderRadius: 6,
                                     background: activeCoachingReq.status === "APPROVED" ? "#dcfce7" : "#fef3c7",
                                     color: activeCoachingReq.status === "APPROVED" ? "#166534" : "#92400e",
+                                    border: `1px solid ${activeCoachingReq.status === "APPROVED" ? "#86efac" : "#fde68a"}`,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.3rem",
                                   }}
                                 >
-                                  {activeCoachingReq.status.replace("_", " ")}
+                                  <span>{activeCoachingReq.status === "APPROVED" ? "✓" : "⏳"}</span>
+                                  <span>{activeCoachingReq.status.replace("_", " ")}</span>
                                 </span>
                               </div>
-                              <div style={{ fontSize: "0.84rem", color: "#4a443d" }}>
-                                <strong>Slot:</strong>{" "}
-                                {new Date(
-                                  activeCoachingReq.session?.startTime || activeCoachingReq.requestedStart
-                                ).toLocaleString(undefined, {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                })}
+
+                              <div
+                                style={{
+                                  background: activeCoachingReq.status === "APPROVED" ? "#f0fdf4" : "#ffffff",
+                                  border: `1px solid ${activeCoachingReq.status === "APPROVED" ? "#bbf7d0" : "#e6ded2"}`,
+                                  borderRadius: 10,
+                                  padding: "0.85rem 1rem",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "0.5rem",
+                                }}
+                              >
+                                <div style={{ fontSize: "0.86rem", color: "#14110f" }}>
+                                  <strong style={{ color: "#7c7267", fontWeight: 600 }}>
+                                    {activeCoachingReq.status === "APPROVED" ? "Confirmed Slot:" : "Requested Slot:"}
+                                  </strong>{" "}
+                                  <span style={{ fontWeight: 700 }}>
+                                    {new Date(
+                                      activeCoachingReq.session?.startTime || activeCoachingReq.requestedStart
+                                    ).toLocaleString(undefined, {
+                                      dateStyle: "full",
+                                      timeStyle: "short",
+                                    })}
+                                  </span>
+                                  {activeCoachingReq.learnerTimezone && (
+                                    <span style={{ fontSize: "0.76rem", color: "#6c6359", marginLeft: "0.35rem" }}>
+                                      ({activeCoachingReq.learnerTimezone})
+                                    </span>
+                                  )}
+                                </div>
+
+                                {activeCoachingReq.session?.hostTrainer?.name && (
+                                  <div style={{ fontSize: "0.84rem", color: "#14110f" }}>
+                                    <strong style={{ color: "#7c7267", fontWeight: 600 }}>Coach:</strong>{" "}
+                                    <span style={{ fontWeight: 600 }}>{activeCoachingReq.session.hostTrainer.name}</span>
+                                  </div>
+                                )}
+
+                                {activeCoachingReq.notes && (
+                                  <div
+                                    style={{
+                                      fontSize: "0.83rem",
+                                      color: "#4a443d",
+                                      background: "#faf6f0",
+                                      padding: "0.55rem 0.75rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #ede5d8",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontSize: "0.72rem",
+                                        fontWeight: 700,
+                                        color: "#7c7267",
+                                        textTransform: "uppercase",
+                                        marginBottom: "0.2rem",
+                                      }}
+                                    >
+                                      Your Reflections &amp; Questions:
+                                    </div>
+                                    <div style={{ fontStyle: "italic", color: "#2d2823", lineHeight: 1.45 }}>
+                                      &ldquo;{activeCoachingReq.notes}&rdquo;
+                                    </div>
+                                  </div>
+                                )}
+
+                                {activeCoachingReq.status === "PENDING_APPROVAL" && (
+                                  <div
+                                    style={{
+                                      fontSize: "0.82rem",
+                                      color: "#78350f",
+                                      lineHeight: 1.45,
+                                      background: "#fffbeb",
+                                      padding: "0.55rem 0.75rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #fef3c7",
+                                    }}
+                                  >
+                                    Roweena and our coaching team are reviewing your requested slot against availability. You will receive an email once approved with your Zoom invite.
+                                  </div>
+                                )}
+
+                                {activeCoachingReq.status === "APPROVED" && (
+                                  <div style={{ fontSize: "0.82rem", color: "#166534", lineHeight: 1.45 }}>
+                                    Tip: Please join 5 minutes early with your camera and microphone tested.
+                                  </div>
+                                )}
                               </div>
 
                               {/* Alert when requested slot has already passed while pending */}
@@ -1099,17 +1363,83 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </div>
                                 )}
 
-                              {activeCoachingReq.session?.joinUrl && (
+                              {/* Actions */}
+                              {activeCoachingReq.session?.joinUrl ? (
                                 <div>
                                   <a
                                     href={activeCoachingReq.session.joinUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className={styles.startBtn}
-                                    style={{ display: "inline-flex", marginTop: "0.25rem" }}
+                                    style={{ display: "inline-flex", marginTop: "0.25rem", padding: "0.55rem 1.1rem" }}
                                   >
                                     Join 1-on-1 Video Session &rarr;
                                   </a>
+                                </div>
+                              ) : activeCoachingReq.status === "PENDING_APPROVAL" &&
+                                new Date(activeCoachingReq.requestedStart).getTime() >= Date.now() ? (
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelCoaching(activeCoachingReq.id)}
+                                    disabled={cancellingCoaching}
+                                    style={{
+                                      padding: "0.45rem 0.9rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #fca5a5",
+                                      background: "#ffffff",
+                                      color: "#b91c1c",
+                                      fontSize: "0.8rem",
+                                      fontWeight: 600,
+                                      cursor: cancellingCoaching ? "not-allowed" : "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                  >
+                                    {cancellingCoaching ? "Cancelling..." : "✕ Cancel Request"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (
+                                        confirm(
+                                          "To choose a new slot, we will cancel your current pending request first. Would you like to proceed?"
+                                        )
+                                      ) {
+                                        handleCancelCoaching(activeCoachingReq.id);
+                                      }
+                                    }}
+                                    disabled={cancellingCoaching}
+                                    style={{
+                                      padding: "0.45rem 0.9rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #dcd5cb",
+                                      background: "#faf6f0",
+                                      color: "#14110f",
+                                      fontSize: "0.8rem",
+                                      fontWeight: 600,
+                                      cursor: cancellingCoaching ? "not-allowed" : "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                  >
+                                    Change Slot / Reschedule
+                                  </button>
+                                </div>
+                              ) : null}
+
+                              {coachingFeedbackMsg && (
+                                <div
+                                  role="alert"
+                                  style={{
+                                    fontSize: "0.82rem",
+                                    fontWeight: 600,
+                                    padding: "0.55rem 0.75rem",
+                                    borderRadius: 8,
+                                    background: coachingFeedbackMsg.type === "ok" ? "#ecfdf5" : "#fef2f2",
+                                    border: coachingFeedbackMsg.type === "ok" ? "1px solid #a7f3d0" : "1px solid #fecaca",
+                                    color: coachingFeedbackMsg.type === "ok" ? "#15803d" : "#b91c1c",
+                                  }}
+                                >
+                                  {coachingFeedbackMsg.text}
                                 </div>
                               )}
                             </div>
@@ -1563,9 +1893,35 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                         ? "1px solid #a7f3d0"
                                         : "1px solid #fecaca",
                                     color: coachingFeedbackMsg.type === "ok" ? "#15803d" : "#b91c1c",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: "0.5rem",
                                   }}
                                 >
-                                  {coachingFeedbackMsg.text}
+                                  <span>{coachingFeedbackMsg.text}</span>
+                                  {coachingFeedbackMsg.text.toLowerCase().includes("already pending review") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        invalidateCache("/one-on-one");
+                                        loadProgression(true);
+                                      }}
+                                      style={{
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        padding: "3px 8px",
+                                        borderRadius: 6,
+                                        background: "#ffffff",
+                                        border: "1px solid #fca5a5",
+                                        color: "#b91c1c",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      View Pending Request &rarr;
+                                    </button>
+                                  )}
                                 </div>
                               )}
 
@@ -1608,11 +1964,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </button>
                                   <button
                                     type="submit"
-                                    disabled={submittingCoaching}
+                                    disabled={submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime}
                                     className={styles.startBtn}
-                                    style={{ cursor: "pointer" }}
+                                    style={{
+                                      cursor: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
+                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.7 : 1,
+                                    }}
                                   >
-                                    {submittingCoaching ? "Submitting..." : "Submit Booking Request"}
+                                    {submittingCoaching
+                                      ? "Submitting Booking Request..."
+                                      : Boolean(activeCoachingReq && !showRescheduleForm)
+                                      ? "Request Already Pending"
+                                      : showRescheduleForm
+                                      ? "Confirm Reschedule Slot"
+                                      : "Submit Booking Request"}
                                   </button>
                                 </div>
                               </div>
@@ -1736,26 +2101,45 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </div>
                                 )}
                               </div>
-                              <a
-                                href={
-                                  latestMission.fileUrl.startsWith("http")
-                                    ? latestMission.fileUrl
-                                    : `${API_URL}/mission-statements/${latestMission.id}/file`
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.reviewBtn}
-                                style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
-                              >
-                                View Uploaded File
-                              </a>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                                <a
+                                  href={
+                                    latestMission.fileUrl.startsWith("http") || latestMission.fileUrl.startsWith("data:")
+                                      ? latestMission.fileUrl
+                                      : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                  }
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.reviewBtn}
+                                  style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
+                                >
+                                  View Uploaded File
+                                </a>
+                                {!isMissionApproved && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowMissionReplaceForm((prev) => !prev)}
+                                    className={styles.reviewBtn}
+                                    style={{
+                                      padding: "0.35rem 0.75rem",
+                                      fontSize: "0.78rem",
+                                      cursor: "pointer",
+                                      background: showMissionReplaceForm ? "#f5efe6" : undefined,
+                                    }}
+                                  >
+                                    {showMissionReplaceForm ? "Cancel Replacement" : "Upload Replacement Copy"}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )}
 
-                          {!isMissionApproved && latestMission?.status !== "SUBMITTED" && (
+                          {!isMissionApproved && (!latestMission || latestMission.status !== "SUBMITTED" || showMissionReplaceForm) && (
                             <form onSubmit={handleUploadMissionStatement} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                               <label style={{ fontWeight: 700, fontSize: "0.84rem", color: "#14110f" }}>
-                                Upload Handwritten Mission Statement (PDF, JPG, PNG — Max 15MB)
+                                {showMissionReplaceForm
+                                  ? `Upload Replacement Mission Statement (Will become Version #${(latestMission?.version ?? 0) + 1})`
+                                  : "Upload Handwritten Mission Statement (PDF, JPG, PNG — Max 15MB)"}
                               </label>
                               <input
                                 type="file"
@@ -1783,7 +2167,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
                                 <button
                                   type="button"
-                                  onClick={() => setShowMissionPanel(false)}
+                                  onClick={() => {
+                                    setShowMissionPanel(false);
+                                    setShowMissionReplaceForm(false);
+                                  }}
                                   className={styles.reviewBtn}
                                   style={{ cursor: "pointer" }}
                                 >
@@ -1795,7 +2182,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   className={styles.startBtn}
                                   style={{ cursor: "pointer" }}
                                 >
-                                  {submittingMission ? "Uploading..." : "Submit Mission Statement"}
+                                  {submittingMission
+                                    ? "Uploading..."
+                                    : showMissionReplaceForm
+                                    ? "Submit Replacement Copy"
+                                    : "Submit Mission Statement"}
                                 </button>
                               </div>
                             </form>

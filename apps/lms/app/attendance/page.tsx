@@ -56,6 +56,23 @@ const Icons = {
   ),
 };
 
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
 const dayOf = (date: string) => new Date(`${date}T00:00:00`);
 
 function streakOf(days: Day[], today: string) {
@@ -252,10 +269,18 @@ export default function AttendancePage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Attendance</h1>
-        <p className={styles.subtitle}>
-          A day counts when you open the portal, finish a course step or join a live session.
-        </p>
+        <Link href="/" className={styles.backLink} title="Back to Dashboard">
+          <span className={styles.backIconWrap}>{ArrowLeft}</span>
+          <span className={styles.backText}>Back</span>
+        </Link>
+        <span className={styles.headerDivider} aria-hidden="true" />
+        <div className={styles.headerTitleGroup}>
+          <h1 className={styles.title}>Attendance</h1>
+          <span className={styles.headerBadge}>
+            <span className={styles.headerBadgeDot} aria-hidden="true" />
+            A day counts when you open the portal, finish a course step or join a live session.
+          </span>
+        </div>
       </header>
 
       {error && <p role="alert" className={styles.notice}>{error}</p>}

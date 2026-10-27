@@ -12,9 +12,11 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./live.module.css";
 import { API_URL, getAuthHeaders, parseApiError } from "../lib/api";
+import { ConfirmModal } from "../components/ui/ConfirmModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,23 @@ type BookingState =
 type Tab = "upcoming" | "calendar" | "past";
 
 // ─── Icon helpers ─────────────────────────────────────────────────────────────
+
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
 
 const Icons = {
   video: (
@@ -163,6 +182,7 @@ interface BookingButtonProps {
 
 function BookingButton({ session, onBooked, onRescheduleStart }: BookingButtonProps) {
   const [state, setState] = useState<BookingState>({ type: "idle" });
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
 
   const isAlreadyBooked =
     session.bookingStatus === "BOOKED" ||
@@ -198,10 +218,10 @@ function BookingButton({ session, onBooked, onRescheduleStart }: BookingButtonPr
           <span>Seat reserved</span>
         </div>
         {session.bookingId && (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             <button
               type="button"
-              className={styles.cancelBtn}
+              className={styles.rescheduleBtn}
               disabled={state.type === "loading"}
               onClick={() => onRescheduleStart(session.bookingId!, session.id)}
             >
@@ -211,31 +231,43 @@ function BookingButton({ session, onBooked, onRescheduleStart }: BookingButtonPr
               type="button"
               className={styles.cancelBtn}
               disabled={state.type === "loading"}
-              onClick={async () => {
-                if (!confirm("Are you sure you want to cancel this booking?")) return;
-                setState({ type: "loading" });
-                try {
-                  const res = await fetch(`${API_URL}/sessions/bookings/${session.bookingId}/cancel`, {
-                    method: "POST",
-                    headers: getAuthHeaders(),
-                    body: JSON.stringify({ reason: "Learner cancelled via portal" }),
-                  });
-                  if (res.ok) {
-                    setState({ type: "success", message: "Booking cancelled successfully." });
-                    onBooked(session.id); // Trigger refresh
-                    return;
-                  }
-                  const { message, status } = await parseApiError(res, "Cancellation failed");
-                  setState({ type: "error", message, code: String(status) });
-                } catch (err: any) {
-                  setState({ type: "error", message: err.message || "Network error — please try again." });
-                }
-              }}
+              onClick={() => setConfirmCancelOpen(true)}
             >
               Cancel
             </button>
           </div>
         )}
+
+        <ConfirmModal
+          isOpen={confirmCancelOpen}
+          onClose={() => setConfirmCancelOpen(false)}
+          onConfirm={async () => {
+            setConfirmCancelOpen(false);
+            setState({ type: "loading" });
+            try {
+              const res = await fetch(`${API_URL}/sessions/bookings/${session.bookingId}/cancel`, {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ reason: "Learner cancelled via portal" }),
+              });
+              if (res.ok) {
+                setState({ type: "success", message: "Booking cancelled successfully." });
+                onBooked(session.id); // Trigger refresh
+                return;
+              }
+              const { message, status } = await parseApiError(res, "Cancellation failed");
+              setState({ type: "error", message, code: String(status) });
+            } catch (err: any) {
+              setState({ type: "error", message: err.message || "Network error — please try again." });
+            }
+          }}
+          title="Cancel Booking"
+          message="Are you sure you want to cancel your seat for this live session? You can re-book later if seats remain."
+          confirmText="Yes, Cancel Booking"
+          cancelText="Keep My Seat"
+          tone="danger"
+          isLoading={state.type === "loading"}
+        />
       </div>
     );
   }
@@ -529,8 +561,18 @@ export default function LiveSessionsPage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Live Sessions</h1>
-        <p className={styles.subtitle}>Join Roweena and your cohort for live classes.</p>
+        <Link href="/" className={styles.backLink} title="Back to Dashboard">
+          <span className={styles.backIconWrap}>{ArrowLeft}</span>
+          <span className={styles.backText}>Back</span>
+        </Link>
+        <span className={styles.headerDivider} aria-hidden="true" />
+        <div className={styles.headerTitleGroup}>
+          <h1 className={styles.title}>Live Sessions</h1>
+          <span className={styles.headerBadge}>
+            <span className={styles.headerBadgeDot} aria-hidden="true" />
+            Join Roweena and your cohort for live classes.
+          </span>
+        </div>
       </header>
 
       {/* Tab navigation */}
@@ -815,7 +857,7 @@ export default function LiveSessionsPage() {
                     <span className={styles.statusNote} role="status">Session cancelled</span>
                   ) : s.joinUrl ? (
                     /* Has join link — show join button, plus booking action if applicable */
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                       <a
                         href={s.joinUrl}
                         target="_blank"

@@ -1,8 +1,26 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import styles from "./events.module.css";
 import { API_URL } from "../lib/api";
+
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
 
 interface EventItem {
   id: string;
@@ -286,12 +304,20 @@ export default function LmsEventsPage() {
   return (
     <div className={styles.container}>
       {/* Header */}
-      <div className={styles.header}>
-        <div className={styles.titleArea}>
-          <h1 className={styles.title}>Events & Webinars</h1>
-          <p className={styles.subtitle}>
-            Connect with our community of learners, attend masterclasses with guest speakers, and join live neuroscience sessions.
-          </p>
+      <header className={styles.header}>
+        <div className={styles.headerLeft}>
+          <Link href="/" className={styles.backLink} title="Back to Dashboard">
+            <span className={styles.backIconWrap}>{ArrowLeft}</span>
+            <span className={styles.backText}>Back</span>
+          </Link>
+          <span className={styles.headerDivider} aria-hidden="true" />
+          <div className={styles.headerTitleGroup}>
+            <h1 className={styles.title}>Events & Webinars</h1>
+            <span className={styles.headerBadge}>
+              <span className={styles.headerBadgeDot} aria-hidden="true" />
+              Connect with our community of learners, attend masterclasses with guest speakers, and join live neuroscience sessions.
+            </span>
+          </div>
         </div>
 
         {/* Type Toggle */}
@@ -318,7 +344,7 @@ export default function LmsEventsPage() {
             Webinars
           </button>
         </div>
-      </div>
+      </header>
 
       {feedback && (
         <div

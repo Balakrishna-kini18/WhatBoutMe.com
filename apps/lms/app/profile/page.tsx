@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { signOutEverywhere as leavePortal } from "../lib/site";
 import SignaturePad, { SignatureMethod } from "../agreement/SignaturePad";
 import ProfileLoading from "./loading";
+import ConfirmModal from "../components/ui/ConfirmModal";
 import styles from "./profile.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -56,6 +57,7 @@ export default function ProfilePage() {
   const [newSigType, setNewSigType] = useState<SignatureMethod>("DRAWN");
   const [sigBusy, setSigBusy] = useState(false);
   const [sigMessage, setSigMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [showRemoveSigConfirm, setShowRemoveSigConfirm] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -169,12 +171,11 @@ export default function ProfilePage() {
     }
   };
 
-  const handleRemoveSignature = async () => {
-    const confirmed = window.confirm(
-      "Are you sure you want to remove your saved digital signature? Previously signed agreements will remain permanent and unchanged."
-    );
-    if (!confirmed) return;
+  const handleRemoveSignatureClick = () => {
+    setShowRemoveSigConfirm(true);
+  };
 
+  const handleConfirmRemoveSignature = async () => {
     setSigBusy(true);
     setSigMessage(null);
     try {
@@ -197,6 +198,7 @@ export default function ProfilePage() {
       });
       setIsEditingSig(false);
       setNewSigData(null);
+      setShowRemoveSigConfirm(false);
       setSigMessage({
         type: "success",
         text: "Saved digital signature removed from profile. Historical signed agreements remain immutable.",
@@ -329,7 +331,7 @@ export default function ProfilePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleRemoveSignature}
+                  onClick={handleRemoveSignatureClick}
                   disabled={sigBusy}
                   className={styles.revokeBtn}
                 >
@@ -516,6 +518,20 @@ export default function ProfilePage() {
           </div>
         </section>
       </article>
+
+      <ConfirmModal
+        isOpen={showRemoveSigConfirm}
+        onClose={() => {
+          if (!sigBusy) setShowRemoveSigConfirm(false);
+        }}
+        onConfirm={handleConfirmRemoveSignature}
+        title="Remove Saved Signature"
+        message="Are you sure you want to remove your saved digital signature? Previously signed agreements will remain permanent and unchanged."
+        confirmText="Remove Signature"
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={sigBusy}
+      />
     </div>
   );
 }

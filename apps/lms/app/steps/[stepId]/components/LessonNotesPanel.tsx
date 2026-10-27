@@ -10,6 +10,7 @@ import {
 } from "../../../lib/api";
 import { formatNoteDate, formatVideoTime } from "../../../lib/timezone";
 import { normalizeStudentNote } from "../../../lib/notesAdapter";
+import { ConfirmModal } from "../../../components/ui/ConfirmModal";
 
 interface LessonNotesPanelProps {
   programId?: string;
@@ -41,6 +42,8 @@ export default function LessonNotesPanel({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [noteToDeleteId, setNoteToDeleteId] = useState<string | null>(null);
+  const [isDeletingNote, setIsDeletingNote] = useState(false);
 
   const loadNotes = useCallback(async () => {
     if (!lessonId) return;
@@ -124,14 +127,23 @@ export default function LessonNotesPanel({
     }
   };
 
-  const handleDelete = async (noteId: string) => {
-    if (!window.confirm("Are you sure you want to delete this personal note?")) return;
+  const handleDelete = (noteId: string) => {
+    setNoteToDeleteId(noteId);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!noteToDeleteId) return;
+    setIsDeletingNote(true);
     try {
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      await deleteStudentNote(noteId);
+      const id = noteToDeleteId;
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+      setNoteToDeleteId(null);
+      await deleteStudentNote(id);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to delete note");
       loadNotes();
+    } finally {
+      setIsDeletingNote(false);
     }
   };
 
@@ -550,6 +562,20 @@ export default function LessonNotesPanel({
           )}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={noteToDeleteId !== null}
+        onClose={() => {
+          if (!isDeletingNote) setNoteToDeleteId(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Note"
+        message="Are you sure you want to permanently delete this note? This action cannot be undone."
+        confirmText="Delete Note"
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={isDeletingNote}
+      />
     </div>
   );
 }

@@ -19,6 +19,11 @@ import {
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
 import StepLoading from "./loading";
+import {
+  getLocalVideoResume,
+  isLocalLessonCompleted,
+  saveLocalLessonCompletion,
+} from "./videoPlayerLogic";
 
 export type WorkspaceTab = "video" | "quiz" | "notes" | "materials";
 
@@ -95,6 +100,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isFetchingRef = useRef<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isHeartbeatInFlightRef = useRef<boolean>(false);
+  const lastEndedSentTimeRef = useRef<Record<string, number>>({});
 
   // 1. Initial User Hydration & Jump Link (?lessonId=...)
   useEffect(() => {
@@ -232,13 +238,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       if (stepProgItem?.lessons && stepProgItem.lessons.length > 0) {
         for (const l of stepProgItem.lessons) {
+          const localResume = getLocalVideoResume(l.lessonId);
+          const isLocallyDone = isLocalLessonCompleted(l.lessonId);
+          const isDone = Boolean(l.isCompleted || isLocallyDone);
+          const effectivePos = Math.max(l.lastPositionSec || 0, localResume?.positionSec || 0);
+
           lpMap[l.lessonId] = {
-            viewed: l.isCompleted,
-            progressPercent: l.progressPercent,
-            lastPositionSec: l.lastPositionSec,
+            viewed: isDone,
+            progressPercent: isDone ? 100 : (l.progressPercent || 0),
+            lastPositionSec: effectivePos,
             completedAt: l.completedAt,
             durationSec: l.durationSec,
-            isCompleted: l.isCompleted,
+            isCompleted: isDone,
           };
         }
         setLessonProgress(lpMap);
@@ -526,7 +537,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setNotes((prev) => prev.filter((n) => n.id !== id));
   };
 
-  // Video Heartbeat
+  // Video Heartbeat with deduplication
   const sendMediaHeartbeat = useCallback(
     async (
       lessonId: string,
@@ -537,7 +548,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       fromSec?: number,
       toSec?: number,
     ) => {
-      if (isHeartbeatInFlightRef.current && !isEnded) return;
+      const now = Date.now();
+      if (isEnded) {
+        const lastSent = lastEndedSentTimeRef.current[lessonId] || 0;
+        if (now - lastSent < 4000) return;
+        lastEndedSentTimeRef.current[lessonId] = now;
+      } else if (isHeartbeatInFlightRef.current) {
+        return;
+      }
       isHeartbeatInFlightRef.current = true;
 
       try {
@@ -557,11 +575,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         });
         if (res.ok) {
           const data = await res.json();
-          setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
+          setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
           if (data.isCompleted || data.viewed || isEnded) {
             invalidateCache("/progression");
             invalidateCache("/progress");
-            fetchStepAndProgression();
+            void fetchStepAndProgression();
           }
         }
       } catch (err) {
@@ -619,56 +637,86 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return () => clearTimeout(timer);
   }, [redirectCountdown, nextStepId, router]);
 
-  // Lesson Completion
-  const handleLessonComplete = async (lessonId: string) => {
-    try {
-      const lesson = allLessons.find((l: any) => l.id === lessonId);
-      const dur = lesson?.durationSec || 0;
-      if (lesson && (lesson.type === "VIDEO" || lesson.type === "AUDIO")) {
-        await sendMediaHeartbeat(lessonId, dur, true, dur, dur, 0, dur);
-      } else if (lesson) {
-        await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-        });
-      }
-      setLessonProgress((prev) => ({
-        ...prev,
-        [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true, progressPercent: 100 },
-      }));
-      invalidateCache("/progression");
-      fetchStepAndProgression();
-    } catch (e) {
-      // continue locally
-    }
+  // Lesson Completion with 0ms Instant Optimistic Unlocking
+  const handleLessonComplete = useCallback(
+    (lessonId: string) => {
+      // 1. Immediately persist locally (0ms lag)
+      saveLocalLessonCompletion(lessonId);
 
-    const updatedProgress = {
-      ...lessonProgress,
-      [lessonId]: { ...lessonProgress[lessonId], isCompleted: true, viewed: true },
-    };
-    const areAllVideosDone = allLessons.every(
-      (l: any) => updatedProgress[l.id]?.isCompleted || updatedProgress[l.id]?.viewed
-    );
+      // 2. Immediately update local progress state
+      setLessonProgress((prev) => {
+        const updated = {
+          ...prev,
+          [lessonId]: {
+            ...prev[lessonId],
+            isCompleted: true,
+            viewed: true,
+            progressPercent: 100,
+            completedAt: new Date().toISOString(),
+          },
+        };
 
-    if (areAllVideosDone) {
-      if (step?.quiz && !lastQuizResult?.passed && !(currentStepProg as any)?.quizPassed && !currentStepProg?.isCompleted) {
-        // Videos are finished, quiz is required!
-        setCelebrationMode("lesson");
-        setIsCelebrationOpen(true);
-      } else {
-        // All videos done and quiz passed or no quiz -> Entire Module Completed!
-        setCelebrationMode("module");
-        setIsCelebrationOpen(true);
-        if (nextStepId) {
-          setRedirectCountdown(4);
+        // 3. Immediately evaluate if all videos in this step are done
+        const areAllVideosDone = allLessons.every(
+          (l: any) => updated[l.id]?.isCompleted || updated[l.id]?.viewed
+        );
+
+        if (areAllVideosDone) {
+          if (
+            step?.quiz &&
+            !lastQuizResult?.passed &&
+            !(currentStepProg as any)?.quizPassed &&
+            !currentStepProg?.isCompleted
+          ) {
+            setCelebrationMode("lesson");
+            setIsCelebrationOpen(true);
+          } else {
+            setCelebrationMode("module");
+            setIsCelebrationOpen(true);
+            if (nextStepId) {
+              setRedirectCountdown(4);
+            }
+          }
+        } else {
+          setCelebrationMode("lesson");
+          setIsCelebrationOpen(true);
         }
-      }
-    } else {
-      // Single video part completed
-      setCelebrationMode("lesson");
-      setIsCelebrationOpen(true);
-    }
-  };
+
+        return updated;
+      });
+
+      // 4. Background fire-and-forget server sync (does NOT block UI or video progression)
+      void (async () => {
+        try {
+          const lesson = allLessons.find((l: any) => l.id === lessonId);
+          const dur = lesson?.durationSec || 0;
+          if (lesson && (lesson.type === "VIDEO" || lesson.type === "AUDIO")) {
+            await sendMediaHeartbeat(lessonId, dur, true, dur, dur, 0, dur);
+          } else if (lesson) {
+            await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+              method: "POST",
+              headers: getAuthHeaders(),
+            });
+          }
+          invalidateCache("/progression");
+          invalidateCache("/progress");
+          void fetchStepAndProgression();
+        } catch (e) {
+          console.warn("Background lesson completion sync failed:", e);
+        }
+      })();
+    },
+    [
+      allLessons,
+      step?.quiz,
+      lastQuizResult,
+      currentStepProg,
+      nextStepId,
+      sendMediaHeartbeat,
+      fetchStepAndProgression,
+    ]
+  );
+
 
   // Quiz submission
   const handleQuizSubmit = async () => {

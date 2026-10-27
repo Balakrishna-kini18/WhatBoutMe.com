@@ -1518,3 +1518,65 @@
   color: #a8a29e;
   margin: 0;
 }
+
+/* =========================================================================
+   MOBILE RESPONSIVE ENHANCEMENTS (< 768px and < 480px)
+   ========================================================================= */
+@media (max-width: 768px) {
+  .container {
+    padding: 0.85rem 0.85rem calc(75px + env(safe-area-inset-bottom, 0px) + 1.5rem);
+    gap: 1rem;
+  }
+
+  .pageMainTitle {
+    font-size: 1.35rem;
+  }
+
+  .pageSubtitle {
+    font-size: 0.82rem;
+  }
+
+  .learningToolsStrip {
+    padding: 0.25rem 0.35rem;
+    gap: 4px;
+    margin-bottom: 1rem;
+  }
+
+  .learningTabBtn {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.8rem;
+    gap: 4px;
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .learningTabCount {
+    padding: 1px 5px;
+    font-size: 0.7rem;
+  }
+
+  .videoPlayerHeader {
+    padding: 0.85rem 1rem;
+  }
+
+  .multiVideoPlaylistCard {
+    padding: 1rem;
+  }
+
+  .multiVideoItemBtn {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .learningTabBtn {
+    padding: 0.45rem 0.5rem;
+    font-size: 0.74rem;
+  }
+
+  .learningTabBtn span:first-child {
+    font-size: 0.82rem;
+  }
+}
+

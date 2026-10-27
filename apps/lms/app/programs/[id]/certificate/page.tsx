@@ -195,6 +195,64 @@ export default function CourseCertificatePage({
 
   return (
     <div className={styles.container}>
+      {/* Explicit A4 landscape page setup and layout resets for Chrome/Brave/Edge/Safari print */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @page {
+              size: 297mm 210mm;
+              size: landscape;
+              margin: 0mm !important;
+            }
+            @page :left {
+              margin: 0mm !important;
+            }
+            @page :right {
+              margin: 0mm !important;
+            }
+            @media print {
+              html, body {
+                width: 297mm !important;
+                height: 210mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                background: #ffffff !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
+              aside,
+              nav,
+              header:not(article header),
+              footer,
+              [class*="sidebar"],
+              [class*="topbar"],
+              [class*="topBar"],
+              [class*="LmsSidebar"],
+              [class*="PushNotification"] {
+                display: none !important;
+              }
+              main,
+              [class*="mainContent"],
+              [class*="appContainer"] {
+                margin: 0 !important;
+                margin-left: 0 !important;
+                padding: 0 !important;
+                width: 297mm !important;
+                height: 210mm !important;
+                max-width: 297mm !important;
+                max-height: 210mm !important;
+                overflow: hidden !important;
+                border: none !important;
+                box-shadow: none !important;
+                background: transparent !important;
+              }
+            }
+          `,
+        }}
+      />
+
       {/* Top Header Bar with Progress */}
       <header className={styles.topBar}>
         <div className={styles.topNavRow}>

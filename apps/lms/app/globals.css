@@ -277,28 +277,49 @@ body.auth-page-active main {
 
 /* Printing (certificates): drop the app chrome and use the whole page */
 @page {
-  size: A4 landscape;
-  margin: 0;
+  size: 297mm 210mm;
+  size: landscape;
+  margin: 0mm !important;
+}
+
+@page :left {
+  margin: 0mm !important;
+}
+
+@page :right {
+  margin: 0mm !important;
 }
 
 @media print {
   aside,
   header:not(article header),
-  nav {
+  nav,
+  footer,
+  [class*="sidebar"],
+  [class*="topbar"],
+  [class*="LmsSidebar"],
+  [class*="PushNotification"] {
     display: none !important;
   }
 
+  html,
   body {
     background: #ffffff !important;
     margin: 0 !important;
     padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
   main,
   div[class*="mainContent"],
+  main[class*="mainContent"],
   div[class*="appContainer"] {
     margin: 0 !important;
+    margin-left: 0 !important;
     padding: 0 !important;
     max-width: none !important;
+    background: transparent !important;
   }
 }

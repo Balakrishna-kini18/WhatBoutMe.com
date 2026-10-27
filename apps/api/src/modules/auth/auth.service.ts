@@ -985,6 +985,11 @@ export class AuthService {
             id: true,
             status: true,
             batchId: true,
+            curriculumCompletedAt: true,
+            currentStage: true,
+            missionStatementApprovedAt: true,
+            examPassedAt: true,
+            oneOnOneCompletedAt: true,
             batch: {
               select: {
                 name: true, status: true, programId: true,
@@ -1015,8 +1020,7 @@ export class AuthService {
     ] as string[];
     const enrolmentIds = user.enrolments.map((e) => e.id);
 
-    const programTotalItems: Record<string, number> = {};
-    const enrolmentCompletedItems: Record<string, number> = {};
+    const stepsByProgram: Record<string, any[]> = {};
 
     if (programIds.length > 0) {
       const publishedSteps = await this.prisma.step.findMany({
@@ -1025,7 +1029,9 @@ export class AuthService {
           status: ContentStatus.PUBLISHED,
         },
         select: {
+          id: true,
           programId: true,
+          sequence: true,
           lessons: {
             where: { status: ContentStatus.PUBLISHED },
             select: { id: true },
@@ -1035,14 +1041,19 @@ export class AuthService {
       });
 
       for (const step of publishedSteps) {
-        const count = step.lessons.length + (step.quiz ? 1 : 0);
-        programTotalItems[step.programId] =
-          (programTotalItems[step.programId] || 0) + count;
+        if (!stepsByProgram[step.programId]) {
+          stepsByProgram[step.programId] = [];
+        }
+        stepsByProgram[step.programId].push(step);
       }
     }
 
+    const viewedLessonSetByEnrolment: Record<string, Set<string>> = {};
+    const passedQuizSetByEnrolment: Record<string, Set<string>> = {};
+    const completedStepSetByEnrolment: Record<string, Set<string>> = {};
+
     if (enrolmentIds.length > 0) {
-      const [lessonProgress, passedAttempts] = await Promise.all([
+      const [lessonProgress, passedAttempts, stepProgressList] = await Promise.all([
         this.prisma.userLessonProgress.findMany({
           where: {
             enrolmentId: { in: enrolmentIds },
@@ -1060,9 +1071,17 @@ export class AuthService {
           },
           select: { enrolmentId: true, quizId: true },
         }),
+        typeof this.prisma.stepProgress?.findMany === 'function'
+          ? this.prisma.stepProgress.findMany({
+              where: {
+                enrolmentId: { in: enrolmentIds },
+                isCompleted: true,
+              },
+              select: { enrolmentId: true, stepId: true },
+            })
+          : [],
       ]);
 
-      const viewedLessonSetByEnrolment: Record<string, Set<string>> = {};
       for (const lp of lessonProgress) {
         if (!viewedLessonSetByEnrolment[lp.enrolmentId]) {
           viewedLessonSetByEnrolment[lp.enrolmentId] = new Set();
@@ -1070,12 +1089,6 @@ export class AuthService {
         viewedLessonSetByEnrolment[lp.enrolmentId].add(lp.lessonId);
       }
 
-      for (const [enrolId, lessonSet] of Object.entries(viewedLessonSetByEnrolment)) {
-        enrolmentCompletedItems[enrolId] =
-          (enrolmentCompletedItems[enrolId] || 0) + lessonSet.size;
-      }
-
-      const passedQuizSetByEnrolment: Record<string, Set<string>> = {};
       for (const a of passedAttempts) {
         if (!passedQuizSetByEnrolment[a.enrolmentId]) {
           passedQuizSetByEnrolment[a.enrolmentId] = new Set();
@@ -1083,32 +1096,61 @@ export class AuthService {
         passedQuizSetByEnrolment[a.enrolmentId].add(a.quizId);
       }
 
-      for (const [enrolId, quizSet] of Object.entries(passedQuizSetByEnrolment)) {
-        enrolmentCompletedItems[enrolId] =
-          (enrolmentCompletedItems[enrolId] || 0) + quizSet.size;
+      for (const sp of stepProgressList) {
+        if (!completedStepSetByEnrolment[sp.enrolmentId]) {
+          completedStepSetByEnrolment[sp.enrolmentId] = new Set();
+        }
+        completedStepSetByEnrolment[sp.enrolmentId].add(sp.stepId);
       }
     }
 
-    const enrolledPrograms = user.enrolments.filter((e) => e.batch?.status !== 'ARCHIVED').map((e) => {
+    const enrolledPrograms = user.enrolments.filter((e) => e.batch?.status !== 'ARCHIVED').map((e: any) => {
       const programId = e.batch?.programId;
-      const totalItems = programId ? programTotalItems[programId] || 0 : 0;
-      const completedItems = Math.min(
-        totalItems,
-        enrolmentCompletedItems[e.id] || 0,
-      );
+      const steps = programId ? stepsByProgram[programId] || [] : [];
+      const viewedLessons = viewedLessonSetByEnrolment[e.id] || new Set();
+      const passedQuizzes = passedQuizSetByEnrolment[e.id] || new Set();
+      const completedSteps = completedStepSetByEnrolment[e.id] || new Set();
+
+      let totalItems = 0;
+      let completedItems = 0;
+
+      for (const step of steps) {
+        const sTotal = (step.lessons?.length || 0) + (step.quiz ? 1 : 0);
+        totalItems += sTotal;
+        const isStepCompleted = completedSteps.has(step.id);
+        if (isStepCompleted) {
+          completedItems += sTotal;
+        } else {
+          const viewedInStep = (step.lessons || []).filter((l: any) => viewedLessons.has(l.id)).length;
+          const quizPassedInStep = step.quiz && passedQuizzes.has(step.quiz.id) ? 1 : 0;
+          completedItems += viewedInStep + quizPassedInStep;
+        }
+      }
+
+      const allStepsDone = steps.length > 0 && steps.every((s: any) => completedSteps.has(s.id));
+      const isCurriculumFinished =
+        allStepsDone ||
+        Boolean(e.curriculumCompletedAt) ||
+        e.status === 'COMPLETED' ||
+        Boolean(e.missionStatementApprovedAt);
+
+      if (isCurriculumFinished && totalItems > 0) {
+        completedItems = totalItems;
+      }
+
       const progress =
         totalItems > 0
-          ? completedItems === totalItems
+          ? completedItems >= totalItems
             ? 100
             : Math.floor((completedItems / totalItems) * 100)
-          : 0;
+          : (isCurriculumFinished ? 100 : 0);
 
       return {
         enrolmentId: e.id,
         batchId: e.batchId,
-        batchName: e.batch.name,
-        programId: e.batch.programId,
-        programTitle: e.batch.program?.title || 'Unknown',
+        batchName: e.batch?.name,
+        programId: e.batch?.programId,
+        programTitle: e.batch?.program?.title || 'Unknown',
         status: e.status,
         progress,
         totalItems,

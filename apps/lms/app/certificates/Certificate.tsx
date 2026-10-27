@@ -422,7 +422,7 @@ export default function Certificate({
   )}&certId=${encodeURIComponent(finalCertNo)}`;
 
   return (
-    <div>
+    <div className={styles.certificateOuterWrap}>
       <article
         className={styles.sheet}
         aria-label={`Official Certificate of ${isParticipation ? "Participation" : "Completion"} for ${finalRecipient}`}

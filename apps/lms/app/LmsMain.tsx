@@ -138,42 +138,13 @@ function Notifications() {
         aria-label={`Notifications (${unreadCount} unread)`}
         aria-expanded={open}
         className={styles.notificationIcon}
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          padding: "6px",
-          position: "relative",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: "8px",
-        }}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
         {unreadCount > 0 && (
-          <span
-            style={{
-              position: "absolute",
-              top: "2px",
-              right: "2px",
-              background: "#e06d28",
-              color: "#ffffff",
-              fontSize: "0.6875rem",
-              fontWeight: 700,
-              minWidth: "18px",
-              height: "18px",
-              borderRadius: "9px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "0 4px",
-              boxShadow: "0 0 0 2px var(--bg-card)",
-            }}
-          >
+          <span className={styles.notificationDot}>
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
@@ -533,6 +504,7 @@ function Search() {
 function ProfileMenu() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -540,8 +512,10 @@ function ProfileMenu() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || "{}");
       setName(user.name || user.email || "");
+      setEmail(user.email || "");
     } catch {
       setName("");
+      setEmail("");
     }
   }, []);
 
@@ -555,7 +529,6 @@ function ProfileMenu() {
   }, [open]);
 
   const initials = (name?.trim()?.charAt(0) || "S").toUpperCase();
-  const item: React.CSSProperties = { display: "block", width: "100%", padding: "10px 12px", borderRadius: "10px", border: "none", background: "transparent", textAlign: "left", font: "inherit", fontSize: "0.9rem", color: "var(--text-primary)", cursor: "pointer", textDecoration: "none" };
 
   const openSignOut = () => {
     setOpen(false);
@@ -572,20 +545,74 @@ function ProfileMenu() {
         className={styles.profileBtn}
       >
         <span className={styles.topAvatar}>{initials}</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <span className={`${styles.profileChevron} ${open ? styles.profileChevronOpen : ""}`}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </span>
       </button>
 
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "calc(100% + 12px)", width: "220px", background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "14px", boxShadow: "0 20px 40px -20px rgba(0,0,0,0.25)", padding: "8px", zIndex: 50 }}>
-          {name && <p style={{ margin: 0, padding: "8px 12px 10px", fontWeight: 700, borderBottom: "1px solid var(--border-light)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</p>}
-          <Link href="/profile" style={item} onClick={() => setOpen(false)}>My Profile</Link>
-          <Link href="/live" style={item} onClick={() => setOpen(false)}>Live Sessions</Link>
-          <Link href="/events" style={item} onClick={() => setOpen(false)}>Events & Webinars</Link>
-          
-          <Link href="/attendance" style={item} onClick={() => setOpen(false)}>Attendance</Link>
-          <Link href="/certificates" style={item} onClick={() => setOpen(false)}>Certificates</Link>
-          <a href={SITE_URL} style={item}>Back to Website</a>
-          <button type="button" style={{ ...item, color: "#dc2626", fontWeight: 500 }} onClick={openSignOut}>Sign Out</button>
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "calc(100% + 10px)",
+            width: "230px",
+            background: "#ffffff",
+            border: "1px solid #ece6dd",
+            borderRadius: "14px",
+            boxShadow: "0 16px 40px -8px rgba(28, 25, 23, 0.14), 0 4px 14px -2px rgba(28, 25, 23, 0.05)",
+            padding: "6px",
+            zIndex: 100,
+          }}
+        >
+          {name && (
+            <div style={{ padding: "8px 12px 10px", borderBottom: "1px solid #f0ece1", marginBottom: "4px" }}>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: "0.88rem", color: "#18181b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {name}
+              </p>
+              {email && (
+                <p style={{ margin: "2px 0 0", fontSize: "0.75rem", color: "#78716c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {email}
+                </p>
+              )}
+            </div>
+          )}
+
+          <Link href="/profile" className={styles.profileMenuItem} onClick={() => setOpen(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>My Profile</span>
+          </Link>
+          <Link href="/live" className={styles.profileMenuItem} onClick={() => setOpen(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            <span>Live Sessions</span>
+          </Link>
+          <Link href="/events" className={styles.profileMenuItem} onClick={() => setOpen(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span>Events &amp; Webinars</span>
+          </Link>
+          <Link href="/attendance" className={styles.profileMenuItem} onClick={() => setOpen(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <span>Attendance</span>
+          </Link>
+          <Link href="/certificates" className={styles.profileMenuItem} onClick={() => setOpen(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+            <span>Certificates</span>
+          </Link>
+          <div style={{ height: "1px", background: "#f0ece1", margin: "4px 6px" }} />
+          <a href={SITE_URL} className={styles.profileMenuItem}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <span>Back to Website</span>
+          </a>
+          <button
+            type="button"
+            className={`${styles.profileMenuItem} ${styles.profileMenuSignOut}`}
+            onClick={openSignOut}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span>Sign Out</span>
+          </button>
         </div>
       )}
     </div>

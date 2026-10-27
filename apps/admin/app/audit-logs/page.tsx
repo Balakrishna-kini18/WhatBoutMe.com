@@ -54,6 +54,15 @@ export default function AuditLogsPage() {
   const [copiedLinkUrl, setCopiedLinkUrl] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyId = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    }).catch(() => {});
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -1038,6 +1047,49 @@ export default function AuditLogsPage() {
                       : activeMetaEntry.actorRole || "System"}
                   </span>
                 </div>
+
+                {/* Target Entity Row */}
+                {activeMetaEntry.entity && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "0.25rem 0.75rem",
+                      borderBottom: usefulProperties.length > 0 || (activeMetaEntry.ip && activeMetaEntry.ip !== "N/A") ? "1px solid #f4ede4" : "none",
+                      paddingBottom: usefulProperties.length > 0 || (activeMetaEntry.ip && activeMetaEntry.ip !== "N/A") ? "0.5rem" : "0",
+                    }}
+                  >
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)", fontWeight: 500 }}>
+                      Target Entity
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary, #14110f)", fontSize: "0.8rem" }}>
+                        {activeMetaEntry.targetLabel || activeMetaEntry.entity}
+                      </span>
+                      {activeMetaEntry.entityId && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleCopyId(activeMetaEntry.entityId, e)}
+                          title={`Click to copy full ID: ${activeMetaEntry.entityId}`}
+                          style={{
+                            fontSize: "0.68rem",
+                            fontFamily: "monospace",
+                            background: copiedId === activeMetaEntry.entityId ? "#f0fdf4" : "#f8f6f2",
+                            border: `1px solid ${copiedId === activeMetaEntry.entityId ? "#bbf7d0" : "#e7e2d8"}`,
+                            color: copiedId === activeMetaEntry.entityId ? "#15803d" : "#78716c",
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {copiedId === activeMetaEntry.entityId ? "Copied!" : `${activeMetaEntry.entityId.slice(0, 8)}...`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Useful Properties Rows */}
                 {usefulProperties.map((prop, idx) => (

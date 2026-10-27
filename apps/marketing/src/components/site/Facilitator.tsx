@@ -115,13 +115,13 @@ export default function Facilitator({ image }: { image: string }) {
         <div className="mx-auto grid max-w-[1240px] items-start gap-12 px-5 md:px-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
           <div className="relative aspect-square overflow-hidden rounded-[2rem] lg:sticky lg:top-28">
             <Image
-              src="/site/about-photo.jpg"
-              alt="Roweena Britto smiling, seated on a motorbike"
+              src="/site/gallery/roweena-04.webp"
+              alt="Roweena Britto in a golden carved doorway"
               fill
               quality={80}
               loading="lazy"
               sizes="(max-width: 1024px) 100vw, 480px"
-              className="object-cover"
+              className="object-cover object-[center_35%]"
             />
           </div>
 

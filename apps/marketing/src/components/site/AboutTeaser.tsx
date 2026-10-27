@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import Reveal from "./Reveal";
-import { isLocalImage } from "@/lib/siteContent";
 
 const FACTS = [
   { value: "25", label: "CPD Hours" },
@@ -11,7 +10,7 @@ const FACTS = [
 ];
 
 /** Short facilitator intro for the landing page; the full story lives on /about. */
-export default function AboutTeaser({ image }: { image: string }) {
+export default function AboutTeaser() {
   return (
     <section id="facilitator" className="px-5 sm:px-4 py-16 md:px-8 md:py-24">
       <Reveal className="mx-auto grid max-w-[1240px] overflow-hidden rounded-[2rem] bg-ink text-cream lg:grid-cols-[1.2fr_0.8fr]">
@@ -50,19 +49,16 @@ export default function AboutTeaser({ image }: { image: string }) {
           </Link>
         </div>
 
-        {/* portrait on the sun disc, flush with the panel bottom */}
-        <div className="relative mx-auto aspect-[52/50] w-full max-w-[420px] self-end overflow-hidden">
-          <span className="absolute inset-x-[6%] top-[14%] aspect-square rounded-full bg-[linear-gradient(160deg,#f8cf86,#efa944)]" />
+        {/* her own photo, filling the panel's right side */}
+        <div className="relative aspect-square w-full lg:aspect-auto">
           <Image
-            src={image}
-            unoptimized={!isLocalImage(image)}
-            alt="Roweena Britto, Brain Health Coach"
-            width={623}
-            height={1289}
+            src="/site/gallery/roweena-01.webp"
+            alt="Roweena Britto on her motorbike"
+            fill
             quality={80}
             loading="lazy"
-            sizes="(max-width: 1024px) 80vw, 420px"
-            className="absolute left-1/2 top-[4%] h-[190%] w-auto max-w-none -translate-x-1/2"
+            sizes="(max-width: 1024px) 100vw, 500px"
+            className="object-cover object-[40%_center]"
           />
         </div>
       </Reveal>

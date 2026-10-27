@@ -14,18 +14,107 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Page Header */
 .header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
   margin-top: 0.25rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding: 0.35rem 0.75rem 0.35rem 0.45rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.backLink:hover {
+  background: #fff8f0;
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+  transform: translateX(-2px);
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.12);
+}
+
+.backIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fdf5ea;
+  color: var(--accent-primary, #c97a1e);
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.backLink:hover .backIconWrap {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+}
+
+.backText {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.headerDivider {
+  width: 1px;
+  height: 1.45rem;
+  background: var(--border-light, #ece4d7);
+  flex-shrink: 0;
+}
+
+.headerTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
 }
 
 .title {
   font-size: 1.6rem;
-  letter-spacing: -0.015em;
-  margin: 0;
   font-weight: 800;
-  color: var(--text-primary);
+  color: var(--text-primary, #14110f);
+  margin: 0;
   line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.headerBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #fdf5ea;
+  border: 1px solid #fed7aa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.headerBadgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ea580c;
+  flex-shrink: 0;
 }
 
 .subtitle {

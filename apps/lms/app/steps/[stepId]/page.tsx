@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   API_URL,
+  cachedFetch,
   getAuthHeaders,
   parseApiError,
   invalidateCache,
@@ -18,9 +19,33 @@ import {
   getLockMessage,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
+import PdfViewerModal from "./components/PdfViewerModal";
 import StepLoading from "./loading";
+import {
+  getLocalVideoResume,
+  isLocalLessonCompleted,
+  saveLocalLessonCompletion,
+} from "./videoPlayerLogic";
 
 export type WorkspaceTab = "video" | "quiz" | "notes" | "materials";
+
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
 
 function resolveVideoSrc(rawUrl?: string | null): string {
   if (!rawUrl) return "";
@@ -32,6 +57,17 @@ function resolveVideoSrc(rawUrl?: string | null): string {
   const rawKey = isUpload ? rawUrl.replace("upload:", "") : rawUrl;
   const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
   return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+}
+
+function resolveMediaDownloadUrl(rawUrl?: string | null): string {
+  if (!rawUrl) return "";
+  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.startsWith("/")) {
+    return rawUrl;
+  }
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const isUpload = rawUrl.startsWith("upload:");
+  const rawKey = isUpload ? rawUrl.replace("upload:", "") : rawUrl;
+  return `${API_URL}/media/stream/${rawKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 }
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
@@ -64,6 +100,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Materials state
   const [materialsSearch, setMaterialsSearch] = useState("");
+  const [viewerPdf, setViewerPdf] = useState<{
+    isOpen: boolean;
+    id: string;
+    title: string;
+    mediaUrl?: string | null;
+    downloadUrl?: string | null;
+  }>({
+    isOpen: false,
+    id: "",
+    title: "",
+  });
+
+  const handleViewPdf = useCallback((material: { id: string; title: string; mediaUrl?: string | null }) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+    const directDocUrl = `${API_URL}/media/document/${encodeURIComponent(material.id)}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    setViewerPdf({
+      isOpen: true,
+      id: material.id,
+      title: material.title,
+      mediaUrl: material.mediaUrl,
+      downloadUrl: directDocUrl,
+    });
+  }, []);
 
 
   // Quiz state
@@ -84,6 +143,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isFetchingRef = useRef<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isHeartbeatInFlightRef = useRef<boolean>(false);
+  const lastEndedSentTimeRef = useRef<Record<string, number>>({});
+  const [recheckCount, setRecheckCount] = useState<number>(0);
+  const [isRecheckingUnlock, setIsRecheckingUnlock] = useState<boolean>(false);
 
   // 1. Initial User Hydration & Jump Link (?lessonId=...)
   useEffect(() => {
@@ -163,8 +225,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     } catch (e) {}
   }, [stepId, quizAnswers, activeQuizIndex, activeTab]);
 
-  // 2. Fetch Step & Progression
-  const fetchStepAndProgression = useCallback(async () => {
+  // 2. Fetch Step & Progression with automatic retry & cache resilience
+  const fetchStepAndProgression = useCallback(async (isRetry = false, forceFresh = false) => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
 
@@ -177,8 +239,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
     try {
       setLoadError(null);
-      const stepRes = await fetch(`${API_URL}/programs/steps/${stepId}`, {
+      const stepRes = await cachedFetch(`${API_URL}/programs/steps/${stepId}`, {
         headers: getAuthHeaders(),
+        ttlMs: forceFresh ? 0 : 15_000,
+        skipCache: forceFresh,
       });
       if (!stepRes.ok) {
         if (stepRes.status === 401) {
@@ -195,14 +259,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       // Concurrent fetch of progression and quiz attempt
       let progData: EnrolmentProgressionResponse | null = null;
       const progPromise = stepData.programId
-        ? fetch(`${API_URL}/progression/me/${stepData.programId}`, {
+        ? cachedFetch(`${API_URL}/progression/me/${stepData.programId}`, {
             headers: getAuthHeaders(),
+            ttlMs: forceFresh ? 0 : 5_000,
+            skipCache: forceFresh,
           })
         : Promise.resolve(null);
 
       const quizPromise = stepData.quiz?.id
-        ? fetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
+        ? cachedFetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
             headers: getAuthHeaders(),
+            ttlMs: forceFresh ? 0 : 5_000,
+            skipCache: forceFresh,
           }).catch(() => null)
         : Promise.resolve(null);
 
@@ -219,22 +287,61 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       if (stepProgItem?.lessons && stepProgItem.lessons.length > 0) {
         for (const l of stepProgItem.lessons) {
+          const localResume = getLocalVideoResume(l.lessonId);
+          const isLocallyDone = isLocalLessonCompleted(l.lessonId);
+          const isDone = Boolean(l.isCompleted || isLocallyDone);
+          const effectivePos = Math.max(l.lastPositionSec || 0, localResume?.positionSec || 0);
+
           lpMap[l.lessonId] = {
-            viewed: l.isCompleted,
-            progressPercent: l.progressPercent,
-            lastPositionSec: l.lastPositionSec,
+            viewed: isDone,
+            progressPercent: isDone ? 100 : (l.progressPercent || 0),
+            lastPositionSec: effectivePos,
             completedAt: l.completedAt,
             durationSec: l.durationSec,
-            isCompleted: l.isCompleted,
+            isCompleted: isDone,
           };
         }
         setLessonProgress(lpMap);
+
+        // Automatic Server Completion Reconciliation:
+        // If a lesson was finished locally but server missed it (e.g. dropped connection during reload),
+        // reconcile completion with server so database records and next step unlocks stay 100% in sync
+        const missingOnServer = stepProgItem.lessons.filter(
+          (l: any) => !l.isCompleted && isLocalLessonCompleted(l.lessonId)
+        );
+        if (missingOnServer.length > 0) {
+          void (async () => {
+            try {
+              for (const ml of missingOnServer) {
+                const dur = ml.durationSec || 8;
+                await fetch(`${API_URL}/progress/lessons/${ml.lessonId}/heartbeat`, {
+                  method: "POST",
+                  headers: getAuthHeaders(),
+                  body: JSON.stringify({
+                    positionSec: dur,
+                    fromSec: 0,
+                    toSec: dur,
+                    videoDurationSec: dur,
+                    isEnded: true,
+                    deltaWatchedSec: dur,
+                    timestamp: Date.now(),
+                  }),
+                });
+              }
+              invalidateCache("/progression");
+              invalidateCache("/progress");
+            } catch (syncErr) {
+              console.warn("Completion reconciliation error:", syncErr);
+            }
+          })();
+        }
       } else if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
         try {
           await Promise.all(
             stepData.lessons.map(async (l: any) => {
-              const lpRes = await fetch(`${API_URL}/progress/lessons/${l.id}`, {
+              const lpRes = await cachedFetch(`${API_URL}/progress/lessons/${l.id}`, {
                 headers: getAuthHeaders(),
+                ttlMs: 15_000,
               });
               if (lpRes.ok) {
                 const d = await lpRes.json();
@@ -277,7 +384,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
     } catch (err: any) {
       console.error(err);
-      setLoadError(err.message || "Failed to load step information");
+      if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch") || err.message?.includes("network"))) {
+        isFetchingRef.current = false;
+        setTimeout(() => {
+          fetchStepAndProgression(true);
+        }, 1200);
+        return;
+      }
+      setStep((currentStep: any) => {
+        if (!currentStep) {
+          setLoadError(
+            err.message?.includes("fetch")
+              ? "Connecting to learning server... The server was temporarily reconnecting. Please click Retry Loading below."
+              : (err.message || "Failed to load step information")
+          );
+        }
+        return currentStep;
+      });
     } finally {
       setLoading(false);
       isFetchingRef.current = false;
@@ -327,6 +450,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Determine Current Step Progression & Quiz Unlocked Status
   const currentStepProg = progression?.steps?.find((s: any) => s.stepId === stepId);
+  const isStepUnlocked = currentStepProg ? currentStepProg.isUnlocked : true;
+
+  // Auto-recheck unlocked status if user lands on locked step right after previous module
+  useEffect(() => {
+    if (!step || isStepUnlocked || !currentStepProg) return;
+    if (currentStepProg.lockReason !== "PREVIOUS_STEP_INCOMPLETE") return;
+    if (recheckCount >= 6) return;
+
+    const delay = recheckCount === 0 ? 1000 : 1500;
+    const timer = setTimeout(async () => {
+      setIsRecheckingUnlock(true);
+      invalidateCache();
+      isFetchingRef.current = false;
+      await fetchStepAndProgression(false, true);
+      setIsRecheckingUnlock(false);
+      setRecheckCount((prev) => prev + 1);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [step, isStepUnlocked, currentStepProg?.lockReason, recheckCount, fetchStepAndProgression]);
+
   const effectiveQuizPlacement =
     step?.quiz?.quizPlacement ||
     (step as any)?.quizPlacement ||
@@ -346,6 +490,89 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     effectiveQuizPlacement === "BEFORE_VIDEO" ||
     areAllVideosDone
   );
+
+  const hasQuiz = Boolean(step?.quiz && step.quiz.id);
+  const stepMaterials = useMemo(() => {
+    const list: Array<{
+      id: string;
+      title: string;
+      type: string;
+      mediaUrl?: string | null;
+      size?: string | null;
+      durationSec?: number | null;
+    }> = [];
+
+    // 1. Non-video/audio lessons (PDF, TEXT, LINK, etc.)
+    for (const l of allLessons) {
+      const t = (l.type || "").toUpperCase();
+      if (t && t !== "VIDEO" && t !== "AUDIO") {
+        list.push({
+          id: l.id,
+          title: l.title,
+          type: t || "PDF",
+          mediaUrl: l.mediaUrl || null,
+          size: null,
+          durationSec: l.durationSec || null,
+        });
+      }
+    }
+
+    // 2. Step resources
+    if (Array.isArray(step?.resources)) {
+      for (const r of step.resources) {
+        if (!list.some((existing) => existing.id === r.id)) {
+          let sizeStr: string | null = null;
+          if (r.fileSize) {
+            sizeStr =
+              r.fileSize > 1048576
+                ? `${(r.fileSize / 1048576).toFixed(1)} MB`
+                : `${Math.round(r.fileSize / 1024)} KB`;
+          }
+          list.push({
+            id: r.id,
+            title: r.title,
+            type: (r.type || "PDF").toUpperCase(),
+            mediaUrl: r.mediaUrl,
+            size: sizeStr,
+            durationSec: null,
+          });
+        }
+      }
+    }
+
+    // 3. Step resource items
+    if (Array.isArray((step as any)?.resourceItems)) {
+      for (const ri of (step as any).resourceItems) {
+        if (!list.some((existing) => existing.id === ri.id)) {
+          let sizeStr: string | null = null;
+          if (ri.fileSizeBytes) {
+            sizeStr =
+              ri.fileSizeBytes > 1048576
+                ? `${(ri.fileSizeBytes / 1048576).toFixed(1)} MB`
+                : `${Math.round(ri.fileSizeBytes / 1024)} KB`;
+          }
+          list.push({
+            id: ri.id,
+            title: ri.title,
+            type: (ri.type || "PDF").toUpperCase(),
+            mediaUrl: ri.fileUrl || ri.mediaUrl,
+            size: sizeStr,
+            durationSec: null,
+          });
+        }
+      }
+    }
+
+    return list;
+  }, [allLessons, step?.resources, (step as any)?.resourceItems]);
+
+  useEffect(() => {
+    if (activeTab === "quiz" && !hasQuiz) {
+      setActiveTab("video");
+    } else if (activeTab === "materials" && stepMaterials.length === 0) {
+      setActiveTab("video");
+    }
+  }, [activeTab, hasQuiz, stepMaterials.length]);
 
   // Proactively pre-warm quiz attempt in background when user views quiz tab AND quiz is unlocked
   useEffect(() => {
@@ -430,7 +657,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setNotes((prev) => prev.filter((n) => n.id !== id));
   };
 
-  // Video Heartbeat
+  // Video Heartbeat with deduplication
   const sendMediaHeartbeat = useCallback(
     async (
       lessonId: string,
@@ -441,38 +668,54 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       fromSec?: number,
       toSec?: number,
     ) => {
-      if (isHeartbeatInFlightRef.current && !isEnded) return;
+      const now = Date.now();
+      if (isEnded) {
+        const lastSent = lastEndedSentTimeRef.current[lessonId] || 0;
+        if (now - lastSent < 4000) return;
+        lastEndedSentTimeRef.current[lessonId] = now;
+      } else if (isHeartbeatInFlightRef.current) {
+        return;
+      }
       isHeartbeatInFlightRef.current = true;
 
-      try {
-        const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
-        const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            positionSec,
-            fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
-            toSec: toSec ?? positionSec,
-            videoDurationSec: dur > 0 ? dur : undefined,
-            isEnded,
-            deltaWatchedSec,
-            timestamp: Date.now(),
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
-          if (data.isCompleted || data.viewed || isEnded) {
-            invalidateCache("/progression");
-            invalidateCache("/progress");
-            fetchStepAndProgression();
+      const sendHeartbeatAttempt = async (attempt = 0): Promise<void> => {
+        try {
+          const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
+          const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              positionSec,
+              fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
+              toSec: toSec ?? positionSec,
+              videoDurationSec: dur > 0 ? dur : undefined,
+              isEnded,
+              deltaWatchedSec,
+              timestamp: Date.now(),
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
+            if (data.isCompleted || data.viewed || isEnded) {
+              invalidateCache();
+              void fetchStepAndProgression(false, true);
+            }
+          } else if (isEnded && attempt < 2) {
+            setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
           }
+        } catch (err) {
+          if (isEnded && attempt < 2) {
+            setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
+          } else {
+            console.warn("Heartbeat error:", err);
+          }
+        } finally {
+          isHeartbeatInFlightRef.current = false;
         }
-      } catch (err) {
-        console.warn("Heartbeat error:", err);
-      } finally {
-        isHeartbeatInFlightRef.current = false;
-      }
+      };
+
+      await sendHeartbeatAttempt(0);
     },
     [fetchStepAndProgression]
   );
@@ -523,53 +766,102 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return () => clearTimeout(timer);
   }, [redirectCountdown, nextStepId, router]);
 
-  // Lesson Completion
-  const handleLessonComplete = async (lessonId: string) => {
-    try {
-      const lesson = allLessons.find((l: any) => l.id === lessonId);
-      if (lesson && lesson.type !== "VIDEO" && lesson.type !== "AUDIO") {
-        await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-        });
-      }
-      setLessonProgress((prev) => ({
-        ...prev,
-        [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true },
-      }));
-      invalidateCache("/progression");
-      fetchStepAndProgression();
-    } catch (e) {
-      // continue locally
-    }
+  // Lesson Completion with 0ms Instant Optimistic Unlocking
+  const handleLessonComplete = useCallback(
+    (lessonId: string) => {
+      // 1. Immediately persist locally (0ms lag)
+      saveLocalLessonCompletion(lessonId);
 
-    const updatedProgress = {
-      ...lessonProgress,
-      [lessonId]: { ...lessonProgress[lessonId], isCompleted: true, viewed: true },
-    };
-    const areAllVideosDone = allLessons.every(
-      (l: any) => updatedProgress[l.id]?.isCompleted || updatedProgress[l.id]?.viewed
-    );
+      // 2. Immediately update local progress state
+      setLessonProgress((prev) => {
+        const updated = {
+          ...prev,
+          [lessonId]: {
+            ...prev[lessonId],
+            isCompleted: true,
+            viewed: true,
+            progressPercent: 100,
+            completedAt: new Date().toISOString(),
+          },
+        };
 
-    if (areAllVideosDone) {
-      if (step?.quiz && !lastQuizResult?.passed && !(currentStepProg as any)?.quizPassed && !currentStepProg?.isCompleted) {
-        // Videos are finished, quiz is required!
-        setCelebrationMode("lesson");
-        setIsCelebrationOpen(true);
-      } else {
-        // All videos done and quiz passed or no quiz -> Entire Module Completed!
-        setCelebrationMode("module");
-        setIsCelebrationOpen(true);
-        if (nextStepId) {
-          setRedirectCountdown(4);
+        // 3. Immediately evaluate if all videos in this step are done
+        const areAllVideosDone = allLessons.every(
+          (l: any) => updated[l.id]?.isCompleted || updated[l.id]?.viewed
+        );
+
+        if (areAllVideosDone) {
+          // Immediately unlock next module in client state so it never shows locked
+          setProgression((prevProg: any) => {
+            if (!prevProg?.steps) return prevProg;
+            return {
+              ...prevProg,
+              steps: prevProg.steps.map((s: any) => {
+                if (s.stepId === stepId) {
+                  return { ...s, isCompleted: true, progressPercent: 100 };
+                }
+                if (nextStepId && s.stepId === nextStepId) {
+                  return { ...s, isUnlocked: true, lockReason: null };
+                }
+                return s;
+              }),
+            };
+          });
+
+          if (
+            step?.quiz &&
+            !lastQuizResult?.passed &&
+            !(currentStepProg as any)?.quizPassed &&
+            !currentStepProg?.isCompleted
+          ) {
+            setCelebrationMode("lesson");
+            setIsCelebrationOpen(true);
+          } else {
+            setCelebrationMode("module");
+            setIsCelebrationOpen(true);
+            if (nextStepId) {
+              setRedirectCountdown(3);
+            }
+          }
+        } else {
+          setCelebrationMode("lesson");
+          setIsCelebrationOpen(true);
         }
-      }
-    } else {
-      // Single video part completed
-      setCelebrationMode("lesson");
-      setIsCelebrationOpen(true);
-    }
-  };
+
+        return updated;
+      });
+
+      // 4. Background server sync (does NOT block UI or video progression)
+      void (async () => {
+        try {
+          const lesson = allLessons.find((l: any) => l.id === lessonId);
+          const dur = lesson?.durationSec || 0;
+          if (lesson && (lesson.type === "VIDEO" || lesson.type === "AUDIO")) {
+            await sendMediaHeartbeat(lessonId, dur, true, dur, dur, 0, dur);
+          } else if (lesson) {
+            await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+              method: "POST",
+              headers: getAuthHeaders(),
+            });
+          }
+          invalidateCache();
+          void fetchStepAndProgression(false, true);
+        } catch (e) {
+          console.warn("Background lesson completion sync failed:", e);
+        }
+      })();
+    },
+    [
+      allLessons,
+      step?.quiz,
+      lastQuizResult,
+      currentStepProg,
+      nextStepId,
+      sendMediaHeartbeat,
+      fetchStepAndProgression,
+    ]
+  );
+
 
   // Quiz submission
   const handleQuizSubmit = async () => {
@@ -640,7 +932,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Calculate Progress Percentages
   const isStepCompleted = currentStepProg?.isCompleted || step?.isCompleted;
-  const isStepUnlocked = currentStepProg ? currentStepProg.isUnlocked : true;
 
   const totalLessonsCount = allLessons.length;
   const completedLessonsCount = allLessons.filter(
@@ -659,14 +950,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return <StepLoading />;
   }
 
-  // Error State
-  if (loadError) {
+  // Error State: Only show blocking error card if step is not already available in memory
+  if (loadError && !step) {
     return (
       <div className={styles.container}>
         <div className={styles.emptyStateCard}>
           <h2 style={{ color: "#dc2626", margin: "0 0 8px" }}>Could not load curriculum</h2>
           <p style={{ margin: "0 0 1.5rem" }}>{loadError}</p>
-          <button type="button" onClick={() => fetchStepAndProgression()} className={styles.btnPrimaryOrange}>
+          <button
+            type="button"
+            onClick={() => {
+              isFetchingRef.current = false;
+              fetchStepAndProgression(false);
+            }}
+            className={styles.btnPrimaryOrange}
+          >
             Retry Loading
           </button>
         </div>
@@ -676,16 +974,60 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Locked Step State
   if (!isStepUnlocked && currentStepProg) {
+    const isPrevIncomplete = currentStepProg.lockReason === "PREVIOUS_STEP_INCOMPLETE";
     return (
       <div className={styles.container}>
         <div className={styles.lockCard}>
           <span className={styles.lockBadge}>Step Locked</span>
-          <h2 className={styles.lockTitle}>Step {step.sequence}: {step.title}</h2>
+          <h2 className={styles.lockTitle}>Step {step?.sequence}: {step?.title}</h2>
           <p className={styles.lockMessage}>
             {getLockMessage(currentStepProg.lockReason)}
           </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <Link href={`/programs/${step.programId}/steps`} className={styles.btnPrimaryOrange}>
+
+          {isPrevIncomplete && (
+            <div
+              style={{
+                margin: "16px 0",
+                fontSize: "0.9rem",
+                color: "#ea580c",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              {isRecheckingUnlock ? (
+                <>
+                  <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>⏳</span>
+                  <span>Verifying previous module completion... Unlocking step</span>
+                </>
+              ) : recheckCount < 6 ? (
+                <>
+                  <span>Checking completion status... Unlocks automatically</span>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 12 }}>
+            {isPrevIncomplete && (
+              <button
+                type="button"
+                disabled={isRecheckingUnlock}
+                onClick={async () => {
+                  setIsRecheckingUnlock(true);
+                  invalidateCache();
+                  isFetchingRef.current = false;
+                  await fetchStepAndProgression(false, true);
+                  setIsRecheckingUnlock(false);
+                }}
+                className={styles.btnPrimaryOrange}
+                style={{ minWidth: 160 }}
+              >
+                {isRecheckingUnlock ? "Verifying..." : "Check Unlock Now ⟳"}
+              </button>
+            )}
+            <Link href={`/programs/${step?.programId}/steps`} className={styles.btnSecondaryOutline}>
               Return to Roadmap &rarr;
             </Link>
           </div>
@@ -791,10 +1133,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       ) : nextStep && nextStepId ? (
         <button
           type="button"
-          onClick={() => router.push(`/steps/${nextStepId}`)}
+          disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
+          onClick={() => {
+            if (isStepCompleted || completedLessonsCount >= totalLessonsCount) {
+              router.push(`/steps/${nextStepId}`);
+            }
+          }}
           className={styles.btnPrimaryOrange}
+          style={{
+            opacity: !isStepCompleted && completedLessonsCount < totalLessonsCount ? 0.6 : 1,
+            cursor: !isStepCompleted && completedLessonsCount < totalLessonsCount ? "not-allowed" : "pointer",
+          }}
         >
-          Next Module ({nextStep.title}) &rarr;
+          {!isStepCompleted && completedLessonsCount < totalLessonsCount
+            ? `🔒 Complete all parts to unlock Next Module`
+            : `Next Module (${nextStep.title}) →`}
         </button>
       ) : (
         <Link
@@ -813,22 +1166,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   return (
     <div className={styles.container}>
       {/* =====================================================================
-          TOP HEADER
+          TOP HEADER (Consistent Learning Path format)
           ===================================================================== */}
-      <div className={styles.pageHeaderRow}>
-        <div>
-          <Link href={`/programs/${step?.programId}/steps`} className={styles.breadcrumbBack}>
-            &larr; Back to Learning Path
-          </Link>
-
+      <header className={styles.header}>
+        <Link
+          href={step?.programId ? `/programs/${step.programId}/steps` : "/"}
+          className={styles.backLink}
+          title="Back to Learning Path"
+        >
+          <span className={styles.backIconWrap}>{ArrowLeft}</span>
+          <span className={styles.backText}>Back</span>
+        </Link>
+        <span className={styles.headerDivider} aria-hidden="true" />
+        <div className={styles.headerTitleGroup}>
           <h1 className={styles.pageMainTitle}>
             Step {step?.sequence}: {step?.title}
           </h1>
-          <p className={styles.pageSubtitle}>
-            {step?.title} • {completedLessonsCount} of {totalLessonsCount} lessons completed
-          </p>
+          <span className={styles.cardMetaBadge}>
+            <span className={styles.cardMetaDot} aria-hidden="true" />
+            {step?.title || `Module ${step?.sequence}`} • {completedLessonsCount} of {totalLessonsCount} lessons completed
+          </span>
         </div>
-      </div>
+      </header>
 
       {/* =====================================================================
           4-TAB LESSON WORKSPACE
@@ -848,26 +1207,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (isQuizUnlocked) {
-                  setActiveTab("quiz");
+            {hasQuiz && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isQuizUnlocked) {
+                    setActiveTab("quiz");
+                  }
+                }}
+                className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
+                title={
+                  !isQuizUnlocked
+                    ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
+                    : "Take Module Quiz"
                 }
-              }}
-              className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
-              title={
-                !isQuizUnlocked
-                  ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
-                  : "Take Module Quiz"
-              }
-            >
-              <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
-              <span>Quiz</span>
-              {quizQuestions.length > 0 && isQuizUnlocked && (
-                <span className={styles.learningTabCount}>{quizQuestions.length}</span>
-              )}
-            </button>
+              >
+                <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
+                <span>Quiz</span>
+                {quizQuestions.length > 0 && isQuizUnlocked && (
+                  <span className={styles.learningTabCount}>{quizQuestions.length}</span>
+                )}
+              </button>
+            )}
 
             {/* Notes Tab Button - hidden per user request
             <button
@@ -881,14 +1242,17 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </button>
             */}
 
-            <button
-              type="button"
-              onClick={() => setActiveTab("materials")}
-              className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
-            >
-              <span>📁</span>
-              <span>Materials</span>
-            </button>
+            {stepMaterials.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("materials")}
+                className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
+              >
+                <span>📁</span>
+                <span>Materials</span>
+                <span className={styles.learningTabCount}>{stepMaterials.length}</span>
+              </button>
+            )}
           </nav>
 
           {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
@@ -921,7 +1285,45 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </div>
 
                   {/* 16:9 Video Viewport */}
-                  {currentMedia?.mediaUrl ? (
+                  {currentMedia?.type === "PDF" || (currentMedia?.mediaUrl && currentMedia.mediaUrl.toLowerCase().includes(".pdf")) ? (
+                    <div className={styles.pdfLessonViewport}>
+                      <div className={styles.pdfLessonHeader}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span className={styles.badgePdf} style={{ padding: "4px 8px", borderRadius: 4, fontWeight: 700, fontSize: "0.78rem" }}>
+                            PDF
+                          </span>
+                          <strong style={{ fontSize: "1.05rem", color: "#1c1917" }}>{currentMedia.title}</strong>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleViewPdf(currentMedia)}
+                            className={styles.btnPrimaryView}
+                            title="Open full in-browser reader modal"
+                          >
+                            <span style={{ fontSize: "1rem" }}>👁</span> View Fullscreen
+                          </button>
+                          <a
+                            href={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
+                            download={`${currentMedia.title}.pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.btnSecondaryOutline}
+                            style={{ textDecoration: "none" }}
+                          >
+                            &darr; Download
+                          </a>
+                        </div>
+                      </div>
+                      <div className={styles.pdfLessonEmbedContainer}>
+                        <iframe
+                          src={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
+                          title={currentMedia.title}
+                          className={styles.pdfFrame}
+                        />
+                      </div>
+                    </div>
+                  ) : currentMedia?.mediaUrl ? (
                     <div className={styles.videoPlayerViewport}>
                       <CompulsoryVideoPlayer
                         lessonId={currentMedia.id}
@@ -1146,7 +1548,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           )}
 
           {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
-          {activeTab === "quiz" && (
+          {activeTab === "quiz" && hasQuiz && (
             <div>
               {!isQuizUnlocked ? (
                 <div className={styles.quizLockedCard}>
@@ -1580,7 +1982,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           */}
 
           {/* TAB 4: LEARNING MATERIALS (SCREEN 6) */}
-          {activeTab === "materials" && (
+          {activeTab === "materials" && stepMaterials.length > 0 && (
             <div className={styles.materialsTabStack}>
               <div className={styles.materialsSearchCard}>
                 <div className={styles.searchBarContainer}>
@@ -1596,42 +1998,90 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
 
               <div className={styles.materialsListStack}>
-                {[
-                  { id: "mat-1", title: `${step?.title || "Module"} - Slides`, type: "PDF", size: "2.1 MB" },
-                  { id: "mat-2", title: "Exercise & Framework Files", type: "ZIP", size: "8.4 MB" },
-                  { id: "mat-3", title: "Reference Implementation Guide", type: "PDF", size: "1.8 MB" },
-                  { id: "mat-4", title: "Executive Cheat Sheet & Formulas", type: "PDF", size: "1.2 MB" },
-                ]
+                {stepMaterials
                   .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
-                  .map((m) => (
-                    <div key={m.id} className={styles.materialRowCard}>
-                      <div className={styles.materialLeftGroup}>
-                        <div
-                          className={`${styles.materialTypeBadge} ${
-                            m.type === "PDF"
-                              ? styles.badgePdf
-                              : m.type === "ZIP"
-                              ? styles.badgeZip
-                              : styles.badgeGeneric
-                          }`}
-                        >
-                          {m.type}
+                  .map((m) => {
+                    const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
+                    const downloadUrl = isPdf
+                      ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
+                      : resolveMediaDownloadUrl(m.mediaUrl);
+                    return (
+                      <div
+                        key={m.id}
+                        className={`${styles.materialRowCard} ${isPdf ? styles.materialRowCardClickable : ""}`}
+                        onClick={() => {
+                          if (isPdf) handleViewPdf(m);
+                        }}
+                        title={isPdf ? "Click to view PDF in browser" : undefined}
+                      >
+                        <div className={styles.materialLeftGroup}>
+                          <div
+                            className={`${styles.materialTypeBadge} ${
+                              m.type === "PDF"
+                                ? styles.badgePdf
+                                : m.type === "ZIP"
+                                ? styles.badgeZip
+                                : styles.badgeGeneric
+                            }`}
+                          >
+                            {m.type}
+                          </div>
+                          <div>
+                            <h4 className={styles.materialTitle}>{m.title}</h4>
+                            <span className={styles.materialMeta}>
+                              {m.type}
+                              {m.size ? ` • ${m.size}` : m.durationSec ? ` • ${Math.ceil(m.durationSec / 60)} min read` : ""}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className={styles.materialTitle}>{m.title}</h4>
-                          <span className={styles.materialMeta}>{m.type} • {m.size}</span>
+
+                        <div className={styles.materialActionsGroup} onClick={(e) => e.stopPropagation()}>
+                          {isPdf && (
+                            <button
+                              type="button"
+                              onClick={() => handleViewPdf(m)}
+                              className={styles.btnPrimaryView}
+                              title="View this PDF directly in the browser"
+                            >
+                              <span style={{ fontSize: "1rem" }}>👁</span>
+                              <span>View in Browser</span>
+                            </button>
+                          )}
+
+                          {downloadUrl ? (
+                            <a
+                              href={downloadUrl}
+                              download={m.title}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.btnSecondaryOutline}
+                              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                              title="Download PDF file"
+                            >
+                              &darr; Download
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className={styles.btnSecondaryOutline}
+                              style={{ opacity: 0.5, cursor: "not-allowed" }}
+                            >
+                              Unavailable
+                            </button>
+                          )}
                         </div>
                       </div>
+                    );
+                  })}
 
-                      <button
-                        type="button"
-                        onClick={() => alert(`Downloading ${m.title}...`)}
-                        className={styles.btnSecondaryOutline}
-                      >
-                        &darr; Download
-                      </button>
-                    </div>
-                  ))}
+                {stepMaterials.filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase())).length === 0 && (
+                  <div className={styles.emptyStateCard} style={{ padding: "2rem", textAlign: "center" }}>
+                    <p style={{ margin: 0, color: "#78716a" }}>
+                      No materials found matching &ldquo;{materialsSearch}&rdquo;
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1669,15 +2119,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             ) : nextStep && nextStepId ? (
               <button
                 type="button"
-                onClick={() => router.push(`/steps/${nextStepId}`)}
+                disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
+                onClick={() => {
+                  if (isStepCompleted || completedLessonsCount >= totalLessonsCount) {
+                    router.push(`/steps/${nextStepId}`);
+                  }
+                }}
                 className={styles.btnPrimaryOrange}
                 style={{
-                  background: isStepCompleted ? "#d97706" : "#fef3c7",
-                  color: isStepCompleted ? "#ffffff" : "#b45309",
-                  borderColor: isStepCompleted ? "#d97706" : "#fde68a",
+                  background: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#d97706" : "#fef3c7",
+                  color: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#ffffff" : "#b45309",
+                  borderColor: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#d97706" : "#fde68a",
+                  opacity: !isStepCompleted && completedLessonsCount < totalLessonsCount ? 0.6 : 1,
+                  cursor: !isStepCompleted && completedLessonsCount < totalLessonsCount ? "not-allowed" : "pointer",
                 }}
               >
-                Next Module ({nextStep.title}) &rarr;
+                {!isStepCompleted && completedLessonsCount < totalLessonsCount
+                  ? `🔒 Complete all parts to unlock Next Module`
+                  : `Next Module (${nextStep.title}) →`}
               </button>
             ) : (
               <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
@@ -1910,6 +2369,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           </aside>
         </>
       )}
+      <PdfViewerModal
+        isOpen={viewerPdf.isOpen}
+        onClose={() => setViewerPdf((prev) => ({ ...prev, isOpen: false }))}
+        documentId={viewerPdf.id}
+        title={viewerPdf.title}
+        mediaUrl={viewerPdf.mediaUrl}
+        downloadUrl={viewerPdf.downloadUrl}
+      />
     </div>
   );
 }

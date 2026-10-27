@@ -1,4 +1,6 @@
 import { Injectable, Logger, Optional, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { IsBoolean, IsOptional, IsString, IsNotEmpty, IsArray, IsIn, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import webpush from 'web-push';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
@@ -6,28 +8,71 @@ import { AuditLogService } from '../../common/audit/audit-log.service.js';
 import { DeliveryStatus, NotificationChannel, Role } from '@prisma/client';
 
 export class PushSubscriptionKeysDto {
+  @IsString()
+  @IsNotEmpty()
   p256dh: string;
+
+  @IsString()
+  @IsNotEmpty()
   auth: string;
 }
 
 export class PushSubscriptionDto {
+  @IsString()
+  @IsNotEmpty()
   endpoint: string;
+
+  @ValidateNested()
+  @Type(() => PushSubscriptionKeysDto)
   keys: PushSubscriptionKeysDto;
+
+  @IsOptional()
+  @IsString()
   userAgent?: string;
 }
 
+export class UnsubscribePushDto {
+  @IsString()
+  @IsNotEmpty()
+  endpoint: string;
+}
+
 export class BroadcastNotificationDto {
+  @IsString()
+  @IsIn(['ALL', 'BATCH', 'USER'])
   target: 'ALL' | 'BATCH' | 'USER';
+
+  @IsOptional()
+  @IsString()
   targetId?: string;
+
+  @IsString()
+  @IsNotEmpty()
   title: string;
+
+  @IsString()
+  @IsNotEmpty()
   message: string;
+
+  @IsOptional()
+  @IsString()
   link?: string;
+
+  @IsArray()
   channels: ('IN_APP' | 'PUSH' | 'EMAIL')[];
 }
 
 export class NotificationPreferencesDto {
+  @IsOptional()
+  @IsBoolean()
   marketingPush?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   courseUpdates?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   sessionReminders?: boolean;
 }
 
@@ -623,10 +668,12 @@ export class NotificationsService {
   }
 
   async updatePreferences(userId: string, prefs: NotificationPreferencesDto) {
+    const current = await this.getPreferences(userId);
+    const merged = { ...current, ...prefs };
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        notificationPreferences: prefs as any,
+        notificationPreferences: merged as any,
       },
       select: {
         id: true,

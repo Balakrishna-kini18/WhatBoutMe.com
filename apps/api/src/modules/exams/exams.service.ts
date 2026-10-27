@@ -762,6 +762,17 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         examId: exam.id,
         status: AttemptStatus.IN_PROGRESS,
       },
+      select: {
+        id: true,
+        attemptNumber: true,
+        score: true,
+        passed: true,
+        status: true,
+        startedAt: true,
+        expiresAt: true,
+        completedAt: true,
+        createdAt: true,
+      },
     });
 
     if (activeAttempt) {
@@ -776,6 +787,18 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
               enrolmentId: enrolment.id,
               examId: exam.id,
             },
+            select: {
+              id: true,
+              attemptNumber: true,
+              score: true,
+              passed: true,
+              status: true,
+              startedAt: true,
+              expiresAt: true,
+              completedAt: true,
+              createdAt: true,
+              answers: true,
+            },
             orderBy: { attemptNumber: 'desc' },
           })
         : Promise.resolve([]),
@@ -786,6 +809,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
               entity: 'ExamAttempt',
               entityId: `${enrolment.id}_${exam.id}`,
             },
+            select: { createdAt: true },
             orderBy: { createdAt: 'desc' },
           })
         : Promise.resolve(null),

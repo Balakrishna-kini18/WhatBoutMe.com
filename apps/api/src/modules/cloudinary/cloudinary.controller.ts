@@ -32,9 +32,9 @@ export class CloudinaryController {
     return this.cloudinaryService.createDirectUpload();
   }
 
-  /**
+    /**
    * Secure, inline PDF document viewer stream.
-   * Serves application/pdf with Content-Disposition: inline and disables downloads.
+   * Serves application/pdf with Content-Disposition: inline for native in-browser viewing.
    */
   @Get(['document/:lessonId', 'pdf/:lessonId'])
   async streamDocument(
@@ -52,7 +52,11 @@ export class CloudinaryController {
       throw new NotFoundException('Document not specified');
     }
 
-    // 1. Resolve lesson by ID or mediaUrl
+    let targetUrl: string | null = null;
+    let programId: string | null = null;
+    let docTitle: string = 'document';
+
+    // 1. Resolve by Lesson
     const lesson = await this.prisma.lesson.findFirst({
       where: {
         OR: [
@@ -67,17 +71,55 @@ export class CloudinaryController {
       },
     });
 
-    if (!lesson || !lesson.mediaUrl) {
-      throw new NotFoundException('Document lesson not found');
+    if (lesson && lesson.mediaUrl) {
+      targetUrl = lesson.mediaUrl;
+      programId = lesson.step?.programId ?? null;
+      docTitle = lesson.title || 'document';
+    } else {
+      // 2. Resolve by Resource
+      const resource = await this.prisma.resource.findFirst({
+        where: {
+          OR: [
+            { id: cleanLessonId },
+            { mediaUrl: { contains: cleanLessonId } },
+          ],
+        },
+      });
+
+      if (resource && resource.mediaUrl) {
+        targetUrl = resource.mediaUrl;
+        programId = resource.programId ?? null;
+        docTitle = resource.title || 'document';
+      } else {
+        // 3. Resolve by ResourceItem
+        const resourceItem = await this.prisma.resourceItem.findFirst({
+          where: {
+            OR: [
+              { id: cleanLessonId },
+              { storageKey: { contains: cleanLessonId } },
+            ],
+          },
+        });
+
+        if (resourceItem) {
+          targetUrl = (resourceItem as any).fileUrl || resourceItem.storageKey;
+          programId = resourceItem.programId ?? null;
+          docTitle = resourceItem.title || 'document';
+        }
+      }
     }
 
-    // 2. Authorization check: learners must be enrolled in the owning program
-    if (user.role === Role.USER) {
+    if (!targetUrl) {
+      throw new NotFoundException('Document not found');
+    }
+
+    // 4. Authorization check: learners must be enrolled in the owning program
+    if (user.role === Role.USER && programId) {
       const userId = user.sub ?? user.userId ?? user.id;
       const activeEnrolment = await this.prisma.enrolment.findFirst({
         where: {
           userId,
-          programId: lesson.step.programId,
+          programId,
           status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
         },
       });
@@ -87,11 +129,12 @@ export class CloudinaryController {
       }
     }
 
-    // 3. Resolve target storage URL
-    let targetUrl = lesson.mediaUrl;
+    // 5. Resolve target storage URL
     if (targetUrl.startsWith('upload:')) {
       const publicId = targetUrl.replace('upload:', '');
       targetUrl = await this.objectStorage.getPresignedGetUrl(publicId, 300);
+    } else if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = await this.objectStorage.getPresignedGetUrl(targetUrl, 300);
     }
 
     try {
@@ -102,10 +145,18 @@ export class CloudinaryController {
 
       const buffer = Buffer.from(await docRes.arrayBuffer());
 
-      // 4. Force Content-Disposition: inline to render inside the browser viewer and prevent download
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
+      // Detect PDF magic bytes (%PDF-)
+      const isPdf = buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+      const contentType = isPdf ? 'application/pdf' : 'application/octet-stream';
+      const safeFilename = docTitle.replace(/[^\w\s.-]/gi, '_');
+
+      // Force Content-Disposition: inline to render inside the browser viewer and allow framing
+      res.removeHeader('X-Frame-Options');
+      res.setHeader('Content-Security-Policy', "frame-ancestors *");
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}.pdf"`);
       res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Cache-Control', 'private, max-age=86400');

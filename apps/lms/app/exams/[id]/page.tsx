@@ -13,6 +13,7 @@ import {
 } from "./examRunnerLogic";
 import styles from "../../page.module.css";
 import dash from "../../layout.module.css";
+import examStyles from "./exam.module.css";
 
 interface ExamQuestionOption {
   id: string;
@@ -110,6 +111,7 @@ export default function ExamPage({
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
   const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "local">("saved");
+  const [isMobileNavExpanded, setIsMobileNavExpanded] = useState(false);
 
   // Keep refs of latest state for immediate synchronous flush on beforeunload / pagehide
   const latestAnswersRef = useRef<Record<string, string>>({});
@@ -433,6 +435,9 @@ export default function ExamPage({
     const total = activeAttempt?.questions?.length || 1;
     const clamped = Math.min(Math.max(0, nextIdx), total - 1);
     setCurrentQuestionIndex(clamped);
+    if (typeof window !== "undefined" && window.innerWidth <= 860) {
+      setIsMobileNavExpanded(false);
+    }
     if (activeAttempt) {
       const attemptId = activeAttempt.attemptId || (activeAttempt as any).id;
       const targetExamId = activeAttempt.examId || examId;
@@ -531,22 +536,11 @@ export default function ExamPage({
     const isLastQuestion = currentQuestionIndex === totalCount - 1;
 
     return (
-      <div className={dash.page} style={{ maxWidth: "1000px", margin: "0 auto", padding: "1.5rem" }}>
+      <div className={`${dash.page} ${examStyles.pageWrapper}`}>
         {/* Header Bar with Countdown & Auto-Save Status */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "1rem 1.5rem",
-            backgroundColor: "#0f172a",
-            color: "#ffffff",
-            borderRadius: "12px",
-            marginBottom: "1.5rem",
-          }}
-        >
+        <div className={examStyles.headerBar}>
           <div>
-            <h1 style={{ fontSize: "1.2rem", margin: 0, fontWeight: 700, color: "#ffffff" }}>
+            <h1 className={examStyles.headerTitle}>
               {activeAttempt.title || config?.title || "Final Comprehensive Examination"}
             </h1>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px", flexWrap: "wrap" }}>
@@ -581,12 +575,10 @@ export default function ExamPage({
 
           {secondsRemaining !== null && (
             <div
+              className={examStyles.timerCard}
               style={{
                 backgroundColor: secondsRemaining < 300 ? "#7f1d1d" : "#1e293b",
                 border: secondsRemaining < 300 ? "1px solid #ef4444" : "1px solid #334155",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                textAlign: "right",
               }}
             >
               <span style={{ fontSize: "0.75rem", color: "#94a3b8", display: "block" }}>
@@ -611,17 +603,9 @@ export default function ExamPage({
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "1.5rem" }}>
+        <div className={examStyles.examLayoutGrid}>
           {/* Main Question Card */}
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              padding: "2rem",
-              border: "1px solid #e2e8f0",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-            }}
-          >
+          <div className={examStyles.questionCard}>
             {/* Step badge */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
               <span
@@ -653,9 +637,10 @@ export default function ExamPage({
               </div>
             )}
 
-            <h2 style={{ fontSize: "1.15rem", fontWeight: 600, color: "#1e293b", marginBottom: "1.5rem", lineHeight: 1.5 }}>
+            <h2 className={examStyles.questionTitle}>
               Q{currentQuestionIndex + 1}. {currentQ.text}
             </h2>
+
 
             {/* Answer Options or Reflection Field */}
             {(() => {
@@ -771,16 +756,10 @@ export default function ExamPage({
                             }
                           }
                         }}
+                        className={examStyles.optionCard}
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "12px",
-                          padding: "12px 16px",
-                          borderRadius: "8px",
                           border: isSelected ? "2px solid #c97a1e" : "1px solid #cbd5e1",
                           backgroundColor: isSelected ? "#fff8eb" : "white",
-                          cursor: "pointer",
-                          transition: "all 0.15s ease",
                         }}
                       >
                         <input
@@ -788,9 +767,9 @@ export default function ExamPage({
                           name={`question_${currentQ.id}`}
                           checked={isSelected}
                           readOnly
-                          style={{ accentColor: "#c97a1e", width: "16px", height: "16px", pointerEvents: "none" }}
+                          style={{ accentColor: "#c97a1e", width: "16px", height: "16px", pointerEvents: "none", flexShrink: 0 }}
                         />
-                        <span style={{ fontSize: "0.95rem", color: isSelected ? "#9a5810" : "#334155", fontWeight: isSelected ? 600 : 400 }}>
+                        <span className={examStyles.optionCardText} style={{ color: isSelected ? "#9a5810" : "#334155", fontWeight: isSelected ? 600 : 400 }}>
                           {opt.text}
                         </span>
                       </div>
@@ -801,11 +780,12 @@ export default function ExamPage({
             })()}
 
             {/* Pagination Controls */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: "1.25rem" }}>
+            <div className={examStyles.paginationBar}>
               <button
                 type="button"
                 onClick={() => navigateToQuestion(currentQuestionIndex - 1)}
                 disabled={currentQuestionIndex === 0}
+                className={examStyles.paginationBtn}
                 style={{
                   padding: "8px 16px",
                   borderRadius: "6px",
@@ -825,6 +805,7 @@ export default function ExamPage({
                   <button
                     type="button"
                     onClick={() => navigateToQuestion(currentQuestionIndex + 1)}
+                    className={examStyles.paginationBtn}
                     style={{
                       padding: "8px 20px",
                       borderRadius: "6px",
@@ -843,6 +824,7 @@ export default function ExamPage({
                     type="button"
                     onClick={() => handleExamSubmit(false)}
                     disabled={isSubmitting}
+                    className={examStyles.paginationBtn}
                     style={{
                       padding: "8px 24px",
                       borderRadius: "6px",
@@ -859,34 +841,39 @@ export default function ExamPage({
                 )}
               </div>
             </div>
+
           </div>
 
           {/* Question Jump Drawer Sidebar */}
-          <div
-            style={{
-              backgroundColor: "white",
-              borderRadius: "12px",
-              padding: "1.25rem",
-              border: "1px solid #e2e8f0",
-              height: "fit-content",
-            }}
-          >
-            <h3 style={{ fontSize: "0.95rem", fontWeight: 700, margin: "0 0 10px", color: "#1e293b" }}>
-              Question Navigator
-            </h3>
-            <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 14px" }}>
+          <div className={examStyles.navigatorCard}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <h3 style={{ fontSize: "0.95rem", fontWeight: 700, margin: 0, color: "#1e293b" }}>
+                Question Navigator
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsMobileNavExpanded((prev) => !prev)}
+                className={examStyles.mobileNavToggleBtn}
+                style={{
+                  background: isMobileNavExpanded ? "#e2e8f0" : "#f1f5f9",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  padding: "4px 10px",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  color: "#334155",
+                  cursor: "pointer",
+                }}
+              >
+                {isMobileNavExpanded ? "Hide Grid ▲" : `View All ${totalCount} ▼`}
+              </button>
+            </div>
+            <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 12px" }}>
               {answeredCount} of {totalCount} answered
             </p>
 
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(5, 1fr)",
-                gap: "6px",
-                maxHeight: "360px",
-                overflowY: "auto",
-                paddingRight: "4px",
-              }}
+              className={`${examStyles.navigatorGrid} ${!isMobileNavExpanded ? examStyles.mobileNavCollapsed : ""}`}
             >
               {questions.map((q, idx) => {
                 const isAnswered = Boolean(selectedAnswers[q.id]?.trim());
@@ -897,9 +884,8 @@ export default function ExamPage({
                     key={q.id}
                     type="button"
                     onClick={() => navigateToQuestion(idx)}
+                    className={examStyles.navigatorNavBtn}
                     style={{
-                      padding: "8px 0",
-                      borderRadius: "6px",
                       border: isCurrent
                         ? "2px solid #2563eb"
                         : isAnswered
@@ -916,8 +902,6 @@ export default function ExamPage({
                         ? "#166534"
                         : "#64748b",
                       fontWeight: isCurrent ? 700 : 500,
-                      fontSize: "0.8rem",
-                      cursor: "pointer",
                     }}
                   >
                     {idx + 1}
@@ -926,7 +910,7 @@ export default function ExamPage({
               })}
             </div>
 
-            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #f1f5f9", paddingTop: "1rem" }}>
+            <div style={{ marginTop: "1.25rem", borderTop: "1px solid #f1f5f9", paddingTop: "1rem" }}>
               <button
                 type="button"
                 onClick={() => handleExamSubmit(false)}
@@ -947,6 +931,7 @@ export default function ExamPage({
               </button>
             </div>
           </div>
+
         </div>
 
         {/* In-Website Submit Confirmation Modal */}
@@ -1161,7 +1146,7 @@ export default function ExamPage({
   // 2. EXAM RESULT OR BRIEFING SCREEN
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className={dash.page} style={{ maxWidth: "760px", margin: "0 auto", padding: "2rem 1.5rem" }}>
+    <div className={`${dash.page} ${examStyles.pageWrapper}`} style={{ maxWidth: "760px" }}>
       {/* Return link */}
       <div style={{ marginBottom: "1.5rem" }}>
         <Link
@@ -1300,15 +1285,7 @@ export default function ExamPage({
       )}
 
       {/* BRIEFING CARD & START BUTTON */}
-      <div
-        style={{
-          backgroundColor: "white",
-          borderRadius: "12px",
-          padding: "2.5rem",
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
-        }}
-      >
+      <div className={examStyles.briefingCard}>
         <h1 style={{ fontSize: "1.75rem", fontWeight: 800, color: "#0f172a", margin: "0 0 1rem" }}>
           {config?.title || "Final Comprehensive Examination"}
         </h1>
@@ -1319,17 +1296,7 @@ export default function ExamPage({
         </p>
 
         {/* Specifications Grid */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "1rem",
-            padding: "1.5rem",
-            backgroundColor: "#f8fafc",
-            borderRadius: "8px",
-            marginBottom: "2rem",
-          }}
-        >
+        <div className={examStyles.specsGrid}>
           <div>
             <span style={{ fontSize: "0.8rem", color: "#64748b", display: "block" }}>
               Format &amp; Marks

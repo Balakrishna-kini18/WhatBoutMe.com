@@ -543,7 +543,7 @@ export default function MissionStatementPage() {
                 {submissions.map((sub) => {
                   const fileUrl = sub.fileUrl.startsWith("http")
                     ? sub.fileUrl
-                    : `${API_URL}${sub.fileUrl}`;
+                    : `${API_URL}/mission-statements/${sub.id}/file`;
                   const sizeMb = (sub.sizeBytes / (1024 * 1024)).toFixed(2);
 
                   return (

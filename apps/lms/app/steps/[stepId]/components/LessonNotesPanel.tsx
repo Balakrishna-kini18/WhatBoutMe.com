@@ -9,6 +9,7 @@ import {
   deleteStudentNote,
 } from "../../../lib/api";
 import { formatNoteDate, formatVideoTime } from "../../../lib/timezone";
+import { normalizeStudentNote } from "../../../lib/notesAdapter";
 
 interface LessonNotesPanelProps {
   programId?: string;
@@ -518,7 +519,28 @@ export default function LessonNotesPanel({
                           whiteSpace: "pre-wrap",
                         }}
                       >
-                        {note.noteText}
+                        {(() => {
+                          const norm = normalizeStudentNote(note);
+                          return (
+                            <div>
+                              {norm.noteTitle && norm.noteTitle !== 'Untitled Note' && (
+                                <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: 'var(--text-primary)' }}>
+                                  {norm.noteTitle}
+                                </strong>
+                              )}
+                              <div style={{ whiteSpace: 'pre-wrap' }}>{norm.noteContent}</div>
+                              {norm.tags && norm.tags.length > 0 && (
+                                <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                                  {norm.tags.map((t) => (
+                                    <span key={t} style={{ fontSize: '0.72rem', background: '#ffedd5', color: '#9a3412', padding: '1px 6px', borderRadius: 4 }}>
+                                      #{t}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

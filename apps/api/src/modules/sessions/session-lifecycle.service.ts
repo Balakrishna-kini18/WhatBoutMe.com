@@ -392,6 +392,16 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
   private extractSessionRecipients(session: any): Array<{ id: string; email: string; name: string | null; timezone: string | null }> {
     const map = new Map<string, { id: string; email: string; name: string | null; timezone: string | null }>();
 
+    const is1on1 =
+      session.sessionType === SessionType.ONE_ON_ONE ||
+      session.sessionType === SessionType.ONE_ON_ONE_WITH_RO ||
+      Boolean(session.learnerId) ||
+      (typeof session.title === 'string' && (
+        session.title.toLowerCase().includes('1-on-1') ||
+        session.title.toLowerCase().includes('1-to-1') ||
+        session.title.toLowerCase().startsWith('1:1')
+      ));
+
     if (session.learner?.id && session.learner?.email) {
       map.set(session.learner.id, session.learner);
     }
@@ -404,7 +414,8 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    if (session.batch?.enrolments && Array.isArray(session.batch.enrolments)) {
+    // Group cohort sessions notify all active batch enrolments; 1-on-1 sessions are strictly private
+    if (!is1on1 && session.batch?.enrolments && Array.isArray(session.batch.enrolments)) {
       for (const e of session.batch.enrolments) {
         if (e.user?.id && e.user?.email) {
           map.set(e.user.id, e.user);

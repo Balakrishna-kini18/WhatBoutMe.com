@@ -387,7 +387,11 @@ export async function cachedFetch(
     autoInvalidateOnMutation(url);
   }
 
-  const cacheKey = isGet ? getCacheKey(url, init?.headers) : null;
+  const isBinaryUrl =
+    /\/media\/(document|pdf|stream)/.test(url) ||
+    /\.(pdf|png|jpe?g|gif|webp|svg|mp4|webm|mp3|zip)(\?|$)/i.test(url);
+
+  const cacheKey = isGet && !isBinaryUrl ? getCacheKey(url, init?.headers) : null;
 
   // 1. SWR / In-Memory Cache Check for GET requests
   if (isGet && !skipCache && cacheKey) {
@@ -424,6 +428,9 @@ export async function cachedFetch(
   if (isGet && cacheKey && inFlightRequests.has(cacheKey)) {
     const inFlight = inFlightRequests.get(cacheKey)!;
     const resPayload = await inFlight;
+    if (resPayload instanceof Response) {
+      return resPayload;
+    }
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
     return createSafeJsonResponse(resPayload.bodyText, {
@@ -514,6 +521,21 @@ export async function cachedFetch(
         }
       }
 
+      // Transparently pass through binary response streams without converting to text
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const isBinaryResponse =
+        isBinaryUrl ||
+        contentType.includes("application/pdf") ||
+        contentType.includes("application/octet-stream") ||
+        contentType.includes("image/") ||
+        contentType.includes("audio/") ||
+        contentType.includes("video/") ||
+        contentType.includes("zip");
+
+      if (isBinaryResponse) {
+        return res;
+      }
+
       const clone = res.clone();
       const bodyText = await clone.text();
       const headersArray: [string, string][] = [];
@@ -564,6 +586,9 @@ export async function cachedFetch(
   }
 
   const result = await fetchPromise;
+  if (result instanceof Response) {
+    return result;
+  }
   const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
   logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
   return createSafeJsonResponse(result.bodyText, {
@@ -1105,16 +1130,18 @@ export async function registerPushSubscription(sub: PushSubscription): Promise<b
 }
 
 export async function fetchNotifications(limit = 50): Promise<AppNotification[]> {
-  const res = await fetch(`${API_URL}/notifications/mine?limit=${limit}`, {
+  const res = await cachedFetch(`${API_URL}/notifications/mine?limit=${limit}`, {
     headers: getAuthHeaders(),
+    ttlMs: 30_000,
   });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchUnreadNotificationCount(): Promise<number> {
-  const res = await fetch(`${API_URL}/notifications/unread-count`, {
+  const res = await cachedFetch(`${API_URL}/notifications/unread-count`, {
     headers: getAuthHeaders(),
+    ttlMs: 30_000,
   });
   if (!res.ok) return 0;
   const data = await res.json();
@@ -1122,6 +1149,7 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
 }
 
 export async function markNotificationAsRead(id: string): Promise<boolean> {
+  invalidateTag("notifications");
   const res = await fetch(`${API_URL}/notifications/${id}/read`, {
     method: 'PATCH',
     headers: getAuthHeaders(),
@@ -1130,6 +1158,7 @@ export async function markNotificationAsRead(id: string): Promise<boolean> {
 }
 
 export async function markAllNotificationsAsRead(): Promise<boolean> {
+  invalidateTag("notifications");
   const res = await fetch(`${API_URL}/notifications/mark-all-read`, {
     method: 'POST',
     headers: getAuthHeaders(),

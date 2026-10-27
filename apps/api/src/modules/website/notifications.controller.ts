@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator.js';
 import {
   NotificationsService,
   PushSubscriptionDto,
+  UnsubscribePushDto,
   BroadcastNotificationDto,
   NotificationPreferencesDto,
 } from './notifications.service.js';
@@ -50,7 +51,7 @@ export class NotificationsController {
    */
   @Public()
   @Post('push-unsubscribe')
-  unsubscribePush(@Body() body: { endpoint: string }) {
+  unsubscribePush(@Body() body: UnsubscribePushDto) {
     return this.notificationsService.unsubscribePush(body?.endpoint);
   }
 

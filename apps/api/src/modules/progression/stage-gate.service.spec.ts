@@ -294,6 +294,16 @@ describe('StageGateService: 5-Stage Sequential Progression Pipeline & Security A
       const ownerRes = await service.evaluateStages('enrol-1', { id: 'user-1', role: Role.USER });
       expect(ownerRes.enrolmentId).toBe('enrol-1');
     });
+
+    it('11. Cross-enrolment session isolation: session belonging to another batch or enrolment does not satisfy Stage 4', async () => {
+      // Session has attendances and bookings for a DIFFERENT enrolment ('enrol-999')
+      prismaMock.session.findMany.mockResolvedValue([]);
+
+      const result = await service.evaluateStages('enrol-1');
+      expect(result.stages[LearnerStage.STAGE_4_ONE_ON_ONE].isCompleted).toBe(false);
+      expect(result.stages[LearnerStage.STAGE_4_ONE_ON_ONE].details?.completedSessionId).toBeNull();
+      expect(result.stages[LearnerStage.STAGE_5_MISSION_STATEMENT].isUnlocked).toBe(false);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────────

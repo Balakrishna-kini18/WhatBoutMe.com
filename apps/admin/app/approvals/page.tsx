@@ -236,6 +236,8 @@ export default function ApprovalsPage() {
   const [loadingMissions, setLoadingMissions] = useState(false);
   const [missionFilter, setMissionFilter] = useState<string>("ALL");
   const [previewMissionDoc, setPreviewMissionDoc] = useState<MissionStatementItem | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewError, setPreviewError] = useState(false);
 
   const [approvingMission, setApprovingMission] = useState<MissionStatementItem | null>(null);
   const [approvalFeedback, setApprovalFeedback] = useState("");
@@ -1526,7 +1528,11 @@ export default function ApprovalsPage() {
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               <button
                                 type="button"
-                                onClick={() => setPreviewMissionDoc(m)}
+                                onClick={() => {
+                                  setPreviewLoading(true);
+                                  setPreviewError(false);
+                                  setPreviewMissionDoc(m);
+                                }}
                                 style={{
                                   background: "none",
                                   border: "none",
@@ -2278,49 +2284,171 @@ export default function ApprovalsPage() {
             </div>
           }
         >
-          <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div
-              style={{
-                width: "100%",
-                minHeight: "450px",
-                maxHeight: "68vh",
-                overflow: "auto",
-                background: "#18181b",
-                borderRadius: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: "1px solid #e4e4e7",
-                padding: "8px",
-              }}
-            >
-              {(previewMissionDoc.mimeType || "").includes("image") ? (
-                <img
-                  src={
-                    previewMissionDoc.fileUrl.startsWith("http")
-                      ? previewMissionDoc.fileUrl
-                      : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
-                  }
-                  alt="Learner Mission Statement"
-                  style={{ maxWidth: "100%", maxHeight: "65vh", objectFit: "contain", borderRadius: 4 }}
-                />
-              ) : (
-                <iframe
-                  src={
-                    previewMissionDoc.fileUrl.startsWith("http")
-                      ? previewMissionDoc.fileUrl
-                      : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
-                  }
-                  title="Learner Mission Statement Document"
-                  style={{ width: "100%", height: "550px", border: "none", borderRadius: 4 }}
-                />
-              )}
-            </div>
-            <div style={{ fontSize: "0.82rem", color: "#57534e", lineHeight: 1.45 }}>
-              <strong>Submission Summary:</strong> Uploaded on {new Date(previewMissionDoc.createdAt).toLocaleString()} ·
-              Size: {(previewMissionDoc.sizeBytes / (1024 * 1024)).toFixed(2)} MB · Format: {previewMissionDoc.mimeType}
-            </div>
-          </div>
+          {(() => {
+            const docFileUrl = previewMissionDoc.fileUrl.startsWith("http")
+              ? previewMissionDoc.fileUrl
+              : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
+            const isImage = (previewMissionDoc.mimeType || "").includes("image");
+
+            return (
+              <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {/* Visual Preview Container */}
+                <div
+                  style={{
+                    width: "100%",
+                    minHeight: "450px",
+                    maxHeight: "68vh",
+                    overflow: "auto",
+                    background: "#22201e",
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "1px solid #3f3e3a",
+                    padding: "12px",
+                    position: "relative",
+                  }}
+                >
+                  {/* Loading Spinner */}
+                  {previewLoading && !previewError && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 12,
+                        color: "#d4d4d8",
+                        padding: "2rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          border: "3px solid rgba(255,255,255,0.2)",
+                          borderTopColor: "#b8860b",
+                          borderRadius: "50%",
+                          animation: "spin 0.8s linear infinite",
+                        }}
+                      />
+                      <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Loading document preview...</span>
+                    </div>
+                  )}
+
+                  {/* Fallback Error Display */}
+                  {previewError && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "2rem",
+                        textAlign: "center",
+                        color: "#f87171",
+                      }}
+                    >
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff" }}>
+                        Document Preview Unavailable Inline
+                      </div>
+                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#a1a1aa", maxWidth: 400, lineHeight: 1.5 }}>
+                        This file format or browser environment does not support embedded inline rendering. You can open the file directly in a new browser tab or download it below.
+                      </p>
+                      <a
+                        href={docFileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          background: "#b8860b",
+                          color: "#ffffff",
+                          padding: "8px 16px",
+                          borderRadius: 6,
+                          fontSize: "0.84rem",
+                          fontWeight: 700,
+                          textDecoration: "none",
+                          marginTop: 6,
+                        }}
+                      >
+                        <span>Open Document in New Tab</span>
+                        <span>&nearr;</span>
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Live Rendered Image */}
+                  {isImage && (
+                    <img
+                      src={docFileUrl}
+                      alt="Learner Mission Statement"
+                      onLoad={() => {
+                        setPreviewLoading(false);
+                        setPreviewError(false);
+                      }}
+                      onError={() => {
+                        setPreviewLoading(false);
+                        setPreviewError(true);
+                      }}
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: "65vh",
+                        objectFit: "contain",
+                        borderRadius: 4,
+                        boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+                        display: previewLoading || previewError ? "none" : "block",
+                      }}
+                    />
+                  )}
+
+                  {/* Live Rendered PDF / Document */}
+                  {!isImage && (
+                    <iframe
+                      src={docFileUrl}
+                      title="Learner Mission Statement Document"
+                      onLoad={() => {
+                        setPreviewLoading(false);
+                        setPreviewError(false);
+                      }}
+                      onError={() => {
+                        setPreviewLoading(false);
+                        setPreviewError(true);
+                      }}
+                      style={{
+                        width: "100%",
+                        height: "550px",
+                        border: "none",
+                        borderRadius: 4,
+                        display: previewLoading || previewError ? "none" : "block",
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* Metadata & Direct Link Bar */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, fontSize: "0.82rem", color: "#57534e" }}>
+                  <div>
+                    <strong>Submission Summary:</strong> Uploaded on {new Date(previewMissionDoc.createdAt).toLocaleString()} ·
+                    Size: {(previewMissionDoc.sizeBytes / (1024 * 1024)).toFixed(2)} MB · Format: {previewMissionDoc.mimeType}
+                  </div>
+                  <a
+                    href={docFileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#0284c7", fontWeight: 600, textDecoration: "underline" }}
+                  >
+                    Open in Full Tab &nearr;
+                  </a>
+                </div>
+              </div>
+            );
+          })()}
         </Modal>
       )}
 

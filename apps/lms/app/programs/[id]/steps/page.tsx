@@ -1707,7 +1707,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 )}
                               </div>
                               <a
-                                href={latestMission.fileUrl}
+                                href={
+                                  latestMission.fileUrl.startsWith("http")
+                                    ? latestMission.fileUrl
+                                    : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className={styles.reviewBtn}

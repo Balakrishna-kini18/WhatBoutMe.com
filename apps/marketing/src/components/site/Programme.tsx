@@ -76,38 +76,44 @@ function Curriculum() {
         {/* course banner: centered on mobile, side-by-side on desktop */}
         <Reveal>
           <div className="relative overflow-hidden rounded-[2rem] bg-[linear-gradient(120deg,#fbeed2,#f8d99b_55%,#fbeed2)] p-6 text-center sm:p-8 md:grid md:grid-cols-[0.8fr_1.2fr] md:items-center md:p-0 md:text-left">
-            {/* Mobile: Centered portrait medallion */}
-            <div className="relative mx-auto mb-5 h-24 w-24 overflow-hidden rounded-full border-2 border-white/80 bg-[linear-gradient(160deg,#f8cf86,#efa944)] shadow-[0_8px_20px_-6px_rgba(169,103,15,0.4)] sm:h-28 sm:w-28 md:hidden">
+            {/* Mobile: Centered portrait medallion, zoomed on her face */}
+            <div className="relative mx-auto mb-5 h-24 w-24 overflow-hidden rounded-full border-2 border-white/80 bg-sand shadow-[0_8px_20px_-6px_rgba(169,103,15,0.4)] sm:h-28 sm:w-28 md:hidden">
               <Image
-                src="/brand/roweena.png"
+                src="/site/gallery/roweena-03.webp"
                 alt="Roweena Britto"
-                width={200}
-                height={200}
-                sizes="96px"
+                fill
+                sizes="240px"
                 quality={80}
                 loading="lazy"
-                className="absolute left-1/2 top-1 h-[175%] w-auto max-w-none -translate-x-1/2 object-cover"
+                className="origin-[52%_24%] scale-[2.4] object-cover object-[52%_24%]"
               />
             </div>
 
-            {/* Desktop: Full portrait on the left */}
+            {/* Desktop: her photo filling the left side */}
             <div className="relative hidden h-full min-h-[420px] overflow-hidden md:block">
               <Image
-                src="/brand/roweena.png"
+                src="/site/gallery/roweena-03.webp"
                 alt="Roweena Britto"
-                width={623}
-                height={1289}
+                fill
                 quality={80}
                 loading="lazy"
-                sizes="(max-width: 768px) 60vw, 360px"
-                className="absolute left-1/2 top-6 h-[170%] w-auto max-w-none -translate-x-1/2 md:top-10"
+                sizes="(max-width: 1024px) 40vw, 440px"
+                className="object-cover object-[center_30%]"
               />
             </div>
 
             {/* Content: Centered on mobile, left-aligned on desktop */}
             <div className="md:py-16 md:pl-4 md:pr-14">
-              <h2 className="mx-auto max-w-2xl text-balance text-2xl font-bold leading-[1.1] tracking-tight sm:text-3xl md:mx-0 md:text-5xl">
-                11 Steps to U Program
+              <h2 className="mx-auto max-w-2xl md:mx-0">
+                <Image
+                  src="/site/11-steps-wordmark.webp"
+                  alt="11 Steps to U Program"
+                  width={677}
+                  height={189}
+                  loading="lazy"
+                  sizes="(max-width: 768px) 260px, 340px"
+                  className="mx-auto h-14 w-auto sm:h-16 md:mx-0 md:h-[5.5rem]"
+                />
               </h2>
 
               <p className="mx-auto mt-4 max-w-xl text-balance leading-relaxed text-ink-soft sm:text-base md:mx-0 md:text-lg">

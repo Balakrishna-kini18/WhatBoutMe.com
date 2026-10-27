@@ -18,6 +18,9 @@ const FACTS = [
   { icon: MapPin, label: "India & UAE", detail: "11am INDIA : 9:30am UAE" },
 ];
 
+// her three offerings, as named in the course list (lib/content.ts COURSES)
+const HER_COURSES = ["11 Steps to U Program", "Resilience Speaker", "Vision Board"];
+
 export default function Hero({ content }: { content: SiteContent["hero"] }) {
   // The entrance is a CSS animation (see .rise in globals.css), so the hero
   // appears without waiting for scripts; it used to stay blank until they ran.
@@ -34,12 +37,31 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
       <div className="relative mx-auto grid w-full max-w-[1320px] items-center gap-6 px-5 pt-16 sm:gap-10 sm:pt-28 md:px-10 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-12 xl:pt-32">
         <div className="xl:pb-10">
           <div {...rise(0.05)} className="rise text-center xl:text-left">
-            <h1 className="text-balance text-[1.75rem] font-bold sm:text-[clamp(2.25rem,9vw,3.5rem)] leading-[1.08] tracking-tight text-ink xl:text-[clamp(2.25rem,3.1vw,3.5rem)]">
+            {/* who she is and what she does, before the story line */}
+            <p className="mb-3 text-sm text-ink-soft sm:mb-4 sm:text-base">
+              <span className="font-semibold text-ink">Roweena Britto</span>
+              <span aria-hidden="true"> · </span>
+              <span className="whitespace-nowrap">Brain Health Coach</span>{" "}
+              <span className="whitespace-nowrap">&amp; Resilience Speaker</span>
+            </p>
+            {/* capitalize: the title comes from the CMS in sentence case */}
+            <h1 className="text-balance text-[2.375rem] font-bold capitalize leading-[1.02] tracking-[-0.03em] text-ink sm:text-[clamp(2.75rem,10vw,4.5rem)] xl:text-[clamp(3rem,4.4vw,4.75rem)]">
               {content.title}
               <span className="block text-gold-deep">{content.highlight}</span>
             </h1>
             <p className="mx-auto mt-3 max-w-md text-[15px] font-medium leading-relaxed text-ink-soft sm:mt-5 sm:text-lg xl:mx-0">
               {content.subtitle}
+            </p>
+            {/* her courses, one quiet line */}
+            <p className="mx-auto mt-4 max-w-lg text-sm font-medium sm:text-[15px] xl:mx-0">
+              {HER_COURSES.map((c, i) => (
+                <span key={c} className="whitespace-nowrap">
+                  {i > 0 && <span aria-hidden="true" className="text-ink-soft/50"> · </span>}
+                  <Link href="/courses" className="text-gold-deep underline-offset-4 hover:underline">
+                    {c}
+                  </Link>
+                </span>
+              ))}
             </p>
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5 sm:mt-7 sm:gap-3 xl:justify-start">
               <Link
@@ -62,8 +84,15 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
             {...rise(0.25)}
             className="rise mx-auto mt-6 w-full max-w-sm max-sm:text-center sm:mt-10 sm:max-w-2xl xl:mx-0"
           >
-            <p className="text-lg font-bold tracking-tight sm:text-2xl md:text-3xl">
-              11 Steps to U Program
+            <p>
+              <Image
+                src="/site/11-steps-wordmark.webp"
+                alt="11 Steps to U Program"
+                width={677}
+                height={189}
+                sizes="220px"
+                className="h-11 w-auto max-sm:mx-auto sm:h-14"
+              />
             </p>
             <ul className="mt-3 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-6">
               {FACTS.map((f) => (

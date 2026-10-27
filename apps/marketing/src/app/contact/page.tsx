@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import SmoothScroll from "@/components/site/SmoothScroll";
 import Nav from "@/components/site/Nav";
 import Footer from "@/components/site/Footer";
@@ -55,6 +56,23 @@ export default async function ContactPage() {
                 </dd>
               </div>
             </dl>
+
+            {/* desktop: who you are writing to */}
+            <figure className="mt-10 hidden max-w-xs lg:block">
+              <div className="relative aspect-[4/5] overflow-hidden rounded-[2rem] border border-[#cbb797]">
+                <Image
+                  src="/site/gallery/roweena-05.webp"
+                  alt="Roweena Britto, Brain Health Coach"
+                  fill
+                  loading="lazy"
+                  sizes="320px"
+                  className="object-cover"
+                />
+              </div>
+              <figcaption className="mt-3 text-sm text-ink-soft">
+                <span className="font-semibold text-ink">Roweena Britto</span> · Brain Health Coach
+              </figcaption>
+            </figure>
           </div>
 
           <div className="rounded-[2rem] border border-line bg-white p-7 md:p-10">

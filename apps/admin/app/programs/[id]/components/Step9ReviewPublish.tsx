@@ -91,10 +91,10 @@ export default function Step9ReviewPublish({
       `Curriculum Modules: ${steps.length} established`,
       `Anti-Skip Compulsory Playback: Active (scrub bar locked, dynamic watermark on, server watch check)`,
       ...(quizzesMissingPlacement.length > 0
-        ? quizzesMissingPlacement.map((s) => `⚠️ Module "${s.title}" quiz is missing quizPlacement timing`)
+        ? quizzesMissingPlacement.map((s) => `Module "${s.title}" quiz is missing quizPlacement timing`)
         : []),
       ...(stepsWithoutLessons.length > 0
-        ? stepsWithoutLessons.map((s) => `⚠️ Module "${s.title}" has no lessons attached yet`)
+        ? stepsWithoutLessons.map((s) => `Module "${s.title}" has no lessons attached yet`)
         : []),
     ],
   };

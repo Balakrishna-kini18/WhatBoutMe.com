@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useId } from "react";
+import React, { useState, useEffect, useRef, useId, useMemo } from "react";
 import { createPortal } from "react-dom";
 import styles from "./CustomSelect.module.css";
 
@@ -26,6 +26,8 @@ export interface CustomSelectProps {
   disabled?: boolean;
   id?: string;
   menuMaxHeight?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export function CustomSelect({
@@ -43,9 +45,13 @@ export function CustomSelect({
   disabled = false,
   id,
   menuMaxHeight = "380px",
+  searchable,
+  searchPlaceholder = "Type to filter...",
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [menuPos, setMenuPos] = useState<{
     top?: number;
     bottom?: number;
@@ -57,61 +63,116 @@ export function CustomSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const generatedId = useId();
   const selectId = id || generatedId;
+
+  // Search activates automatically when there are 5 or more options
+  // or if explicitly enabled via searchable={true}
+  const isSearchable = searchable ?? options.length >= 5;
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const filteredOptions = useMemo(() => {
+    if (!isSearchable || !searchQuery.trim()) {
+      return options;
+    }
+    const q = searchQuery.toLowerCase().trim();
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) ||
+        opt.value.toLowerCase().includes(q)
+    );
+  }, [options, isSearchable, searchQuery]);
+
   const closeMenu = () => {
     setIsOpen(false);
     setMenuPos(null);
+    setSearchQuery("");
+    setHighlightedIndex(0);
+  };
+
+  const openMenu = (initialQuery?: string) => {
+    if (disabled) return;
+    const button = triggerRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const parsedMaxH = parseInt(menuMaxHeight, 10) || 380;
+    const estimatedHeight = Math.min(options.length * 36 + (isSearchable ? 52 : 12), parsedMaxH);
+    const openUpwards =
+      spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
+
+    const triggerWidth = rect.width;
+    const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : triggerWidth;
+    const estimatedMenuWidth = Math.max(triggerWidth, parsedMenuMinWidth);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - estimatedMenuWidth - 8));
+
+    if (openUpwards) {
+      const bottom = window.innerHeight - rect.top + 4;
+      setMenuPos({
+        bottom,
+        left,
+        width: triggerWidth,
+        openUpwards: true,
+      });
+    } else {
+      const top = rect.bottom + 4;
+      setMenuPos({
+        top,
+        left,
+        width: triggerWidth,
+        openUpwards: false,
+      });
+    }
+
+    if (typeof initialQuery === "string") {
+      setSearchQuery(initialQuery);
+    } else {
+      setSearchQuery("");
+    }
+    setHighlightedIndex(0);
+    setIsOpen(true);
   };
 
   const handleToggle = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    if (disabled) return;
-
     if (isOpen) {
       closeMenu();
     } else {
-      const button = triggerRef.current;
-      if (!button) return;
-      const rect = button.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const parsedMaxH = parseInt(menuMaxHeight, 10) || 380;
-      const estimatedHeight = Math.min(options.length * 36 + 12, parsedMaxH);
-      const openUpwards =
-        spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
-
-      const triggerWidth = rect.width;
-      // Allow menu to comfortably fit trigger or custom menuMinWidth without unnecessary fixed bloating
-      const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : triggerWidth;
-      const estimatedMenuWidth = Math.max(triggerWidth, parsedMenuMinWidth);
-      const left = Math.max(8, Math.min(rect.left, window.innerWidth - estimatedMenuWidth - 8));
-
-      if (openUpwards) {
-        const bottom = window.innerHeight - rect.top + 4;
-        setMenuPos({
-          bottom,
-          left,
-          width: triggerWidth,
-          openUpwards: true,
-        });
-      } else {
-        const top = rect.bottom + 4;
-        setMenuPos({
-          top,
-          left,
-          width: triggerWidth,
-          openUpwards: false,
-        });
-      }
-      setIsOpen(true);
+      openMenu();
     }
   };
 
+  // Keyboard navigation when focused on the trigger button
+  const handleTriggerKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!isOpen) {
+        openMenu();
+      }
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // Type-to-open: Typing any letter directly on the select opens the filter with that letter
+      e.preventDefault();
+      openMenu(e.key);
+    }
+  };
+
+  // Auto-focus search input as soon as the popover opens
+  useEffect(() => {
+    if (isOpen && isSearchable) {
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 30);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, isSearchable]);
+
+  // Outside click & global escape listener
   useEffect(() => {
     if (!isOpen) return;
 
@@ -154,6 +215,36 @@ export function CustomSelect({
     };
   }, [isOpen]);
 
+  // Search input keyboard interactions (Arrow navigation, Enter to pick)
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => {
+        const next = prev + 1;
+        return next >= filteredOptions.length ? 0 : next;
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => {
+        const next = prev - 1;
+        return next < 0 ? filteredOptions.length - 1 : next;
+      });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const target =
+        filteredOptions[highlightedIndex] || filteredOptions[0];
+      if (target && !target.disabled) {
+        onChange(target.value);
+        closeMenu();
+        triggerRef.current?.focus();
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeMenu();
+      triggerRef.current?.focus();
+    }
+  };
+
   const selectedOption = options.find((o) => o.value === value);
   const displayLabel = selectedOption ? selectedOption.label : placeholder;
   const isPlaceholder = !selectedOption;
@@ -177,6 +268,7 @@ export function CustomSelect({
         title={displayLabel}
         className={`${styles.trigger} ${styles[size]} ${isOpen ? styles.triggerOpen : ""} ${disabled ? styles.triggerDisabled : ""}`}
         onClick={handleToggle}
+        onKeyDown={handleTriggerKeyDown}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label={ariaLabel || displayLabel}
@@ -227,57 +319,122 @@ export function CustomSelect({
             role="listbox"
             aria-label={ariaLabel || displayLabel}
           >
-            {options.map((opt) => {
-              const isSelected = opt.value === value;
-              return (
-                <div
-                  key={opt.value}
-                  role="option"
-                  aria-selected={isSelected}
-                  aria-disabled={opt.disabled}
-                  tabIndex={opt.disabled ? -1 : 0}
-                  title={opt.label}
-                  className={`${styles.option} ${isSelected ? styles.optionSelected : ""} ${opt.disabled ? styles.optionDisabled : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (opt.disabled) return;
-                    onChange(opt.value);
-                    closeMenu();
-                  }}
-                  onKeyDown={(e) => {
-                    if (opt.disabled) return;
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onChange(opt.value);
-                      closeMenu();
-                    }
-                  }}
+            {/* Embedded In-Menu Search Input */}
+            {isSearchable && (
+              <div
+                className={styles.searchContainer}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg
+                  className={styles.searchIcon}
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
                 >
-                  <div className={styles.optionTextWrapper}>
-                    {opt.icon && (
-                      <span className={styles.optionIcon}>{opt.icon}</span>
-                    )}
-                    <span className={styles.optionLabel}>{opt.label}</span>
-                  </div>
-                  {isSelected && (
-                    <svg
-                      className={styles.checkmark}
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setHighlightedIndex(0);
+                  }}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder={searchPlaceholder}
+                  className={styles.searchInput}
+                  aria-label="Filter options"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    className={styles.searchClearBtn}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setHighlightedIndex(0);
+                      searchInputRef.current?.focus();
+                    }}
+                    title="Clear filter"
+                    aria-label="Clear filter"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Scrollable Options List */}
+            <div className={styles.optionsList}>
+              {filteredOptions.length === 0 ? (
+                <div className={styles.noResults}>
+                  No options matching &ldquo;{searchQuery}&rdquo;
                 </div>
-              );
-            })}
+              ) : (
+                filteredOptions.map((opt, idx) => {
+                  const isSelected = opt.value === value;
+                  const isHighlighted = idx === highlightedIndex;
+                  return (
+                    <div
+                      key={opt.value}
+                      role="option"
+                      aria-selected={isSelected}
+                      aria-disabled={opt.disabled}
+                      tabIndex={opt.disabled ? -1 : 0}
+                      title={opt.label}
+                      className={`${styles.option} ${isSelected ? styles.optionSelected : ""} ${isHighlighted && !isSelected ? styles.optionHighlighted : ""} ${opt.disabled ? styles.optionDisabled : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (opt.disabled) return;
+                        onChange(opt.value);
+                        closeMenu();
+                        triggerRef.current?.focus();
+                      }}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      onKeyDown={(e) => {
+                        if (opt.disabled) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onChange(opt.value);
+                          closeMenu();
+                          triggerRef.current?.focus();
+                        }
+                      }}
+                    >
+                      <div className={styles.optionTextWrapper}>
+                        {opt.icon && (
+                          <span className={styles.optionIcon}>{opt.icon}</span>
+                        )}
+                        <span className={styles.optionLabel}>{opt.label}</span>
+                      </div>
+                      {isSelected && (
+                        <svg
+                          className={styles.checkmark}
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>,
           document.body
         )}

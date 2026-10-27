@@ -31,6 +31,8 @@ interface User {
   progress?: string;
   currentStepNumber?: number | null;
   totalSteps?: number | null;
+  currentStage?: string | null;
+  stageLabel?: string | null;
   isStepLocked?: boolean;
   stepLockReason?: string | null;
   twoFactorEnabled?: boolean;
@@ -633,9 +635,9 @@ export default function UsersPage() {
               : u.role === "USER" ? "None" : "—";
 
           const step =
-            u.role === "USER" && u.enrolments && u.enrolments.length > 0 && u.currentStepNumber && !u.isStepLocked
-              ? `Step ${u.currentStepNumber} / ${u.totalSteps || 11}`
-              : "—";
+            u.role === "USER" && u.enrolments && u.enrolments.length > 0 && !u.isStepLocked
+              ? u.stageLabel || (u.currentStepNumber ? `Step ${u.currentStepNumber} / ${u.totalSteps || 11}` : "—")
+              : u.isStepLocked ? "Locked" : "—";
           const agreement = u.role === "USER" ? (u.isAgreementSigned ? "Signed" : "Pending") : "—";
           const batch =
             u.role === "SUPER_ADMIN" || u.role === "ADMIN"
@@ -1223,20 +1225,51 @@ export default function UsersPage() {
                         )}
                       </td>
                       <td>
-                        {user.role === "USER" && user.enrolments && user.enrolments.length > 0 && user.currentStepNumber && !user.isStepLocked ? (
+                        {user.role === "USER" && user.enrolments && user.enrolments.length > 0 && !user.isStepLocked ? (
+                          (() => {
+                            const label = user.stageLabel || (user.currentStepNumber ? `Step ${user.currentStepNumber} / ${user.totalSteps || 11}` : "Step 1 / 11");
+                            const isCert = label === "Certified" || label === "Cert Ready";
+                            const isMilestone = ["Final Exam", "Attendance", "1:1 Ro Call", "Mission"].includes(label);
+                            const bg = isCert ? "#dcfce7" : isMilestone ? "#ede9fe" : "#fef3c7";
+                            const color = isCert ? "#15803d" : isMilestone ? "#6b21a8" : "#92400e";
+                            const border = isCert ? "#bbf7d0" : isMilestone ? "#ddd6fe" : "#fde68a";
+
+                            return (
+                              <span style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                                background: bg,
+                                color: color,
+                                border: `1px solid ${border}`,
+                                padding: "2px 8px",
+                                borderRadius: "100px",
+                                whiteSpace: "nowrap",
+                              }}>
+                                {label}
+                              </span>
+                            );
+                          })()
+                        ) : user.isStepLocked ? (
                           <span style={{
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "4px",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            background: "#fef3c7",
-                            color: "#92400e",
-                            border: "1px solid #fde68a",
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            background: "#fee2e2",
+                            color: "#991b1b",
+                            border: "1px solid #fecaca",
                             padding: "2px 8px",
                             borderRadius: "100px",
                           }}>
-                            Step {user.currentStepNumber} / {user.totalSteps || 11}
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            <span>Locked</span>
                           </span>
                         ) : (
                           <span className={styles.cellTextMuted}>—</span>
@@ -1257,7 +1290,10 @@ export default function UsersPage() {
                               padding: "2px 8px",
                               borderRadius: "100px",
                             }}>
-                              ✓ Signed
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              <span>Signed</span>
                             </span>
                           ) : (
                             <span style={{
@@ -1717,7 +1753,13 @@ export default function UsersPage() {
                       <p style={{ margin: "0.3rem 0 0", fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
                         <span>Security:</span>
                         {users.find(u => u.id === editingUserId)?.twoFactorEnabled ? (
-                          <span style={{ color: "#047857", fontWeight: 600 }}>🔒 2FA Enabled</span>
+                          <span style={{ color: "#047857", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            <span>2FA Enabled</span>
+                          </span>
                         ) : (
                           <span>2FA Disabled</span>
                         )}

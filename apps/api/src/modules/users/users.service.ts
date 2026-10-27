@@ -164,6 +164,9 @@ export class UsersService {
               createdAt: true,
               batch: { select: { id: true, name: true, programId: true } },
               program: { select: { id: true, title: true } },
+              currentStage: true,
+              missionStatementApprovedAt: true,
+              certificate: { select: { id: true, status: true, certificateCode: true } },
               stepProgress: {
                 select: {
                   stepId: true,
@@ -300,6 +303,29 @@ export class UsersService {
         }
       }
 
+      // Stage / Milestone computation
+      const rawCurrentStage = (primaryEnrolment as any)?.currentStage || 'STAGE_1_CURRICULUM';
+      const certStatus = (primaryEnrolment as any)?.certificate?.status;
+      let stageLabel: string | null = null;
+
+      if (isLearner && primaryEnrolment) {
+        if (certStatus === 'ISSUED') {
+          stageLabel = 'Certified';
+        } else if ((primaryEnrolment as any)?.missionStatementApprovedAt || certStatus === 'APPROVED' || certStatus === 'PENDING') {
+          stageLabel = 'Cert Ready';
+        } else if (rawCurrentStage === 'STAGE_5_MISSION_STATEMENT') {
+          stageLabel = 'Mission';
+        } else if (rawCurrentStage === 'STAGE_4_ONE_ON_ONE') {
+          stageLabel = '1:1 Ro Call';
+        } else if (rawCurrentStage === 'STAGE_3_ATTENDANCE') {
+          stageLabel = 'Attendance';
+        } else if (rawCurrentStage === 'STAGE_2_EXAM') {
+          stageLabel = 'Final Exam';
+        } else {
+          stageLabel = currentStepNumber ? `Step ${currentStepNumber}/${totalSteps}` : 'Curriculum';
+        }
+      }
+
       return {
         id: user.id,
         name: user.name || 'Unknown',
@@ -310,6 +336,8 @@ export class UsersService {
         progress: `${progressPct}%`,
         currentStepNumber,
         totalSteps: isLearner && primaryEnrolment ? totalSteps : null,
+        currentStage: isLearner ? rawCurrentStage : null,
+        stageLabel: isLearner ? stageLabel : null,
         isStepLocked,
         stepLockReason,
         twoFactorEnabled: Boolean(user.twoFactorEnabled),

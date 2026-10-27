@@ -20,10 +20,20 @@ export const ACTION_FILTER_OPTIONS = [
   { value: "STEP_MANUAL_UNLOCKED", label: "Step Manual Unlock" },
   { value: "STEP_MANUAL_LOCKED", label: "Step Manual Lock" },
   { value: "STEP_UNLOCK_OVERRIDE", label: "Step Unlock Override" },
+  { value: "STAGE_UNLOCK_OVERRIDE", label: "Stage Unlock Override" },
   { value: "STEP_OVERRIDE_RESET", label: "Step Override Reset" },
   { value: "QUIZ_ATTEMPTS_RESET", label: "Quiz Attempts Reset" },
   { value: "QUIZ_OVERRIDE", label: "Quiz Override" },
   { value: "EXAM_ATTEMPTS_RESET", label: "Exam Attempts Reset" },
+  { value: "MISSION_STATEMENT_SUBMITTED", label: "Mission Statement Submitted" },
+  { value: "MISSION_STATEMENT_APPROVED", label: "Mission Statement Approved" },
+  { value: "MISSION_STATEMENT_REJECTED", label: "Mission Statement Rejected" },
+  { value: "ONE_ON_ONE_REQUESTED", label: "1-on-1 Call Requested" },
+  { value: "ONE_ON_ONE_APPROVED", label: "1-on-1 Call Approved" },
+  { value: "ONE_ON_ONE_REJECTED", label: "1-on-1 Call Rejected" },
+  { value: "ONE_ON_ONE_SCHEDULED", label: "1-on-1 Call Scheduled" },
+  { value: "ONE_ON_ONE_COMPLETED", label: "1-on-1 Call Completed" },
+  { value: "ONE_ON_ONE_RESCHEDULED", label: "1-on-1 Call Rescheduled" },
   { value: "CERTIFICATE_APPROVED", label: "Certificate Approved" },
   { value: "CERTIFICATE_REJECTED", label: "Certificate Rejected" },
   { value: "CERTIFICATE_REVOCATION", label: "Certificate Revoked" },
@@ -40,6 +50,11 @@ export const ACTION_FILTER_OPTIONS = [
   { value: "USER_ROLE_CHANGED", label: "User Role Changed" },
   { value: "LEARNER_ACCESS_REVOKED", label: "Learner Access Revoked" },
   { value: "BATCH_TRANSFERRED", label: "Batch Transferred" },
+  { value: "BATCH_CREATED", label: "Batch Created" },
+  { value: "BATCH_MANAGER_ASSIGNED", label: "Batch Manager Assigned" },
+  { value: "BATCH_STATUS_CHANGED", label: "Batch Status Changed" },
+  { value: "PROGRAM_PUBLISHED", label: "Program Published" },
+  { value: "PROGRAM_PRICING_UPDATED", label: "Program Pricing Updated" },
   { value: "UNUSUAL_LOGIN_DETECTED", label: "Security & Login Alert" },
   { value: "PASSWORD_RESET", label: "Password Reset" },
   { value: "NOTIFICATION_BROADCAST", label: "Announcement Broadcast" },
@@ -145,6 +160,31 @@ export function getAuditDetails(log: AuditLogItem): string {
   if (log.action === "BATCH_TRANSFERRED") {
     return meta?.batchName ? `Transferred to batch ${meta.batchName}` : "Batch assignment transferred";
   }
+  if (log.action === "BATCH_CREATED") {
+    const name = meta?.batchName ? `"${meta.batchName}"` : "Batch";
+    const cap = meta?.capacity ? ` (${meta.capacity} capacity)` : "";
+    return `Created batch ${name}${cap}`;
+  }
+  if (log.action === "BATCH_MANAGER_ASSIGNED") {
+    const mgr = meta?.newManagerName || (meta?.newManagerId ? `ID: ${meta.newManagerId}` : "Unassigned");
+    const batch = meta?.batchName ? ` for "${meta.batchName}"` : "";
+    return `Manager assigned${batch}: ${mgr}`;
+  }
+  if (log.action === "BATCH_STATUS_CHANGED") {
+    const batch = meta?.batchName ? `"${meta.batchName}"` : "Batch";
+    const status = meta?.newStatus || "updated";
+    return `${batch} status transitioned to ${status}`;
+  }
+  if (log.action === "PROGRAM_PUBLISHED") {
+    const title = meta?.programTitle ? `"${meta.programTitle}"` : "Program";
+    return `${title} published to catalog`;
+  }
+  if (log.action === "PROGRAM_PRICING_UPDATED") {
+    const title = meta?.programTitle ? `"${meta.programTitle}"` : "Program";
+    const newPrice = meta?.newPricing?.price;
+    const currency = meta?.newPricing?.currency || "USD";
+    return newPrice !== undefined ? `${title} pricing updated: ${currency} ${newPrice}` : `${title} pricing updated`;
+  }
 
   // 4. Authentication & Security events
   if (log.action === "LOGOUT") {
@@ -195,6 +235,10 @@ export function getAuditDetails(log: AuditLogItem): string {
   if (log.action === "STEP_UNLOCK_OVERRIDE") {
     return meta?.stepTitle ? `Step override: ${meta.stepTitle}` : "Step unlock override applied";
   }
+  if (log.action === "STAGE_UNLOCK_OVERRIDE") {
+    const stageName = meta?.stage ? formatMetaKey(String(meta.stage)) : "Stage";
+    return meta?.reason ? `Stage override (${stageName}): ${meta.reason}` : `Stage unlock override applied (${stageName})`;
+  }
   if (log.action === "STEP_OVERRIDE_RESET") {
     return "Step override reset to automatic";
   }
@@ -206,6 +250,35 @@ export function getAuditDetails(log: AuditLogItem): string {
   }
   if (log.action === "EXAM_ATTEMPTS_RESET") {
     return "Final exam attempt limit reset by instructor";
+  }
+
+  // 6b. Mission Statements & 1-on-1 Ro Sessions
+  if (log.action === "MISSION_STATEMENT_SUBMITTED") {
+    return meta?.fileName ? `Submitted mission statement: ${meta.fileName}` : "Mission statement document submitted";
+  }
+  if (log.action === "MISSION_STATEMENT_APPROVED") {
+    return meta?.feedback ? `Mission statement approved: ${meta.feedback}` : "Mission statement reviewed and approved";
+  }
+  if (log.action === "MISSION_STATEMENT_REJECTED") {
+    return meta?.feedback ? `Mission statement rejected: ${meta.feedback}` : "Mission statement rejected";
+  }
+  if (log.action === "ONE_ON_ONE_REQUESTED") {
+    return "1-on-1 coaching call requested";
+  }
+  if (log.action === "ONE_ON_ONE_APPROVED") {
+    return "1-on-1 coaching call scheduled & approved";
+  }
+  if (log.action === "ONE_ON_ONE_REJECTED") {
+    return meta?.reason ? `1-on-1 call rejected: ${meta.reason}` : "1-on-1 call request rejected";
+  }
+  if (log.action === "ONE_ON_ONE_SCHEDULED") {
+    return "1-on-1 call scheduled";
+  }
+  if (log.action === "ONE_ON_ONE_COMPLETED") {
+    return "1-on-1 call completed";
+  }
+  if (log.action === "ONE_ON_ONE_RESCHEDULED") {
+    return "1-on-1 call rescheduled";
   }
 
   // 7. Certificates & Invoices
@@ -294,10 +367,20 @@ export const ACTION_SHORT_NAMES: Record<string, string> = {
   STEP_MANUAL_UNLOCKED: "Step Unlocked",
   STEP_MANUAL_LOCKED: "Step Locked",
   STEP_UNLOCK_OVERRIDE: "Step Override",
+  STAGE_UNLOCK_OVERRIDE: "Stage Override",
   STEP_OVERRIDE_RESET: "Override Reset",
   QUIZ_ATTEMPTS_RESET: "Quiz Reset",
   QUIZ_OVERRIDE: "Quiz Override",
   EXAM_ATTEMPTS_RESET: "Exam Reset",
+  MISSION_STATEMENT_SUBMITTED: "Mission Submitted",
+  MISSION_STATEMENT_APPROVED: "Mission Approved",
+  MISSION_STATEMENT_REJECTED: "Mission Rejected",
+  ONE_ON_ONE_REQUESTED: "1:1 Requested",
+  ONE_ON_ONE_APPROVED: "1:1 Approved",
+  ONE_ON_ONE_REJECTED: "1:1 Rejected",
+  ONE_ON_ONE_SCHEDULED: "1:1 Scheduled",
+  ONE_ON_ONE_COMPLETED: "1:1 Completed",
+  ONE_ON_ONE_RESCHEDULED: "1:1 Rescheduled",
   CERTIFICATE_APPROVED: "Cert Approved",
   CERTIFICATE_REJECTED: "Cert Rejected",
   CERTIFICATE_REVOCATION: "Cert Revoked",
@@ -318,6 +401,11 @@ export const ACTION_SHORT_NAMES: Record<string, string> = {
   USER_ROLE_CHANGED: "Role Changed",
   LEARNER_ACCESS_REVOKED: "Access Revoked",
   BATCH_TRANSFERRED: "Batch Transfer",
+  BATCH_CREATED: "Batch Created",
+  BATCH_MANAGER_ASSIGNED: "Manager Assigned",
+  BATCH_STATUS_CHANGED: "Batch Status",
+  PROGRAM_PUBLISHED: "Program Published",
+  PROGRAM_PRICING_UPDATED: "Pricing Updated",
   UNUSUAL_LOGIN_DETECTED: "Security Alert",
   PASSWORD_RESET: "Password Reset",
   NOTIFICATION_BROADCAST: "Broadcast Sent",
@@ -332,6 +420,12 @@ export const ACTION_SHORT_NAMES: Record<string, string> = {
  * e.g., 'programTitle' -> 'Program Title', 'lead_email' -> 'Lead Email'
  */
 export function formatMetaKey(key: string): string {
+  if (/^[A-Z0-9]+(_[A-Z0-9]+)+$/.test(key)) {
+    return key
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+  }
   return key
     .replace(/([A-Z])/g, " $1")
     .replace(/_/g, " ")

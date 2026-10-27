@@ -45,8 +45,9 @@ export class BatchesController {
 
   @RequirePermission(Permission.BATCHES_CREATE)
   @Post()
-  create(@Body() createDto: CreateBatchDto) {
-    return this.batchesService.create(createDto);
+  create(@Body() createDto: CreateBatchDto, @Request() req: any) {
+    const actorId = req?.user?.sub || req?.user?.id;
+    return this.batchesService.create(createDto, actorId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -80,8 +81,10 @@ export class BatchesController {
   transitionStatus(
     @Param('id') id: string,
     @Body() statusDto: TransitionBatchStatusDto,
+    @Request() req: any,
   ) {
-    return this.batchesService.transitionStatus(id, statusDto);
+    const actorId = req?.user?.sub || req?.user?.id;
+    return this.batchesService.transitionStatus(id, statusDto, actorId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -101,8 +104,10 @@ export class BatchesController {
   update(
     @Param('id') id: string,
     @Body() updateDto: UpdateBatchDto,
+    @Request() req: any,
   ) {
-    return this.batchesService.update(id, updateDto);
+    const actorId = req?.user?.sub || req?.user?.id;
+    return this.batchesService.update(id, updateDto, actorId);
   }
 
   @RequirePermission(Permission.BATCHES_DELETE)

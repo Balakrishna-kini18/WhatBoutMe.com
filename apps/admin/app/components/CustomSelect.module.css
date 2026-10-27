@@ -98,19 +98,91 @@
 .menuPortal {
   position: fixed;
   max-height: 380px;
-  overflow-y: auto;
   background: #ffffff;
   border: 1px solid var(--border-light, #e7decb);
   border-radius: 10px;
   box-shadow: 0 14px 34px -4px rgba(30, 24, 16, 0.16), 0 4px 12px -2px rgba(30, 24, 16, 0.08);
-  padding: 0.35rem;
   z-index: 99999;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  overflow: hidden;
   animation: dropdownFadeIn 0.12s ease-out;
-  scrollbar-width: thin;
   box-sizing: border-box;
+}
+
+.searchContainer {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #ffffff;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border-light, #e7decb);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  box-sizing: border-box;
+}
+
+.searchIcon {
+  color: var(--text-muted, #7c7267);
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.8rem;
+  font-family: var(--font-sans);
+  color: var(--text-primary, #14110f);
+  background: #fdfcf9;
+  outline: none;
+  transition: all 0.15s ease;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  background: #ffffff;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 0 0 2px rgba(201, 122, 30, 0.12);
+}
+
+.searchClearBtn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #7c7267);
+  font-size: 0.75rem;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s ease;
+}
+
+.searchClearBtn:hover {
+  color: var(--text-primary, #14110f);
+}
+
+.optionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.35rem;
+  overflow-y: auto;
+  max-height: inherit;
+  scrollbar-width: thin;
+}
+
+.noResults {
+  padding: 1.25rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #7c7267);
+  text-align: center;
+  font-style: italic;
 }
 
 .option {
@@ -149,7 +221,8 @@
   flex-shrink: 0;
 }
 
-.option:hover:not(.optionDisabled) {
+.option:hover:not(.optionDisabled),
+.optionHighlighted:not(.optionDisabled) {
   background: #faf6f0;
   color: var(--text-primary, #14110f);
 }

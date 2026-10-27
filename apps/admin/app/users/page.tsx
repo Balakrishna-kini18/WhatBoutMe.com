@@ -4,7 +4,8 @@ import { useEffect, useState, FormEvent, useRef } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState, Pagination } from "../components";
+import { apiGet } from "../lib/api";
 
 const RevokeAccessModal = dynamic(
   () => import("../components/RevokeAccessModal").then((mod) => mod.RevokeAccessModal),
@@ -17,6 +18,7 @@ interface UserEnrolment {
   batchName: string | null;
   programTitle: string | null;
   status: string;
+  createdAt?: string | Date;
 }
 
 interface User {
@@ -25,6 +27,7 @@ interface User {
   email: string;
   role: string;
   status: string;
+  createdAt?: string | Date;
   progress?: string;
   currentStepNumber?: number | null;
   totalSteps?: number | null;
@@ -37,6 +40,7 @@ interface User {
   batchId?: string | null;
   enrolmentId?: string | null;
   enrolments?: UserEnrolment[];
+  enrolledAt?: string | null;
   joined?: string;
   permissions?: string[];
 }
@@ -47,7 +51,7 @@ const ROLE_CARDS = [
     title: "Super Admin",
     badgeLabel: "Super Admin",
     tone: "roleSuperAdmin" as const,
-    description: "Full platform control, integrations, staff accounts, certificate & agreement templates, and audit logs.",
+    description: "Full system governance, staff management & audit logs",
     requiresSuperAdmin: true,
   },
   {
@@ -55,7 +59,7 @@ const ROLE_CARDS = [
     title: "Admin",
     badgeLabel: "Admin",
     tone: "roleAdmin" as const,
-    description: "Manages curriculum, 11 steps, question bank, batches, pricing, certificates, and reports.",
+    description: "Curriculum, batches, quizzes, leads & revenue",
     requiresSuperAdmin: false,
   },
   {
@@ -63,7 +67,7 @@ const ROLE_CARDS = [
     title: "Batch Manager",
     badgeLabel: "Batch Manager",
     tone: "roleManager" as const,
-    description: "Manages learners, live sessions, attendance, announcements, and chats in assigned batches.",
+    description: "Assigned batch sessions, learners & attendance",
     requiresSuperAdmin: false,
   },
   {
@@ -71,7 +75,7 @@ const ROLE_CARDS = [
     title: "Learner",
     badgeLabel: "Learner",
     tone: "roleUser" as const,
-    description: "Personal dashboard, assigned batch, unlocked steps, scheduled sessions, chat, and certificates.",
+    description: "Enrolled courses, player, notes & bookings",
     requiresSuperAdmin: false,
   },
 ];
@@ -86,7 +90,8 @@ export default function UsersPage() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const limit = 20;
+  const [pageSize, setPageSize] = useState(10);
+  const limit = pageSize;
   const [batches, setBatches] = useState<{id: string, name: string}[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -94,7 +99,7 @@ export default function UsersPage() {
   const [selectedManagerBatchIds, setSelectedManagerBatchIds] = useState<string[]>([]);
 
   // Interactive Column Header Sorting
-  type SortField = "name" | "role" | "program" | "step" | "agreement" | "batch";
+  type SortField = "name" | "role" | "program" | "step" | "agreement" | "batch" | "date";
   type SortDirection = "asc" | "desc";
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -200,7 +205,7 @@ export default function UsersPage() {
       clearTimeout(delay);
       controller.abort();
     };
-  }, [page, search, roleFilter]);
+  }, [page, search, roleFilter, pageSize]);
 
   const fetchBatches = async () => {
     try {
@@ -219,18 +224,12 @@ export default function UsersPage() {
 
   const fetchUsers = async (signal?: AbortSignal) => {
     try {
-      const token = localStorage.getItem("token");
       const roleParam = roleFilter !== "ALL" ? `&role=${roleFilter}` : "";
-
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}${roleParam}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          signal,
-        }
+      const json = await apiGet<{ data: User[]; total: number }>(
+        `/users?page=${page}&limit=${pageSize}&search=${encodeURIComponent(search)}${roleParam}`,
+        { signal, skipCache: true }
       );
-      if (res.ok) {
-        const json = await res.json();
+      if (json) {
         setUsers(json.data || []);
         setTotalUsers(json.total || 0);
       }
@@ -360,6 +359,57 @@ export default function UsersPage() {
     return true;
   });
 
+  function parseDate(rawDate: string | Date | number | null | undefined): Date | null {
+    if (!rawDate) return null;
+    if (rawDate instanceof Date) return isNaN(rawDate.getTime()) ? null : rawDate;
+    if (typeof rawDate === "number") {
+      const d = new Date(rawDate);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof rawDate === "string") {
+      const s = rawDate.trim();
+      if (!s || s === "—" || s === "-") return null;
+      // Match DD/MM/YYYY or DD-MM-YYYY
+      const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmy && dmy[1] && dmy[2] && dmy[3]) {
+        const day = parseInt(dmy[1], 10);
+        const month = parseInt(dmy[2], 10) - 1;
+        const year = parseInt(dmy[3], 10);
+        const d = new Date(year, month, day);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      // Match YYYY-MM-DD
+      const ymd = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if (ymd && ymd[1] && ymd[2] && ymd[3]) {
+        const year = parseInt(ymd[1], 10);
+        const month = parseInt(ymd[2], 10) - 1;
+        const day = parseInt(ymd[3], 10);
+        const d = new Date(year, month, day);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+
+  function formatNumericDate(rawDate: string | Date | number | null | undefined): string {
+    const d = parseDate(rawDate);
+    if (!d) return typeof rawDate === "string" && rawDate !== "—" ? rawDate : "—";
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  const getEnrolledDate = (user: User) => {
+    const isEnrolled = user.enrolments && user.enrolments.length > 0;
+    if (!isEnrolled) return "—";
+    const rawDate = user.enrolments?.[0]?.createdAt || user.enrolledAt || user.createdAt || user.joined;
+    if (!rawDate) return "—";
+    return formatNumericDate(rawDate);
+  };
+
   const sortedUsers = [...filteredUsers].sort((a, b) => {
     if (!sortField) return 0;
     let valA: any = "";
@@ -388,6 +438,13 @@ export default function UsersPage() {
       };
       valA = getBatchVal(a).toLowerCase();
       valB = getBatchVal(b).toLowerCase();
+    } else if (sortField === "date") {
+      const dateA = a.enrolments?.[0]?.createdAt || a.enrolledAt || a.createdAt || a.joined || 0;
+      const dateB = b.enrolments?.[0]?.createdAt || b.enrolledAt || b.createdAt || b.joined || 0;
+      const parsedA = parseDate(dateA);
+      const parsedB = parseDate(dateB);
+      valA = parsedA ? parsedA.getTime() : 0;
+      valB = parsedB ? parsedB.getTime() : 0;
     }
     if (valA < valB) return sortDirection === "asc" ? -1 : 1;
     if (valA > valB) return sortDirection === "asc" ? 1 : -1;
@@ -399,21 +456,37 @@ export default function UsersPage() {
     if (isExporting) return;
     setIsExporting(true);
     try {
-      const token = localStorage.getItem("token");
       const roleParam = roleFilter !== "ALL" ? `&role=${roleFilter}` : "";
 
-      let exportDataset: User[] = users;
+      // Fetch all records across all pages matching the active role & search criteria
+      let exportDataset: User[] = [];
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/users?page=1&limit=1000&search=${encodeURIComponent(search)}${roleParam}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+        const firstBatch = await apiGet<{ data: User[]; total: number; totalPages: number }>(
+          `/users?page=1&limit=100&search=${encodeURIComponent(search)}${roleParam}`,
+          { skipCache: true }
         );
-        if (res.ok) {
-          const json = await res.json();
-          exportDataset = json.data || users;
+        if (firstBatch && Array.isArray(firstBatch.data)) {
+          exportDataset = [...firstBatch.data];
+          const totalPages = firstBatch.totalPages || Math.ceil((firstBatch.total || 0) / 100);
+          if (totalPages > 1) {
+            for (let p = 2; p <= totalPages; p++) {
+              const nextBatch = await apiGet<{ data: User[] }>(
+                `/users?page=${p}&limit=100&search=${encodeURIComponent(search)}${roleParam}`,
+                { skipCache: true }
+              );
+              if (nextBatch && Array.isArray(nextBatch.data)) {
+                exportDataset.push(...nextBatch.data);
+              }
+            }
+          }
         }
       } catch (err) {
-        console.warn("Could not fetch full export batch, falling back to current page", err);
+        console.warn("Could not fetch all pages via apiGet, falling back to current page", err);
+        exportDataset = users;
+      }
+
+      if (exportDataset.length === 0) {
+        exportDataset = users;
       }
 
       // Apply active secondary filters
@@ -479,6 +552,11 @@ export default function UsersPage() {
             };
             valA = getBatchVal(a).toLowerCase();
             valB = getBatchVal(b).toLowerCase();
+    } else if (sortField === "date") {
+      const dateA = a.enrolments?.[0]?.createdAt || a.enrolledAt || a.createdAt || a.joined || 0;
+      const dateB = b.enrolments?.[0]?.createdAt || b.enrolledAt || b.createdAt || b.joined || 0;
+      valA = new Date(dateA).getTime() || 0;
+      valB = new Date(dateB).getTime() || 0;
           }
           if (valA < valB) return sortDirection === "asc" ? -1 : 1;
           if (valA > valB) return sortDirection === "asc" ? 1 : -1;
@@ -503,7 +581,7 @@ export default function UsersPage() {
           `"Super Admin"`,
           `"${(u.status || "ACTIVE").toUpperCase()}"`,
           `"${u.twoFactorEnabled ? "2FA Protected • All Systems" : "Full System Governance • Foxwel & Roweena"}"`,
-          `"${u.joined || "—"}"`,
+          `"${formatNumericDate(u.joined || u.createdAt)}"`,
         ];
       } else if (roleFilter === "ADMIN") {
         headers = ["Name", "Email", "Role", "Account Status", "Administrative Scope", "Joined Date"];
@@ -513,7 +591,7 @@ export default function UsersPage() {
           `"Admin"`,
           `"${(u.status || "ACTIVE").toUpperCase()}"`,
           `"Curriculum, Batches, Quizzes & Reports"`,
-          `"${u.joined || "—"}"`,
+          `"${formatNumericDate(u.joined || u.createdAt)}"`,
         ];
       } else if (roleFilter === "MANAGER") {
         headers = ["Name", "Email", "Role", "Account Status", "Managed Batches", "Joined Date"];
@@ -523,7 +601,7 @@ export default function UsersPage() {
           `"Batch Manager"`,
           `"${(u.status || "ACTIVE").toUpperCase()}"`,
           `"${(u.managedBatches && u.managedBatches.length > 0 ? u.managedBatches.map((b) => b.name).join("; ") : "Unassigned").replace(/"/g, '""')}"`,
-          `"${u.joined || "—"}"`,
+          `"${formatNumericDate(u.joined || u.createdAt)}"`,
         ];
       } else {
         headers = [
@@ -568,7 +646,7 @@ export default function UsersPage() {
                   : "Unassigned")
               : (u.cohort && u.cohort !== "Unassigned" ? u.cohort : "Unassigned");
 
-          const joinedDate = u.joined ? new Date(u.joined).toISOString().split("T")[0] : "—";
+          const joinedDate = formatNumericDate(u.joined || u.createdAt);
 
           return [
             `"${(u.name || "").replace(/"/g, '""')}"`,
@@ -1037,6 +1115,18 @@ export default function UsersPage() {
                         Batch {renderSortIcon("batch")}
                       </span>
                     </th>
+                    {roleFilter === "USER" && (
+                      <th
+                        onClick={() => handleSort("date")}
+                        style={{ cursor: "pointer", userSelect: "none" }}
+                        title="Click to sort by Enrolled Date"
+                        aria-sort={sortField === "date" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
+                      >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                          Enrolled On {renderSortIcon("date")}
+                        </span>
+                      </th>
+                    )}
                   </>
                 )}
 
@@ -1081,10 +1171,10 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <TableSkeleton columns={roleFilter === "ALL" ? 7 : roleFilter === "USER" ? 6 : 5} rows={6} />
+                <TableSkeleton columns={roleFilter === "ALL" || roleFilter === "USER" ? 7 : 5} rows={6} />
               ) : sortedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={roleFilter === "ALL" ? 7 : roleFilter === "USER" ? 6 : 5} style={{ padding: "32px 16px" }}>
+                  <td colSpan={roleFilter === "ALL" || roleFilter === "USER" ? 7 : 5} style={{ padding: "32px 16px" }}>
                     <EmptyState
                       icon="users"
                       title="No users found"
@@ -1217,6 +1307,13 @@ export default function UsersPage() {
                           </span>
                         )}
                       </td>
+                      {roleFilter === "USER" && (
+                        <td>
+                          <span className={styles.cellTextMuted}>
+                            {getEnrolledDate(user)}
+                          </span>
+                        </td>
+                      )}
                     </>
                   )}
 
@@ -1243,7 +1340,7 @@ export default function UsersPage() {
                         <StatusBadge status={user.status || "ACTIVE"} />
                       </td>
                       <td>
-                        <span className={styles.cellTextMuted}>{user.joined || "—"}</span>
+                        <span className={styles.cellTextMuted}>{formatNumericDate(user.joined || user.createdAt)}</span>
                       </td>
                     </>
                   )}
@@ -1265,7 +1362,7 @@ export default function UsersPage() {
                         <StatusBadge status={user.status || "ACTIVE"} />
                       </td>
                       <td>
-                        <span className={styles.cellTextMuted}>{user.joined || "—"}</span>
+                        <span className={styles.cellTextMuted}>{formatNumericDate(user.joined || user.createdAt)}</span>
                       </td>
                     </>
                   )}
@@ -1287,7 +1384,7 @@ export default function UsersPage() {
                         <StatusBadge status={user.status || "ACTIVE"} />
                       </td>
                       <td>
-                        <span className={styles.cellTextMuted}>{user.joined || "—"}</span>
+                        <span className={styles.cellTextMuted}>{formatNumericDate(user.joined || user.createdAt)}</span>
                       </td>
                     </>
                   )}
@@ -1295,16 +1392,20 @@ export default function UsersPage() {
                     <ActionMenu
                       ariaLabel={`Actions for ${user.name}`}
                       items={[
-                        {
-                          label: "View Full Profile",
-                          href: `/users/${user.id}`,
-                          icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                              <circle cx="12" cy="7" r="4" />
-                            </svg>
-                          ),
-                        },
+                        ...(user.role === "USER"
+                          ? [
+                              {
+                                label: "View Full Profile",
+                                href: `/users/${user.id}`,
+                                icon: (
+                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                    <circle cx="12" cy="7" r="4" />
+                                  </svg>
+                                ),
+                              },
+                            ]
+                          : []),
                         ...((user.role === "USER" || user.role === "MANAGER")
                           ? [
                               {
@@ -1365,26 +1466,19 @@ export default function UsersPage() {
           </table>
         </div>
 
-        {totalUsers > limit && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
-            <button
-              className={styles.exportBtn}
-              disabled={page === 1}
-              onClick={() => setPage(p => p - 1)}
-            >
-              Previous
-            </button>
-            <span style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              Page {page} of {Math.ceil(totalUsers / limit)}
-            </span>
-            <button
-              className={styles.exportBtn}
-              disabled={page >= Math.ceil(totalUsers / limit)}
-              onClick={() => setPage(p => p + 1)}
-            >
-              Next
-            </button>
-          </div>
+        {!isLoading && totalUsers > 0 && (
+          <Pagination
+            currentPage={page}
+            totalItems={totalUsers}
+            pageSize={pageSize}
+            onPageChange={(newPage) => setPage(newPage)}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 20, 50]}
+            itemLabel={roleFilter === "USER" ? "learners" : "users"}
+          />
         )}
       </section>
 
@@ -1649,54 +1743,7 @@ export default function UsersPage() {
                   </div>
                 )}
 
-                {/* 6. ADVANCED PERMISSIONS (ACCORDION - ONLY SUPER ADMIN) */}
-                {isSuperAdmin && ["ADMIN", "MANAGER", "TEACHER"].includes(role) && (
-                  <details className={styles.advancedAccordion}>
-                    <summary className={styles.advancedAccordionSummary}>
-                      <div className={styles.accordionSummaryLeft}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                        <span>Advanced Permissions (Custom Module Overrides)</span>
-                      </div>
-                      <span className={styles.accordionTag}>Super Admin Only</span>
-                    </summary>
-                    <div className={styles.advancedAccordionBody}>
-                      <p className={styles.accordionNotice}>
-                        Canonical roles automatically include standard LMS permissions. Configure module overrides only if this staff account requires specific capabilities outside standard role boundaries.
-                      </p>
-                      <div className={styles.permissionsGrid}>
-                        {[
-                          { id: "view_users", label: "Users & Enrolments", desc: "Manage learner directory and profiles" },
-                          { id: "view_batches", label: "Batches", desc: "Manage schedules and batch dates" },
-                          { id: "manage_curriculum", label: "Curriculum & Programs", desc: "Edit programs, steps, and quizzes" },
-                          { id: "manage_website", label: "Website Content & CRM", desc: "Public landing page and enquiries" },
-                          { id: "view_finance", label: "Finance & Revenue", desc: "Invoices, transactions and refunds" },
-                          { id: "manage_operations", label: "Operations & Meetings", desc: "Zoom links and assessor calendars" },
-                        ].map(perm => {
-                          const isChecked = permissions.includes(perm.id);
-                          return (
-                            <label key={perm.id} className={`${styles.permCard} ${isChecked ? styles.permCardChecked : ""}`}>
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) setPermissions(prev => [...prev, perm.id]);
-                                  else setPermissions(prev => prev.filter(p => p !== perm.id));
-                                }}
-                              />
-                              <div className={styles.permCardText}>
-                                <strong>{perm.label}</strong>
-                                <span>{perm.desc}</span>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </details>
-                )}
+
 
                 {/* 7. DYNAMIC ROLE CHANGE SECURITY WARNING */}
                 {editingUserId && role !== initialRole && (
@@ -1748,7 +1795,6 @@ export default function UsersPage() {
           isOpen={Boolean(assignBatchUser)}
           onClose={() => setAssignBatchUser(null)}
           title={`Assign Batch: ${assignBatchUser.name || assignBatchUser.email}`}
-          subtitle="Select an active workshop batch for this learner. This will scope their session schedule and attendance."
           maxWidth="480px"
           footer={
             <>

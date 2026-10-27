@@ -19,6 +19,7 @@ import {
   getLockMessage,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
+import PdfViewerModal from "./components/PdfViewerModal";
 import StepLoading from "./loading";
 import {
   getLocalVideoResume,
@@ -27,6 +28,24 @@ import {
 } from "./videoPlayerLogic";
 
 export type WorkspaceTab = "video" | "quiz" | "notes" | "materials";
+
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
 
 function resolveVideoSrc(rawUrl?: string | null): string {
   if (!rawUrl) return "";
@@ -81,6 +100,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Materials state
   const [materialsSearch, setMaterialsSearch] = useState("");
+  const [viewerPdf, setViewerPdf] = useState<{
+    isOpen: boolean;
+    id: string;
+    title: string;
+    mediaUrl?: string | null;
+    downloadUrl?: string | null;
+  }>({
+    isOpen: false,
+    id: "",
+    title: "",
+  });
+
+  const handleViewPdf = useCallback((material: { id: string; title: string; mediaUrl?: string | null }) => {
+    const dlUrl = resolveMediaDownloadUrl(material.mediaUrl);
+    setViewerPdf({
+      isOpen: true,
+      id: material.id,
+      title: material.title,
+      mediaUrl: material.mediaUrl,
+      downloadUrl: dlUrl,
+    });
+  }, []);
 
 
   // Quiz state
@@ -255,6 +296,39 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           };
         }
         setLessonProgress(lpMap);
+
+        // Automatic Server Completion Reconciliation:
+        // If a lesson was finished locally but server missed it (e.g. dropped connection during reload),
+        // reconcile completion with server so database records and next step unlocks stay 100% in sync
+        const missingOnServer = stepProgItem.lessons.filter(
+          (l: any) => !l.isCompleted && isLocalLessonCompleted(l.lessonId)
+        );
+        if (missingOnServer.length > 0) {
+          void (async () => {
+            try {
+              for (const ml of missingOnServer) {
+                const dur = ml.durationSec || 8;
+                await fetch(`${API_URL}/progress/lessons/${ml.lessonId}/heartbeat`, {
+                  method: "POST",
+                  headers: getAuthHeaders(),
+                  body: JSON.stringify({
+                    positionSec: dur,
+                    fromSec: 0,
+                    toSec: dur,
+                    videoDurationSec: dur,
+                    isEnded: true,
+                    deltaWatchedSec: dur,
+                    timestamp: Date.now(),
+                  }),
+                });
+              }
+              invalidateCache("/progression");
+              invalidateCache("/progress");
+            } catch (syncErr) {
+              console.warn("Completion reconciliation error:", syncErr);
+            }
+          })();
+        }
       } else if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
         try {
           await Promise.all(
@@ -577,35 +651,45 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
       isHeartbeatInFlightRef.current = true;
 
-      try {
-        const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
-        const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            positionSec,
-            fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
-            toSec: toSec ?? positionSec,
-            videoDurationSec: dur > 0 ? dur : undefined,
-            isEnded,
-            deltaWatchedSec,
-            timestamp: Date.now(),
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
-          if (data.isCompleted || data.viewed || isEnded) {
-            invalidateCache("/progression");
-            invalidateCache("/progress");
-            void fetchStepAndProgression();
+      const sendHeartbeatAttempt = async (attempt = 0): Promise<void> => {
+        try {
+          const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
+          const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              positionSec,
+              fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
+              toSec: toSec ?? positionSec,
+              videoDurationSec: dur > 0 ? dur : undefined,
+              isEnded,
+              deltaWatchedSec,
+              timestamp: Date.now(),
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
+            if (data.isCompleted || data.viewed || isEnded) {
+              invalidateCache("/progression");
+              invalidateCache("/progress");
+              void fetchStepAndProgression();
+            }
+          } else if (isEnded && attempt < 2) {
+            setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
           }
+        } catch (err) {
+          if (isEnded && attempt < 2) {
+            setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
+          } else {
+            console.warn("Heartbeat error:", err);
+          }
+        } finally {
+          isHeartbeatInFlightRef.current = false;
         }
-      } catch (err) {
-        console.warn("Heartbeat error:", err);
-      } finally {
-        isHeartbeatInFlightRef.current = false;
-      }
+      };
+
+      await sendHeartbeatAttempt(0);
     },
     [fetchStepAndProgression]
   );
@@ -964,10 +1048,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       ) : nextStep && nextStepId ? (
         <button
           type="button"
-          onClick={() => router.push(`/steps/${nextStepId}`)}
+          disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
+          onClick={() => {
+            if (isStepCompleted || completedLessonsCount >= totalLessonsCount) {
+              router.push(`/steps/${nextStepId}`);
+            }
+          }}
           className={styles.btnPrimaryOrange}
+          style={{
+            opacity: !isStepCompleted && completedLessonsCount < totalLessonsCount ? 0.6 : 1,
+            cursor: !isStepCompleted && completedLessonsCount < totalLessonsCount ? "not-allowed" : "pointer",
+          }}
         >
-          Next Module ({nextStep.title}) &rarr;
+          {!isStepCompleted && completedLessonsCount < totalLessonsCount
+            ? `🔒 Complete all parts to unlock Next Module`
+            : `Next Module (${nextStep.title}) →`}
         </button>
       ) : (
         <Link
@@ -986,22 +1081,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   return (
     <div className={styles.container}>
       {/* =====================================================================
-          TOP HEADER
+          TOP HEADER (Consistent Learning Path format)
           ===================================================================== */}
-      <div className={styles.pageHeaderRow}>
-        <div>
-          <Link href={`/programs/${step?.programId}/steps`} className={styles.breadcrumbBack}>
-            &larr; Back to Learning Path
-          </Link>
-
+      <header className={styles.header}>
+        <Link
+          href={step?.programId ? `/programs/${step.programId}/steps` : "/"}
+          className={styles.backLink}
+          title="Back to Learning Path"
+        >
+          <span className={styles.backIconWrap}>{ArrowLeft}</span>
+          <span className={styles.backText}>Back</span>
+        </Link>
+        <span className={styles.headerDivider} aria-hidden="true" />
+        <div className={styles.headerTitleGroup}>
           <h1 className={styles.pageMainTitle}>
             Step {step?.sequence}: {step?.title}
           </h1>
-          <p className={styles.pageSubtitle}>
-            {step?.title} • {completedLessonsCount} of {totalLessonsCount} lessons completed
-          </p>
+          <span className={styles.cardMetaBadge}>
+            <span className={styles.cardMetaDot} aria-hidden="true" />
+            {step?.title || `Module ${step?.sequence}`} • {completedLessonsCount} of {totalLessonsCount} lessons completed
+          </span>
         </div>
-      </div>
+      </header>
 
       {/* =====================================================================
           4-TAB LESSON WORKSPACE
@@ -1099,7 +1200,51 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </div>
 
                   {/* 16:9 Video Viewport */}
-                  {currentMedia?.mediaUrl ? (
+                  {currentMedia?.type === "PDF" || (currentMedia?.mediaUrl && currentMedia.mediaUrl.toLowerCase().includes(".pdf")) ? (
+                    <div className={styles.pdfLessonViewport}>
+                      <div className={styles.pdfLessonHeader}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span className={styles.badgePdf} style={{ padding: "4px 8px", borderRadius: 4, fontWeight: 700, fontSize: "0.78rem" }}>
+                            PDF
+                          </span>
+                          <strong style={{ fontSize: "1.05rem", color: "#1c1917" }}>{currentMedia.title}</strong>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleViewPdf(currentMedia)}
+                            className={styles.btnPrimaryView}
+                            title="Open full in-browser reader modal"
+                          >
+                            <span style={{ fontSize: "1rem" }}>👁</span> View Fullscreen
+                          </button>
+                          <a
+                            href={resolveMediaDownloadUrl(currentMedia.mediaUrl)}
+                            download={currentMedia.title}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.btnSecondaryOutline}
+                            style={{ textDecoration: "none" }}
+                          >
+                            &darr; Download
+                          </a>
+                        </div>
+                      </div>
+                      <div className={styles.pdfLessonEmbedContainer}>
+                        <object
+                          data={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
+                          type="application/pdf"
+                          className={styles.pdfFrameObject}
+                        >
+                          <iframe
+                            src={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
+                            title={currentMedia.title}
+                            className={styles.pdfFrame}
+                          />
+                        </object>
+                      </div>
+                    </div>
+                  ) : currentMedia?.mediaUrl ? (
                     <div className={styles.videoPlayerViewport}>
                       <CompulsoryVideoPlayer
                         lessonId={currentMedia.id}
@@ -1778,8 +1923,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
                   .map((m) => {
                     const downloadUrl = resolveMediaDownloadUrl(m.mediaUrl);
+                    const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
                     return (
-                      <div key={m.id} className={styles.materialRowCard}>
+                      <div
+                        key={m.id}
+                        className={`${styles.materialRowCard} ${isPdf ? styles.materialRowCardClickable : ""}`}
+                        onClick={() => {
+                          if (isPdf) handleViewPdf(m);
+                        }}
+                        title={isPdf ? "Click to view PDF in browser" : undefined}
+                      >
                         <div className={styles.materialLeftGroup}>
                           <div
                             className={`${styles.materialTypeBadge} ${
@@ -1801,27 +1954,42 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           </div>
                         </div>
 
-                        {downloadUrl ? (
-                          <a
-                            href={downloadUrl}
-                            download={m.title}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.btnSecondaryOutline}
-                            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-                          >
-                            &darr; Download
-                          </a>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled
-                            className={styles.btnSecondaryOutline}
-                            style={{ opacity: 0.5, cursor: "not-allowed" }}
-                          >
-                            Unavailable
-                          </button>
-                        )}
+                        <div className={styles.materialActionsGroup} onClick={(e) => e.stopPropagation()}>
+                          {isPdf && (
+                            <button
+                              type="button"
+                              onClick={() => handleViewPdf(m)}
+                              className={styles.btnPrimaryView}
+                              title="View this PDF directly in the browser"
+                            >
+                              <span style={{ fontSize: "1rem" }}>👁</span>
+                              <span>View in Browser</span>
+                            </button>
+                          )}
+
+                          {downloadUrl ? (
+                            <a
+                              href={downloadUrl}
+                              download={m.title}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.btnSecondaryOutline}
+                              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                              title="Download PDF file"
+                            >
+                              &darr; Download
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className={styles.btnSecondaryOutline}
+                              style={{ opacity: 0.5, cursor: "not-allowed" }}
+                            >
+                              Unavailable
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1870,15 +2038,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             ) : nextStep && nextStepId ? (
               <button
                 type="button"
-                onClick={() => router.push(`/steps/${nextStepId}`)}
+                disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
+                onClick={() => {
+                  if (isStepCompleted || completedLessonsCount >= totalLessonsCount) {
+                    router.push(`/steps/${nextStepId}`);
+                  }
+                }}
                 className={styles.btnPrimaryOrange}
                 style={{
-                  background: isStepCompleted ? "#d97706" : "#fef3c7",
-                  color: isStepCompleted ? "#ffffff" : "#b45309",
-                  borderColor: isStepCompleted ? "#d97706" : "#fde68a",
+                  background: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#d97706" : "#fef3c7",
+                  color: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#ffffff" : "#b45309",
+                  borderColor: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#d97706" : "#fde68a",
+                  opacity: !isStepCompleted && completedLessonsCount < totalLessonsCount ? 0.6 : 1,
+                  cursor: !isStepCompleted && completedLessonsCount < totalLessonsCount ? "not-allowed" : "pointer",
                 }}
               >
-                Next Module ({nextStep.title}) &rarr;
+                {!isStepCompleted && completedLessonsCount < totalLessonsCount
+                  ? `🔒 Complete all parts to unlock Next Module`
+                  : `Next Module (${nextStep.title}) →`}
               </button>
             ) : (
               <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
@@ -2111,6 +2288,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           </aside>
         </>
       )}
+      <PdfViewerModal
+        isOpen={viewerPdf.isOpen}
+        onClose={() => setViewerPdf((prev) => ({ ...prev, isOpen: false }))}
+        documentId={viewerPdf.id}
+        title={viewerPdf.title}
+        mediaUrl={viewerPdf.mediaUrl}
+        downloadUrl={viewerPdf.downloadUrl}
+      />
     </div>
   );
 }

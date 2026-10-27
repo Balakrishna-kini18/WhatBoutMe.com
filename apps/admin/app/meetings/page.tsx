@@ -342,6 +342,21 @@ export default function MeetingsPage() {
     return { all: meetings.length, discovery, coaching, batch };
   }, [meetings]);
 
+  const handleSelectCommitmentCategory = (cat: CommitmentCategory) => {
+    setCommitmentCategory(cat);
+    setFilterType("ALL");
+    if (viewMode === "requests") {
+      setViewMode("calendar");
+    }
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("view");
+      url.searchParams.delete("tab");
+      url.searchParams.set("category", cat.toLowerCase());
+      window.history.pushState({}, "", url.toString());
+    }
+  };
+
   const handleCompleteAndConvert = async (meeting: Meeting) => {
     setIsCompletingAndConverting(true);
     try {
@@ -626,8 +641,23 @@ export default function MeetingsPage() {
     if (typeof window !== "undefined") {
       const searchParams = new URLSearchParams(window.location.search);
       const v = searchParams.get("view") || searchParams.get("tab");
-      if (v === "requests" || v === "coaching") {
+      if (v === "requests" || v === "coaching_requests") {
         setViewMode("requests");
+      } else if (v === "table") {
+        setViewMode("table");
+      } else if (v === "calendar") {
+        setViewMode("calendar");
+      }
+
+      const cat = searchParams.get("category");
+      if (cat === "discovery") {
+        setCommitmentCategory("DISCOVERY");
+      } else if (cat === "coaching") {
+        setCommitmentCategory("COACHING");
+      } else if (cat === "batch") {
+        setCommitmentCategory("BATCH");
+      } else if (cat === "all") {
+        setCommitmentCategory("ALL");
       }
     }
     load();
@@ -1117,9 +1147,9 @@ export default function MeetingsPage() {
         <button
           type="button"
           className={`${calStyles.commitmentBtn} ${
-            commitmentCategory === "ALL" ? calStyles.commitmentBtnActive : ""
+            viewMode !== "requests" && commitmentCategory === "ALL" ? calStyles.commitmentBtnActive : ""
           }`}
-          onClick={() => setCommitmentCategory("ALL")}
+          onClick={() => handleSelectCommitmentCategory("ALL")}
         >
           <span>All Commitments</span>
           <span className={calStyles.commitmentBadge}>{commitmentCounts.all}</span>
@@ -1127,9 +1157,9 @@ export default function MeetingsPage() {
         <button
           type="button"
           className={`${calStyles.commitmentBtn} ${
-            commitmentCategory === "DISCOVERY" ? calStyles.commitmentBtnActiveDiscovery : ""
+            viewMode !== "requests" && commitmentCategory === "DISCOVERY" ? calStyles.commitmentBtnActiveDiscovery : ""
           }`}
-          onClick={() => setCommitmentCategory("DISCOVERY")}
+          onClick={() => handleSelectCommitmentCategory("DISCOVERY")}
         >
           <span className={calStyles.commitmentDotDiscovery} />
           <span>15-Min Discovery Calls</span>
@@ -1138,9 +1168,9 @@ export default function MeetingsPage() {
         <button
           type="button"
           className={`${calStyles.commitmentBtn} ${
-            commitmentCategory === "COACHING" ? calStyles.commitmentBtnActiveCoaching : ""
+            viewMode !== "requests" && commitmentCategory === "COACHING" ? calStyles.commitmentBtnActiveCoaching : ""
           }`}
-          onClick={() => setCommitmentCategory("COACHING")}
+          onClick={() => handleSelectCommitmentCategory("COACHING")}
         >
           <span className={calStyles.commitmentDotCoaching} />
           <span>1:1 Coaching Calls</span>
@@ -1149,13 +1179,43 @@ export default function MeetingsPage() {
         <button
           type="button"
           className={`${calStyles.commitmentBtn} ${
-            commitmentCategory === "BATCH" ? calStyles.commitmentBtnActiveBatch : ""
+            viewMode !== "requests" && commitmentCategory === "BATCH" ? calStyles.commitmentBtnActiveBatch : ""
           }`}
-          onClick={() => setCommitmentCategory("BATCH")}
+          onClick={() => handleSelectCommitmentCategory("BATCH")}
         >
           <span className={calStyles.commitmentDotBatch} />
           <span>Batch Live Sessions</span>
           <span className={calStyles.commitmentBadge}>{commitmentCounts.batch}</span>
+        </button>
+        <button
+          type="button"
+          className={`${calStyles.commitmentBtn} ${
+            viewMode === "requests" ? calStyles.commitmentBtnActiveRequests : ""
+          }`}
+          onClick={() => {
+            setViewMode("requests");
+            loadRequests();
+            if (typeof window !== "undefined") {
+              const url = new URL(window.location.href);
+              url.searchParams.set("view", "requests");
+              url.searchParams.delete("category");
+              window.history.pushState({}, "", url.toString());
+            }
+          }}
+        >
+          <span className={calStyles.commitmentDotRequests} />
+          <span>1-on-1 Requests Queue</span>
+          {pendingRequestsCount > 0 && (
+            <span
+              className={calStyles.commitmentBadge}
+              style={{
+                background: viewMode === "requests" ? "#ef4444" : "#fee2e2",
+                color: viewMode === "requests" ? "#ffffff" : "#991b1b",
+              }}
+            >
+              {pendingRequestsCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1200,7 +1260,14 @@ export default function MeetingsPage() {
               className={`${calStyles.viewSwitcherBtn} ${
                 viewMode === "calendar" ? calStyles.viewSwitcherBtnActive : ""
               }`}
-              onClick={() => setViewMode("calendar")}
+              onClick={() => {
+                setViewMode("calendar");
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("view");
+                  window.history.pushState({}, "", url.toString());
+                }
+              }}
             >
               <Icons.Calendar />
               Calendar Grid
@@ -1210,7 +1277,14 @@ export default function MeetingsPage() {
               className={`${calStyles.viewSwitcherBtn} ${
                 viewMode === "table" ? calStyles.viewSwitcherBtnActive : ""
               }`}
-              onClick={() => setViewMode("table")}
+              onClick={() => {
+                setViewMode("table");
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("view", "table");
+                  window.history.pushState({}, "", url.toString());
+                }
+              }}
             >
               <Icons.Table />
               Table View
@@ -1223,6 +1297,12 @@ export default function MeetingsPage() {
               onClick={() => {
                 setViewMode("requests");
                 loadRequests();
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("view", "requests");
+                  url.searchParams.delete("category");
+                  window.history.pushState({}, "", url.toString());
+                }
               }}
             >
               <Icons.Users />
@@ -1392,6 +1472,66 @@ export default function MeetingsPage() {
               </span>
             </div>
           </div>
+
+          {commitmentCategory !== "ALL" && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "8px 14px",
+                background: "#faf6f0",
+                borderBottom: "1px solid #ece4d7",
+                fontSize: "0.82rem",
+                color: "#574f45",
+                flexWrap: "wrap",
+                gap: "8px",
+              }}
+            >
+              <div>
+                Filtering calendar by:{" "}
+                <strong style={{ color: "#14110f" }}>
+                  {commitmentCategory === "DISCOVERY"
+                    ? "15-Min Discovery Calls"
+                    : commitmentCategory === "COACHING"
+                    ? "1:1 Coaching Calls"
+                    : "Batch Live Sessions"}
+                </strong>{" "}
+                ({filteredMeetings.length} scheduled)
+              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#b8860b",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  View full list in Table &rarr;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectCommitmentCategory("ALL")}
+                  style={{
+                    background: "#ffffff",
+                    border: "1px solid #dcd5cb",
+                    borderRadius: 4,
+                    padding: "2px 8px",
+                    cursor: "pointer",
+                    fontSize: "0.76rem",
+                  }}
+                >
+                  ✕ Clear Filter
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className={calStyles.weekdayGrid}>
             <div>Sun</div>
@@ -1679,6 +1819,42 @@ export default function MeetingsPage() {
       {/* ── 4. View 3: 1-on-1 Coaching Requests Queue (Stage 4) ── */}
       {viewMode === "requests" && (
         <div className={calStyles.tableViewContainer}>
+          {/* Quick Notice to Switch Back to Calendar */}
+          <div
+            style={{
+              padding: "0.65rem 1rem",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              marginBottom: "1rem",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "8px",
+            }}
+          >
+            <div style={{ fontSize: "0.84rem", color: "#334155" }}>
+              Viewing <strong>1-on-1 Coaching Approval Requests Queue</strong>. To view or filter scheduled meetings on the calendar, click any commitment pill above or switch to Calendar Grid.
+            </div>
+            <button
+              type="button"
+              onClick={() => handleSelectCommitmentCategory("ALL")}
+              style={{
+                fontSize: "0.78rem",
+                padding: "5px 12px",
+                background: "#0f172a",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Back to Calendar &rarr;
+            </button>
+          </div>
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "12px" }}>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               {(["ALL", "PENDING_APPROVAL", "APPROVED", "REJECTED"] as const).map((st) => (

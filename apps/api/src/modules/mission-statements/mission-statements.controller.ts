@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -14,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Role, MissionStatementStatus } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { Public } from '../../common/decorators/public.decorator.js';
 import { MissionStatementsService } from './mission-statements.service.js';
 import {
   SubmitMissionStatementDto,
@@ -73,6 +75,19 @@ export class MissionStatementsController {
     @Param('id') id: string,
   ) {
     return this.missionStatementsService.getById(id, req.user);
+  }
+
+  @Public()
+  @Get([':id/file', 'download/:id'])
+  async getFile(
+    @Param('id') id: string,
+    @Res() res: any,
+  ) {
+    const { filePath, mimeType, fileName } = await this.missionStatementsService.getFilePath(id);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName)}"`);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    return res.sendFile(filePath);
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)

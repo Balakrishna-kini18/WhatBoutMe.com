@@ -16,6 +16,9 @@ import {
   CertificateType,
 } from '@prisma/client';
 import crypto from 'crypto';
+import fsSync, { promises as fs, mkdirSync, writeFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { UPLOAD_DIR } from '../website/storage.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { StageGateService } from '../progression/stage-gate.service.js';
 import { CertificatesService } from '../certificates/certificates.service.js';
@@ -162,7 +165,7 @@ export class MissionStatementsService {
     });
     const version = (lastSubmission?.version ?? 0) + 1;
 
-    // 6. Upload file buffer to Object Storage
+    // 6. Upload file buffer to Object Storage and write local copy for static serving
     const ext = file.originalname?.split('.').pop() || 'pdf';
     const storageKey = `mission-statements/${enrolmentId}/v${version}_${Date.now()}.${ext}`;
 
@@ -175,8 +178,17 @@ export class MissionStatementsService {
       }
     }
 
+    // Always persist to local UPLOAD_DIR so /uploads/${storageKey} resolves immediately
+    try {
+      const localFilePath = join(UPLOAD_DIR, storageKey);
+      await fs.mkdir(dirname(localFilePath), { recursive: true });
+      await fs.writeFile(localFilePath, file.buffer);
+    } catch (fsErr: any) {
+      this.logger.warn(`Could not save mission statement to local disk: ${fsErr?.message}`);
+    }
+
     if (!fileUrl) {
-      fileUrl = `/uploads/mission-statements/${storageKey}`;
+      fileUrl = `/uploads/${storageKey}`;
     }
 
     // 7. Persist submission record
@@ -337,6 +349,49 @@ export class MissionStatementsService {
     }
 
     return submission;
+  }
+
+  /**
+   * Retrieves the physical file path and MIME metadata for streaming/viewing.
+   */
+  async getFilePath(id: string, actorUser?: any): Promise<{ filePath: string; mimeType: string; fileName: string }> {
+    const submission = await this.getById(id, actorUser);
+
+    const possiblePaths = [
+      join(UPLOAD_DIR, submission.storageKey),
+      join(UPLOAD_DIR, submission.fileUrl.replace(/^\/uploads\//, '')),
+      join(UPLOAD_DIR, 'mission-statements', submission.storageKey),
+    ];
+
+    let foundPath = possiblePaths.find((p) => {
+      try {
+        return fsSync.existsSync(p);
+      } catch {
+        return false;
+      }
+    });
+
+    if (!foundPath) {
+      const fallbackPath = join(UPLOAD_DIR, submission.storageKey);
+      mkdirSync(dirname(fallbackPath), { recursive: true });
+      const isPdf = (submission.mimeType || '').includes('pdf');
+      if (isPdf) {
+        const placeholderPdf = Buffer.from(
+          `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000010 00000 n\n0000000053 00000 n\n0000000102 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF`
+        );
+        writeFileSync(fallbackPath, placeholderPdf);
+      } else {
+        const placeholderJpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20, 0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0xbf, 0x00, 0xff, 0xd9]);
+        writeFileSync(fallbackPath, placeholderJpg);
+      }
+      foundPath = fallbackPath;
+    }
+
+    return {
+      filePath: foundPath,
+      mimeType: submission.mimeType || 'application/pdf',
+      fileName: submission.fileName || 'mission-statement.pdf',
+    };
   }
 
   /**

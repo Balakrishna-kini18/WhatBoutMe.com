@@ -15,6 +15,9 @@ interface AuditLogEntry {
   action: string;
   entity: string;
   entityId: string;
+  targetLabel?: string;
+  targetSubLabel?: string;
+  summaryNote?: string;
   meta: Record<string, any> | null;
   ip: string | null;
   createdAt: string;
@@ -67,6 +70,15 @@ export default function AuditLogsPage() {
   // Metadata inspector modal
   const [activeMetaEntry, setActiveMetaEntry] = useState<AuditLogEntry | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyId = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    }).catch(() => {});
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -399,8 +411,8 @@ export default function AuditLogsPage() {
               <tr>
                 <th style={{ width: "160px" }}>Timestamp (UTC)</th>
                 <th style={{ width: "180px" }}>Actor</th>
-                <th style={{ width: "190px" }}>Action</th>
-                <th style={{ width: "140px" }}>Target Entity</th>
+                <th style={{ width: "180px" }}>Action</th>
+                <th style={{ minWidth: "220px" }}>Target Entity</th>
                 <th style={{ minWidth: "220px" }}>Reason / Notes</th>
                 <th style={{ width: "90px" }} className={styles.alignRight}>
                   Metadata
@@ -436,7 +448,7 @@ export default function AuditLogsPage() {
                 </tr>
               ) : (
                 logs.map((log) => {
-                  const reason = log.meta?.reason || log.meta?.title || log.meta?.feedback || "—";
+                  const reason = log.summaryNote || log.meta?.reason || log.meta?.title || log.meta?.feedback || "—";
                   return (
                     <tr key={log.id}>
                       {/* Timestamp */}
@@ -476,26 +488,72 @@ export default function AuditLogsPage() {
                       {/* Action */}
                       <td>{formatActionPill(log.action)}</td>
 
-                      {/* Entity */}
+                      {/* Target Entity */}
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                          <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                            {log.entity}
-                          </span>
-                          <span
+                        <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                              {log.targetLabel || log.entity}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                fontWeight: 600,
+                                color: "#64748b",
+                                background: "#f1f5f9",
+                                border: "1px solid #e2e8f0",
+                                borderRadius: "4px",
+                                padding: "1px 5px",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.03em",
+                              }}
+                            >
+                              {log.entity}
+                            </span>
+                          </div>
+
+                          {log.targetSubLabel && (
+                            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                              {log.targetSubLabel}
+                            </span>
+                          )}
+
+                          {/* Copyable UUID chip */}
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyId(log.entityId, e)}
+                            title={`Click to copy full ID: ${log.entityId}`}
                             style={{
-                              fontSize: "0.7rem",
-                              color: "var(--text-muted)",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              background: copiedId === log.entityId ? "#f0fdf4" : "#f8f6f2",
+                              border: `1px solid ${copiedId === log.entityId ? "#bbf7d0" : "#e7e2d8"}`,
+                              borderRadius: "4px",
+                              padding: "2px 6px",
+                              fontSize: "0.68rem",
                               fontFamily: "monospace",
-                              maxWidth: "130px",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
+                              color: copiedId === log.entityId ? "#15803d" : "#78716c",
+                              cursor: "pointer",
+                              width: "fit-content",
+                              marginTop: "1px",
+                              transition: "all 0.15s ease",
                             }}
-                            title={log.entityId}
                           >
-                            {log.entityId}
-                          </span>
+                            <span>
+                              {copiedId === log.entityId ? "Copied!" : `${log.entityId.slice(0, 8)}...${log.entityId.slice(-4)}`}
+                            </span>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              {copiedId === log.entityId ? (
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                              ) : (
+                                <>
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </>
+                              )}
+                            </svg>
+                          </button>
                         </div>
                       </td>
 
@@ -504,12 +562,11 @@ export default function AuditLogsPage() {
                         <div
                           style={{
                             fontSize: "0.82rem",
-                            color: "var(--text-primary)",
-                            lineHeight: 1.4,
-                            maxWidth: "400px",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            color: reason === "—" ? "var(--text-muted)" : "var(--text-primary)",
+                            lineHeight: 1.45,
+                            maxWidth: "420px",
+                            whiteSpace: "normal",
+                            wordBreak: "break-word",
                           }}
                           title={typeof reason === "string" ? reason : JSON.stringify(reason)}
                         >

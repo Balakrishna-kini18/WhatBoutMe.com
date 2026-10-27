@@ -432,6 +432,7 @@ export default function ProgramEnrolmentsPanel({
                   <th style={{ padding: "12px 16px" }}>Curriculum Progress</th>
                   <th style={{ padding: "12px 16px" }}>Final Exam</th>
                   <th style={{ padding: "12px 16px" }}>1-on-1 Coaching</th>
+                  <th style={{ padding: "12px 16px" }}>Mission Statement</th>
                   <th style={{ padding: "12px 16px" }}>Status</th>
                   <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
                 </tr>
@@ -632,6 +633,64 @@ export default function ProgramEnrolmentsPanel({
                           </div>
                         ) : (
                           <span style={{ color: "#a8a29e", fontSize: "0.82rem" }}>Not Requested</span>
+                        )}
+                      </td>
+
+                      {/* Mission Statement (Stage 5 Final Requirement) */}
+                      <td style={{ padding: "12px 16px" }}>
+                        {latestMission ? (
+                          <div>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: 12,
+                                fontSize: "0.78rem",
+                                fontWeight: 600,
+                                background:
+                                  latestMission.status === "APPROVED"
+                                    ? "#dcfce7"
+                                    : latestMission.status === "SUBMITTED"
+                                    ? "#fef3c7"
+                                    : "#fee2e2",
+                                color:
+                                  latestMission.status === "APPROVED"
+                                    ? "#166534"
+                                    : latestMission.status === "SUBMITTED"
+                                    ? "#92400e"
+                                    : "#991b1b",
+                              }}
+                            >
+                              {latestMission.status === "APPROVED"
+                                ? "✓ Approved"
+                                : latestMission.status === "SUBMITTED"
+                                ? "Pending Review"
+                                : "Revision Requested"}
+                            </span>
+                            {latestMission.status === "SUBMITTED" && (
+                              <div style={{ marginTop: 6 }}>
+                                <Link
+                                  href="/approvals?tab=missions"
+                                  style={{
+                                    fontSize: "0.76rem",
+                                    fontWeight: 700,
+                                    color: "#b8860b",
+                                    textDecoration: "underline",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "3px",
+                                  }}
+                                >
+                                  <span>Review in Approvals</span>
+                                  <span aria-hidden="true">&rarr;</span>
+                                </Link>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: "#a8a29e", fontSize: "0.82rem" }}>
+                            {latestCoaching?.session?.status === "COMPLETED" ? "Awaiting Upload" : "Locked (Stage 4)"}
+                          </span>
                         )}
                       </td>
 

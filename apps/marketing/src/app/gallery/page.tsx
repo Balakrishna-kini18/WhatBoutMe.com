@@ -5,6 +5,7 @@ import Footer from "@/components/site/Footer";
 import PromoBanner from "@/components/site/PromoBanner";
 import { getSiteContent } from "@/lib/siteContent";
 import GalleryClient from "./GalleryClient";
+import HomeGallery from "@/components/site/HomeGallery";
 
 export const metadata: Metadata = {
   title: "Photo Gallery & Global Moments — whatboutme",
@@ -51,6 +52,9 @@ export default async function GalleryPage() {
       <div className="-mt-2 pb-2">
         <PromoBanner promo={promo} />
       </div>
+
+      {/* every photo of events, the Vision Board Kit and Roweena (the home page shows a few) */}
+      <HomeGallery variant="full" />
 
       {/* Interactive Gallery Showcase */}
       <GalleryClient />

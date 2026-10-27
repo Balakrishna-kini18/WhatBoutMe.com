@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import Logo from "./Logo";
@@ -40,8 +41,17 @@ export default function AuthShell({
 
       {/* while typing (phones): the sheet fills the screen from the top */}
       <div className="-mt-6 grid w-full flex-none overflow-hidden rounded-t-[2rem] bg-white shadow-[0_-16px_40px_-28px_rgba(110,63,18,0.6)] [html[data-typing]_&]:mt-0 [html[data-typing]_&]:flex-1 [html[data-typing]_&]:rounded-none [html[data-typing]_&]:pt-[env(safe-area-inset-top)] lg:mt-0 lg:h-[80vh] lg:min-h-[620px] lg:max-w-[1150px] lg:flex-none lg:grid-cols-2 lg:rounded-[2rem] lg:shadow-[0_40px_90px_-40px_rgba(110,63,18,0.55)] lg:ring-1 lg:ring-white/70">
-        {/* left: gradient panel (desktop only) */}
-        <section className="relative m-2 hidden overflow-hidden rounded-[1.75rem] bg-[linear-gradient(150deg,#f8cf86_0%,#efa944_45%,#c9802a_100%)] p-8 lg:flex lg:flex-col lg:justify-between xl:p-10">
+        {/* left: Roweena's photo with a warm shade under the headline (desktop only) */}
+        <section className="relative m-2 hidden overflow-hidden rounded-[1.75rem] bg-[#efa944] p-8 lg:flex lg:flex-col lg:justify-between xl:p-10">
+          <Image
+            src="/site/gallery/roweena-06.webp"
+            alt=""
+            fill
+            sizes="560px"
+            className="object-cover object-[center_30%]"
+          />
+          <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-3/5 bg-[linear-gradient(to_top,#f8cf86_15%,rgba(248,207,134,0.85)_45%,rgba(248,207,134,0))]" />
+          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(to_bottom,rgba(255,251,243,0.75),rgba(255,251,243,0))]" />
           <div className="relative flex items-center justify-between">
             <Link href="/" aria-label="whatboutme home">
               <Logo className="h-6" />

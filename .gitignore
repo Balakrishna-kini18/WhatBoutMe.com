@@ -51,6 +51,7 @@ baton/
 .claude/
 .cursor/
 .kiro/
+.vscode/
 
 # files the API stores on disk (uploads, website content)
 apps/api/storage/

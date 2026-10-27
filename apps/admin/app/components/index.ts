@@ -32,3 +32,7 @@ export { AgreementMarkdown } from "./AgreementMarkdown";
 
 export { Pagination } from "./Pagination";
 export type { PaginationProps } from "./Pagination";
+
+export { DatePicker } from "./DatePicker";
+export type { DatePickerProps } from "./DatePicker";
+

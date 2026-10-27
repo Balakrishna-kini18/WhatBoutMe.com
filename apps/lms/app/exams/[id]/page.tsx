@@ -164,26 +164,31 @@ export default function ExamPage({
       setLoading(true);
       setError(null);
       try {
+        // Fetch config and active attempt concurrently in parallel (halving initial network latency)
         let resolvedExamId = paramId;
+        const [configRes, directAttemptRes] = await Promise.all([
+          fetch(`${API_URL}/programs/${paramId}/exam`, {
+            headers: getAuthHeaders(),
+          }),
+          fetch(`${API_URL}/exams/${paramId}/attempt`, {
+            headers: getAuthHeaders(),
+          }),
+        ]);
 
-        // Try fetching config directly by program ID or alias
-        const configRes = await fetch(`${API_URL}/programs/${paramId}/exam`, {
-          headers: getAuthHeaders(),
-        });
-
+        let attemptRes = directAttemptRes;
         if (configRes.ok) {
           const cfg = await safeJson<ExamConfig>(configRes);
           if (cfg && cfg.id) {
             setConfig(cfg);
             resolvedExamId = cfg.id;
             setExamId(cfg.id);
+            if (!attemptRes.ok && resolvedExamId !== paramId) {
+              attemptRes = await fetch(`${API_URL}/exams/${resolvedExamId}/attempt`, {
+                headers: getAuthHeaders(),
+              });
+            }
           }
         }
-
-        // Fetch active attempt or recent attempt status (returns empty body when no attempt exists yet)
-        const attemptRes = await fetch(`${API_URL}/exams/${resolvedExamId}/attempt`, {
-          headers: getAuthHeaders(),
-        });
 
         if (attemptRes.ok) {
           const data = await safeJson<any>(attemptRes);

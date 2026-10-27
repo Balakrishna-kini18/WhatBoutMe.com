@@ -128,216 +128,158 @@ export default function Step4ModuleDetails({
           </button>
         </div>
       ) : (
-        <div className={styles.tableContainer}>
-          <table className={styles.curriculumTable}>
-            <thead>
-              <tr>
-                <th style={{ width: "42%" }}>Lesson Name</th>
-                <th style={{ width: "20%" }}>Content Format</th>
-                <th style={{ width: "20%" }}>Details</th>
-                <th style={{ width: "18%", textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lessons.map((lesson, idx) => {
-                const isVideo = lesson.type === "VIDEO";
-                const isPdf = lesson.type === "PDF";
+        <div className={styles.lessonSequenceRows} style={{ marginTop: "1rem" }}>
+          {lessons.map((lesson, idx) => {
+            const isVideo = lesson.type === "VIDEO";
+            const isPdf = lesson.type === "PDF";
+            const formatDuration = (seconds?: number | null) => {
+              if (!seconds || seconds <= 0) return "--:--";
+              const mins = Math.floor(seconds / 60);
+              const secs = seconds % 60;
+              return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+            };
 
-                return (
-                  <tr key={lesson.id}>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 8,
-                            background: isVideo ? "#ede9fe" : isPdf ? "#ffe4e6" : "#fef3c7",
-                            color: isVideo ? "#7c3aed" : isPdf ? "#e11d48" : "#d97706",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {isVideo ? (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polygon points="23 7 16 12 23 17 23 7" />
-                              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                            </svg>
-                          ) : isPdf ? (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                              <line x1="16" y1="13" x2="8" y2="13" />
-                              <line x1="16" y1="17" x2="8" y2="17" />
-                            </svg>
-                          ) : (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                          )}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
-                            {idx + 1}. {lesson.title}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
+            return (
+              <div key={lesson.id} className={styles.lessonSequenceRow}>
+                {/* Drag Handle */}
+                <div className={styles.lessonDragHandle} title="Drag to reorder lesson">
+                  ⋮⋮
+                </div>
 
-                    <td>
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          padding: "3px 10px",
-                          borderRadius: 9999,
-                          background: isVideo ? "#f0fdf4" : isPdf ? "#fff1f2" : "#fef3c7",
-                          color: isVideo ? "#15803d" : isPdf ? "#be123c" : "#92400e",
-                          border: `1px solid ${isVideo ? "#bbf7d0" : isPdf ? "#fecdd3" : "#fde68a"}`,
-                          display: "inline-block",
-                        }}
-                      >
-                        {lesson.type}
-                      </span>
-                    </td>
+                {/* Lesson Info */}
+                <div className={styles.lessonInfoWrap}>
+                  <div className={styles.lessonTitleRow}>
+                    <span className={styles.lessonIndexNumber}>{idx + 1}.</span>
+                    <span className={styles.lessonTitleText}>{lesson.title}</span>
+                  </div>
+                  <span className={styles.lessonDetailsText}>
+                    {isVideo && (lesson.durationSec ? `${formatDuration(lesson.durationSec)} duration` : "Video lecture")}
+                    {isPdf && "PDF Document resource"}
+                    {!isVideo && !isPdf && "Reading article"}
+                  </span>
+                </div>
 
-                    <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                      {isVideo && (lesson.durationSec ? `${Math.floor(lesson.durationSec / 60)}:${(lesson.durationSec % 60).toString().padStart(2, "0")} duration` : "Video Lecture")}
-                      {isPdf && "PDF Document"}
-                      {!isVideo && !isPdf && "Reading Content"}
-                    </td>
-
-                    <td style={{ textAlign: "right" }}>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteLesson(lesson.id)}
-                        className={styles.deleteItemBtn}
-                        title="Delete lesson"
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                        <span>Delete</span>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {/* Quiz row */}
-              {hasQuiz && (
-                <tr style={{ background: "#fcfaf7" }}>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <div
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 8,
-                          background: "#faf5ff",
-                          color: "#7e22ce",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                          <line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.9rem" }}>
-                          {module.quiz.title || "Module Knowledge Check Quiz"}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td>
-                    <span
-                      style={{
-                        fontSize: "0.75rem",
-                        fontWeight: 700,
-                        padding: "3px 10px",
-                        borderRadius: 9999,
-                        background: "#faf5ff",
-                        color: "#7e22ce",
-                        border: "1px solid #e9d5ff",
-                        display: "inline-block",
-                        marginRight: "6px",
-                      }}
-                    >
-                      QUIZ
+                {/* Type Badge */}
+                <div>
+                  {isVideo && <span className={styles.badgeVideo}>VIDEO</span>}
+                  {isPdf && <span className={styles.badgePdf}>PDF</span>}
+                  {!isVideo && !isPdf && (
+                    <span className={styles.badgePdf} style={{ background: "#fef3c7", color: "#92400e" }}>
+                      TEXT
                     </span>
-                    <span
-                      style={{
-                        fontSize: "0.72rem",
-                        fontWeight: 700,
-                        padding: "2px 8px",
-                        borderRadius: 6,
-                        background: (module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "#fef3c7" : "#eff6ff",
-                        color: (module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "#b45309" : "#1d4ed8",
-                        border: `1px solid ${(module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "#fde68a" : "#bfdbfe"}`,
-                        display: "inline-block",
-                      }}
+                  )}
+                </div>
+
+                {/* Duration or Count */}
+                <div className={styles.lessonDurationPill}>
+                  {isVideo ? formatDuration(lesson.durationSec) : "--"}
+                </div>
+
+                {/* Row Actions */}
+                <div className={styles.lessonRowActions}>
+                  <button
+                    type="button"
+                    className={styles.lessonIconBtn}
+                    onClick={() => onDeleteLesson(lesson.id)}
+                    title="Delete Lesson"
+                  >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
                     >
-                      {(module.quiz?.quizPlacement === "BEFORE_VIDEO" || (module as any)?.quizPlacement === "BEFORE_VIDEO") ? "Before Video (First)" : "After Video (Last)"}
-                    </span>
-                  </td>
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
 
-                  <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    Pass Mark: {module.quiz.passMark}% &bull; Max Attempts: {module.quiz.maxAttempts ?? 3} &bull; {module.quiz.questions?.length ?? 0} Questions
-                  </td>
+          {/* Quiz Row */}
+          {hasQuiz && (
+            <div className={styles.lessonSequenceRow} style={{ borderLeft: "3px solid #7e22ce" }}>
+              <div className={styles.lessonDragHandle} title="Drag to reorder">
+                ⋮⋮
+              </div>
 
-                  <td style={{ textAlign: "right" }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-                      <button
-                        type="button"
-                        onClick={onOpenQuizBuilder}
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          color: "var(--accent-primary)",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          fontSize: "0.84rem",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          padding: "0.35rem 0.5rem",
-                        }}
-                      >
-                        <span>Edit Quiz</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
+              <div className={styles.lessonInfoWrap}>
+                <div className={styles.lessonTitleRow}>
+                  <span className={styles.lessonIndexNumber} style={{ color: "#7e22ce" }}>
+                    Q.
+                  </span>
+                  <span className={styles.lessonTitleText}>
+                    {module.quiz.title || "Module Knowledge Check Quiz"}
+                  </span>
+                </div>
+                <span className={styles.lessonDetailsText}>
+                  Pass Mark: {module.quiz.passMark}% &bull;{" "}
+                  {module.quiz.quizPlacement === "BEFORE_VIDEO" ? "Diagnostic First" : "Comprehension Last"}
+                </span>
+              </div>
 
-                      <button
-                        type="button"
-                        onClick={onDeleteQuiz}
-                        className={styles.deleteItemBtn}
-                        title="Delete quiz"
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                        <span>Delete</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              <div>
+                <span className={styles.badgeQuiz}>QUIZ</span>
+              </div>
+
+              <div className={styles.lessonDurationPill} style={{ color: "#7e22ce", fontWeight: 700 }}>
+                {module.quiz.questions?.length ?? 0} Qs
+              </div>
+
+              <div className={styles.lessonRowActions}>
+                <button
+                  type="button"
+                  className={styles.lessonIconBtn}
+                  onClick={onOpenQuizBuilder}
+                  title="Edit Quiz"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.lessonIconBtn}
+                  onClick={onDeleteQuiz}
+                  title="Delete Quiz"
+                >
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

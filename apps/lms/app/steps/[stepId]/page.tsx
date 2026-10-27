@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useCallback, useRef } from "react";
+import { useEffect, useState, use, useCallback, useRef, useMemo } from "react";
 import styles from "./step.module.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,50 +8,84 @@ import {
   API_URL,
   getAuthHeaders,
   parseApiError,
-  getLockMessage,
+  invalidateCache,
   EnrolmentProgressionResponse,
-  StepProgressionItem,
-  ActiveQuizAttempt,
-  QuizSubmissionResult,
   QuizQuestion,
+  fetchLessonNotes,
+  createStudentNote,
+  deleteStudentNote,
+  StudentNote,
+  getLockMessage,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
-import LessonNotesPanel from "./components/LessonNotesPanel";
+import StepLoading from "./loading";
+
+export type WorkspaceTab = "video" | "quiz" | "notes" | "materials";
+
+function resolveVideoSrc(rawUrl?: string | null): string {
+  if (!rawUrl) return "";
+  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.startsWith("/")) {
+    return rawUrl;
+  }
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const isUpload = rawUrl.startsWith("upload:");
+  const rawKey = isUpload ? rawUrl.replace("upload:", "") : rawUrl;
+  const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
+  return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+}
 
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
   const router = useRouter();
   const unwrappedParams = use(params);
   const stepId = unwrappedParams.stepId;
 
+  // Primary data state
   const [step, setStep] = useState<any>(null);
   const [progression, setProgression] = useState<EnrolmentProgressionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Lesson progress state (D1-035)
-  const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("video");
+  const [viewMode, setViewMode] = useState<"overview" | "workspace">("workspace");
+
+  // Active lesson state
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
-  const [resumedFrom, setResumedFrom] = useState<{ lessonId: string; timeSec: number } | null>(null);
-  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
-  const [targetSeekTime, setTargetSeekTime] = useState<number | null>(null);
-  const lastHeartbeatTimeRef = useRef<number>(0);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [lessonProgress, setLessonProgress] = useState<Record<string, any>>({});
+  const [isCelebrationOpen, setIsCelebrationOpen] = useState(false);
+  const [celebrationMode, setCelebrationMode] = useState<"lesson" | "module">("lesson");
+  const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  // Quiz engine state
-  const [activeAttempt, setActiveAttempt] = useState<ActiveQuizAttempt | null>(null);
-  const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [lastResult, setLastResult] = useState<QuizSubmissionResult | null>(null);
-  const [isStartingQuiz, setIsStartingQuiz] = useState(false);
+  // Notes state
+  const [notes, setNotes] = useState<StudentNote[]>([]);
+  const [noteInput, setNoteInput] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [notesSearch, setNotesSearch] = useState("");
+
+  // Materials state
+  const [materialsSearch, setMaterialsSearch] = useState("");
+
+
+  // Quiz state
+  const [activeQuizIndex, setActiveQuizIndex] = useState(0);
+  const [attemptQuestions, setAttemptQuestions] = useState<QuizQuestion[] | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
+  const [isStartingQuiz, setIsStartingQuiz] = useState(false);
+  const [lastQuizResult, setLastQuizResult] = useState<any>(null);
   const [quizError, setQuizError] = useState<string | null>(null);
-  const [videoError, setVideoError] = useState<string | null>(null);
-  const [viewingPdf, setViewingPdf] = useState<{ id: string; title: string; url: string } | null>(null);
+  const [activeAttemptId, setActiveAttemptId] = useState<string | null>(null);
+  const isStartingQuizRef = useRef<boolean>(false);
+  const hasAttemptedQuizStartRef = useRef<Record<string, boolean>>({});
 
-  const [userName, setUserName] = useState<string>("");
-  const [userEmail, setUserEmail] = useState<string>("Learner");
+  // User state
+  const [userName, setUserName] = useState<string>("Learner");
+  const [userEmail, setUserEmail] = useState<string>("learner@whatboutme.com");
   const isFetchingRef = useRef<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const isHeartbeatInFlightRef = useRef<boolean>(false);
 
+  // 1. Initial User Hydration & Jump Link (?lessonId=...)
   useEffect(() => {
     const rawUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
     if (rawUser) {
@@ -64,32 +98,72 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
       try {
-        const parts = token.split('.');
+        const parts = token.split(".");
         if (parts[1]) {
           const payload = JSON.parse(atob(parts[1]));
           if (payload.email) setUserEmail(payload.email);
           if (payload.name) setUserName(payload.name);
         }
-      } catch(e) {}
+      } catch (e) {}
     }
 
-    // Handle optional jump links from "My Notes" (?lessonId=...&t=...)
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
       const paramLessonId = sp.get("lessonId");
-      const paramTime = sp.get("t");
+      const paramTab = sp.get("tab") as WorkspaceTab | null;
+      const paramView = sp.get("view");
       if (paramLessonId) {
         setSelectedMediaId(paramLessonId);
+        setViewMode("workspace");
       }
-      if (paramTime) {
-        const parsedTime = parseFloat(paramTime);
-        if (!isNaN(parsedTime) && parsedTime >= 0) {
-          setTargetSeekTime(parsedTime);
-        }
+      if (paramTab && ["video", "quiz", "notes", "materials"].includes(paramTab)) {
+        setActiveTab(paramTab as WorkspaceTab);
       }
-    }
-  }, []);
+      if (paramView === "overview") {
+        setViewMode("overview");
+      }
 
+      // Restore any in-progress step quiz answers and question index on page refresh
+      try {
+        const savedQuizRaw = localStorage.getItem(`wbm_step_quiz_${stepId}`);
+        if (savedQuizRaw) {
+          const parsedQuiz = JSON.parse(savedQuizRaw);
+          if (parsedQuiz && typeof parsedQuiz === "object") {
+            if (parsedQuiz.quizAnswers && typeof parsedQuiz.quizAnswers === "object") {
+              setQuizAnswers(parsedQuiz.quizAnswers);
+            }
+            if (typeof parsedQuiz.activeQuizIndex === "number" && parsedQuiz.activeQuizIndex >= 0) {
+              setActiveQuizIndex(parsedQuiz.activeQuizIndex);
+            }
+            if (!paramTab && parsedQuiz.activeTab === "quiz") {
+              setActiveTab("quiz");
+              setViewMode("workspace");
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }, [stepId]);
+
+  // Persist step quiz answers and active question index to localStorage so refresh resumes seamlessly
+  useEffect(() => {
+    if (typeof window === "undefined" || !stepId) return;
+    try {
+      if (Object.keys(quizAnswers).length > 0 || (activeTab === "quiz" && activeQuizIndex > 0)) {
+        localStorage.setItem(
+          `wbm_step_quiz_${stepId}`,
+          JSON.stringify({
+            quizAnswers,
+            activeQuizIndex,
+            activeTab,
+            updatedAt: Date.now(),
+          }),
+        );
+      }
+    } catch (e) {}
+  }, [stepId, quizAnswers, activeQuizIndex, activeTab]);
+
+  // 2. Fetch Step & Progression
   const fetchStepAndProgression = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
@@ -103,7 +177,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
     try {
       setLoadError(null);
-      // 1. Fetch step metadata
       const stepRes = await fetch(`${API_URL}/programs/steps/${stepId}`, {
         headers: getAuthHeaders(),
       });
@@ -119,7 +192,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       const stepData = await stepRes.json();
       setStep(stepData);
 
-      // 2 & 4. Fetch authoritative progression and active quiz attempt concurrently
+      // Concurrent fetch of progression and quiz attempt
       let progData: EnrolmentProgressionResponse | null = null;
       const progPromise = stepData.programId
         ? fetch(`${API_URL}/progression/me/${stepData.programId}`, {
@@ -135,27 +208,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       const [progRes, quizAttemptRes] = await Promise.all([progPromise, quizPromise]);
 
-      if (progRes) {
-        if (progRes.ok) {
-          progData = await progRes.json();
-          setProgression(progData);
-        } else if (progRes.status === 403 || progRes.status === 404) {
-          setProgression({
-            enrolmentId: "",
-            programId: stepData.programId,
-            programTitle: "",
-            batchId: "",
-            batchName: "",
-            batchStartDate: "",
-            enrolmentStatus: "NOT_ENROLLED",
-            overallProgressPercent: 0,
-            currentStepSequence: 1,
-            steps: [],
-          });
-        }
+      if (progRes && progRes.ok) {
+        progData = await progRes.json();
+        setProgression(progData);
       }
 
-      // 3. Initialize lesson progress from authoritative progression response (removes N+1)
+      // Initialize lesson progress
       const stepProgItem = progData?.steps?.find((s: any) => s.stepId === stepId);
       const lpMap: Record<string, any> = {};
 
@@ -179,42 +237,50 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 headers: getAuthHeaders(),
               });
               if (lpRes.ok) {
-                const lpData = await lpRes.json();
-                if (lpData) lpMap[l.id] = lpData;
+                const d = await lpRes.json();
+                if (d) lpMap[l.id] = d;
               }
             })
           );
           setLessonProgress(lpMap);
-        } catch (lpErr) {
-          console.warn("Failed to check lesson progress:", lpErr);
-        }
+        } catch (e) {}
       }
 
-      // Handle quiz attempt response
+      // Default active lesson
+      if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
+        setSelectedMediaId((prev) => {
+          if (prev && stepData.lessons.some((l: any) => l.id === prev)) return prev;
+          const firstIncomplete = stepData.lessons.find((l: any) => !lpMap[l.id]?.isCompleted);
+          return firstIncomplete ? firstIncomplete.id : stepData.lessons[0].id;
+        });
+      }
+
+      // Handle quiz attempt
       if (quizAttemptRes && quizAttemptRes.ok) {
         try {
           const attemptText = await quizAttemptRes.text();
           if (attemptText) {
             const attemptData = JSON.parse(attemptText);
             if (attemptData) {
+              if (Array.isArray(attemptData.questions) && attemptData.questions.length > 0) {
+                setAttemptQuestions(attemptData.questions);
+              }
               if (attemptData.status === "IN_PROGRESS") {
-                setActiveAttempt(attemptData);
-                setQuestions(attemptData.questions || []);
-              } else {
-                setLastResult(attemptData);
+                setActiveAttemptId(attemptData.attemptId || attemptData.id || null);
+              } else if (attemptData.score !== undefined && attemptData.status !== "IN_PROGRESS") {
+                setActiveAttemptId(null);
+                setLastQuizResult(attemptData);
               }
             }
           }
-        } catch (quizErr) {
-          console.warn("Failed to parse active quiz attempt:", quizErr);
-        }
+        } catch (e) {}
       }
     } catch (err: any) {
       console.error(err);
       setLoadError(err.message || "Failed to load step information");
     } finally {
-      isFetchingRef.current = false;
       setLoading(false);
+      isFetchingRef.current = false;
     }
   }, [stepId, router]);
 
@@ -222,109 +288,162 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     fetchStepAndProgression();
   }, [fetchStepAndProgression]);
 
-  // Handle starting/resuming a quiz attempt via server engine
-  const handleStartQuiz = async () => {
-    if (isStartingQuiz || !step?.quiz?.id) return;
-    setQuizError(null);
-    setIsStartingQuiz(true);
+  // Lessons list calculation
+  const allLessons = useMemo(() => {
+    return Array.isArray(step?.lessons) ? step.lessons : [];
+  }, [step]);
 
-    try {
-      const res = await fetch(`${API_URL}/quizzes/${step.quiz.id}/start`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          enrolmentId: progression?.enrolmentId || undefined,
-        }),
-      });
+  const currentMedia = useMemo(() => {
+    if (!allLessons.length) return null;
+    return allLessons.find((l: any) => l.id === selectedMediaId) || allLessons[0];
+  }, [allLessons, selectedMediaId]);
 
-      const data = await res.json();
+  const activeLessonIndex = useMemo(() => {
+    if (!currentMedia || !allLessons.length) return 0;
+    const idx = allLessons.findIndex((l: any) => l.id === currentMedia.id);
+    return idx >= 0 ? idx : 0;
+  }, [allLessons, currentMedia]);
 
-      if (!res.ok) {
-        if (res.status === 403 && data?.isCooldownActive) {
-          setLastResult(data);
-        }
-        if (res.status === 403 && (data?.error === "AGREEMENT_REQUIRED" || (typeof data?.message === "string" && data.message.includes("AGREEMENT_REQUIRED")))) {
-          throw new Error("Program agreement signature is required before taking step quizzes. Please sign the agreement first.");
-        }
-        throw new Error(data?.message || data?.error?.message || "Failed to start quiz attempt");
-      }
-
-      setActiveAttempt(data);
-      setQuestions(data.questions || []);
-      setAnswers({});
-      setLastResult(null);
-    } catch (err: any) {
-      setQuizError(err.message || "Failed to start quiz");
-    } finally {
-      setIsStartingQuiz(false);
-    }
+  const formatLessonDuration = (sec?: number) => {
+    if (!sec || sec <= 0) return null;
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
   };
 
-  // Handle submitting quiz answers without inspecting option.isCorrect
-  const handleQuizSubmit = async () => {
-    if (!step?.quiz?.id || !activeAttempt) return;
-    setQuizError(null);
-    setIsSubmittingQuiz(true);
-
+  // Load Notes for current lesson
+  const loadNotesForLesson = useCallback(async (lessonId: string) => {
     try {
-      // Build DTO expected by backend: { attemptId, answers: [{ questionId, optionId, optionIds, textAnswer }] }
-      const submissionDto = {
-        attemptId: activeAttempt.attemptId,
-        answers: questions.map((q) => {
-          const val = answers[q.id];
-          const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
-          if (isText) {
-            return {
-              questionId: q.id,
-              textAnswer: typeof val === "string" ? val : "",
-            };
+      const data = await fetchLessonNotes(lessonId);
+      setNotes(data || []);
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    if (currentMedia?.id) {
+      loadNotesForLesson(currentMedia.id);
+    }
+  }, [currentMedia?.id, loadNotesForLesson]);
+
+  // Determine Current Step Progression & Quiz Unlocked Status
+  const currentStepProg = progression?.steps?.find((s: any) => s.stepId === stepId);
+  const effectiveQuizPlacement =
+    step?.quiz?.quizPlacement ||
+    (step as any)?.quizPlacement ||
+    (currentStepProg as any)?.quizPlacement ||
+    "AFTER_VIDEO";
+
+  const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
+  const isQuizAlreadyPassed = Boolean(lastQuizResult?.passed || (currentStepProg as any)?.quiz?.isPassed);
+  const mediaLessons = allLessons.filter((l: any) => l.type === "VIDEO" || l.type === "AUDIO" || !l.type);
+  const areAllVideosDone =
+    mediaLessons.length === 0 ||
+    mediaLessons.every((l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
+
+  const isQuizUnlocked = Boolean(
+    isManuallyUnlocked ||
+    isQuizAlreadyPassed ||
+    effectiveQuizPlacement === "BEFORE_VIDEO" ||
+    areAllVideosDone
+  );
+
+  // Proactively pre-warm quiz attempt in background when user views quiz tab AND quiz is unlocked
+  useEffect(() => {
+    const qId = step?.quiz?.id;
+    if (
+      activeTab === "quiz" &&
+      isQuizUnlocked &&
+      qId &&
+      !activeAttemptId &&
+      !lastQuizResult &&
+      !hasAttemptedQuizStartRef.current[qId] &&
+      !isStartingQuizRef.current
+    ) {
+      isStartingQuizRef.current = true;
+      hasAttemptedQuizStartRef.current[qId] = true;
+      fetch(`${API_URL}/quizzes/${qId}/start`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.attemptId || data?.id) {
+              setActiveAttemptId(data.attemptId || data.id);
+              if (Array.isArray(data.questions) && data.questions.length > 0) {
+                setAttemptQuestions(data.questions);
+              }
+            }
+          } else {
+            const errData = await res.json().catch(() => null);
+            if (errData?.message) {
+              const msg = Array.isArray(errData.message) ? errData.message.join(", ") : errData.message;
+              setQuizError(msg);
+            }
           }
-          if (typeof val === "string" && val.includes(",")) {
-            const arr = val.split(",").filter(Boolean);
-            return {
-              questionId: q.id,
-              optionIds: arr,
-              selectedOptionIds: arr,
-            };
-          }
-          return {
-            questionId: q.id,
-            optionId: val || undefined,
-            selectedOptionId: val || undefined,
-          };
-        }),
+        })
+        .catch(() => {})
+        .finally(() => {
+          isStartingQuizRef.current = false;
+        });
+    }
+  }, [activeTab, isQuizUnlocked, step?.quiz?.id, activeAttemptId, lastQuizResult]);
+
+  // Handle Save Note
+  const handleSaveNote = async () => {
+    if (!noteInput.trim() || !currentMedia?.id) return;
+    setIsSavingNote(true);
+    try {
+      const saved = await createStudentNote({
+        lessonId: currentMedia.id,
+        stepId,
+        programId: step?.programId,
+        noteText: noteInput.trim(),
+      });
+      setNotes((prev) => [saved, ...prev]);
+      setNoteInput("");
+    } catch (err: any) {
+      // Fallback local note
+      const fallbackNote: StudentNote = {
+        id: `local-${Date.now()}`,
+        userId: "local-user",
+        programId: step?.programId || null,
+        stepId,
+        lessonId: currentMedia.id,
+        noteText: noteInput.trim(),
+        highlightSnippet: null,
+        videoTimestampSeconds: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
-
-      const res = await fetch(`${API_URL}/quizzes/${step.quiz.id}/submit`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify(submissionDto),
-      });
-
-      const data: QuizSubmissionResult = await res.json();
-
-      if (!res.ok) {
-        throw new Error((data as any)?.message || "Failed to submit quiz attempt");
-      }
-
-      setLastResult(data);
-      setActiveAttempt(null);
-      setAnswers({});
-
-      // If learner passed, re-fetch authoritative progression to unlock next step
-      if (data.passed && step.programId) {
-        fetchStepAndProgression();
-      }
-    } catch (err: any) {
-      setQuizError(err.message || "Failed to submit quiz");
+      setNotes((prev) => [fallbackNote, ...prev]);
+      setNoteInput("");
     } finally {
-      setIsSubmittingQuiz(false);
+      setIsSavingNote(false);
     }
   };
 
-  // D1-035: Video/Audio media playback heartbeat
+  const handleDeleteNote = async (id: string) => {
+    try {
+      await deleteStudentNote(id);
+    } catch (e) {}
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  // Video Heartbeat
   const sendMediaHeartbeat = useCallback(
-    async (lessonId: string, positionSec: number, isEnded = false, videoDurationSec?: number, deltaWatchedSec?: number) => {
+    async (
+      lessonId: string,
+      positionSec: number,
+      isEnded = false,
+      videoDurationSec?: number,
+      deltaWatchedSec?: number,
+      fromSec?: number,
+      toSec?: number,
+    ) => {
+      if (isHeartbeatInFlightRef.current && !isEnded) return;
+      isHeartbeatInFlightRef.current = true;
+
       try {
         const dur = videoDurationSec ?? Math.floor(videoRef.current?.duration || 0);
         const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
@@ -332,6 +451,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           headers: getAuthHeaders(),
           body: JSON.stringify({
             positionSec,
+            fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
+            toSec: toSec ?? positionSec,
             videoDurationSec: dur > 0 ? dur : undefined,
             isEnded,
             deltaWatchedSec,
@@ -341,1288 +462,1453 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         if (res.ok) {
           const data = await res.json();
           setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
-          if (data.isCompleted || isEnded) {
+          if (data.isCompleted || data.viewed || isEnded) {
+            invalidateCache("/progression");
+            invalidateCache("/progress");
             fetchStepAndProgression();
           }
         }
       } catch (err) {
         console.warn("Heartbeat error:", err);
+      } finally {
+        isHeartbeatInFlightRef.current = false;
       }
     },
     [fetchStepAndProgression]
   );
 
-  // Send keepalive heartbeat on pagehide / tab switch (Edge Case 6)
+  // Next / Prev step links
+  const stepsList: any[] = useMemo(() => {
+    if (progression?.steps && progression.steps.length > 0) {
+      return progression.steps;
+    }
+    if (step?.program?.steps && step.program.steps.length > 0) {
+      return step.program.steps.map((s: any) => ({
+        stepId: s.id,
+        id: s.id,
+        sequence: s.sequence,
+        title: s.title,
+      }));
+    }
+    return [];
+  }, [progression?.steps, step?.program?.steps]);
+
+  const currentStepIndex = stepsList.findIndex(
+    (s: any) => (s.stepId && s.stepId === stepId) || (s.id && s.id === stepId)
+  );
+  const prevStep = currentStepIndex > 0 ? stepsList[currentStepIndex - 1] : null;
+  const nextStep =
+    currentStepIndex >= 0 && currentStepIndex < stepsList.length - 1
+      ? stepsList[currentStepIndex + 1]
+      : null;
+  const nextStepId = nextStep?.stepId || nextStep?.id || null;
+
+  // Next lesson helper
+  const nextLesson = activeLessonIndex < allLessons.length - 1 ? allLessons[activeLessonIndex + 1] : null;
+
+  // Countdown timer for automatic module progression
   useEffect(() => {
-    const handleVisibilityOrHide = () => {
-      const activeVideo = videoRef.current;
-      const mediaId = selectedMediaId || (step?.lessons?.find((l: any) => l.type === "VIDEO" || l.type === "AUDIO")?.id);
-      if (activeVideo && mediaId && (document.visibilityState === "hidden" || !document.hasFocus())) {
-        const currentSec = Math.floor(activeVideo.currentTime);
-        if (currentSec > 0) {
-          const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-          fetch(`${API_URL}/progress/lessons/${mediaId}/heartbeat`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ positionSec: currentSec }),
-            keepalive: true,
-          }).catch(() => {});
+    if (redirectCountdown === null) return;
+    if (redirectCountdown <= 0) {
+      if (nextStepId) {
+        setIsCelebrationOpen(false);
+        setRedirectCountdown(null);
+        router.push(`/steps/${nextStepId}`);
+      }
+      return;
+    }
+    const timer = setTimeout(() => {
+      setRedirectCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [redirectCountdown, nextStepId, router]);
+
+  // Lesson Completion
+  const handleLessonComplete = async (lessonId: string) => {
+    try {
+      const lesson = allLessons.find((l: any) => l.id === lessonId);
+      if (lesson && lesson.type !== "VIDEO" && lesson.type !== "AUDIO") {
+        await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+        });
+      }
+      setLessonProgress((prev) => ({
+        ...prev,
+        [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true },
+      }));
+      invalidateCache("/progression");
+      fetchStepAndProgression();
+    } catch (e) {
+      // continue locally
+    }
+
+    const updatedProgress = {
+      ...lessonProgress,
+      [lessonId]: { ...lessonProgress[lessonId], isCompleted: true, viewed: true },
+    };
+    const areAllVideosDone = allLessons.every(
+      (l: any) => updatedProgress[l.id]?.isCompleted || updatedProgress[l.id]?.viewed
+    );
+
+    if (areAllVideosDone) {
+      if (step?.quiz && !lastQuizResult?.passed && !(currentStepProg as any)?.quizPassed && !currentStepProg?.isCompleted) {
+        // Videos are finished, quiz is required!
+        setCelebrationMode("lesson");
+        setIsCelebrationOpen(true);
+      } else {
+        // All videos done and quiz passed or no quiz -> Entire Module Completed!
+        setCelebrationMode("module");
+        setIsCelebrationOpen(true);
+        if (nextStepId) {
+          setRedirectCountdown(4);
         }
       }
+    } else {
+      // Single video part completed
+      setCelebrationMode("lesson");
+      setIsCelebrationOpen(true);
+    }
+  };
+
+  // Quiz submission
+  const handleQuizSubmit = async () => {
+    if (!step?.quiz?.id || isSubmittingQuiz) return;
+
+    const questionsList: QuizQuestion[] = (attemptQuestions && attemptQuestions.length > 0)
+      ? attemptQuestions
+      : (quizQuestions || []);
+
+    const unanswered = questionsList.some((q) => !quizAnswers[q.id]?.trim());
+    if (unanswered) {
+      setQuizError("Please answer all questions before submitting.");
+      return;
+    }
+
+    setIsSubmittingQuiz(true);
+    setQuizError(null);
+
+    const submissionDto: any = {
+      attemptId: activeAttemptId || undefined,
+      answers: questionsList.map((q) => {
+        const rawAns = quizAnswers[q.id] || "";
+        const qType = (q as any).type || "MULTIPLE_CHOICE";
+        const isMulti = qType === "MULTI_SELECT";
+        const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+        return {
+          questionId: q.id,
+          optionId: !isMulti && !isText ? rawAns || undefined : undefined,
+          selectedOptionId: !isMulti && !isText ? rawAns || undefined : undefined,
+          selectedOptionIds: isMulti ? rawAns.split(",").filter(Boolean) : undefined,
+          textResponse: isText ? rawAns.trim() : undefined,
+          textAnswer: isText ? rawAns.trim() : undefined,
+        };
+      }),
     };
 
-    window.addEventListener("pagehide", handleVisibilityOrHide);
-    document.addEventListener("visibilitychange", handleVisibilityOrHide);
-    return () => {
-      window.removeEventListener("pagehide", handleVisibilityOrHide);
-      document.removeEventListener("visibilitychange", handleVisibilityOrHide);
-    };
-  }, [selectedMediaId, step]);
-
-  // D1-035: PDF or text lesson completion
-  const handleCompleteDocument = async (lessonId: string) => {
     try {
-      const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+      const res = await fetch(`${API_URL}/quizzes/${step.quiz.id}/submit`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({}),
+        body: JSON.stringify(submissionDto),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setLessonProgress((prev) => ({ ...prev, [lessonId]: data }));
-        fetchStepAndProgression();
+      const data = await res.json();
+      if (!res.ok) {
+        const errorMsg = Array.isArray(data?.message) ? data.message.join(", ") : data?.message;
+        throw new Error(errorMsg || "Failed to submit quiz");
       }
-    } catch (err) {
-      console.warn("Document completion error:", err);
+      setLastQuizResult(data);
+      setActiveAttemptId(null);
+      try {
+        localStorage.removeItem(`wbm_step_quiz_${stepId}`);
+      } catch (e) {}
+      if (data.passed) {
+        invalidateCache("/progression");
+        fetchStepAndProgression();
+        setCelebrationMode("module");
+        setIsCelebrationOpen(true);
+        if (nextStepId) {
+          setRedirectCountdown(4);
+        }
+      }
+    } catch (err: any) {
+      setQuizError(err.message || "Failed to submit quiz");
+    } finally {
+      setIsSubmittingQuiz(false);
     }
   };
 
-  const openPdfModal = (doc: any) => {
-    let url = doc.mediaUrl || "";
-    if (url.startsWith("upload:")) {
-      const publicId = url.replace("upload:", "");
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      url = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    }
-    setViewingPdf({ id: doc.id, title: doc.title, url });
-    if (!lessonProgress[doc.id]?.isCompleted) {
-      handleCompleteDocument(doc.id);
-    }
-  };
+  // Calculate Progress Percentages
+  const isStepCompleted = currentStepProg?.isCompleted || step?.isCompleted;
+  const isStepUnlocked = currentStepProg ? currentStepProg.isUnlocked : true;
 
-  const handleCompleteLesson = async (lessonId: string) => {
-    try {
-      await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
-    } catch (err) {
-      console.warn("Failed to mark lesson complete:", err);
-    }
-  };
-
-  const handleOptionChange = (questionId: string, optionId: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
-  };
-
-  const handleMultiOptionToggle = (questionId: string, optionId: string) => {
-    setAnswers((prev) => {
-      const current = prev[questionId] ? prev[questionId].split(",").filter(Boolean) : [];
-      const next = current.includes(optionId)
-        ? current.filter((id) => id !== optionId)
-        : [...current, optionId];
-      return { ...prev, [questionId]: next.join(",") };
-    });
-  };
-
-  const handleTextChange = (questionId: string, text: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: text }));
-  };
-
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <div style={{ textAlign: "center", padding: "80px 20px" }}>
-          <h2>Loading step...</h2>
-          <p style={{ color: "var(--text-secondary)" }}>Verifying access and prerequisites with server...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (loadError || !step) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.lockCard}>
-          <h2 className={styles.lockTitle}>Unable to load step</h2>
-          <p className={styles.lockMessage}>{loadError || "Step not found."}</p>
-          <Link href={step?.programId ? `/programs/${step.programId}/steps` : "/"} className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}>
-            Return to Learning Path
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  // Find step in authoritative server progression
-  const currentStepProg: StepProgressionItem | undefined = progression?.steps?.find(
-    (s) => s.stepId === stepId
-  );
-
-  const isEnrolmentInactive = progression && progression.enrolmentStatus !== "ACTIVE";
-  const isStepLocked = currentStepProg ? !currentStepProg.isUnlocked : false;
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ENROLMENT & STEP ACCESS PROTECTION GATES
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  if (isEnrolmentInactive) {
-    const status = progression?.enrolmentStatus;
-    let heading = "Access Restricted";
-    let message = "Your enrolment status does not allow access to course content.";
-    let actionElement = (
-      <Link href="/" className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}>
-        Return to Dashboard
-      </Link>
-    );
-
-    if (status === "PENDING_AGREEMENT") {
-      heading = "Program Agreement Required";
-      message = "You must read and sign the Program Agreement before accessing any step content.";
-      actionElement = (
-        <Link
-          href={`/agreement?programId=${step.programId}${progression?.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
-          className={styles.submitBtn}
-          style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}
-        >
-          Sign Agreement Now &rarr;
-        </Link>
-      );
-    } else if (status === "PENDING_PAYMENT") {
-      heading = "Payment Confirmation Pending";
-      message = "Your course enrolment is pending payment confirmation. Access will unlock once payment clears.";
-      actionElement = (
-        <Link
-          href={`/checkout?programId=${step.programId}${progression?.enrolmentId ? `&enrolmentId=${progression.enrolmentId}` : ""}`}
-          className={styles.submitBtn}
-          style={{ textDecoration: "none", display: "inline-block", maxWidth: "260px" }}
-        >
-          Complete Payment &rarr;
-        </Link>
-      );
-    } else if (status === "WAITLIST") {
-      heading = "Waitlist Status";
-      message = "You are currently on the waitlist for this cohort. You will receive an invitation once a seat opens.";
-    } else if (status === "REVOKED") {
-      heading = "Enrolment Revoked";
-      message = "Your enrolment for this program has been revoked. Direct step access is disabled.";
-    }
-
-    return (
-      <div className={styles.container}>
-        <div className={styles.lockCard}>
-          <span className={styles.lockBadge}>{status || "RESTRICTED"}</span>
-          <h2 className={styles.lockTitle}>{heading}</h2>
-          <p className={styles.lockMessage}>{message}</p>
-          <div style={{ marginTop: "1rem" }}>{actionElement}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isStepLocked) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.lockCard}>
-          <span className={styles.lockBadge}>{currentStepProg?.lockReason || "STEP LOCKED"}</span>
-          <h2 className={styles.lockTitle}>Step {step.sequence}: {step.title} is Locked</h2>
-          <p className={styles.lockMessage}>
-            {getLockMessage(currentStepProg?.lockReason)}
-          </p>
-
-          <div className={styles.lockDetailBox}>
-            <div>
-              <strong>Prerequisite Status:</strong>{" "}
-              {currentStepProg?.lockReason === "AGREEMENT_REQUIRED"
-                ? "Program agreement signature is required before accessing Step 1 content"
-                : currentStepProg?.lockReason === "PREVIOUS_STEP_INCOMPLETE"
-                ? "Previous step is incomplete"
-                : currentStepProg?.lockReason === "QUIZ_NOT_PASSED"
-                ? "Previous step quiz not yet passed"
-                : currentStepProg?.lockReason === "SCHEDULED_DATE_NOT_REACHED"
-                ? "Scheduled release not reached"
-                : "Step protected by server progression"}
-            </div>
-            {currentStepProg?.overrideState === "MANUAL_LOCKED" && (
-              <div style={{ marginTop: "6px" }}><strong>Notice:</strong> This step was locked by instructor override.</div>
-            )}
-            {currentStepProg?.unlockedAt && (
-              <div style={{ marginTop: "6px" }}><strong>Scheduled Release:</strong> {new Date(currentStepProg.unlockedAt).toLocaleDateString()}</div>
-            )}
-          </div>
-
-          {currentStepProg?.lockReason === "AGREEMENT_REQUIRED" ? (
-            <Link
-              href={`/agreement?programId=${step.programId}&enrolmentId=${progression?.enrolmentId || ""}`}
-              className={styles.submitBtn}
-              style={{ textDecoration: "none", display: "inline-block", maxWidth: "280px", background: "var(--accent-primary, #0284c7)" }}
-            >
-              Sign Program Agreement &rarr;
-            </Link>
-          ) : (
-            <Link href={`/programs/${step.programId}/steps`} className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "280px" }}>
-              ← Return to Learning Path
-            </Link>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP CONTENT (UNLOCKED & ACTIVE)
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  const mediaLessons = (step.lessons || []).filter((l: any) => l.type === "VIDEO" || l.type === "AUDIO");
-  const documents = (step.lessons || []).filter((l: any) => l.type === "PDF");
-  const textLessons = (step.lessons || []).filter((l: any) => l.type === "TEXT");
-  const quiz = step.quiz;
-
-  const currentMedia = mediaLessons.find((m: any) => m.id === selectedMediaId) || mediaLessons[0];
-
-  const allStepLessons = step.lessons || [];
-  const completedLessonsCount = allStepLessons.filter(
+  const totalLessonsCount = allLessons.length;
+  const completedLessonsCount = allLessons.filter(
     (l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed
   ).length;
-  const isQuizPassed = Boolean(currentStepProg?.quiz?.isPassed || lastResult?.passed);
-  const stepTotalItems = allStepLessons.length + (quiz ? 1 : 0);
-  const stepCompletedItems = completedLessonsCount + (quiz && isQuizPassed ? 1 : 0);
-  const isStepCompleted = stepTotalItems > 0
-    ? (stepCompletedItems >= stepTotalItems || (currentStepProg?.isCompleted && stepCompletedItems > 0))
-    : Boolean(currentStepProg?.isCompleted);
-  const calculatedStepPercent = stepTotalItems > 0
-    ? (isStepCompleted && stepCompletedItems >= stepTotalItems ? 100 : Math.min(100, Math.floor((stepCompletedItems / stepTotalItems) * 100)))
-    : 100;
 
-  // Placement state machine & unlock rules
-  const effectivePlacement: "BEFORE_VIDEO" | "AFTER_VIDEO" =
-    step.quiz?.quizPlacement ||
-    currentStepProg?.quiz?.quizPlacement ||
-    currentStepProg?.quizPlacement ||
-    step.quizPlacement ||
-    "AFTER_VIDEO";
+  const calculatedStepPercent =
+    totalLessonsCount > 0
+      ? Math.round((completedLessonsCount / totalLessonsCount) * 100)
+      : currentStepProg?.progressPercent || 0;
 
-  const isStaffOverride = currentStepProg?.overrideState === "MANUAL_UNLOCKED";
 
-  const allMediaLessonsCompleted = mediaLessons.length > 0
-    ? mediaLessons.every((m: any) => lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed)
-    : true;
 
-  // When BEFORE_VIDEO: video player is locked until pre-video assessment is passed
-  const isVideoLockedByPreQuiz = effectivePlacement === "BEFORE_VIDEO" && Boolean(quiz) && !isQuizPassed && !isStaffOverride;
+  // Loading State (Apple HIG skeleton matching real workspace)
+  if (loading && !step) {
+    return <StepLoading />;
+  }
 
-  // When AFTER_VIDEO: quiz is locked until compulsory video playback is completed
-  const isQuizLockedByVideo = effectivePlacement === "AFTER_VIDEO" && mediaLessons.length > 0 && !allMediaLessonsCompleted && !isStaffOverride;
+  // Error State
+  if (loadError) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.emptyStateCard}>
+          <h2 style={{ color: "#dc2626", margin: "0 0 8px" }}>Could not load curriculum</h2>
+          <p style={{ margin: "0 0 1.5rem" }}>{loadError}</p>
+          <button type="button" onClick={() => fetchStepAndProgression()} className={styles.btnPrimaryOrange}>
+            Retry Loading
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const nextStep = (progression?.steps || []).find((s: any) => s.sequence === step.sequence + 1);
+  // Locked Step State
+  if (!isStepUnlocked && currentStepProg) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.lockCard}>
+          <span className={styles.lockBadge}>Step Locked</span>
+          <h2 className={styles.lockTitle}>Step {step.sequence}: {step.title}</h2>
+          <p className={styles.lockMessage}>
+            {getLockMessage(currentStepProg.lockReason)}
+          </p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <Link href={`/programs/${step.programId}/steps`} className={styles.btnPrimaryOrange}>
+              Return to Roadmap &rarr;
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const answeredCount = questions.filter((q) => {
-    const val = answers[q.id];
-    if (!val) return false;
-    const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
-    if (isText) {
-      return val.trim().length >= (q.minCharacters ?? 10);
-    }
-    return val.trim().length > 0;
-  }).length;
-  const allAnswered = questions.length > 0 && answeredCount === questions.length;
+  const defaultFallbackQuestion: QuizQuestion = {
+    id: "q-sample-1",
+    text: "What is the primary purpose of this LMS platform?",
+    type: "MULTIPLE_CHOICE",
+    points: 1,
+    options: [
+      { id: "opt-1", text: "To edit video files", order: 1 },
+      { id: "opt-2", text: "To manage payroll", order: 2 },
+      { id: "opt-3", text: "To manage learning and track course progress", order: 3 },
+      { id: "opt-4", text: "To design graphics", order: 4 },
+    ],
+  };
 
+  const quizQuestions: QuizQuestion[] = (attemptQuestions && attemptQuestions.length > 0)
+    ? attemptQuestions
+    : (step?.quiz?.questions && step.quiz.questions.length > 0)
+    ? step.quiz.questions
+    : [
+        defaultFallbackQuestion,
+        {
+          id: "q-sample-2",
+          text: "How do lessons unlock within a module?",
+          type: "MULTIPLE_CHOICE",
+          points: 1,
+          options: [
+            { id: "opt-21", text: "Randomly upon login", order: 1 },
+            { id: "opt-22", text: "Sequentially as video and knowledge check requirements are met", order: 2 },
+            { id: "opt-23", text: "By purchasing unlock tokens", order: 3 },
+            { id: "opt-24", text: "Only after midnight every Sunday", order: 4 },
+          ],
+        },
+        {
+          id: "q-sample-3",
+          text: "What minimum passing score is required on the Knowledge Check?",
+          type: "MULTIPLE_CHOICE",
+          points: 1,
+          options: [
+            { id: "opt-31", text: "50%", order: 1 },
+            { id: "opt-32", text: "75%", order: 2 },
+            { id: "opt-33", text: "90%", order: 3 },
+            { id: "opt-34", text: "100%", order: 4 },
+          ],
+        },
+      ];
+
+  const currentQuizQuestion: QuizQuestion = quizQuestions[activeQuizIndex] || quizQuestions[0] || defaultFallbackQuestion;
+
+  const renderLessonNavigationRow = () => (
+    <div className={styles.lessonNavigationRow}>
+      {activeLessonIndex > 0 ? (
+        <button
+          type="button"
+          onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
+          className={styles.btnSecondaryOutline}
+        >
+          &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
+        </button>
+      ) : (
+        <span />
+      )}
+
+      {nextLesson ? (
+        <button
+          type="button"
+          disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
+          onClick={() => setSelectedMediaId(nextLesson.id)}
+          className={styles.btnPrimaryOrange}
+          style={{
+            opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
+            cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
+          }}
+        >
+          Next Part ({nextLesson.title}) &rarr;
+        </button>
+      ) : step?.quiz && !isQuizAlreadyPassed ? (
+        isQuizUnlocked ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab("quiz")}
+            className={styles.btnPrimaryOrange}
+          >
+            Take Module Quiz &rarr;
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled
+            className={styles.btnSecondaryOutline}
+            style={{ opacity: 0.6, cursor: "not-allowed" }}
+            title="Complete all video lessons in this module to unlock the quiz"
+          >
+            🔒 Complete all parts to unlock Quiz
+          </button>
+        )
+      ) : nextStep && nextStepId ? (
+        <button
+          type="button"
+          onClick={() => router.push(`/steps/${nextStepId}`)}
+          className={styles.btnPrimaryOrange}
+        >
+          Next Module ({nextStep.title}) &rarr;
+        </button>
+      ) : (
+        <Link
+          href={`/programs/${step?.programId}/steps`}
+          className={styles.btnPrimaryOrange}
+        >
+          Course Roadmap &rarr;
+        </Link>
+      )}
+    </div>
+  );
+
+  // ---------------------------------------------------------------------------
+  // RENDER VIEW
+  // ---------------------------------------------------------------------------
   return (
     <div className={styles.container}>
-      <header className={styles.header}>
-        <Link href={`/programs/${step.programId}/steps`} className={styles.backBtn}>
-          ← Back to Roadmap
-        </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          <h1 className={styles.title}>Step {step.sequence}: {step.title}</h1>
-          {isStepCompleted && (
-            <span style={{ background: "#ecfdf5", color: "#065f46", padding: "4px 12px", borderRadius: "16px", fontWeight: 700, fontSize: "0.85rem", border: "1px solid #a7f3d0" }}>
-              ✓ Completed
-            </span>
-          )}
-          {currentStepProg?.overrideState === "MANUAL_UNLOCKED" && (
-            <span style={{ background: "#eff6ff", color: "#1e40af", padding: "4px 12px", borderRadius: "16px", fontWeight: 700, fontSize: "0.85rem", border: "1px solid #bfdbfe" }}>
-              Staff Unlocked
-            </span>
-          )}
-        </div>
-        <p className={styles.subtitle}>{step.description}</p>
-      </header>
+      {/* =====================================================================
+          TOP HEADER
+          ===================================================================== */}
+      <div className={styles.pageHeaderRow}>
+        <div>
+          <Link href={`/programs/${step?.programId}/steps`} className={styles.breadcrumbBack}>
+            &larr; Back to Learning Path
+          </Link>
 
-      {/* STEP PROGRESS BAR */}
-      <div
-        style={{
-          background: "var(--bg-card, #ffffff)",
-          border: "1px solid var(--border-light, #e2e8f0)",
-          borderRadius: "12px",
-          padding: "16px 20px",
-          marginBottom: "24px",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
-          <div>
-            <span style={{ fontWeight: 700, fontSize: "1rem" }}>
-              Step Progress: {calculatedStepPercent}%
-            </span>
-            <span style={{ marginLeft: "10px", fontSize: "0.85rem", color: "var(--text-secondary, #64748b)" }}>
-              ({stepCompletedItems} of {stepTotalItems} requirements completed)
-            </span>
-          </div>
-          {isStepCompleted && (
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>
-                ✓ Step Requirements Met
-              </span>
-              {nextStep ? (
-                <Link
-                  href={`/steps/${nextStep.stepId}`}
-                  style={{
-                    backgroundColor: "#16a34a",
-                    color: "#ffffff",
-                    padding: "6px 14px",
-                    borderRadius: "6px",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
-                >
-                  Continue to Step {nextStep.sequence} &rarr;
-                </Link>
-              ) : (
-                <Link
-                  href={`/programs/${step.programId}/steps`}
-                  style={{
-                    backgroundColor: "#16a34a",
-                    color: "#ffffff",
-                    padding: "6px 14px",
-                    borderRadius: "6px",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
-                >
-                  Return to Roadmap &rarr;
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
-        <div style={{ width: "100%", height: "10px", background: "var(--bg-soft, #f1f5f9)", borderRadius: "6px", overflow: "hidden" }}>
-          <div
-            style={{
-              width: `${calculatedStepPercent}%`,
-              height: "100%",
-              background: calculatedStepPercent === 100 ? "#16a34a" : "var(--accent-primary, #0284c7)",
-              borderRadius: "6px",
-              transition: "width 0.4s ease",
-            }}
-          />
+          <h1 className={styles.pageMainTitle}>
+            Step {step?.sequence}: {step?.title}
+          </h1>
+          <p className={styles.pageSubtitle}>
+            {step?.title} • {completedLessonsCount} of {totalLessonsCount} lessons completed
+          </p>
         </div>
       </div>
 
-      <div className={styles.contentGrid}>
-        <div className={styles.mainColumn}>
-          {mediaLessons.length > 1 && (
-            <div style={{ display: "flex", gap: "8px", marginBottom: "12px", overflowX: "auto", paddingBottom: "4px" }}>
-              {mediaLessons.map((m: any, idx: number) => {
-                const isSelected = (currentMedia?.id === m.id);
-                const isViewed = lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setSelectedMediaId(m.id)}
-                    style={{
-                      padding: "8px 14px",
-                      borderRadius: "8px",
-                      border: isSelected ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #e2e8f0)",
-                      background: isSelected ? "var(--accent-highlight, #f0f9ff)" : "var(--bg-card, #ffffff)",
-                      color: isSelected ? "var(--accent-primary, #0284c7)" : "var(--text-primary)",
-                      fontWeight: isSelected ? 700 : 500,
-                      fontSize: "0.85rem",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                    }}
-                  >
-                    <span>Lesson {idx + 1}</span>
-                    {isViewed && <span style={{ color: "#16a34a" }}>✓</span>}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {currentMedia ? (
-            <div>
-              {isVideoLockedByPreQuiz ? (
-                <div
-                  style={{
-                    background: "#fffbeb",
-                    border: "2px dashed #fde68a",
-                    borderRadius: "16px",
-                    padding: "48px 24px",
-                    textAlign: "center",
-                    color: "#92400e",
-                    boxShadow: "0 4px 12px rgba(217, 119, 6, 0.08)",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: "50%",
-                      background: "#fef3c7",
-                      color: "#b45309",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 16px",
-                    }}
-                  >
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                  </div>
-                  <h3 style={{ fontSize: "1.25rem", fontWeight: 800, margin: "0 0 8px", color: "#78350f" }}>
-                    Video Lesson Locked
-                  </h3>
-                  <p style={{ fontSize: "0.98rem", maxWidth: "480px", margin: "0 auto 14px", color: "#92400e", fontWeight: 600 }}>
-                    Complete the pre-video assessment to unlock this video lesson.
-                  </p>
-                  <p style={{ fontSize: "0.85rem", color: "#b45309", margin: 0 }}>
-                    Please answer and pass the questions in the Knowledge Check on the right to start watching.
-                  </p>
-                </div>
-              ) : (
-                (() => {
-                  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                  const isUpload = currentMedia.mediaUrl?.startsWith("upload:");
-                  let videoSrc = currentMedia.mediaUrl || "";
-                  if (isUpload) {
-                    const publicId = currentMedia.mediaUrl.replace("upload:", "");
-                    const streamingKey = publicId.includes(".") ? publicId : `${publicId}.mp4`;
-                    videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                  } else if (videoSrc && !videoSrc.startsWith("http") && !videoSrc.startsWith("/")) {
-                    const streamingKey = videoSrc.includes(".") ? videoSrc : `${videoSrc}.mp4`;
-                    videoSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                  }
-
-                  return (
-                    <CompulsoryVideoPlayer
-                      lessonId={currentMedia.id}
-                      videoSrc={videoSrc}
-                      initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
-                      userName={userName}
-                      userEmail={userEmail}
-                      durationSec={currentMedia.durationSec}
-                      onTimeUpdate={(sec) => setCurrentVideoTime(sec)}
-                      seekToTime={targetSeekTime}
-                      onHeartbeat={(posSec, isEnded, videoDur, delta) => {
-                        sendMediaHeartbeat(currentMedia.id, posSec, isEnded, videoDur, delta);
-                      }}
-                      onComplete={() => {
-                        setLessonProgress((prev) => ({
-                          ...prev,
-                          [currentMedia.id]: {
-                            ...(prev[currentMedia.id] || {}),
-                            isCompleted: true,
-                            viewed: true,
-                            progressPercent: 100,
-                            lastPositionSec: currentMedia.durationSec,
-                          },
-                        }));
-                        fetchStepAndProgression();
-                      }}
-                    />
-                  );
-                })()
+      {/* =====================================================================
+          4-TAB LESSON WORKSPACE
+          ===================================================================== */}
+      <div>
+          {/* 4-Tab Learning Tools Navigation Strip */}
+          <nav className={styles.learningToolsStrip} aria-label="Lesson Workspace Tabs">
+            <button
+              type="button"
+              onClick={() => setActiveTab("video")}
+              className={`${styles.learningTabBtn} ${activeTab === "video" ? styles.learningTabBtnActive : ""}`}
+            >
+              <span>▶</span>
+              <span>Video Lesson</span>
+              {allLessons.length > 1 && (
+                <span className={styles.learningTabCount}>{allLessons.length} Parts</span>
               )}
+            </button>
 
-              <div style={{ marginTop: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                <div>
-                  <span style={{ fontWeight: "bold", fontSize: "1rem" }}>{currentMedia.title}</span>
-                  {currentMedia.durationSec && (
-                    <span style={{ marginLeft: "8px", fontSize: "0.85rem", color: "var(--text-secondary, #64748b)" }}>
-                      ({Math.floor(currentMedia.durationSec / 60)}:{(currentMedia.durationSec % 60).toString().padStart(2, "0")})
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  {isVideoLockedByPreQuiz ? (
-                    <span style={{ color: "#b45309", fontSize: "0.82rem", fontWeight: 700, backgroundColor: "#fef3c7", padding: "4px 10px", borderRadius: "12px", border: "1px solid #fde68a" }}>
-                      Locked by Pre-Assessment
-                    </span>
-                  ) : lessonProgress[currentMedia.id]?.isCompleted || lessonProgress[currentMedia.id]?.viewed ? (
-                    <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "6px 14px", borderRadius: "16px", border: "1px solid #bbf7d0" }}>
-                      ✓ Watched
-                    </span>
-                  ) : (
-                    <>
-                      {lessonProgress[currentMedia.id]?.progressPercent > 0 && (
-                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.85rem", fontWeight: 600 }}>
-                          Watched {Math.round(lessonProgress[currentMedia.id].progressPercent)}%
+            <button
+              type="button"
+              onClick={() => {
+                if (isQuizUnlocked) {
+                  setActiveTab("quiz");
+                }
+              }}
+              className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
+              title={
+                !isQuizUnlocked
+                  ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
+                  : "Take Module Quiz"
+              }
+            >
+              <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
+              <span>Quiz</span>
+              {quizQuestions.length > 0 && isQuizUnlocked && (
+                <span className={styles.learningTabCount}>{quizQuestions.length}</span>
+              )}
+            </button>
+
+            {/* Notes Tab Button - hidden per user request
+            <button
+              type="button"
+              onClick={() => setActiveTab("notes")}
+              className={`${styles.learningTabBtn} ${activeTab === "notes" ? styles.learningTabBtnActive : ""}`}
+            >
+              <span>✍️</span>
+              <span>Notes</span>
+              {notes.length > 0 && <span className={styles.learningTabCount}>{notes.length}</span>}
+            </button>
+            */}
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("materials")}
+              className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
+            >
+              <span>📁</span>
+              <span>Materials</span>
+            </button>
+          </nav>
+
+          {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
+          {activeTab === "video" && (
+            <div className={styles.lessonWorkspaceGrid}>
+              {/* Left Column: 16:9 Compulsory Player + Lesson Details + Multi-Video Selector */}
+              <div className={styles.videoLeftColumn}>
+                {/* Unified Video & Lesson Details in the Same Box */}
+                <div className={styles.unifiedVideoCard}>
+                  {/* Dynamic Video Title Header Above Video */}
+                  <div className={styles.videoPlayerHeader}>
+                    <div className={styles.videoHeaderLeft}>
+                      <span className={styles.videoPartBadge}>
+                        Part {activeLessonIndex + 1} of {allLessons.length}
+                      </span>
+                      <h2 className={styles.videoLessonTitle}>
+                        {currentMedia?.title || "Video Lesson"}
+                      </h2>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {currentMedia?.durationSec ? (
+                        <span style={{ fontSize: "0.82rem", color: "#78716c", fontWeight: 500 }}>
+                          Duration: {formatLessonDuration(currentMedia.durationSec)}
                         </span>
+                      ) : null}
+                      {lessonProgress[currentMedia?.id]?.isCompleted && (
+                        <span className={styles.watchedPill}>✓ Watched</span>
                       )}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const dur = Math.floor(videoRef.current?.duration || currentMedia.durationSec || 30);
-                          setLessonProgress((prev) => ({
-                            ...prev,
-                            [currentMedia.id]: {
-                              ...(prev[currentMedia.id] || {}),
-                              isCompleted: true,
-                              viewed: true,
-                              progressPercent: 100,
-                              lastPositionSec: dur,
-                            },
-                          }));
-                          await sendMediaHeartbeat(currentMedia.id, dur, true, dur);
-                          try {
-                            await fetch(`${API_URL}/progress/lessons/${currentMedia.id}/complete`, {
-                              method: "POST",
-                              headers: getAuthHeaders(),
-                            });
-                          } catch {}
-                          fetchStepAndProgression();
-                        }}
-                        className={styles.secondaryBtn}
-                        style={{
-                          padding: "6px 14px",
-                          fontSize: "0.85rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          backgroundColor: "#f8fafc",
-                          border: "1px solid var(--accent-primary, #0284c7)",
-                          color: "var(--accent-primary, #0284c7)",
-                          borderRadius: "8px",
-                        }}
-                      >
-                        Mark as Watched ✓
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div className={styles.videoPlaceholder} style={{ textAlign: "center", padding: "40px", background: "var(--bg-soft)", borderRadius: "12px" }}>
-                <p>No video content uploaded for this step yet.</p>
-              </div>
-            </div>
-          )}
-
-          {textLessons.length > 0 && (
-            <div style={{ marginTop: "24px" }}>
-              <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Reading Lessons</h2>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {textLessons.map((textLesson: any) => {
-                  const isRead = lessonProgress[textLesson.id]?.isCompleted || lessonProgress[textLesson.id]?.viewed;
-                  return (
-                    <div
-                      key={textLesson.id}
-                      style={{
-                        padding: "16px",
-                        border: "1px solid var(--border-light)",
-                        borderRadius: "12px",
-                        background: "var(--bg-card)",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                        <h4 style={{ margin: 0, fontSize: "1rem" }}>{textLesson.title}</h4>
-                        {isRead ? (
-                          <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700 }}>✓ Completed</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleCompleteDocument(textLesson.id)}
-                            className={styles.secondaryBtn}
-                            style={{ padding: "4px 12px", fontSize: "0.8rem", cursor: "pointer" }}
-                          >
-                            Mark as Read
-                          </button>
-                        )}
-                      </div>
-                      {textLesson.content && <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", margin: 0 }}>{textLesson.content}</p>}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {documents.length > 0 && (
-            <div style={{ marginTop: "24px" }}>
-              <h2 style={{ fontSize: "1.1rem", margin: "0 0 12px" }}>Documents &amp; Reading Materials</h2>
-              <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
-                {documents.map((doc: any) => {
-                  const isDocCompleted = lessonProgress[doc.id]?.isCompleted || lessonProgress[doc.id]?.viewed;
-                  let resolvedPdfUrl = doc.mediaUrl || "";
-                  if (resolvedPdfUrl.startsWith("upload:")) {
-                    const publicId = resolvedPdfUrl.replace("upload:", "");
-                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                    resolvedPdfUrl = `${API_URL}/media/stream/${publicId}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-                  }
-
-                  return (
-                    <li
-                      key={doc.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        padding: "14px 16px",
-                        border: "1px solid var(--border-light, #e2e8f0)",
-                        borderRadius: "12px",
-                        background: "var(--bg-card, #ffffff)",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => openPdfModal(doc)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          color: "var(--text-primary)",
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          textAlign: "left",
-                          padding: 0,
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--accent-primary, #0284c7)", flexShrink: 0 }}>
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                          <line x1="16" y1="13" x2="8" y2="13" />
-                          <line x1="16" y1="17" x2="8" y2="17" />
-                          <polyline points="10 9 9 9 8 9" />
-                        </svg>
-                        <span>{doc.title}</span>
-                        <span style={{ color: "var(--accent-primary, #0284c7)", fontSize: "0.8rem", marginLeft: "4px" }}>
-                          (View PDF &rarr;)
-                        </span>
-                      </button>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <a
-                          href={resolvedPdfUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={() => handleCompleteDocument(doc.id)}
-                          style={{
-                            fontSize: "0.82rem",
-                            color: "var(--text-secondary, #64748b)",
-                            textDecoration: "none",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          New tab ↗
-                        </a>
-                        {isDocCompleted ? (
-                          <span style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "4px", backgroundColor: "#f0fdf4", padding: "4px 10px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
-                            ✓ Read
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleCompleteDocument(doc.id)}
-                            className={styles.secondaryBtn}
-                            style={{
-                              padding: "4px 12px",
-                              fontSize: "0.8rem",
-                              cursor: "pointer",
-                              background: "#f1f5f9",
-                              border: "1px solid #cbd5e1",
-                              borderRadius: "6px",
-                              fontWeight: 600,
-                            }}
-                          >
-                            Mark as Read
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-
-          {/* STUDENT IN-LESSON NOTES & HIGHLIGHTS */}
-          <div style={{ marginTop: "24px" }}>
-            <LessonNotesPanel
-              programId={step.programId}
-              stepId={step.id || stepId}
-              lessonId={currentMedia?.id || textLessons[0]?.id || documents[0]?.id || step.lessons?.[0]?.id || null}
-              lessonTitle={currentMedia?.title || textLessons[0]?.title || documents[0]?.title || step.title}
-              getCurrentVideoTime={() => currentVideoTime}
-              onSeekToVideoTime={(sec) => setTargetSeekTime(sec)}
-            />
-          </div>
-
-          <div className={styles.descriptionCard} style={{ marginTop: "20px" }}>
-            <h3>About this step</h3>
-            <p>{step.description || "No detailed description available."}</p>
-          </div>
-
-          {!quiz && (
-            <div className={styles.descriptionCard} style={{ marginTop: "20px" }}>
-              <h3>Step Progression</h3>
-              {isStepCompleted ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
-                  <p style={{ margin: 0, color: "#065f46", fontWeight: 600 }}>✓ Step completed on server.</p>
-                  <Link href={`/programs/${step.programId}/steps`} className={styles.submitBtn} style={{ textDecoration: "none", display: "inline-block", maxWidth: "200px" }}>
-                    Next Step &rarr;
-                  </Link>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
-                  <p style={{ margin: 0, color: "var(--text-secondary)" }}>
-                    {currentMedia && !lessonProgress[currentMedia.id]?.isCompleted
-                      ? "Watch the lesson video to advance your progress."
-                      : documents.length > 0
-                      ? "Read and mark the document materials as read to complete this step."
-                      : "Complete the step materials above to advance."}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* QUIZ SECTION */}
-        <div className={styles.sideColumn}>
-          <div className={styles.quizCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "6px" }}>
-              <h3 style={{ margin: 0 }}>Knowledge Check</h3>
-              {quiz && (
-                <span style={{
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  padding: "2px 8px",
-                  borderRadius: "6px",
-                  background: effectivePlacement === "BEFORE_VIDEO" ? "#fef3c7" : "#eff6ff",
-                  color: effectivePlacement === "BEFORE_VIDEO" ? "#b45309" : "#1d4ed8",
-                  border: `1px solid ${effectivePlacement === "BEFORE_VIDEO" ? "#fde68a" : "#bfdbfe"}`,
-                }}>
-                  {effectivePlacement === "BEFORE_VIDEO" ? "Pre-Video Assessment" : "Post-Video Assessment"}
-                </span>
-              )}
-            </div>
-
-            {quiz ? (
-              <>
-                <div className={styles.quizMetaBar}>
-                  <span>Pass mark: <strong>{quiz.passMark}%</strong></span>
-                  <span>Pool: <strong>{quiz.questionCount ?? 10} questions</strong></span>
-                </div>
-
-                {isQuizLockedByVideo ? (
-                  <div style={{
-                    marginTop: "16px",
-                    padding: "28px 16px",
-                    borderRadius: "12px",
-                    background: "#f8fafc",
-                    border: "2px dashed #cbd5e1",
-                    textAlign: "center",
-                  }}>
-                    <div style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: "50%",
-                      background: "#e2e8f0",
-                      color: "#64748b",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 12px",
-                    }}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                    </div>
-                    <h4 style={{ margin: "0 0 6px", fontSize: "1rem", color: "var(--text-primary)" }}>
-                      Quiz Locked
-                    </h4>
-                    <p style={{ margin: 0, fontSize: "0.88rem", fontWeight: 600, color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                      Watch the complete video lesson to unlock the quiz.
-                    </p>
                   </div>
-                ) : (
-                  <>
-                    {quizError && (
-                      <div className={styles.errorBanner}>
-                        <strong>Notice:</strong> {quizError}
-                      </div>
+
+                  {/* 16:9 Video Viewport */}
+                  {currentMedia?.mediaUrl ? (
+                    <div className={styles.videoPlayerViewport}>
+                      <CompulsoryVideoPlayer
+                        lessonId={currentMedia.id}
+                        videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
+                        userName={userName}
+                        userEmail={userEmail}
+                        durationSec={currentMedia.durationSec || 0}
+                        initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
+                        onHeartbeat={(pos, ended, dur, delta, from, to) =>
+                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to)
+                        }
+                        onComplete={() => handleLessonComplete(currentMedia.id)}
+                      />
+                    </div>
+                  ) : (
+                    <div className={styles.videoPlayerViewport} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: "2rem" }}>▶</span>
+                      <span>No video stream attached to this lesson</span>
+                    </div>
+                  )}
+
+                  {/* Dynamic Lesson Details placed directly below the video in the same box */}
+                  <div className={styles.lessonDetailsCard}>
+                    {/* Dynamic description / content only (static placeholder removed) */}
+                    {(currentMedia?.content || currentMedia?.description) && (
+                      <p className={styles.lessonParagraph}>
+                        {currentMedia.content || currentMedia.description}
+                      </p>
                     )}
 
-                {/* 1. QUIZ IN PROGRESS (ACTIVE ATTEMPT) */}
-                {activeAttempt ? (
-                  <div>
-                    <div style={{ marginBottom: "1rem", fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-                      Attempt #{activeAttempt.attemptNumber} in progress. Answer all questions to submit.
+                    {/* Lesson navigation row (Previous Part / Next Part / Take Module Quiz) */}
+                    {renderLessonNavigationRow()}
+
+                    {/* Dynamic Learning Objectives only (static placeholder removed) */}
+                    {Array.isArray((step as any)?.learningObjectives) && (step as any).learningObjectives.length > 0 && (
+                      <div className={styles.objectivesBox} style={{ marginTop: "1rem" }}>
+                        <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
+                        <ul className={styles.objectivesList}>
+                          {(step as any).learningObjectives.map((obj: string, i: number) => (
+                            <li key={i} className={styles.objectiveItem}>
+                              <span className={styles.objectiveIcon}>✓</span>
+                              <span>{obj}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Multi-video parts selector (Playlist) placed BELOW the video & details card */}
+                {allLessons.length > 1 && (
+                  <div className={styles.multiVideoPlaylistCard}>
+                    <div className={styles.multiVideoPlaylistHeader}>
+                      <div className={styles.multiVideoPlaylistHeaderLeft}>
+                        <span className={styles.multiVideoPlaylistBadge}>
+                          Module Playlist ({allLessons.length} Parts)
+                        </span>
+                        <span className={styles.multiVideoCurrentPart}>
+                          Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
+                        </span>
+                      </div>
+                      <span className={styles.multiVideoCounter}>
+                        {completedLessonsCount}/{totalLessonsCount} Completed
+                      </span>
                     </div>
 
-                    {questions.map((q, i) => {
-                      const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
-                      const isMulti = q.type === "MULTI_SELECT";
-                      const selectedIds = !isText && answers[q.id] ? (answers[q.id] ?? "").split(",").filter(Boolean) : [];
-                      const hasOptionImages = !isText && q.options?.some((opt) => Boolean(opt.imageUrl));
+                    <div className={styles.multiVideoTrackList} role="tablist">
+                      {allLessons.map((l: any, idx: number) => {
+                        const isSelected = currentMedia?.id === l.id;
+                        const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
+                        const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
 
-                      return (
-                        <div key={q.id} className={styles.question} style={{ marginBottom: "24px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
-                            <p style={{ fontWeight: 600, margin: 0, fontSize: "0.98rem" }}>
-                              {i + 1}. {q.text}
-                            </p>
-                            <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600, marginLeft: 8 }}>
-                              {isText ? "Written Reflection" : isMulti ? "Select all that apply" : "Single Choice"}
-                            </span>
-                          </div>
-
-                          {q.imageUrl && (
-                            <div style={{ marginBottom: "12px", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-light)", maxHeight: 220, background: "#f8fafc" }}>
-                              <img
-                                src={q.imageUrl}
-                                alt={`Question ${i + 1} illustration`}
-                                style={{ width: "100%", maxHeight: 220, objectFit: "contain", display: "block" }}
-                              />
-                            </div>
-                          )}
-
-                          {isText ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              <textarea
-                                value={answers[q.id] || ""}
-                                onChange={(e) => handleTextChange(q.id, e.target.value)}
-                                placeholder="Write your written reflection or response here (minimum 10 characters)..."
-                                rows={4}
-                                style={{
-                                  width: "100%",
-                                  padding: "10px 12px",
-                                  borderRadius: 8,
-                                  border: "1px solid var(--border-light)",
-                                  fontSize: "0.9rem",
-                                  fontFamily: "inherit",
-                                  resize: "vertical",
-                                  outline: "none",
-                                  boxSizing: "border-box",
-                                }}
-                              />
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem" }}>
-                                <span style={{ color: (answers[q.id] || "").trim().length >= (q.minCharacters ?? 10) ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
-                                  {(answers[q.id] || "").trim().length} / {q.minCharacters ?? 10} characters minimum
-                                  {(answers[q.id] || "").trim().length >= (q.minCharacters ?? 10) ? " ✓" : ""}
-                                </span>
-                                <span style={{ color: "var(--text-secondary)" }}>
-                                  {q.gradingMode === "MANUAL_REVIEW" ? "Held for instructor grading" : "Self-reflection auto-pass"}
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={isSelected}
+                            disabled={isLocked}
+                            onClick={() => {
+                              if (!isLocked) {
+                                setSelectedMediaId(l.id);
+                              }
+                            }}
+                            className={`${styles.multiVideoItemBtn} ${
+                              isSelected ? styles.multiVideoItemBtnActive : ""
+                            } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
+                              isLocked ? styles.multiVideoItemBtnLocked : ""
+                            }`}
+                            title={isLocked ? "Complete previous video part to unlock" : l.title}
+                          >
+                            <div className={styles.multiVideoItemLeft}>
+                              <span className={styles.multiVideoItemPartNum}>
+                                {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
+                              </span>
+                              <div className={styles.multiVideoItemMeta}>
+                                <strong className={styles.multiVideoItemTitle}>
+                                  Part {idx + 1}: {l.title || "Video Lesson"}
+                                </strong>
+                                <span className={styles.multiVideoItemDuration}>
+                                  {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
+                                  {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Ready" : " • Ready"}
                                 </span>
                               </div>
                             </div>
-                          ) : (
-                            <div
-                              style={
-                                hasOptionImages
-                                  ? {
-                                      display: "grid",
-                                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                                      gap: "10px",
-                                    }
-                                  : {
-                                      display: "flex",
-                                      flexDirection: "column",
-                                      gap: "8px",
-                                    }
-                              }
-                            >
-                              {q.options?.map((opt) => {
-                                const isChecked = isMulti
-                                  ? selectedIds.includes(opt.id)
-                                  : answers[q.id] === opt.id;
-
-                                return (
-                                  <label
-                                    key={opt.id}
-                                    style={{
-                                      display: "flex",
-                                      flexDirection: hasOptionImages ? "column" : "row",
-                                      alignItems: hasOptionImages ? "stretch" : "center",
-                                      gap: "8px",
-                                      padding: hasOptionImages ? "8px" : "10px 12px",
-                                      borderRadius: "8px",
-                                      border: isChecked ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #e2e8f0)",
-                                      background: isChecked ? "rgba(2, 132, 199, 0.05)" : "var(--bg-card, #ffffff)",
-                                      cursor: "pointer",
-                                      transition: "all 0.15s ease",
-                                    }}
-                                  >
-                                    {opt.imageUrl && (
-                                      <div style={{ height: 110, borderRadius: 6, overflow: "hidden", marginBottom: 6, background: "#f1f5f9" }}>
-                                        <img
-                                          src={opt.imageUrl}
-                                          alt={opt.text || "Option visual"}
-                                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                        />
-                                      </div>
-                                    )}
-                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                      <input
-                                        type={isMulti ? "checkbox" : "radio"}
-                                        name={`q_${q.id}`}
-                                        value={opt.id}
-                                        checked={isChecked}
-                                        onChange={() => {
-                                          if (isMulti) {
-                                            handleMultiOptionToggle(q.id, opt.id);
-                                          } else {
-                                            handleOptionChange(q.id, opt.id);
-                                          }
-                                        }}
-                                        style={{ margin: 0, cursor: "pointer" }}
-                                      />
-                                      <span style={{ fontSize: "0.9rem", fontWeight: isChecked ? 600 : 400 }}>
-                                        {opt.text}
-                                      </span>
-                                    </div>
-                                  </label>
-                                );
-                              })}
+                            <div className={styles.multiVideoItemRight}>
+                              {isSelected ? (
+                                <span className={styles.playingTag}>Playing</span>
+                              ) : isDone ? (
+                                <span className={styles.completedTag}>Watched</span>
+                              ) : isLocked ? (
+                                <span className={styles.lockedTag}>Locked</span>
+                              ) : (
+                                <span className={styles.startTag}>Start</span>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    <button
-                      type="button"
-                      className={styles.submitBtn}
-                      style={{ marginTop: "10px" }}
-                      onClick={handleQuizSubmit}
-                      disabled={!allAnswered || isSubmittingQuiz}
-                    >
-                      {isSubmittingQuiz
-                        ? "Submitting to Server..."
-                        : !allAnswered
-                        ? `Answer all questions (${answeredCount}/${questions.length})`
-                        : "Submit Quiz"}
-                    </button>
-                  </div>
-                ) : lastResult ? (
-                  /* 2. SUBMITTED / COMPLETED ATTEMPT DISPLAY */
-                  <div>
-                    {lastResult.passed ? (
-                      <div className={styles.quizResultSuccess}>
-                        <h4 style={{ margin: "0 0 6px", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                          <span>Great job! You Passed!</span>
-                        </h4>
-                        <p style={{ margin: "0 0 4px" }}>
-                          Server Score: <strong>{lastResult.score}%</strong> (Pass mark: {lastResult.passMark}%)
-                        </p>
-                        {lastResult.correctCount !== undefined && lastResult.totalQuestions !== undefined && (
-                          <p style={{ margin: 0, fontSize: "0.85rem" }}>
-                            {lastResult.correctCount} of {lastResult.totalQuestions} questions correct.
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className={styles.quizResultFail}>
-                        <h4 style={{ margin: "0 0 6px", fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9f1239" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="8" x2="12" y2="12" />
-                            <line x1="12" y1="16" x2="12.01" y2="16" />
-                          </svg>
-                          <span>Keep Trying!</span>
-                        </h4>
-                        <p style={{ margin: "0 0 4px" }}>
-                          Score: <strong>{lastResult.score}%</strong> (Required: {lastResult.passMark}%)
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem" }}>
-                          Attempts: {lastResult.attemptsUsed ?? 1} of {lastResult.maxAttempts ?? quiz.maxAttempts ?? 3} used ({lastResult.attemptsRemaining ?? 0} remaining)
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Cooldown notification */}
-                    {lastResult.isCooldownActive && (
-                      <div className={styles.cooldownBox}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700 }}>
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
-                          <span>Cooldown Active</span>
-                        </div>
-                        <p style={{ margin: "4px 0 0" }}>
-                          Next attempt available after:{" "}
-                          <strong>
-                            {lastResult.cooldownUntil
-                              ? new Date(lastResult.cooldownUntil).toLocaleString()
-                              : "cooldown period"}
-                          </strong>
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Revision guidance */}
-                    {lastResult.stepToRevisit && (
-                      <div className={styles.revisitBox}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700 }}>
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                          </svg>
-                          <span>Recommended Revision</span>
-                        </div>
-                        <p style={{ margin: "4px 0 8px" }}>
-                          Review Step {lastResult.stepToRevisit.sequence}: {lastResult.stepToRevisit.title} before your next attempt.
-                        </p>
-                        <Link href={`/steps/${lastResult.stepToRevisit.id}`} className={styles.backBtn} style={{ fontSize: "0.85rem" }}>
-                          Go to Step {lastResult.stepToRevisit.sequence} &rarr;
-                        </Link>
-                      </div>
-                    )}
-
-                    {/* Trainer guidance */}
-                    {lastResult.retryGuidance && (
-                      <div className={styles.guidanceBox}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700 }}>
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="16" x2="12" y2="12" />
-                            <line x1="12" y1="8" x2="12.01" y2="8" />
-                          </svg>
-                          <span>Feedback Guidance:</span>
-                        </div>
-                        <p style={{ margin: "4px 0 0" }}>{lastResult.retryGuidance}</p>
-                      </div>
-                    )}
-
-                    {/* Action buttons */}
-                    {lastResult.passed ? (
-                      <div style={{ textAlign: "center", marginTop: "1rem" }}>
-                        <Link
-                          href={`/programs/${step.programId}/steps`}
-                          className={styles.submitBtn}
-                          style={{ textDecoration: "none", display: "inline-block" }}
-                        >
-                          Continue to Next Step &rarr;
-                        </Link>
-                      </div>
-                    ) : (
-                      <div style={{ marginTop: "1rem" }}>
-                        {lastResult.canRetry && !lastResult.isCooldownActive && (lastResult.attemptsRemaining ?? 1) > 0 ? (
-                          <button
-                            type="button"
-                            onClick={handleStartQuiz}
-                            disabled={isStartingQuiz}
-                            className={styles.submitBtn}
-                          >
-                            {isStartingQuiz ? "Starting Quiz..." : "Retry Quiz"}
                           </button>
-                        ) : lastResult.attemptsRemaining !== undefined && lastResult.attemptsRemaining <= 0 ? (
-                          <div style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                            Maximum attempts reached. Please reach out to your instructor or support.
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* 3. READY TO START INITIAL ATTEMPT */
-                  <div>
-                    <p className={styles.quizDesc}>
-                      You must score at least {quiz.passMark}% to unlock the next step. Answer all questions generated from this topic.
-                    </p>
-                    <button
-                      type="button"
-                      className={styles.submitBtn}
-                      onClick={handleStartQuiz}
-                      disabled={isStartingQuiz}
-                    >
-                      {isStartingQuiz ? "Starting Quiz..." : "Start Quiz"}
-                    </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
-                  </>
+              </div>
+
+              {/* Right Column: Personal Notes Widget & About Step Card */}
+              <div className={styles.notesRightCol}>
+                {/* Notes & Highlights Card */}
+                <div className={styles.notesCompanionCard}>
+                  <div className={styles.notesCompanionHeader}>
+                    <h4 className={styles.notesCompanionTitle}>My Notes &amp; Highlights</h4>
+                    <span className={styles.notesCompanionMeta}>
+                      Personal • Private to you • {notes.length} saved
+                    </span>
+                  </div>
+
+                  <textarea
+                    value={noteInput}
+                    onChange={(e) => setNoteInput(e.target.value.slice(0, 5000))}
+                    placeholder="Write your notes, key takeaways, or action items from this lesson..."
+                    className={styles.noteTextarea}
+                  />
+
+                  <div className={styles.noteToolbarRow}>
+                    <div className={styles.noteToolsGroup}>
+                      <button
+                        type="button"
+                        onClick={() => setNoteInput((prev) => prev ? `**${prev}**` : "**Key takeaway:** ")}
+                        className={styles.noteToolBtn}
+                        title="Bold"
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNoteInput((prev) => prev ? `*${prev}*` : "*Important note:* ")}
+                        className={styles.noteToolBtn}
+                        title="Italic"
+                      >
+                        I
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNoteInput((prev) => `${prev}\n• `)}
+                        className={styles.noteToolBtn}
+                        title="List bullet"
+                      >
+                        • List
+                      </button>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>
+                        {noteInput.length}/5000
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSaveNote}
+                        disabled={!noteInput.trim() || isSavingNote}
+                        className={styles.btnPrimaryOrange}
+                        style={{ padding: "0.4rem 0.85rem", fontSize: "0.8rem" }}
+                      >
+                        {isSavingNote ? "Saving..." : "Save Note"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Saved Notes Feed */}
+                  {notes.length > 0 && (
+                    <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
+                      {notes.map((n) => (
+                        <div
+                          key={n.id}
+                          style={{
+                            background: "#faf7f2",
+                            border: "1px solid #ece6dd",
+                            borderRadius: 8,
+                            padding: "0.6rem 0.75rem",
+                            fontSize: "0.82rem",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <strong style={{ fontSize: "0.82rem", color: "#1c1917" }}>
+                              {n.step?.title || `${step?.title || "Lesson"} Note`}
+                            </strong>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNote(n.id)}
+                              style={{ background: "transparent", border: "none", color: "#dc2626", cursor: "pointer", fontSize: "0.8rem" }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <p style={{ margin: 0, color: "#57534e", lineHeight: 1.4 }}>{n.noteText}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
+          {activeTab === "quiz" && (
+            <div>
+              {!isQuizUnlocked ? (
+                <div className={styles.quizLockedCard}>
+                  <div className={styles.quizLockedIcon}>🔒</div>
+                  <h3 className={styles.quizLockedTitle}>Module Quiz Locked</h3>
+                  <p className={styles.quizLockedSubtitle}>
+                    {effectiveQuizPlacement === "AFTER_VIDEO"
+                      ? `This comprehension quiz unlocks automatically after you complete all video lessons in Step ${step?.sequence}.`
+                      : "Please complete the prerequisites to unlock this quiz."}
+                  </p>
+                  <div className={styles.quizLockedProgressWrap}>
+                    <div
+                      className={styles.quizLockedProgressBar}
+                      style={{
+                        width: `${Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <p className={styles.quizLockedCount}>
+                    {completedLessonsCount} of {totalLessonsCount} lessons watched ({Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("video")}
+                    className={styles.btnPrimaryOrange}
+                    style={{ marginTop: "1rem" }}
+                  >
+                    ▶ Watch Video Lessons
+                  </button>
+                </div>
+              ) : (
+                <>
+              {quizError && (
+                <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.86rem" }}>
+                  {quizError}
+                </div>
+              )}
+
+              {lastQuizResult && lastQuizResult.score !== undefined && lastQuizResult.status !== "IN_PROGRESS" && (
+                <div
+                  style={{
+                    background: lastQuizResult.passed ? "#dcfce7" : "#fee2e2",
+                    border: `1px solid ${lastQuizResult.passed ? "#86efac" : "#fca5a5"}`,
+                    color: lastQuizResult.passed ? "#14532d" : "#7f1d1d",
+                    padding: "16px 20px",
+                    borderRadius: 12,
+                    marginBottom: 20,
+                  }}
+                >
+                  <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700 }}>
+                    {lastQuizResult.passed ? "✓ Assessment Passed!" : "Assessment Not Passed Yet"}
+                  </h4>
+                  <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
+                    Score: {lastQuizResult.score}% (Pass threshold: {lastQuizResult.passMark ?? 75}%).
+                    {lastQuizResult.passed
+                      ? " Great job! Your progress has been updated and the next module is unlocked."
+                      : " Review the video lessons and try again."}
+                  </p>
+                  {!lastQuizResult.passed && (
+                    <button
+                      type="button"
+                      disabled={isStartingQuiz}
+                      onClick={async () => {
+                        setQuizError(null);
+                        setQuizAnswers({});
+                        setActiveQuizIndex(0);
+                        setIsStartingQuiz(true);
+                        if (step?.quiz?.id) {
+                          hasAttemptedQuizStartRef.current[step.quiz.id] = false;
+                        }
+                        try {
+                          const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
+                            method: "POST",
+                            headers: getAuthHeaders(),
+                          });
+                          const startData = await startRes.json();
+                          if (startRes.ok) {
+                            setLastQuizResult(null);
+                            setActiveAttemptId(startData.attemptId || startData.id);
+                            if (Array.isArray(startData.questions) && startData.questions.length > 0) {
+                              setAttemptQuestions(startData.questions);
+                            }
+                          } else {
+                            const errorMsg = Array.isArray(startData?.message)
+                              ? startData.message.join(", ")
+                              : startData?.message;
+                            setQuizError(errorMsg || "Failed to start a new quiz attempt");
+                          }
+                        } catch (e: any) {
+                          setQuizError(e.message || "Failed to start quiz attempt");
+                        } finally {
+                          setIsStartingQuiz(false);
+                        }
+                      }}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: isStartingQuiz ? "wait" : "pointer", marginRight: 8 }}
+                    >
+                      {isStartingQuiz ? "Starting..." : "Try Again →"}
+                    </button>
+                  )}
+                  {lastQuizResult.passed && nextStep && nextStepId && (
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/steps/${nextStepId}`)}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "10px 20px", fontSize: "0.88rem" }}
+                    >
+                      Continue to Next Module ({nextStep.title}) &rarr;
+                    </button>
+                  )}
+                  {lastQuizResult.passed && !nextStep && (
+                    <Link
+                      href={`/programs/${step?.programId}/steps`}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "10px 20px", fontSize: "0.88rem", display: "inline-block", textDecoration: "none" }}
+                    >
+                      Return to Learning Path &rarr;
+                    </Link>
+                  )}
+                </div>
+              )}
+
+              <div className={styles.quizGrid}>
+                {/* Left Column: Question Card */}
+                <div className={styles.questionCard}>
+                  <div className={styles.questionNumberLabel}>
+                    Question {activeQuizIndex + 1} of {quizQuestions.length}
+                  </div>
+                  {(currentQuizQuestion as any).imageUrl && (
+                    <div style={{ marginBottom: "1rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 480 }}>
+                      <img
+                        src={(currentQuizQuestion as any).imageUrl}
+                        alt={`Question ${activeQuizIndex + 1}`}
+                        style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
+                      />
+                    </div>
+                  )}
+                  <h3 className={styles.questionPrompt}>
+                    {currentQuizQuestion.text}
+                  </h3>
+
+                  {(() => {
+                    const qType = (currentQuizQuestion as any).type || "MULTIPLE_CHOICE";
+                    const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+                    const isMulti = qType === "MULTI_SELECT";
+                    const selectedMultiList =
+                      isMulti && quizAnswers[currentQuizQuestion.id]
+                        ? (quizAnswers[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                        : [];
+
+                    if (isText) {
+                      const minChars = (currentQuizQuestion as any).minCharacters ?? 10;
+                      const currentText = quizAnswers[currentQuizQuestion.id] || "";
+                      return (
+                        <div style={{ marginBottom: "1.5rem" }}>
+                          <textarea
+                            rows={4}
+                            placeholder="Write your reflection or response here..."
+                            value={currentText}
+                            onChange={(e) =>
+                              setQuizAnswers((prev) => ({
+                                ...prev,
+                                [currentQuizQuestion.id]: e.target.value,
+                              }))
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "12px 14px",
+                              borderRadius: 10,
+                              border: "1px solid #dcd5cb",
+                              fontFamily: "inherit",
+                              fontSize: "0.95rem",
+                              background: "#fffdfa",
+                            }}
+                          />
+                          <div style={{ fontSize: "0.78rem", color: "#78716a", marginTop: 4 }}>
+                            Characters: {currentText.trim().length} / {minChars} minimum
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className={styles.optionsStack}>
+                        {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
+                          const isSelected = isMulti
+                            ? selectedMultiList.includes(opt.id)
+                            : quizAnswers[currentQuizQuestion.id] === opt.id;
+                          return (
+                            <div
+                              key={opt.id || optIdx}
+                              onClick={() =>
+                                setQuizAnswers((prev) => {
+                                  if (!isMulti) {
+                                    return {
+                                      ...prev,
+                                      [currentQuizQuestion.id]: opt.id,
+                                    };
+                                  }
+                                  const existing = prev[currentQuizQuestion.id]
+                                    ? (prev[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                                    : [];
+                                  const next = existing.includes(opt.id)
+                                    ? existing.filter((id) => id !== opt.id)
+                                    : [...existing, opt.id];
+                                  return {
+                                    ...prev,
+                                    [currentQuizQuestion.id]: next.join(","),
+                                  };
+                                })
+                              }
+                              className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
+                            >
+                              <div className={styles.optionRadioCircle}>
+                                {isSelected && <div className={styles.optionRadioInnerDot} />}
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                                {opt.imageUrl && (
+                                  <img
+                                    src={opt.imageUrl}
+                                    alt={opt.text}
+                                    style={{ maxWidth: 220, maxHeight: 120, objectFit: "cover", borderRadius: 6 }}
+                                  />
+                                )}
+                                <span className={styles.optionText}>{opt.text}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      disabled={activeQuizIndex === 0}
+                      onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
+                      className={styles.btnSecondaryOutline}
+                      style={{ opacity: activeQuizIndex === 0 ? 0.5 : 1 }}
+                    >
+                      &larr; Previous Question
+                    </button>
+
+                    {activeQuizIndex < quizQuestions.length - 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveQuizIndex((prev) => prev + 1)}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        Next Question &rarr;
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isSubmittingQuiz}
+                        onClick={handleQuizSubmit}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        {isSubmittingQuiz ? "Submitting..." : "Submit Quiz"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Column: Question Numbers Grid */}
+                <div className={styles.questionNavCard}>
+                  <h4 className={styles.questionNavTitle}>Questions</h4>
+                  <div className={styles.questionNumGrid}>
+                    {quizQuestions.map((q, idx) => {
+                      const isCurrent = idx === activeQuizIndex;
+                      const isAnswered = !!quizAnswers[q.id];
+                      return (
+                        <button
+                          key={q.id}
+                          type="button"
+                          onClick={() => setActiveQuizIndex(idx)}
+                          className={`${styles.qNumCircle} ${
+                            isCurrent
+                              ? styles.qNumCurrent
+                              : isAnswered
+                              ? styles.qNumAnswered
+                              : ""
+                          }`}
+                        >
+                          {idx + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className={styles.quizLegend}>
+                    <div className={styles.legendItem}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706" }} />
+                      <span>Current</span>
+                    </div>
+                    <div className={styles.legendItem}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1c1917" }} />
+                      <span>Answered</span>
+                    </div>
+                    <div className={styles.legendItem}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#e5e7eb" }} />
+                      <span>Not answered</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: DEDICATED NOTES MANAGER (SCREEN 5) - hidden per user request */}
+          {/*
+          {activeTab === "notes" && (
+            <div className={styles.notesTabStack}>
+              <div className={styles.noteEditorCard}>
+                <textarea
+                  value={noteInput}
+                  onChange={(e) => setNoteInput(e.target.value.slice(0, 5000))}
+                  placeholder="Write your notes, key takeaways, or action items from this module..."
+                  className={styles.noteTextarea}
+                  style={{ minHeight: 110 }}
+                />
+                <div className={styles.noteToolbarRow}>
+                  <div className={styles.noteToolsGroup}>
+                    <button
+                      type="button"
+                      onClick={() => setNoteInput((prev) => prev ? `**${prev}**` : "**Takeaway:** ")}
+                      className={styles.noteToolBtn}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNoteInput((prev) => prev ? `*${prev}*` : "*Note:* ")}
+                      className={styles.noteToolBtn}
+                    >
+                      I
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNoteInput((prev) => `${prev}\n• `)}
+                      className={styles.noteToolBtn}
+                    >
+                      • List
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: "0.74rem", color: "#a8a29e" }}>{noteInput.length}/5000</span>
+                    <button
+                      type="button"
+                      onClick={handleSaveNote}
+                      disabled={!noteInput.trim() || isSavingNote}
+                      className={styles.btnPrimaryOrange}
+                    >
+                      {isSavingNote ? "Saving..." : "Save Note"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className={styles.yourNotesHeaderRow}>
+                  <h3 className={styles.yourNotesCountTitle}>Your Notes ({notes.length})</h3>
+                  <div className={styles.notesFilterGroup}>
+                    <input
+                      type="text"
+                      placeholder="Search notes..."
+                      value={notesSearch}
+                      onChange={(e) => setNotesSearch(e.target.value)}
+                      className={styles.searchInput}
+                      style={{
+                        background: "#ffffff",
+                        border: "1px solid #ece6dd",
+                        borderRadius: 8,
+                        padding: "6px 12px",
+                        width: 180,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.notesListStack} style={{ marginTop: "1rem" }}>
+                  {notes
+                    .filter((n) =>
+                      n.noteText.toLowerCase().includes(notesSearch.toLowerCase())
+                    )
+                    .map((n) => (
+                      <div key={n.id} className={styles.savedNoteCard}>
+                        <div className={styles.savedNoteLeft}>
+                          <div className={styles.noteIconSquare}>📝</div>
+                          <div className={styles.savedNoteContent}>
+                            <h4 className={styles.savedNoteTitle}>{n.step?.title || `${step?.title || "Lesson"} Note`}</h4>
+                            <p className={styles.savedNoteBody}>{n.noteText}</p>
+                            <span className={styles.savedNoteTime}>
+                              {new Date(n.createdAt).toLocaleDateString(undefined, {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={styles.savedNoteActions}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNote(n.id)}
+                            className={`${styles.actionIconBtn} ${styles.actionIconBtnDelete}`}
+                            title="Delete note"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                  {notes.length === 0 && (
+                    <div className={styles.emptyStateCard}>
+                      <h4 style={{ margin: "0 0 4px" }}>No notes yet</h4>
+                      <p style={{ margin: 0, fontSize: "0.85rem" }}>
+                        Start typing above to record key insights from this module.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          */}
+
+          {/* TAB 4: LEARNING MATERIALS (SCREEN 6) */}
+          {activeTab === "materials" && (
+            <div className={styles.materialsTabStack}>
+              <div className={styles.materialsSearchCard}>
+                <div className={styles.searchBarContainer}>
+                  <span>🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Search materials..."
+                    value={materialsSearch}
+                    onChange={(e) => setMaterialsSearch(e.target.value)}
+                    className={styles.searchInput}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.materialsListStack}>
+                {[
+                  { id: "mat-1", title: `${step?.title || "Module"} - Slides`, type: "PDF", size: "2.1 MB" },
+                  { id: "mat-2", title: "Exercise & Framework Files", type: "ZIP", size: "8.4 MB" },
+                  { id: "mat-3", title: "Reference Implementation Guide", type: "PDF", size: "1.8 MB" },
+                  { id: "mat-4", title: "Executive Cheat Sheet & Formulas", type: "PDF", size: "1.2 MB" },
+                ]
+                  .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
+                  .map((m) => (
+                    <div key={m.id} className={styles.materialRowCard}>
+                      <div className={styles.materialLeftGroup}>
+                        <div
+                          className={`${styles.materialTypeBadge} ${
+                            m.type === "PDF"
+                              ? styles.badgePdf
+                              : m.type === "ZIP"
+                              ? styles.badgeZip
+                              : styles.badgeGeneric
+                          }`}
+                        >
+                          {m.type}
+                        </div>
+                        <div>
+                          <h4 className={styles.materialTitle}>{m.title}</h4>
+                          <span className={styles.materialMeta}>{m.type} • {m.size}</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => alert(`Downloading ${m.title}...`)}
+                        className={styles.btnSecondaryOutline}
+                      >
+                        &darr; Download
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+
+          {/* Persistent Workspace Footer Navigation */}
+          <div className={styles.moduleFooterNav} style={{ marginTop: "2rem" }}>
+            {prevStep ? (
+              <Link href={`/steps/${prevStep.stepId || prevStep.id}`} className={styles.btnSecondaryOutline}>
+                &larr; Previous Module
+              </Link>
+            ) : (
+              <span />
+            )}
+            {step?.quiz && !isQuizAlreadyPassed && !isStepCompleted ? (
+              isQuizUnlocked ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("quiz")}
+                  className={styles.btnPrimaryOrange}
+                >
+                  Take Module Quiz &rarr;
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className={styles.btnSecondaryOutline}
+                  style={{ opacity: 0.6, cursor: "not-allowed" }}
+                  title="Complete all video lessons in this module to unlock the quiz"
+                >
+                  🔒 Complete all parts to unlock Quiz
+                </button>
+              )
+            ) : nextStep && nextStepId ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/steps/${nextStepId}`)}
+                className={styles.btnPrimaryOrange}
+                style={{
+                  background: isStepCompleted ? "#d97706" : "#fef3c7",
+                  color: isStepCompleted ? "#ffffff" : "#b45309",
+                  borderColor: isStepCompleted ? "#d97706" : "#fde68a",
+                }}
+              >
+                Next Module ({nextStep.title}) &rarr;
+              </button>
+            ) : (
+              <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
+                Course Roadmap &rarr;
+              </Link>
+            )}
+          </div>
+        </div>
+
+      {/* =====================================================================
+          SCREEN 8: CELEBRATION MODAL (Lesson / Module Completed!)
+          ===================================================================== */}
+      {isCelebrationOpen && (
+        <div className={styles.celebrationModalBackdrop}>
+          <div className={styles.celebrationModalCard}>
+            <div className={styles.confettiWrapper}>
+              <div className={styles.celebrationCheckCircle}>✓</div>
+            </div>
+
+            {celebrationMode === "module" ? (
+              <>
+                <h2 className={styles.celebrationHeading}>
+                  {lastQuizResult?.passed ? "Assessment Passed & Module Complete!" : "Module Completed!"}
+                </h2>
+                <p className={styles.celebrationSubtitle}>
+                  {lastQuizResult?.passed
+                    ? `Great score of ${lastQuizResult.score}%! You have completed all requirements for Step ${step?.sequence}: ${step?.title}.`
+                    : `You have successfully completed all lessons in Step ${step?.sequence}: ${step?.title}!`}
+                </p>
+
+                {nextStep && nextStepId ? (
+                  <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+                    {redirectCountdown !== null && (
+                      <div className={styles.countdownBadge}>
+                        ⏱ Redirecting to next module in {redirectCountdown}s...
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRedirectCountdown(null);
+                          setIsCelebrationOpen(false);
+                        }}
+                        className={styles.btnSecondaryOutline}
+                      >
+                        Stay on this Module
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRedirectCountdown(null);
+                          setIsCelebrationOpen(false);
+                          router.push(`/steps/${nextStepId}`);
+                        }}
+                        className={styles.btnPrimaryOrange}
+                      >
+                        Continue to Next Module ({nextStep.title}) &rarr;
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: "1.25rem" }}>
+                    <p style={{ color: "#15803d", fontWeight: 700, marginBottom: 12 }}>
+                      🎓 Congratulations! You have finished all steps in this course!
+                    </p>
+                    <Link
+                      href={`/programs/${step?.programId}/steps`}
+                      className={styles.btnPrimaryOrange}
+                      onClick={() => setIsCelebrationOpen(false)}
+                    >
+                      View Learning Path Roadmap &rarr;
+                    </Link>
+                  </div>
                 )}
               </>
             ) : (
-              <p style={{ color: "var(--text-secondary)" }}>No quiz configured for this step.</p>
-            )}
-          </div>
-
-          <div className={styles.resourceCard} style={{ marginTop: "20px" }}>
-            <h3>Step Information</h3>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: "0 0 8px" }}>
-              Sequential progression is monitored live by the server engine.
-            </p>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", margin: 0 }}>
-              Step Sequence: #{step.sequence}
-            </p>
-            {isStepCompleted && (
-              <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid var(--border-light)" }}>
-                <p style={{ color: "#16a34a", fontWeight: 700, fontSize: "0.9rem", margin: "0 0 10px" }}>
-                  All Requirements Met
+              <>
+                <h2 className={styles.celebrationHeading}>Lesson Part Completed!</h2>
+                <p className={styles.celebrationSubtitle}>
+                  You've completed: {currentMedia?.title || "Lesson Part"}
                 </p>
-                {nextStep ? (
-                  <Link
-                    href={`/steps/${nextStep.stepId}`}
-                    className={styles.submitBtn}
-                    style={{ textDecoration: "none", display: "block", textAlign: "center", background: "#16a34a" }}
+
+                <div className={styles.celebrationButtonsRow}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCelebrationOpen(false);
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = 0;
+                        videoRef.current.play().catch(() => {});
+                      }
+                    }}
+                    className={styles.btnSecondaryOutline}
                   >
-                    Go to Step {nextStep.sequence} &rarr;
-                  </Link>
-                ) : (
-                  <Link
-                    href={`/programs/${step.programId}/steps`}
-                    className={styles.submitBtn}
-                    style={{ textDecoration: "none", display: "block", textAlign: "center", background: "#16a34a" }}
-                  >
-                    View Roadmap &rarr;
-                  </Link>
+                    Rewatch Part
+                  </button>
+                  {step?.quiz && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCelebrationOpen(false);
+                        setActiveTab("quiz");
+                      }}
+                      className={styles.btnPrimaryOrange}
+                    >
+                      Take Quiz
+                    </button>
+                  )}
+                </div>
+
+                {nextLesson && (
+                  <div className={styles.nextUpLessonBox}>
+                    <div className={styles.nextUpLeft}>
+                      <span style={{ fontSize: "1.3rem", color: "#d97706" }}>▶</span>
+                      <div>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 800, color: "#d97706", textTransform: "uppercase" }}>
+                          Next Up (Part {activeLessonIndex + 2})
+                        </span>
+                        <strong style={{ display: "block", fontSize: "0.88rem", color: "#1c1917" }}>
+                          {nextLesson.title}
+                        </strong>
+                        <span style={{ fontSize: "0.76rem", color: "#78716c" }}>
+                          {nextLesson.durationSec ? `${Math.ceil(nextLesson.durationSec / 60)} min` : "15 min"} • Video
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCelebrationOpen(false);
+                        setSelectedMediaId(nextLesson.id);
+                        setActiveTab("video");
+                      }}
+                      className={styles.btnPrimaryOrange}
+                    >
+                      Start Part {activeLessonIndex + 2} &rarr;
+                    </button>
+                  </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>
-      </div>
-      {/* IN-APP PDF READER MODAL */}
-      {viewingPdf && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(15, 23, 42, 0.75)",
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "20px",
-            backdropFilter: "blur(4px)",
-          }}
-          onClick={() => setViewingPdf(null)}
-        >
-          <div
-            style={{
-              backgroundColor: "#ffffff",
-              borderRadius: "14px",
-              width: "100%",
-              maxWidth: "1000px",
-              height: "90vh",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div
-              style={{
-                padding: "14px 20px",
-                borderBottom: "1px solid var(--border-light, #e2e8f0)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                backgroundColor: "#f8fafc",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                    {viewingPdf.title}
-                  </h3>
-                  <span style={{ fontSize: "0.75rem", color: "#16a34a", fontWeight: 600 }}>
-                    ✓ Marked as Read
-                  </span>
-                </div>
+      )}
+
+      {/* =====================================================================
+          SCREEN 9: SLIDE-OVER MODULE LESSON DRAWER
+          ===================================================================== */}
+      {isDrawerOpen && (
+        <>
+          <div className={styles.drawerBackdrop} onClick={() => setIsDrawerOpen(false)} />
+          <aside className={styles.slideOverDrawer} aria-label="Module Lessons Drawer">
+            <div className={styles.drawerHeader}>
+              <div>
+                <h3 className={styles.drawerTitle}>Step {step?.sequence}: {step?.title}</h3>
+                <span className={styles.drawerSubtitle}>
+                  {completedLessonsCount} of {totalLessonsCount} lessons completed
+                </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <a
-                  href={viewingPdf.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: "var(--accent-primary, #0284c7)",
-                    textDecoration: "none",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <span>Open in New Tab</span>
-                  <span>↗</span>
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setViewingPdf(null)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    fontSize: "1.4rem",
-                    color: "#64748b",
-                    cursor: "pointer",
-                    padding: "0 4px",
-                    lineHeight: 1,
-                  }}
-                  aria-label="Close PDF Viewer"
-                >
-                  &times;
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className={styles.drawerCloseBtn}
+                title="Close Drawer"
+              >
+                ✕
+              </button>
             </div>
 
-            {/* Modal Body: Embedded PDF iframe */}
-            <div style={{ flex: 1, width: "100%", height: "100%", background: "#525659" }}>
-              <iframe
-                src={viewingPdf.url}
-                title={viewingPdf.title}
-                style={{ width: "100%", height: "100%", border: "none" }}
-              />
+            <div className={styles.drawerProgressBar}>
+              <div className={styles.moduleProgressFill} style={{ width: `${calculatedStepPercent}%` }} />
             </div>
-          </div>
-        </div>
+
+            <div className={styles.drawerLessonList}>
+              {allLessons.map((l: any, idx: number) => {
+                const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
+                const isCurrent = currentMedia?.id === l.id;
+                const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
+
+                return (
+                  <div
+                    key={l.id}
+                    onClick={() => {
+                      if (!isLocked) {
+                        setSelectedMediaId(l.id);
+                        setActiveTab("video");
+                        setIsDrawerOpen(false);
+                      }
+                    }}
+                    className={`${styles.lessonCardRow} ${isCurrent ? styles.lessonCardActive : ""}`}
+                    style={{ padding: "0.75rem 1rem", cursor: isLocked ? "not-allowed" : "pointer", opacity: isLocked ? 0.6 : 1 }}
+                  >
+                    <div className={styles.lessonCardLeft}>
+                      <div
+                        className={`${styles.lessonPlayCircle} ${
+                          isDone
+                            ? styles.lessonPlayCircleDone
+                            : isCurrent
+                            ? styles.lessonPlayCircleActive
+                            : styles.lessonPlayCircleLocked
+                        }`}
+                        style={{ width: 30, height: 30, fontSize: "0.75rem" }}
+                      >
+                        {isDone ? "✓" : "▶"}
+                      </div>
+                      <div className={styles.lessonTitleMeta}>
+                        <h5 className={styles.lessonRowTitle} style={{ fontSize: "0.85rem" }}>{l.title}</h5>
+                        <span className={styles.lessonRowMeta} style={{ fontSize: "0.74rem" }}>
+                          {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "15 min"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      {isDone ? (
+                        <span className={styles.lessonDoneCheck} style={{ fontSize: "0.95rem" }}>✓</span>
+                      ) : isCurrent ? (
+                        <span style={{ color: "#d97706", fontSize: "0.85rem" }}>▶</span>
+                      ) : isLocked ? (
+                        <span style={{ color: "#9ca3af", fontSize: "0.85rem" }}>🔒</span>
+                      ) : (
+                        <span style={{ color: "#d97706", fontSize: "0.78rem", fontWeight: 700 }}>Open</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        </>
       )}
     </div>
   );

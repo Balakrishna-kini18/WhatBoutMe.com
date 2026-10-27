@@ -185,7 +185,7 @@ export class ContactController {
       return {
         success: true,
         inquiryType: 'COURSE',
-        leadId: lead.id,
+        leadId: lead?.id,
         courseId,
         courseTitle,
         triggerDiscoveryCall: true,
@@ -282,9 +282,26 @@ export class ContactController {
         );
     }
 
+    // Also save as Lead in DB so it surfaces in Admin CRM (apps/admin/app/leads/page.tsx)
+    const lead = await this.prisma.lead.create({
+      data: {
+        name,
+        email,
+        phone,
+        message: [
+          `[General Enquiry - WhatsApp]`,
+          message ? message : null,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        status: LeadStatus.NEW,
+      },
+    });
+
     return {
       success: true,
       inquiryType: 'GENERAL',
+      leadId: lead?.id,
       conversationId: conversation.id,
       message: 'Your message has been sent to our team. We will respond shortly.',
     };

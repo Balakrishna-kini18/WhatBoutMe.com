@@ -6,14 +6,23 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ShieldAlert } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField, { FIELD } from "@/components/site/PasswordField";
-import GoogleButton, { GOOGLE_NOT_READY } from "@/components/site/GoogleButton";
 import { continueToPortal, signIn, signOut } from "@/lib/auth";
+import {
+  buildAuthHref,
+  clearEnrollmentIntent,
+  extractRedirectParam,
+  peekEnrollmentIntent,
+  saveEnrollmentIntent,
+} from "@/lib/auth-redirect";
 
 type Method = "email" | "mobile";
 
-// whether the visitor was sent here on the way to the LMS portal (?portal=...)
+// whether the visitor was sent here on the way to the LMS portal (?redirect=... / ?portal=...)
 const subscribe = () => () => {};
-const headingForPortal = () => new URLSearchParams(window.location.search).has("portal");
+const headingForPortal = () => {
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(extractRedirectParam(params) || peekEnrollmentIntent());
+};
 const notForPortal = () => false;
 
 export default function LoginPage() {
@@ -25,23 +34,42 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [deviceConflict, setDeviceConflict] = useState(false);
+  const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
   const forPortal = useSyncExternalStore(subscribe, headingForPortal, notForPortal);
 
   // The learner portal has no sign-in of its own and sends people here.
-  // "signout" finishes a sign-out started there; "portal" returns a learner
+  // "signout" finishes a sign-out started there; "portal"/"redirect" returns a learner
   // who is already signed in on this site straight back.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const reason = params.get("reason");
+    const redirectFromUrl = extractRedirectParam(params);
+
+    if (redirectFromUrl) {
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      setActiveRedirect(redirectFromUrl);
+    } else {
+      const stored = peekEnrollmentIntent();
+      if (stored?.returnUrl) {
+        setActiveRedirect(stored.returnUrl);
+      }
+    }
+
     if (reason === "DEVICE_LIMIT_EXCEEDED" || reason === "device_limit_exceeded") {
       setDeviceConflict(true);
       signOut();
-      window.history.replaceState(null, "", "/login");
+      window.history.replaceState(
+        null,
+        "",
+        redirectFromUrl ? buildAuthHref("/login", redirectFromUrl) : "/login",
+      );
     } else if (params.has("signout")) {
       signOut();
+      clearEnrollmentIntent();
+      setActiveRedirect(null);
       window.history.replaceState(null, "", "/login");
     } else if (localStorage.getItem("wbm_user")) {
-      continueToPortal();
+      continueToPortal(redirectFromUrl);
     }
   }, []);
 
@@ -51,8 +79,8 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await signIn(method === "email" ? email : mobile, password);
-      // sent here by the learner portal: go back to it, now signed in
-      if (!continueToPortal()) router.push("/");
+      // sent here by course enrollment or the learner portal: go back to it, now signed in
+      if (!continueToPortal(activeRedirect)) router.push("/");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not sign in.";
       // the API words its rejection for email; say "mobile number" on that tab
@@ -166,7 +194,7 @@ export default function LoginPage() {
               Password
             </label>
             <Link
-              href="/forgot-password"
+              href={buildAuthHref("/forgot-password", activeRedirect)}
               className="text-xs font-semibold text-gold-deep hover:underline"
             >
               Forgot password?
@@ -195,11 +223,12 @@ export default function LoginPage() {
         </button>
       </form>
 
-      <GoogleButton onClick={() => setError(GOOGLE_NOT_READY)} />
-
-      <p className="mt-5 text-center text-sm text-ink-soft">
+      <p className="mt-6 text-center text-sm text-ink-soft">
         Don&apos;t have an account?{" "}
-        <Link href="/signup" className="font-semibold text-gold-deep hover:underline">
+        <Link
+          href={buildAuthHref("/signup", activeRedirect)}
+          className="font-semibold text-gold-deep hover:underline"
+        >
           Sign up
         </Link>
       </p>

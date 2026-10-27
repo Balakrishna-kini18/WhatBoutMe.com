@@ -5,7 +5,7 @@ import Image from "next/image";
 import styles from "../../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage, cachedFetch } from "../../lib/api";
-import { StatusBadge, CustomSelect, type CustomSelectOption, ConfirmDialog, useToast } from "../../components";
+import { StatusBadge, CustomSelect, type CustomSelectOption, ConfirmDialog, useToast, AgreementMarkdown } from "../../components";
 
 const ENROLMENT_STATUS_OPTIONS: CustomSelectOption[] = [
   { value: "ALL", label: "Enrolment: All" },
@@ -123,66 +123,6 @@ interface SignedRecord {
   }>;
 }
 
-function renderAgreementMarkdown(text: string) {
-  if (!text) return null;
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  let currentList: string[] = [];
-
-  const flushList = (key: string | number) => {
-    if (currentList.length > 0) {
-      elements.push(
-        <ul key={`ul-${key}`} style={{ paddingLeft: "1.25rem", margin: "0.5rem 0", color: "var(--text-primary)" }}>
-          {currentList.map((item, idx) => (
-            <li key={idx} style={{ marginBottom: "0.35rem", lineHeight: 1.6 }}>{item}</li>
-          ))}
-        </ul>
-      );
-      currentList = [];
-    }
-  };
-
-  lines.forEach((line, idx) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("# ")) {
-      flushList(idx);
-      elements.push(
-        <h3 key={idx} style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "1.25rem", fontWeight: 700, margin: "1rem 0 0.5rem", color: "var(--text-primary)", borderBottom: "1px solid var(--border-light, #e7decb)", paddingBottom: "0.35rem" }}>
-          {trimmed.replace(/^#\s+/, "")}
-        </h3>
-      );
-    } else if (trimmed.startsWith("## ")) {
-      flushList(idx);
-      elements.push(
-        <h4 key={idx} style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "1.05rem", fontWeight: 600, margin: "0.85rem 0 0.4rem", color: "var(--text-primary)" }}>
-          {trimmed.replace(/^##\s+/, "")}
-        </h4>
-      );
-    } else if (trimmed.startsWith("### ")) {
-      flushList(idx);
-      elements.push(
-        <h5 key={idx} style={{ fontSize: "0.95rem", fontWeight: 600, margin: "0.75rem 0 0.35rem", color: "var(--text-primary)" }}>
-          {trimmed.replace(/^###\s+/, "")}
-        </h5>
-      );
-    } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-      currentList.push(trimmed.replace(/^[-*]\s+/, ""));
-    } else if (trimmed.length === 0) {
-      flushList(idx);
-    } else {
-      flushList(idx);
-      elements.push(
-        <p key={idx} style={{ margin: "0.45rem 0", lineHeight: 1.65, color: "var(--text-primary)", fontSize: "0.88rem" }}>
-          {trimmed}
-        </p>
-      );
-    }
-  });
-
-  flushList(lines.length);
-  return elements;
-}
-
 export default function AgreementTemplateDetailPage({
   params,
 }: {
@@ -214,6 +154,8 @@ export default function AgreementTemplateDetailPage({
   const [newVersionContent, setNewVersionContent] = useState("");
   const [newVersionChangelog, setNewVersionChangelog] = useState("");
   const [publishNewVersion, setPublishNewVersion] = useState(false);
+  const [versionEditorTab, setVersionEditorTab] = useState<"edit" | "preview">("edit");
+  const [versionInlineError, setVersionInlineError] = useState<string | null>(null);
 
   // Edit template info modal
   const [isEditTemplateModalOpen, setIsEditTemplateModalOpen] = useState(false);
@@ -355,6 +297,18 @@ export default function AgreementTemplateDetailPage({
     }
   };
 
+  // Deep-link auto-open for signed records (e.g. ?signedId=uuid)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const targetSignedId = searchParams.get('signedId');
+      if (targetSignedId) {
+        setActiveTab('signed');
+        handleOpenSignedDetails({ id: targetSignedId } as any);
+      }
+    }
+  }, [templateId]);
+
   const fetchTemplateData = async () => {
     setIsLoading(true);
     setStatusMsg(null);
@@ -427,11 +381,36 @@ export default function AgreementTemplateDetailPage({
 
   const handleCreateVersion = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newVersionString.trim() || !newVersionContent.trim()) {
-      setStatusMsg({ type: "error", text: "Version string and content are required." });
+    if (isSubmitting) return;
+
+    const trimmedVersion = newVersionString.trim();
+    const trimmedContent = newVersionContent.trim();
+
+    if (!trimmedVersion) {
+      setVersionInlineError("Please enter a version number.");
       return;
     }
 
+    if (!/^v?\d+(\.\d+)*$/i.test(trimmedVersion)) {
+      setVersionInlineError('Version must be formatted like "v1.0", "v2.0", "1.0", or "v1.1".');
+      return;
+    }
+
+    // Client-side case-insensitive duplicate check against existing versions
+    const isDuplicate = versions.some(
+      (v) => v.version.trim().toLowerCase() === trimmedVersion.toLowerCase()
+    );
+    if (isDuplicate) {
+      setVersionInlineError("This version already exists. Please enter a different version number.");
+      return;
+    }
+
+    if (!trimmedContent || trimmedContent.length < 10) {
+      toast.error("Agreement terms must be at least 10 characters long.");
+      return;
+    }
+
+    setVersionInlineError(null);
     setIsSubmitting(true);
     setStatusMsg(null);
     try {
@@ -443,27 +422,42 @@ export default function AgreementTemplateDetailPage({
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          version: newVersionString.trim(),
-          content: newVersionContent.trim(),
+          version: trimmedVersion,
+          content: trimmedContent,
           changelog: newVersionChangelog.trim() || undefined,
           status: publishNewVersion ? "PUBLISHED" : "DRAFT",
         }),
       });
 
       if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to create agreement version"));
+        const errorText = await errorMessage(res, "Failed to create agreement version");
+        if (
+          res.status === 409 ||
+          (res.status === 400 && /already exists/i.test(errorText)) ||
+          /already exists/i.test(errorText)
+        ) {
+          setVersionInlineError("This version already exists. Please enter a different version number.");
+          return;
+        }
+        throw new Error(errorText);
       }
 
       setIsVersionModalOpen(false);
+      toast.success(
+        publishNewVersion
+          ? `Version ${trimmedVersion} published live.`
+          : `Version ${trimmedVersion} saved as draft.`
+      );
       setStatusMsg({
         type: "success",
         text: publishNewVersion
-          ? `Version ${newVersionString.trim()} published live.`
-          : `Version ${newVersionString.trim()} saved as draft.`,
+          ? `Version ${trimmedVersion} published live.`
+          : `Version ${trimmedVersion} saved as draft.`,
       });
       await fetchTemplateData();
     } catch (err: any) {
       console.error(err);
+      toast.error(err.message || "Failed to create version");
       setStatusMsg({ type: "error", text: err.message || "Failed to create version" });
     } finally {
       setIsSubmitting(false);
@@ -544,11 +538,19 @@ export default function AgreementTemplateDetailPage({
     setStatusMsg(null);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      // A plain <a href> cannot carry the bearer token, so fetch the bytes and
-      // hand them to the browser as an object URL.
-      const res = await fetch(
+      const rawFetch =
+        typeof window !== "undefined" && (window as any).__rawOriginalFetch
+          ? (window as any).__rawOriginalFetch
+          : fetch;
+      // Fetch the binary PDF bytes directly from the API endpoint
+      const res = await rawFetch(
         `${API_URL}/admin/agreement-templates/${templateId}/signed/${rec.id}/pdf`,
-        { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } },
+        {
+          headers: {
+            Accept: "application/pdf",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
       );
 
       if (!res.ok) {
@@ -638,7 +640,7 @@ export default function AgreementTemplateDetailPage({
               <span>Agreements</span>
             </Link>
             <span style={{ color: "var(--border-dark, #c4b5a0)", fontSize: "0.8rem" }}>/</span>
-            <span style={{ color: "var(--text-secondary, #78716c)", fontSize: "0.8rem", fontWeight: 500 }}>Contract Governance</span>
+            <span style={{ color: "var(--text-secondary, #78716c)", fontSize: "0.8rem", fontWeight: 500 }}>Agreement Governance</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
             <h1 className={styles.title} style={{ margin: 0 }}>{template.title}</h1>
@@ -687,10 +689,17 @@ export default function AgreementTemplateDetailPage({
             onClick={() => {
               const lastV = versions[0]?.version || "v1.0";
               const nextNum = (parseFloat(lastV.replace(/[^0-9.]/g, "")) || 1) + 1;
-              setNewVersionString(`v${nextNum}.0`);
+              const suggested = `v${nextNum}.0`;
+              setNewVersionString(suggested);
               setNewVersionContent(versions[0]?.content || "");
               setNewVersionChangelog("");
               setPublishNewVersion(false);
+              setVersionEditorTab("edit");
+              if (versions.some((v) => v.version.trim().toLowerCase() === suggested.toLowerCase())) {
+                setVersionInlineError("This version already exists. Please enter a different version number.");
+              } else {
+                setVersionInlineError(null);
+              }
               setIsVersionModalOpen(true);
             }}
             title="The only path to legally binding changes — drafts and publishes new terms"
@@ -866,7 +875,7 @@ export default function AgreementTemplateDetailPage({
                 Auditable log of learners who consented and signed this agreement, captured with immutable timestamp, IP address, and digital signature.
                 {isSharedDefault && (
                   <span style={{ display: "inline-block", marginLeft: "0.4rem", color: "#92400e", fontWeight: 500 }}>
-                    (Platform fallback contract preserving individual program attribution)
+                    (Platform fallback agreement preserving individual program attribution)
                   </span>
                 )}
               </p>
@@ -1167,7 +1176,7 @@ export default function AgreementTemplateDetailPage({
               <thead>
                 <tr>
                   <th>Learner</th>
-                  <th>Enrolled Program / Course</th>
+                  <th>Enrolled Program</th>
                   <th>Signed By / Method</th>
                   <th>Agreement Version</th>
                   <th>Signed On</th>
@@ -1215,10 +1224,10 @@ export default function AgreementTemplateDetailPage({
                               </svg>
                             </div>
                             <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", margin: "0 0 0.4rem 0" }}>
-                              No Completed Enrollments Yet
+                              No Completed Enrolments Yet
                             </h3>
                             <p style={{ fontSize: "0.84rem", color: "var(--text-secondary)", margin: "0 0 1.25rem 0", lineHeight: 1.6 }}>
-                              When learners consent to this agreement and complete checkout confirmation, their verified enrollments and legal certificates appear here.
+                              When learners consent to this agreement and complete checkout confirmation, their verified enrolments and legal certificates appear here.
                             </p>
                             {signedCounts.pendingPayment > 0 && (
                               <button
@@ -1634,7 +1643,6 @@ export default function AgreementTemplateDetailPage({
             <div className={styles.modalHeader}>
               <div>
                 <h2>Create New Agreement Version</h2>
-                <p className={styles.modalIntro}>Draft updated legal terms for this curriculum without affecting past signed records</p>
               </div>
               <button
                 type="button"
@@ -1654,23 +1662,42 @@ export default function AgreementTemplateDetailPage({
               <div className={styles.formRow}>
                 <div className={styles.formGroup} style={{ flex: 1 }}>
                   <label>
-                    New Version <span style={{ color: "#ef4444" }}>*</span>
+                    Version <span style={{ color: "#ef4444" }}>*</span>
                   </label>
                   <input
                     type="text"
                     placeholder="e.g. v2.0"
                     value={newVersionString}
-                    onChange={(e) => setNewVersionString(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNewVersionString(val);
+                      const trimmed = val.trim();
+                      if (trimmed && versions.some((v) => v.version.trim().toLowerCase() === trimmed.toLowerCase())) {
+                        setVersionInlineError("This version already exists. Please enter a different version number.");
+                      } else if (trimmed && !/^v?\d+(\.\d+)*$/i.test(trimmed)) {
+                        setVersionInlineError('Version must be formatted like "v1.0", "v2.0", "1.0", or "v1.1".');
+                      } else {
+                        setVersionInlineError(null);
+                      }
+                    }}
+                    style={{
+                      borderColor: versionInlineError ? "#ef4444" : undefined,
+                    }}
                     required
                   />
+                  {versionInlineError && (
+                    <span style={{ color: "#ef4444", fontSize: "0.78rem", marginTop: "4px", display: "block" }}>
+                      {versionInlineError}
+                    </span>
+                  )}
                 </div>
                 <div className={styles.formGroup} style={{ flex: 2 }}>
                   <label>
-                    Changelog / Revision Summary <span className={styles.optionalLabel}>(Optional)</span>
+                    Change summary <span className={styles.optionalLabel}>(optional)</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="Brief explanation of what changed in this version"
+                    placeholder="e.g. Updated refund and confidentiality clauses"
                     value={newVersionChangelog}
                     onChange={(e) => setNewVersionChangelog(e.target.value)}
                   />
@@ -1678,35 +1705,95 @@ export default function AgreementTemplateDetailPage({
               </div>
 
               <div className={styles.formGroup}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "4px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                   <label style={{ margin: 0 }}>
-                    Agreement Terms &amp; Conditions <span style={{ color: "#ef4444" }}>*</span>
+                    Agreement Terms <span style={{ color: "#ef4444" }}>*</span>
                   </label>
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    Markdown supported (# Headings, - Bullets)
-                  </span>
+                  <div style={{ display: "inline-flex", background: "var(--bg-soft, #f7f3ec)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setVersionEditorTab("edit")}
+                      style={{
+                        border: "none",
+                        background: versionEditorTab === "edit" ? "#ffffff" : "transparent",
+                        color: versionEditorTab === "edit" ? "var(--text-primary)" : "var(--text-secondary)",
+                        padding: "4px 10px",
+                        borderRadius: "4px",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        boxShadow: versionEditorTab === "edit" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                      }}
+                    >
+                      Edit Markdown
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVersionEditorTab("preview")}
+                      style={{
+                        border: "none",
+                        background: versionEditorTab === "preview" ? "#ffffff" : "transparent",
+                        color: versionEditorTab === "preview" ? "var(--text-primary)" : "var(--text-secondary)",
+                        padding: "4px 10px",
+                        borderRadius: "4px",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        boxShadow: versionEditorTab === "preview" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                      }}
+                    >
+                      Preview
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  rows={8}
-                  value={newVersionContent}
-                  onChange={(e) => setNewVersionContent(e.target.value)}
-                  placeholder="Enter revised legal terms..."
-                  required
-                  style={{
-                    fontFamily: "var(--font-sans), system-ui, sans-serif",
-                    fontSize: "0.88rem",
-                    lineHeight: "1.6",
-                    padding: "0.75rem 1rem",
-                    minHeight: "160px",
-                  }}
-                />
+
+                {versionEditorTab === "edit" ? (
+                  <textarea
+                    rows={8}
+                    value={newVersionContent}
+                    onChange={(e) => setNewVersionContent(e.target.value)}
+                    placeholder="Enter revised legal terms in Markdown format (# Headings, - Bullets, **Bold**)..."
+                    required
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: "0.85rem",
+                      lineHeight: "1.6",
+                      padding: "0.75rem 1rem",
+                      minHeight: "170px",
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      background: "#ffffff",
+                      border: "1px solid var(--border-light, #E7E0D6)",
+                      borderRadius: "8px",
+                      padding: "1rem 1.25rem",
+                      minHeight: "170px",
+                      maxHeight: "260px",
+                      overflowY: "auto",
+                      fontSize: "0.88rem",
+                      lineHeight: 1.65,
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {newVersionContent.trim() ? (
+                      <AgreementMarkdown content={newVersionContent} />
+                    ) : (
+                      <p style={{ color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                        No content entered yet. Switch to &ldquo;Edit Markdown&rdquo; to add agreement text.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.74rem", color: "var(--text-muted)", marginTop: "4px" }}>
                   <span>{newVersionContent.trim() ? newVersionContent.trim().split(/\s+/).filter(Boolean).length : 0} words</span>
                   <span>{newVersionContent.length} characters</span>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", margin: "0.25rem 0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", margin: "0.35rem 0" }}>
                 <input
                   type="checkbox"
                   id="publishNewVersion"
@@ -1715,7 +1802,7 @@ export default function AgreementTemplateDetailPage({
                   style={{ width: "16px", height: "16px", cursor: "pointer", accentColor: "var(--accent-primary)" }}
                 />
                 <label htmlFor="publishNewVersion" style={{ fontSize: "0.85rem", fontWeight: 500, cursor: "pointer", color: "var(--text-primary)" }}>
-                  Publish immediately (makes this version active and archives previous published version)
+                  Publish immediately and archive the previous version
                 </label>
               </div>
 
@@ -1731,9 +1818,13 @@ export default function AgreementTemplateDetailPage({
                 <button
                   type="submit"
                   className={styles.primaryBtn}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || Boolean(versionInlineError)}
                 >
-                  {isSubmitting ? "Creating..." : publishNewVersion ? "Publish Live" : "Save as Draft"}
+                  {isSubmitting
+                    ? "Saving..."
+                    : publishNewVersion
+                      ? "Publish Version"
+                      : "Save Draft"}
                 </button>
               </div>
             </form>
@@ -1825,7 +1916,7 @@ export default function AgreementTemplateDetailPage({
                   {viewingVersion.content}
                 </pre>
               ) : (
-                renderAgreementMarkdown(viewingVersion.content)
+                <AgreementMarkdown content={viewingVersion.content} />
               )}
             </div>
 
@@ -1860,10 +1951,17 @@ export default function AgreementTemplateDetailPage({
                 onClick={() => {
                   const lastV = viewingVersion.version;
                   const nextNum = (parseFloat(lastV.replace(/[^0-9.]/g, "")) || 1) + 1;
-                  setNewVersionString(`v${nextNum}.0`);
+                  const suggested = `v${nextNum}.0`;
+                  setNewVersionString(suggested);
                   setNewVersionContent(viewingVersion.content);
                   setNewVersionChangelog(`Branched from ${viewingVersion.version}`);
                   setPublishNewVersion(false);
+                  setVersionEditorTab("edit");
+                  if (versions.some((v) => v.version.trim().toLowerCase() === suggested.toLowerCase())) {
+                    setVersionInlineError("This version already exists. Please enter a different version number.");
+                  } else {
+                    setVersionInlineError(null);
+                  }
                   setViewingVersion(null);
                   setIsVersionModalOpen(true);
                 }}
@@ -2073,7 +2171,7 @@ export default function AgreementTemplateDetailPage({
 
               <div>
                 <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600, marginBottom: "2px" }}>
-                  Enrolled Program / Course
+                  Enrolled Program
                 </span>
                 <strong style={{ color: "var(--text-primary)" }}>
                   {previewSignatureModal.programTitle || previewSignatureModal.program?.title || "Program"}
@@ -2096,10 +2194,10 @@ export default function AgreementTemplateDetailPage({
 
               <div>
                 <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 600, marginBottom: "2px" }}>
-                  Cohort / Batch
+                  Batch
                 </span>
                 <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
-                  {previewSignatureModal.enrolment?.batch?.name || "Standard Enrollment"}
+                  {previewSignatureModal.enrolment?.batch?.name || "Standard Enrolment"}
                 </span>
               </div>
 
@@ -2182,7 +2280,7 @@ export default function AgreementTemplateDetailPage({
             >
               <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--text-primary)", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                <span>Payment &amp; Course Access Verification</span>
+                <span>Payment &amp; Program Access Verification</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem 1.25rem" }}>
                 <div>
@@ -2192,7 +2290,7 @@ export default function AgreementTemplateDetailPage({
                   </strong>
                 </div>
                 <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", display: "block" }}>Course Access Gate:</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", display: "block" }}>Program Access Gate:</span>
                   <strong style={{ color: previewSignatureModal.enrolmentStatus === "ACTIVE" ? "#15803d" : "#dc2626" }}>
                     {previewSignatureModal.enrolmentStatus === "ACTIVE" ? "UNLOCKED (Enrolment Active)" : "LOCKED (Payment/Agreement Required)"}
                   </strong>
@@ -2306,7 +2404,7 @@ export default function AgreementTemplateDetailPage({
                   rows={3}
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
-                  placeholder="Summary of what this contract governs or cohort specifications"
+                  placeholder="Summary of what this agreement governs or batch specifications"
                 />
               </div>
 

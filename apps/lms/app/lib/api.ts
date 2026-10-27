@@ -132,12 +132,77 @@ export function invalidateTags(tags: string[]): number {
 
 export function clearApiCache(): void {
   apiCache.clear();
+  inFlightRequests.clear();
+}
+
+export function clearApiCacheOnLogout(): void {
+  clearApiCache();
+}
+
+// One renewal at a time, shared by every request that hits an expired token
+let renewing: Promise<string | "signed-out" | null> | null = null;
+export function renewOnce(
+  rawFetch?: typeof fetch,
+  failedToken?: string | null
+): Promise<string | "signed-out" | null> {
+  const fetchFn =
+    rawFetch ||
+    (typeof window !== "undefined" && (window as any).__rawOriginalFetch
+      ? (window as any).__rawOriginalFetch
+      : fetch);
+
+  const current = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  if (current && failedToken && current !== failedToken) {
+    return Promise.resolve(current);
+  }
+
+  if (!renewing) {
+    renewing = (async () => {
+      const refreshToken =
+        typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
+      if (!refreshToken) return "signed-out" as const;
+
+      try {
+        const res = await fetchFn(`${API_URL}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const newToken = data.access_token as string;
+          if (typeof window !== "undefined" && newToken) {
+            localStorage.setItem("token", newToken);
+            if (data.refresh_token) {
+              localStorage.setItem("refresh_token", data.refresh_token);
+            }
+          }
+          return newToken || null;
+        }
+
+        return res.status === 401 ? ("signed-out" as const) : null;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      renewing = null;
+    });
+  }
+
+  return renewing;
 }
 
 /**
  * Automatically purges cached GET responses when mutating endpoints are called.
  */
 export function autoInvalidateOnMutation(url: string): void {
+  // Routine playback telemetry heartbeats must NEVER flush the cache.
+  // Cache is explicitly invalidated on completion (/complete) or quiz submission.
+  if (url.includes("/heartbeat")) {
+    return;
+  }
+
   const resources = [
     "sessions",
     "bookings",
@@ -167,6 +232,7 @@ export function autoInvalidateOnMutation(url: string): void {
         invalidateCache("/progress");
         invalidateCache("/quizzes");
         invalidateCache("/certificates");
+        invalidateCache("/auth");
       }
       if (r === "certificates") {
         invalidateCache("/certificates");
@@ -174,9 +240,18 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "agreements") {
         invalidateCache("/agreements");
         invalidateCache("/progression");
+        invalidateCache("/auth");
       }
       break;
     }
+  }
+
+  if (url.includes("/complete") || url.includes("/submit")) {
+    invalidateCache("/progression");
+    invalidateCache("/progress");
+    invalidateCache("/quizzes");
+    invalidateCache("/certificates");
+    invalidateCache("/auth");
   }
 }
 
@@ -275,6 +350,16 @@ export function logSlowApiCall(
   }
 }
 
+function createSafeJsonResponse(bodyText: string, init: ResponseInit): Response {
+  const response = new Response(bodyText, init);
+  const origJson = response.json.bind(response);
+  response.json = async () => {
+    if (!bodyText || !bodyText.trim()) return null;
+    return origJson();
+  };
+  return response;
+}
+
 /**
  * Upgraded fetch with:
  * 1. In-flight request deduplication for identical concurrent GET requests
@@ -295,7 +380,7 @@ export async function cachedFetch(
   const isGet = method === "GET";
   const skipCache = init?.skipCache ?? false;
   const ttlMs = init?.ttlMs ?? 60_000; // 60s default cache TTL
-  const timeoutMs = init?.timeoutMs ?? 15_000; // 15s default request timeout
+  const timeoutMs = init?.timeoutMs ?? (isGet ? 30_000 : 60_000); // 60s default for mutations, 30s for GET
 
   // Auto-bust cache on mutations
   if (!isGet) {
@@ -313,7 +398,7 @@ export async function cachedFetch(
         // Fresh hit: touch LRU order and serve immediately without network round trip
         apiCache.delete(cacheKey);
         apiCache.set(cacheKey, cached);
-        return new Response(cached.bodyText, {
+        return createSafeJsonResponse(cached.bodyText, {
           status: cached.status,
           statusText: cached.statusText,
           headers: new Headers(cached.headers),
@@ -323,7 +408,7 @@ export async function cachedFetch(
         apiCache.delete(cacheKey);
         apiCache.set(cacheKey, cached);
         triggerBackgroundRevalidate(url, init, cacheKey, ttlMs, timeoutMs);
-        return new Response(cached.bodyText, {
+        return createSafeJsonResponse(cached.bodyText, {
           status: cached.status,
           statusText: cached.statusText,
           headers: new Headers(cached.headers),
@@ -341,7 +426,7 @@ export async function cachedFetch(
     const resPayload = await inFlight;
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
-    return new Response(resPayload.bodyText, {
+    return createSafeJsonResponse(resPayload.bodyText, {
       status: resPayload.status,
       statusText: resPayload.statusText,
       headers: new Headers(resPayload.headers),
@@ -382,8 +467,52 @@ export async function cachedFetch(
           ? (window as any).__rawOriginalFetch
           : fetch;
 
-      const res = await rawFetch(url, { ...init, signal: abortController.signal });
+      let res = await rawFetch(url, { ...init, signal: abortController.signal });
       clearTimeout(timeoutTimer);
+
+      // Handle transparent 401 token refresh for authenticated requests
+      const isAuthRoute = /\/auth\/(login|signup|admin-login|refresh)/.test(url);
+      if (res.status === 401 && !isAuthRoute && typeof window !== "undefined") {
+        const currentToken = localStorage.getItem("token");
+        const renewedToken = await renewOnce(rawFetch, currentToken);
+
+        if (renewedToken && renewedToken !== "signed-out") {
+          const retryHeaders = new Headers(init?.headers);
+          retryHeaders.set("Authorization", `Bearer ${renewedToken}`);
+          res = await rawFetch(url, { ...init, headers: retryHeaders, signal: abortController.signal });
+        } else if (renewedToken === "signed-out") {
+          try {
+            const clone = res.clone();
+            const errData = await clone.json();
+            const errCode = typeof errData.error === "string" ? errData.error : errData.error?.code;
+            const errReason = errData.reason || errData.error?.reason;
+            if (errCode === "SESSION_REVOKED") {
+              localStorage.removeItem("token");
+              localStorage.removeItem("refresh_token");
+              localStorage.removeItem("user");
+              clearApiCache();
+              window.dispatchEvent(
+                new CustomEvent("wbm-session-revoked", {
+                  detail: { reason: errReason || "SESSION_REVOKED" },
+                })
+              );
+              return {
+                bodyText: JSON.stringify(errData),
+                status: 401,
+                statusText: "Unauthorized",
+                headers: [],
+              };
+            }
+          } catch {}
+          localStorage.removeItem("token");
+          localStorage.removeItem("refresh_token");
+          localStorage.removeItem("user");
+          clearApiCache();
+          if (window.location.pathname !== "/login") {
+            window.location.href = "/login";
+          }
+        }
+      }
 
       const clone = res.clone();
       const bodyText = await clone.text();
@@ -437,7 +566,7 @@ export async function cachedFetch(
   const result = await fetchPromise;
   const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
   logSlowApiCall(method, url, result.status, durationMs, result.headers, "Network");
-  return new Response(result.bodyText, {
+  return createSafeJsonResponse(result.bodyText, {
     status: result.status,
     statusText: result.statusText,
     headers: new Headers(result.headers),
@@ -450,10 +579,11 @@ export async function cachedFetch(
  * 15s AbortController timeouts, and dev-mode slow API console profiling.
  */
 if (typeof window !== "undefined") {
-  if (!(window as any).__apiFetchPatched) {
+  if (!(window as any).__apiFetchPatched && !(window as any).__fetchPatched) {
     (window as any).__rawOriginalFetch = window.fetch;
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => cachedFetch(input, init);
     (window as any).__apiFetchPatched = true;
+    (window as any).__fetchPatched = true;
   }
 }
 
@@ -1025,6 +1155,148 @@ export async function updateNotificationPreferences(prefs: Partial<NotificationP
   });
   if (!res.ok) {
     throw new Error('Failed to update notification preferences');
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 4: 1-ON-1 COACHING CALL REQUESTS (LMS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface OneOnOneRequestDto {
+  enrolmentId: string;
+  requestedStart: string;
+  requestedEnd: string;
+  learnerTimezone?: string;
+  notes?: string;
+}
+
+export interface MyOneOnOneRequest {
+  id: string;
+  enrolmentId: string;
+  userId: string;
+  requestedStart: string;
+  requestedEnd: string;
+  learnerTimezone?: string | null;
+  notes?: string | null;
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED" | "EXPIRED";
+  decisionReason?: string | null;
+  session?: {
+    id: string;
+    title: string;
+    startTime: string;
+    endTime: string;
+    joinUrl?: string | null;
+    hostTrainer?: { id: string; name?: string | null; email?: string | null } | null;
+  } | null;
+  enrolment?: {
+    id: string;
+    program?: { id: string; title: string } | null;
+  };
+  createdAt: string;
+}
+
+export async function createOneOnOneRequest(payload: OneOnOneRequestDto): Promise<MyOneOnOneRequest> {
+  const res = await fetch(`${API_URL}/one-on-one/requests`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, 'Failed to submit coaching request');
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function fetchMyOneOnOneRequests(): Promise<MyOneOnOneRequest[]> {
+  const res = await fetch(`${API_URL}/one-on-one/my-requests`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, 'Failed to fetch coaching requests');
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function cancelOneOnOneRequest(id: string): Promise<MyOneOnOneRequest> {
+  const res = await fetch(`${API_URL}/one-on-one/requests/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, 'Failed to cancel coaching request');
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAGE 5: MISSION STATEMENTS (D1-041)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MissionStatementSubmission {
+  id: string;
+  enrolmentId: string;
+  userId: string;
+  version: number;
+  storageKey: string;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  status: "SUBMITTED" | "APPROVED" | "REJECTED";
+  reviewerId?: string | null;
+  reviewedAt?: string | null;
+  feedback?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reviewer?: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+  } | null;
+}
+
+export async function fetchMyMissionStatements(enrolmentId?: string): Promise<MissionStatementSubmission[]> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const url = new URL(`${API_URL}/mission-statements/my-submissions`);
+  if (enrolmentId) {
+    url.searchParams.set("enrolmentId", enrolmentId);
+  }
+  const res = await fetch(url.toString(), {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to fetch mission statement submissions");
+    throw new Error(err.message);
+  }
+  return res.json();
+}
+
+export async function submitMissionStatement(
+  enrolmentId: string,
+  file: File
+): Promise<MissionStatementSubmission> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("enrolmentId", enrolmentId);
+  formData.append("file", file);
+
+  const res = await fetch(`${API_URL}/mission-statements/submit`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await parseApiError(res, "Failed to submit mission statement");
+    throw new Error(err.message);
   }
   return res.json();
 }

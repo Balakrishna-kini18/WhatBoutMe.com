@@ -28,6 +28,12 @@ export class UsersService {
       this.prisma.user.findUnique({
         where: { id },
         include: {
+          managedBatches: {
+            include: {
+              program: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          },
           enrolments: {
             include: {
               batch: {
@@ -39,6 +45,7 @@ export class UsersService {
               signedAgreement: {
                 select: {
                   id: true,
+                  templateId: true,
                   status: true,
                   templateVersion: true,
                   signedAt: true,
@@ -138,15 +145,33 @@ export class UsersService {
           email: true,
           role: true,
           permissions: true,
+          twoFactorEnabled: true,
           createdAt: true,
+          signedAgreements: {
+            select: { id: true, status: true, signedAt: true },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
+          managedBatches: {
+            select: { id: true, name: true },
+          },
           enrolments: {
             select: {
               id: true,
               batchId: true,
               programId: true,
               status: true,
+              createdAt: true,
               batch: { select: { id: true, name: true, programId: true } },
               program: { select: { id: true, title: true } },
+              stepProgress: {
+                select: {
+                  stepId: true,
+                  isUnlocked: true,
+                  isCompleted: true,
+                  step: { select: { sequence: true, title: true } },
+                },
+              },
             },
           },
         },
@@ -155,10 +180,11 @@ export class UsersService {
 
     const enrolments = users.flatMap(u => u.enrolments);
     const enrolmentIds = enrolments.map(e => e.id);
-    const programIds = [...new Set(enrolments.map(e => e.batch?.programId).filter(Boolean))];
+    const programIds = [...new Set(enrolments.map(e => e.programId || e.batch?.programId).filter(Boolean))];
 
-    // 1. Total items (published lessons + quizzes) per program
+    // 1. Total items (published lessons + quizzes) & total steps per program
     const programTotals: Record<string, number> = {};
+    const programTotalSteps: Record<string, number> = {};
     if (programIds.length > 0) {
       const steps = await this.prisma.step.findMany({
         where: {
@@ -167,6 +193,7 @@ export class UsersService {
         },
         select: {
           programId: true,
+          sequence: true,
           lessons: {
             where: { status: 'PUBLISHED' },
             select: { id: true },
@@ -175,6 +202,7 @@ export class UsersService {
         },
       });
       for (const step of steps) {
+        programTotalSteps[step.programId] = (programTotalSteps[step.programId] || 0) + 1;
         programTotals[step.programId] =
           (programTotals[step.programId] || 0) +
           step.lessons.length +
@@ -220,8 +248,13 @@ export class UsersService {
       const primaryEnrolment = user.enrolments.find(e => e.status === EnrolmentStatus.ACTIVE) || user.enrolments[0];
       let progressPct = 0;
 
-      if (primaryEnrolment && primaryEnrolment.batch?.programId) {
-        const totalItems = programTotals[primaryEnrolment.batch.programId] || 0;
+      const isLearner = user.role === Role.USER;
+      const isAgreementSigned = user.signedAgreements?.some((a: any) => a.status === 'SIGNED') || false;
+      const effectiveProgramId = primaryEnrolment ? (primaryEnrolment.programId || primaryEnrolment.batch?.programId) : null;
+      const totalSteps = effectiveProgramId ? (programTotalSteps[effectiveProgramId] || 11) : 11;
+
+      if (primaryEnrolment && effectiveProgramId) {
+        const totalItems = programTotals[effectiveProgramId] || 0;
         const completedItems = Math.min(
           totalItems,
           enrolmentCompletions[primaryEnrolment.id] || 0,
@@ -235,15 +268,54 @@ export class UsersService {
         }
       }
 
+      // Authoritative Unlocked Step Calculation (matching Learner Portal & ProgressionService)
+      let currentStepNumber: number | null = null;
+      let isStepLocked = false;
+      let stepLockReason: string | null = null;
+
+      if (isLearner && primaryEnrolment) {
+        if (primaryEnrolment.status === EnrolmentStatus.PENDING_PAYMENT) {
+          currentStepNumber = null;
+          isStepLocked = true;
+          stepLockReason = 'PAYMENT_REQUIRED';
+        } else if (!isAgreementSigned) {
+          // Digital workshop agreement gate (D1-041): Step 1 locked until signed
+          currentStepNumber = null;
+          isStepLocked = true;
+          stepLockReason = 'AGREEMENT_REQUIRED';
+        } else {
+          // Agreement signed & active: inspect actual stepProgress
+          const stepProgs = (primaryEnrolment as any).stepProgress || [];
+          const unlocked = stepProgs.filter((sp: any) => sp.isUnlocked);
+          const incompleteUnlocked = unlocked.filter((sp: any) => !sp.isCompleted);
+
+          if (incompleteUnlocked.length > 0) {
+            currentStepNumber = Math.min(...incompleteUnlocked.map((sp: any) => sp.step?.sequence || 1));
+          } else if (unlocked.length > 0) {
+            currentStepNumber = Math.max(...unlocked.map((sp: any) => sp.step?.sequence || 1));
+          } else {
+            currentStepNumber = 1;
+          }
+          isStepLocked = false;
+        }
+      }
+
       return {
         id: user.id,
         name: user.name || 'Unknown',
         email: user.email,
         role: user.role,
         permissions: user.permissions || [],
-        status: primaryEnrolment?.status || (user.role === Role.USER ? 'Unenrolled' : 'Active'),
+        status: primaryEnrolment?.status || (isLearner ? 'Unenrolled' : 'Active'),
         progress: `${progressPct}%`,
-        cohort: primaryEnrolment?.batch?.name || 'Unassigned',
+        currentStepNumber,
+        totalSteps: isLearner && primaryEnrolment ? totalSteps : null,
+        isStepLocked,
+        stepLockReason,
+        twoFactorEnabled: Boolean(user.twoFactorEnabled),
+        isAgreementSigned,
+        managedBatches: user.managedBatches || [],
+        cohort: primaryEnrolment?.batch?.name || (isLearner ? 'Unassigned' : null),
         batchId: primaryEnrolment?.batchId || null,
         enrolmentId: primaryEnrolment?.id || null,
         programId: primaryEnrolment?.programId || null,
@@ -254,8 +326,18 @@ export class UsersService {
           programId: e.programId,
           programTitle: e.program?.title || 'Unknown',
           status: e.status,
+          createdAt: e.createdAt,
         })),
-        joined: new Date(user.createdAt).toLocaleDateString(),
+        enrolledAt: primaryEnrolment?.createdAt || null,
+        createdAt: user.createdAt,
+        joined: (() => {
+          const d = new Date(user.createdAt);
+          if (isNaN(d.getTime())) return '—';
+          const dd = String(d.getDate()).padStart(2, '0');
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const yyyy = d.getFullYear();
+          return `${dd}/${mm}/${yyyy}`;
+        })(),
       };
     });
 
@@ -282,7 +364,7 @@ export class UsersService {
 
     const bcrypt = await import('bcryptjs');
     const targetBatchId = data.batchId || data.cohort;
-    const { password, passwordHash, status: _st, batchId: _bid, cohort: _coh, ...userData } = data;
+    const { password, passwordHash, status: _st, batchId: _bid, batchIds: _bids, cohort: _coh, ...userData } = data;
     const plain = password ?? passwordHash;
     if (plain) {
       userData.passwordHash = await bcrypt.hash(plain, 12);
@@ -328,8 +410,17 @@ export class UsersService {
         }
       }
 
+      // Handle multi-batch assignment for Managers during creation
+      if (data.batchIds && Array.isArray(data.batchIds) && data.batchIds.length > 0) {
+        await this.prisma.batch.updateMany({
+          where: { id: { in: data.batchIds } },
+          data: { managerId: created.id },
+        }).catch(() => null);
+      }
+
       await this.cacheHelper.invalidateNamespace('users');
       await this.cacheHelper.invalidateNamespace('enrolments');
+      await this.cacheHelper.invalidateNamespace('batches');
       return created;
     } catch (error: any) {
       if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
@@ -383,7 +474,7 @@ export class UsersService {
       throw new BadRequestException(`Invalid IANA timezone: ${data.timezone}`);
     }
 
-    const { passwordHash: _ph, status: _st, cohort: _co, batchId: _bid, enrolmentId: _eid, progress: _pr, joined: _jo, ...userData } = data;
+    const { passwordHash: _ph, status: _st, cohort: _co, batchId: _bid, batchIds: _bids, enrolmentId: _eid, progress: _pr, joined: _jo, ...userData } = data;
     const bcrypt = await import('bcryptjs');
     if (data.password) {
       userData.passwordHash = await bcrypt.hash(data.password, 12);
@@ -511,6 +602,20 @@ export class UsersService {
         } else if ((currentUser.role as any) === 'MANAGER' || (currentUser.role as any) === Role.TEACHER) {
           await this.prisma.batch.update({
             where: { id: targetBatchId },
+            data: { managerId: id },
+          }).catch(() => null);
+        }
+      }
+
+      // Handle multi-batch assignment for Managers
+      if (data.batchIds && Array.isArray(data.batchIds)) {
+        await this.prisma.batch.updateMany({
+          where: { managerId: id, id: { notIn: data.batchIds } },
+          data: { managerId: null },
+        }).catch(() => null);
+        if (data.batchIds.length > 0) {
+          await this.prisma.batch.updateMany({
+            where: { id: { in: data.batchIds } },
             data: { managerId: id },
           }).catch(() => null);
         }

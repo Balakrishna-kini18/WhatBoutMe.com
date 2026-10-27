@@ -12,43 +12,44 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   async connectToRedis(): Promise<void> {
-    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    const redisUrl = process.env.REDIS_URL || (process.env.REDIS_HOST ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || '6379'}` : undefined);
+    if (!redisUrl) {
+      this.adapterConstructor = null;
+      return;
+    }
     const isRediss = redisUrl.startsWith('rediss://');
     
     const redisOptions = {
       tls: isRediss ? { rejectUnauthorized: false } : undefined,
-      maxRetriesPerRequest: null,
-      retryStrategy: (times: number) => Math.min(times * 100, 3000),
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2000,
+      retryStrategy: (times: number) => (times > 2 ? null : 500),
+      lazyConnect: true,
     };
 
-    // `new Redis(<malformed url>)` can throw SYNCHRONOUSLY during ioredis URL
-    // parsing (same Layer E root cause as redis.service.ts).  The Socket.IO
-    // adapter is OPTIONAL for serverless function operation (next-auth/REST
-    // endpoints work without Redis pub/sub).  Fail silently with a warning
-    // instead of crashing Nest DI / the whole cold start.
     let pubClient: Redis;
     let subClient: Redis;
     try {
       pubClient = new Redis(redisUrl, redisOptions);
       subClient = pubClient.duplicate();
-    } catch (err: any) {
-      console.warn('[RedisIoAdapter] Redis constructor parse error (socket.io adapter disabled):', err?.message || String(err).slice(0, 200));
-      this.adapterConstructor = null;
-      return;
-    }
 
-    pubClient.on('error', (err) => {
-      console.warn('[RedisIoAdapter] pubClient Redis error:', err.message);
-    });
+      pubClient.on('error', (err) => {
+        console.warn('[RedisIoAdapter] pubClient Redis warning:', err.message);
+      });
 
-    subClient.on('error', (err) => {
-      console.warn('[RedisIoAdapter] subClient Redis error:', err.message);
-    });
+      subClient.on('error', (err) => {
+        console.warn('[RedisIoAdapter] subClient Redis warning:', err.message);
+      });
 
-    try {
+      await Promise.race([
+        Promise.all([pubClient.connect(), subClient.connect()]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Redis connection timeout')), 2500)),
+      ]);
+
       this.adapterConstructor = createAdapter(pubClient, subClient);
     } catch (err: any) {
-      console.warn('[RedisIoAdapter] Failed to initialize Redis adapter:', err.message);
+      console.warn('[RedisIoAdapter] Redis connection unavailable (using standard in-memory Socket.IO adapter):', err?.message || String(err).slice(0, 100));
+      this.adapterConstructor = null;
     }
   }
 

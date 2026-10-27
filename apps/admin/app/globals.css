@@ -25,7 +25,8 @@
 
   /* Fonts */
   --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-serif: var(--font-playfair), 'Playfair Display', Georgia, Cambria, serif;
+  --font-heading: var(--font-sans);
+  --font-serif: var(--font-sans);
   --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
 
   /* Borders & Dividers */
@@ -85,7 +86,8 @@ body {
      declared here too; on :root those variables do not exist yet and the
      tokens resolve to nothing (the page falls back to Times) */
   --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-serif: var(--font-playfair), 'Playfair Display', Georgia, Cambria, serif;
+  --font-heading: var(--font-sans);
+  --font-serif: var(--font-sans);
   --font-script: var(--font-caveat), 'Caveat', 'Dancing Script', cursive;
   margin: 0;
   padding: 0;
@@ -126,6 +128,7 @@ button, input, select, textarea {
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
   margin-top: 0;
+  font-family: var(--font-sans);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -136,7 +139,7 @@ h1, h2, h3, h4, h5, h6 {
   color: #14110f;
 }
 
-/* Skeleton Loading Shimmer */
+/* Skeleton Loading Shimmer System */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -149,8 +152,94 @@ h1, h2, h3, h4, h5, h6 {
 .skeleton {
   background: linear-gradient(90deg, #f0e9df 25%, #faf6f0 50%, #f0e9df 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  animation: shimmer 1.6s infinite cubic-bezier(0.4, 0, 0.6, 1);
   border-radius: var(--radius-sm);
+  display: block;
+}
+
+html.dark .skeleton {
+  background: linear-gradient(90deg, #1e1b17 25%, #2a2520 50%, #1e1b17 75%);
+  background-size: 200% 100%;
+}
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--border-light);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.skeletonCell {
+  height: 14px;
+  background: linear-gradient(90deg, #f0e9df 25%, #faf6f0 50%, #f0e9df 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite cubic-bezier(0.4, 0, 0.6, 1);
+  border-radius: 4px;
+}
+
+.skeletonCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.skeletonStat {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Tabular Numbers for currencies & dates */
+.tabularNums,
+table td,
+.numericVal {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Spinner for async action buttons */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.spinnerDark {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(20, 17, 15, 0.2);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
 /* Subtle animations */
@@ -167,6 +256,28 @@ h1, h2, h3, h4, h5, h6 {
 
 .animate-fade-in {
   animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Responsive Table Scroll Shadow Indicators */
+.tableContainer,
+.tableWrapper,
+div[class*="tableWrapper"],
+div[class*="tableContainer"] {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+  background-image: 
+    linear-gradient(to right, #ffffff, rgba(255, 255, 255, 0)),
+    linear-gradient(to left, #ffffff, rgba(255, 255, 255, 0)),
+    radial-gradient(farthest-side at 0 50%, rgba(20, 17, 15, 0.08), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(20, 17, 15, 0.08), rgba(0, 0, 0, 0));
+  background-repeat: no-repeat;
+  background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
+  background-position: 0 0, 100% 0, 0 0, 100% 0;
+  background-attachment: local, local, scroll, scroll;
 }
 
 /* Hide sidebar and topbar on login page demo */

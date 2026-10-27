@@ -9,6 +9,12 @@ import GoogleButton, { GOOGLE_NOT_READY } from "@/components/site/GoogleButton";
 import SearchableSelect from "@/components/site/SearchableSelect";
 import { COUNTRIES, getTimezones, canonicalizeTimezone } from "@/lib/geo-data";
 import { signUp, sendSignupOtp, portalUrl, continueToPortal } from "@/lib/auth";
+import {
+  buildAuthHref,
+  extractRedirectParam,
+  peekEnrollmentIntent,
+  saveEnrollmentIntent,
+} from "@/lib/auth-redirect";
 
 export default function SignupPage() {
   const [step, setStep] = useState<"details" | "otp" | "success">("details");
@@ -23,6 +29,7 @@ export default function SignupPage() {
   const [busy, setBusy] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
   const [resendMessage, setResendMessage] = useState("");
+  const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
 
   const timezones = useMemo(() => getTimezones(), []);
 
@@ -34,6 +41,22 @@ export default function SignupPage() {
       }
     } catch {
       // Fall back to default
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const redirectFromUrl = extractRedirectParam(params);
+    if (redirectFromUrl) {
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      setActiveRedirect(redirectFromUrl);
+    } else {
+      const stored = peekEnrollmentIntent();
+      if (stored?.returnUrl) {
+        setActiveRedirect(stored.returnUrl);
+      }
+    }
+
+    if (localStorage.getItem("wbm_user") && (redirectFromUrl || peekEnrollmentIntent())) {
+      continueToPortal(redirectFromUrl);
     }
   }, []);
 
@@ -132,8 +155,8 @@ export default function SignupPage() {
         otp: cleanOtp,
       });
 
-      // Try automatic portal continuation if portal parameter was supplied in URL
-      if (!continueToPortal()) {
+      // Automatic portal / course enrollment continuation if redirect or stored intent exists
+      if (!continueToPortal(activeRedirect)) {
         setStep("success");
       }
     } catch (err) {
@@ -161,10 +184,10 @@ export default function SignupPage() {
           </p>
           <div className="mt-8 space-y-3">
             <a
-              href={portalUrl()}
+              href={portalUrl(activeRedirect || "/")}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
-              Continue to Learning Portal
+              {activeRedirect ? "Continue to Course Enrollment" : "Continue to Learning Portal"}
               <ArrowRight className="h-4 w-4" />
             </a>
             <Link
@@ -429,7 +452,10 @@ export default function SignupPage() {
 
       <p className="mt-3 text-center text-xs text-ink-soft">
         Already have an account?{" "}
-        <Link href="/login" className="font-semibold text-gold-deep hover:underline">
+        <Link
+          href={buildAuthHref("/login", activeRedirect)}
+          className="font-semibold text-gold-deep hover:underline"
+        >
           Log in
         </Link>
       </p>

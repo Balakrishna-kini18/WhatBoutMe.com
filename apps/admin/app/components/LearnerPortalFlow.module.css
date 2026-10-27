@@ -1,0 +1,152 @@
+.flowContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 14px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.flowHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-light, #f1f5f9);
+}
+
+.flowTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.flowSubtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted, #64748b);
+  margin: 0.2rem 0 0;
+}
+
+.stagesTrack {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  position: relative;
+}
+
+.stageCard {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-light, #e2e8f0);
+  background: #f8fafc;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.stageCard.COMPLETED {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.stageCard.UNLOCKED {
+  background: #fefce8;
+  border-color: #fde047;
+}
+
+.stageCard.LOCKED {
+  background: #fafaf9;
+  border-color: #e7e5e4;
+  opacity: 0.75;
+}
+
+.stageTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.stageNumberBadge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.stageCard.COMPLETED .stageNumberBadge {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.stageCard.UNLOCKED .stageNumberBadge {
+  background: #b8860b;
+  color: #ffffff;
+}
+
+.stageStatusIcon {
+  font-size: 0.9rem;
+}
+
+.stageTitle {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 0.25rem 0;
+}
+
+.stageDesc {
+  font-size: 0.76rem;
+  color: #64748b;
+  line-height: 1.4;
+  margin: 0;
+  flex: 1;
+}
+
+.stageFooter {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  font-size: 0.72rem;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.actionLink {
+  color: #b8860b;
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.actionLink:hover {
+  text-decoration: underline;
+}
+
+.unmetBox {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.72rem;
+}

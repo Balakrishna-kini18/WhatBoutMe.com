@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import styles from "./coupons.module.css";
-import { API_URL, cachedFetch, errorMessage } from "../lib/api";
+import { API_URL, cachedFetch, errorMessage, type SupportedCurrency } from "../lib/api";
 import { Modal, CustomSelect, StatusBadge, ActionMenu, ConfirmDialog } from "../components";
 import type { StatusTone } from "../components";
 
@@ -12,7 +12,7 @@ interface Coupon {
   description: string | null;
   discountType: "PERCENTAGE" | "FIXED_AMOUNT";
   discountValue: number;
-  currency: "INR" | "AED" | "USD" | "ALL";
+  currency: SupportedCurrency | "ALL";
   scope: "ALL_COURSES" | "SPECIFIC_COURSES";
   maxTotalUses: number | null;
   currentUses: number;
@@ -91,6 +91,26 @@ const Icons = {
       <line x1="7" y1="7" x2="7.01" y2="7" />
     </svg>
   ),
+  Dollar: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  ),
+  Ticket: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z" />
+      <path d="M13 5v2" />
+      <path d="M13 17v2" />
+      <path d="M13 11v2" />
+    </svg>
+  ),
+  Clock: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
 };
 
 export default function CouponsPage() {
@@ -124,7 +144,7 @@ export default function CouponsPage() {
   const [formDescription, setFormDescription] = useState("");
   const [formDiscountType, setFormDiscountType] = useState<"PERCENTAGE" | "FIXED_AMOUNT">("PERCENTAGE");
   const [formDiscountValue, setFormDiscountValue] = useState<number>(10);
-  const [formCurrency, setFormCurrency] = useState<"INR" | "AED" | "USD" | "ALL">("USD");
+  const [formCurrency, setFormCurrency] = useState<SupportedCurrency | "ALL">("USD");
   const [formScope, setFormScope] = useState<"ALL_COURSES" | "SPECIFIC_COURSES">("ALL_COURSES");
   const [formProgramIds, setFormProgramIds] = useState<string[]>([]);
   const [formMaxTotalUses, setFormMaxTotalUses] = useState<string>("");
@@ -152,9 +172,9 @@ export default function CouponsPage() {
     try {
       // Kill Waterfall: Load KPIs, Coupons, and Programs concurrently in a single window
       const [kpisRes, couponsRes, programsRes] = await Promise.all([
-        fetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include", signal }),
-        fetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include", signal }),
-        fetch(`${API_URL}/programs`, { credentials: "include", signal }).catch(() => null),
+        cachedFetch(`${API_URL}/admin/coupons/kpis`, { credentials: "include", signal }),
+        cachedFetch(`${API_URL}/admin/coupons?limit=100`, { credentials: "include", signal }),
+        cachedFetch(`${API_URL}/programs`, { credentials: "include", signal }).catch(() => null),
       ]);
 
       if (kpisRes.ok) {
@@ -284,7 +304,7 @@ export default function CouponsPage() {
         : `${API_URL}/admin/coupons`;
       const method = editingCoupon ? "PATCH" : "POST";
 
-      const res = await fetch(url, {
+      const res = await cachedFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -317,7 +337,7 @@ export default function CouponsPage() {
     showToast(`Coupon ${coupon.code} ${nextActive ? "activated" : "deactivated"}`);
 
     try {
-      const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -378,7 +398,7 @@ export default function CouponsPage() {
     setViewingRedemptionsCoupon(coupon);
     setIsLoadingRedemptions(true);
     try {
-      const res = await fetch(`${API_URL}/admin/coupons/${coupon.id}`, {
+      const res = await cachedFetch(`${API_URL}/admin/coupons/${coupon.id}`, {
         credentials: "include",
       });
       if (res.ok) {
@@ -435,9 +455,9 @@ export default function CouponsPage() {
       <header className={styles.header}>
         <div className={styles.titleArea}>
           <h1>Coupons Management</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Create promo codes, multi-currency discounts (INR / AED / USD), usage limits, and checkout rules.
-          </p>
+          </p> */}
         </div>
         <div className={styles.headerActions}>
           <button
@@ -458,19 +478,44 @@ export default function CouponsPage() {
       {/* KPI Cards */}
       <section className={styles.kpiGrid}>
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Active Coupons</span>
-          <span className={styles.kpiValue}>{kpis?.activeCount ?? coupons.filter((c) => c.isActive).length}</span>
-          <span className={styles.kpiSub}>Available at checkout</span>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Active Coupons</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Tag />
+            </div>
+          </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {kpis?.activeCount ?? coupons.filter((c) => c.isActive).length}
+            </span>
+          </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Available at checkout</span>
+          </div>
         </div>
 
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Total Redemptions</span>
-          <span className={styles.kpiValue}>{kpis?.totalRedemptions ?? 0}</span>
-          <span className={styles.kpiSub}>Used across all batches</span>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Total Redemptions</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Ticket />
+            </div>
+          </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>{kpis?.totalRedemptions ?? 0}</span>
+          </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>Used across all batches</span>
+          </div>
         </div>
 
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Discounts Given (By Currency)</span>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Discounts Given</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Dollar />
+            </div>
+          </div>
           <div className={styles.kpiSub} style={{ marginTop: "0.25rem" }}>
             <span className={styles.currencyPill}>
               USD: ${(kpis?.totalDiscountGiven?.USD || 0).toLocaleString()}
@@ -482,16 +527,28 @@ export default function CouponsPage() {
               AED: AED {(kpis?.totalDiscountGiven?.AED || 0).toLocaleString()}
             </span>
           </div>
+          <div className={styles.kpiFooter} style={{ marginTop: "0.25rem" }}>
+            <span className={styles.kpiMeta}>Multi-currency savings</span>
+          </div>
         </div>
 
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Depleted / Expired</span>
-          <span className={styles.kpiValue}>
-            {(kpis?.depletedCount || 0) + (kpis?.expiredCount || 0)}
-          </span>
-          <span className={styles.kpiSub}>
-            {kpis?.depletedCount || 0} depleted, {kpis?.expiredCount || 0} expired
-          </span>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Depleted / Expired</span>
+            <div className={styles.kpiIconBox}>
+              <Icons.Clock />
+            </div>
+          </div>
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {(kpis?.depletedCount || 0) + (kpis?.expiredCount || 0)}
+            </span>
+          </div>
+          <div className={styles.kpiFooter}>
+            <span className={styles.kpiMeta}>
+              {kpis?.depletedCount || 0} depleted, {kpis?.expiredCount || 0} expired
+            </span>
+          </div>
         </div>
       </section>
 
@@ -510,53 +567,61 @@ export default function CouponsPage() {
           />
         </div>
 
-        <select
-          className={styles.filterSelect}
+        <CustomSelect
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-        >
-          <option value="ALL">All Types</option>
-          <option value="PERCENTAGE">Percentage (%)</option>
-          <option value="FIXED_AMOUNT">Fixed Amount</option>
-        </select>
+          onChange={setTypeFilter}
+          options={[
+            { value: "ALL", label: "All Types" },
+            { value: "PERCENTAGE", label: "Percentage (%)" },
+            { value: "FIXED_AMOUNT", label: "Fixed Amount" },
+          ]}
+          minWidth="145px"
+          ariaLabel="Filter coupons by discount type"
+        />
 
-        <select
-          className={styles.filterSelect}
+        <CustomSelect
           value={currencyFilter}
-          onChange={(e) => setCurrencyFilter(e.target.value)}
-        >
-          <option value="ALL">All Currencies</option>
-          <option value="USD">USD ($)</option>
-          <option value="INR">INR (₹)</option>
-          <option value="AED">AED</option>
-        </select>
+          onChange={setCurrencyFilter}
+          options={[
+            { value: "ALL", label: "All Currencies" },
+            { value: "USD", label: "USD ($)" },
+            { value: "INR", label: "INR (₹)" },
+            { value: "AED", label: "AED" },
+          ]}
+          minWidth="145px"
+          ariaLabel="Filter coupons by currency"
+        />
 
-        <select
-          className={styles.filterSelect}
+        <CustomSelect
           value={scopeFilter}
-          onChange={(e) => setScopeFilter(e.target.value)}
-        >
-          <option value="ALL">All Scopes</option>
-          <option value="ALL_COURSES">All Courses</option>
-          <option value="SPECIFIC_COURSES">Specific Courses</option>
-        </select>
+          onChange={setScopeFilter}
+          options={[
+            { value: "ALL", label: "All Scopes" },
+            { value: "ALL_COURSES", label: "All Courses" },
+            { value: "SPECIFIC_COURSES", label: "Specific Courses" },
+          ]}
+          minWidth="150px"
+          ariaLabel="Filter coupons by scope"
+        />
 
-        <select
-          className={styles.filterSelect}
+        <CustomSelect
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="ALL">All Statuses</option>
-          <option value="ACTIVE">Active</option>
-          <option value="INACTIVE">Inactive</option>
-          <option value="EXPIRED">Expired</option>
-          <option value="DEPLETED">Depleted</option>
-        </select>
+          onChange={setStatusFilter}
+          options={[
+            { value: "ALL", label: "All Statuses" },
+            { value: "ACTIVE", label: "Active" },
+            { value: "INACTIVE", label: "Inactive" },
+            { value: "EXPIRED", label: "Expired" },
+            { value: "DEPLETED", label: "Depleted" },
+          ]}
+          minWidth="140px"
+          ariaLabel="Filter coupons by status"
+        />
       </section>
 
       {/* Error state */}
       {error && (
-        <div style={{ padding: "1rem", background: "rgba(239, 68, 68, 0.15)", color: "#f87171", borderRadius: "8px" }}>
+        <div style={{ padding: "0.75rem 1rem", background: "var(--status-error-bg, #fee2e2)", color: "var(--status-error, #b91c1c)", borderRadius: "8px", border: "1px solid #fecdd3", fontSize: "0.84375rem" }}>
           {error}
         </div>
       )}
@@ -579,7 +644,7 @@ export default function CouponsPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "2.5rem", color: "#94a3b8" }}>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted, #78716a)" }}>
                     Loading coupons...
                   </td>
                 </tr>
@@ -587,8 +652,41 @@ export default function CouponsPage() {
                 <tr>
                   <td colSpan={7}>
                     <div className={styles.emptyState}>
-                      <Icons.Tag />
-                      <p>No coupons found matching the selected filters.</p>
+                      <div className={styles.emptyStateIcon}>
+                        <Icons.Tag />
+                      </div>
+                      <h3 className={styles.emptyStateTitle}>No coupons found</h3>
+                      <p className={styles.emptyStateSubtitle}>
+                        {search || typeFilter !== "ALL" || currencyFilter !== "ALL" || scopeFilter !== "ALL" || statusFilter !== "ALL"
+                          ? "No coupons match your selected filters. Try clearing filters or adjust your search query."
+                          : "No discount coupons have been created yet. Create promo codes to offer student discounts."}
+                      </p>
+                      {search || typeFilter !== "ALL" || currencyFilter !== "ALL" || scopeFilter !== "ALL" || statusFilter !== "ALL" ? (
+                        <button
+                          type="button"
+                          className={styles.cancelBtn}
+                          onClick={() => {
+                            setSearch("");
+                            setTypeFilter("ALL");
+                            setCurrencyFilter("ALL");
+                            setScopeFilter("ALL");
+                            setStatusFilter("ALL");
+                          }}
+                          style={{ marginTop: "0.25rem" }}
+                        >
+                          Clear Filters
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.primaryBtn}
+                          onClick={openCreateModal}
+                          style={{ marginTop: "0.25rem" }}
+                        >
+                          <Icons.Plus />
+                          <span>Create Coupon</span>
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -615,7 +713,7 @@ export default function CouponsPage() {
                           </button>
                         </div>
                         {coupon.description && (
-                          <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)", marginTop: "0.2rem" }}>
                             {coupon.description}
                           </div>
                         )}
@@ -626,7 +724,7 @@ export default function CouponsPage() {
                             <span>{coupon.discountValue}% OFF</span>
                           ) : (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
-                              <strong style={{ color: "#fef08a" }}>
+                              <strong>
                                 {coupon.currency === "USD"
                                   ? "$"
                                   : coupon.currency === "INR"
@@ -634,14 +732,14 @@ export default function CouponsPage() {
                                   : "AED "}
                               </strong>
                               <span>{Number(coupon.discountValue).toLocaleString()} OFF</span>
-                              <span style={{ fontSize: "0.7rem", opacity: 0.8, marginLeft: "4px" }}>
+                              <span style={{ fontSize: "0.7rem", opacity: 0.85, marginLeft: "4px" }}>
                                 ({coupon.currency})
                               </span>
                             </span>
                           )}
                         </div>
                         {coupon.appliesToInstalments && (
-                          <div style={{ fontSize: "0.7rem", color: "#a5b4fc", marginTop: "0.15rem" }}>
+                          <div style={{ fontSize: "0.7rem", color: "var(--accent-primary, #c97a1e)", marginTop: "0.15rem", fontWeight: 600 }}>
                             ✓ Allowed on Instalments
                           </div>
                         )}
@@ -670,7 +768,7 @@ export default function CouponsPage() {
                                 className={styles.progressFill}
                                 style={{
                                   width: `${usagePercent}%`,
-                                  backgroundColor: isDepleted ? "#f59e0b" : "#6366f1",
+                                  backgroundColor: isDepleted ? "var(--status-warning, #b45309)" : "var(--accent-primary, #c97a1e)",
                                 }}
                               />
                             </div>
@@ -678,7 +776,7 @@ export default function CouponsPage() {
                         </div>
                       </td>
                       <td>
-                        <div style={{ fontSize: "0.825rem", color: "#cbd5e1" }}>
+                        <div style={{ fontSize: "0.825rem", color: "var(--text-secondary, #4a443d)" }}>
                           {coupon.expiresAt
                             ? new Date(coupon.expiresAt).toLocaleDateString(undefined, {
                                 year: "numeric",
@@ -858,9 +956,9 @@ export default function CouponsPage() {
           {formScope === "SPECIFIC_COURSES" && (
             <div className={styles.formGroup}>
               <label>Select Applicable Courses *</label>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "150px", overflowY: "auto", border: "1px solid #334155", padding: "0.5rem", borderRadius: "6px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "160px", overflowY: "auto", border: "1px solid var(--border-light, #ece4d7)", background: "var(--bg-card-muted, #fdfbf7)", padding: "0.75rem", borderRadius: "8px" }}>
                 {programs.map((p) => (
-                  <label key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem", color: "#e2e8f0" }}>
+                  <label key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.84375rem", color: "var(--text-primary, #14110f)", cursor: "pointer" }}>
                     <input
                       type="checkbox"
                       checked={formProgramIds.includes(p.id)}
@@ -871,6 +969,7 @@ export default function CouponsPage() {
                           setFormProgramIds(formProgramIds.filter((id) => id !== p.id));
                         }
                       }}
+                      style={{ accentColor: "var(--accent-primary, #c97a1e)", cursor: "pointer" }}
                     />
                     <span>{p.title}</span>
                   </label>
@@ -951,17 +1050,17 @@ export default function CouponsPage() {
         title={`Redemptions: ${viewingRedemptionsCoupon?.code || ""}`}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <p style={{ margin: 0, fontSize: "0.85rem", color: "#94a3b8" }}>
+          <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary, #4a443d)" }}>
             Showing the latest redemption records for code{" "}
-            <strong>{viewingRedemptionsCoupon?.code}</strong>.
+            <strong style={{ color: "var(--text-primary, #14110f)" }}>{viewingRedemptionsCoupon?.code}</strong>.
           </p>
 
           {isLoadingRedemptions ? (
-            <div style={{ padding: "2rem", textAlign: "center", color: "#94a3b8" }}>
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted, #78716a)" }}>
               Loading redemptions...
             </div>
           ) : redemptions.length === 0 ? (
-            <div style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted, #78716a)" }}>
               No redemptions recorded for this coupon yet.
             </div>
           ) : (
@@ -981,18 +1080,18 @@ export default function CouponsPage() {
                     <tr key={r.id}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{r.user?.name || "Unknown"}</div>
-                        <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{r.user?.email}</div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)" }}>{r.user?.email}</div>
                       </td>
                       <td>
                         {r.currency} {r.orderAmount.toLocaleString()}
                       </td>
-                      <td style={{ color: "#34d399", fontWeight: 600 }}>
+                      <td style={{ color: "var(--status-success, #15803d)", fontWeight: 600 }}>
                         -{r.currency} {r.discountAmount.toLocaleString()}
                       </td>
                       <td style={{ fontWeight: 600 }}>
                         {r.currency} {r.finalAmount.toLocaleString()}
                       </td>
-                      <td style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                      <td style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)" }}>
                         {new Date(r.redeemedAt).toLocaleString()}
                       </td>
                     </tr>

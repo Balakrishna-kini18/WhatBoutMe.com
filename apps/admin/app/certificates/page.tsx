@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
 import styles from "../page.module.css";
-import { StatusBadge } from "../components";
+import { StatusBadge, TableSkeleton, EmptyState } from "../components";
 
 export default function CertificatesQueue() {
   const [certificates, setCertificates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [inFlightAction, setInFlightAction] = useState<{ id: string; action: string } | null>(null);
 
   useEffect(() => {
     fetchCertificates();
@@ -36,6 +37,7 @@ export default function CertificatesQueue() {
 
   const handleAction = async (id: string, action: 'approve' | 'reject' | 'issue') => {
     try {
+      setInFlightAction({ id, action });
       setNotice("");
       const res = await fetch(`${API_URL}/certificates/${id}/${action}`, { method: 'POST' });
       if (res.ok) {
@@ -45,6 +47,8 @@ export default function CertificatesQueue() {
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setInFlightAction(null);
     }
   };
 
@@ -74,7 +78,7 @@ export default function CertificatesQueue() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Certificate Approval Queue</h1>
-          <p className={styles.subtitle}>Review and approve pending certificate requests from learners.</p>
+          {/* <p className={styles.subtitle}>Review and approve pending certificate requests from learners.</p> */}
         </div>
         <div className={styles.headerActions}>
           <Link href="/certificates/issue" className={styles.primaryBtn}>
@@ -110,12 +114,18 @@ export default function CertificatesQueue() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>Loading queue...</td>
-                </tr>
+                <TableSkeleton columns={5} rows={5} />
               ) : certificates.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: "28px", color: "var(--text-muted)" }}>No pending certificate requests.</td>
+                  <td colSpan={5} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="academic"
+                      title="No pending certificate requests"
+                      description="When learners complete their final steps and exams, requests waiting for approval will show up here."
+                      actionLabel="Issue Direct Certificate"
+                      actionHref="/certificates/issue"
+                    />
+                  </td>
                 </tr>
               ) : certificates.map((cert) => (
                 <tr key={cert.id}>
@@ -154,7 +164,7 @@ export default function CertificatesQueue() {
                       );
                     })()}
                   </td>
-                  <td><span className={styles.cellTextMuted}>{new Date(cert.createdAt).toLocaleDateString()}</span></td>
+                  <td><span className={`${styles.cellTextMuted} tabularNums`}>{new Date(cert.createdAt).toLocaleDateString()}</span></td>
                   <td>
                     <StatusBadge status={cert.status} />
                     {cert.certificateCode && (
@@ -168,14 +178,51 @@ export default function CertificatesQueue() {
                   <td className={styles.alignRight}>
                     {cert.status === 'PENDING' && (
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <button type="button" className={styles.primaryBtnSmall} onClick={() => handleAction(cert.id, 'approve')}>Approve</button>
-                        <button type="button" className={styles.dangerBtnSmall} onClick={() => handleAction(cert.id, 'reject')}>Reject</button>
+                        <button
+                          type="button"
+                          className={styles.primaryBtnSmall}
+                          onClick={() => handleAction(cert.id, 'approve')}
+                          disabled={inFlightAction?.id === cert.id}
+                        >
+                          {inFlightAction?.id === cert.id && inFlightAction?.action === 'approve' ? (
+                            <>
+                              <span className="spinner" /> Approving...
+                            </>
+                          ) : (
+                            "Approve"
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.dangerBtnSmall}
+                          onClick={() => handleAction(cert.id, 'reject')}
+                          disabled={inFlightAction?.id === cert.id}
+                        >
+                          {inFlightAction?.id === cert.id && inFlightAction?.action === 'reject' ? (
+                            <>
+                              <span className="spinner" /> Rejecting...
+                            </>
+                          ) : (
+                            "Reject"
+                          )}
+                        </button>
                       </div>
                     )}
                     {cert.status === 'APPROVED' && (
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <button type="button" className={styles.successBtnSmall} onClick={() => handleAction(cert.id, 'issue')}>
-                          Issue Certificate
+                        <button
+                          type="button"
+                          className={styles.successBtnSmall}
+                          onClick={() => handleAction(cert.id, 'issue')}
+                          disabled={inFlightAction?.id === cert.id}
+                        >
+                          {inFlightAction?.id === cert.id && inFlightAction?.action === 'issue' ? (
+                            <>
+                              <span className="spinner" /> Issuing...
+                            </>
+                          ) : (
+                            "Issue Certificate"
+                          )}
                         </button>
                         <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtnSmall}>
                           Preview

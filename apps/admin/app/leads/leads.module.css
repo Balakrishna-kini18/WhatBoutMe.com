@@ -30,7 +30,7 @@
 }
 
 .cardTitle {
-  font-family: var(--font-serif, "Newsreader", serif);
+  font-family: var(--font-sans);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary, #1c1917);
@@ -161,7 +161,12 @@
 }
 
 .table th {
-  background: #faf7f2;
+  background: rgba(250, 247, 242, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
   color: var(--text-muted, #78716c);
   font-size: 0.72rem;
   font-weight: 700;
@@ -180,6 +185,7 @@
   color: var(--text-primary, #1c1917);
   word-break: break-word;
   overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
 .table tr:last-child td {
@@ -316,6 +322,19 @@
   font-size: 0.73rem;
   font-weight: 600;
   border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.badgeWhatsApp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(37, 211, 102, 0.12);
+  color: #0f766e;
+  font-size: 0.73rem;
+  font-weight: 600;
+  border: 1px solid rgba(37, 211, 102, 0.3);
 }
 
 .zoomLinkPill {
@@ -512,6 +531,13 @@
   transform: translateY(-1px);
 }
 
+.btnPrimaryConvert:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btnResendLink {
   display: inline-flex;
   align-items: center;
@@ -531,6 +557,11 @@
 .btnResendLink:hover {
   background: rgba(16, 185, 129, 0.2);
   border-color: #059669;
+}
+
+.btnResendLink:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Empty & Loading States */

@@ -21,6 +21,7 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       session: {
         findFirst: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
 
@@ -81,13 +82,13 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       const job = createJob('meeting.ended', { id: 987654321 });
       await processor.process(job);
 
-      // 1. Session found and updated to COMPLETED
+      // 1. Session found and atomically claimed
       expect(prismaMock.session.findFirst).toHaveBeenCalledWith({
         where: { providerMeetingId: '987654321' },
       });
-      expect(prismaMock.session.update).toHaveBeenCalledWith({
-        where: { id: 'sess-100' },
-        data: { status: 'COMPLETED' },
+      expect(prismaMock.session.updateMany).toHaveBeenCalledWith({
+        where: { id: 'sess-100', attendancePulled: false },
+        data: { attendancePulled: true, status: 'COMPLETED' },
       });
 
       // 2. Participant report requested
@@ -118,7 +119,7 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       const job = createJob('meeting.ended', { id: 999999999 });
       await processor.process(job);
 
-      expect(prismaMock.session.update).not.toHaveBeenCalled();
+      expect(prismaMock.session.updateMany).not.toHaveBeenCalled();
       expect(zoomServiceMock.getParticipantReport).not.toHaveBeenCalled();
       expect(reconciliationMock.reconcileSession).not.toHaveBeenCalled();
     });
@@ -131,12 +132,12 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
         attendancePulled: true,
       };
       prismaMock.session.findFirst.mockResolvedValue(mockSession);
+      prismaMock.session.updateMany.mockResolvedValue({ count: 0 });
 
       const job = createJob('meeting.ended', { id: 987654321 });
       await processor.process(job);
 
       // Verify no duplicate reconciliation or update was executed
-      expect(prismaMock.session.update).not.toHaveBeenCalled();
       expect(zoomServiceMock.getParticipantReport).not.toHaveBeenCalled();
       expect(reconciliationMock.reconcileSession).not.toHaveBeenCalled();
     });

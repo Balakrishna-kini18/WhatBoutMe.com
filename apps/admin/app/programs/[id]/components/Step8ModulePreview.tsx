@@ -1,37 +1,40 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import Link from "next/link";
-import styles from "../curriculum.module.css";
 import { API_URL, type StudentNote } from "../../../lib/api";
 import { formatNoteDate, formatVideoTime } from "../../../lib/timezone";
 
-interface Lesson {
+export interface Lesson {
   id: string;
   title: string;
   type: string;
-  mediaUrl: string;
+  mediaUrl?: string;
   durationSec?: number | null;
   isFreePreview?: boolean;
 }
 
-interface Step {
+export interface Step {
   id: string;
   sequence: number;
   title: string;
-  description: string;
+  description?: string;
   lessons?: Lesson[];
   quiz?: any | null;
+  quizPlacement?: "BEFORE_VIDEO" | "AFTER_VIDEO";
 }
 
-interface Step8ModulePreviewProps {
+export interface Step8ModulePreviewProps {
   module: Step;
+  allModules?: Step[];
+  courseTitle?: string;
   onBackToEdit: () => void;
   onContinueToReview: () => void;
 }
 
 export default function Step8ModulePreview({
   module,
+  allModules,
+  courseTitle,
   onBackToEdit,
   onContinueToReview,
 }: Step8ModulePreviewProps) {
@@ -45,9 +48,7 @@ export default function Step8ModulePreview({
   const [activePreviewLesson, setActivePreviewLesson] = useState<Lesson | null>(lessons[0] || null);
   const [activeTab, setActiveTab] = useState<"PLAYER" | "QUIZ" | "NOTES">("PLAYER");
 
-  // ---------------------------------------------------------------------------
-  // Compulsory Video Player State (Items #4, #5)
-  // ---------------------------------------------------------------------------
+  // Video Player State
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -56,14 +57,13 @@ export default function Step8ModulePreview({
   const [isVideoCompleted, setIsVideoCompleted] = useState(false);
   const [scrubBlockedNotice, setScrubBlockedNotice] = useState<string | null>(null);
 
-  // Dynamic moving watermark (Item #4)
+  // Dynamic moving watermark
   const [watermarkPos, setWatermarkPos] = useState({ x: 20, y: 30 });
   const learnerName = "Roweena Foxwel";
   const learnerEmail = "roweena@whatboutme.com";
 
   useEffect(() => {
     const interval = setInterval(() => {
-      // Random coordinates between 12% and 78% for smooth continuous repositioning
       const nextX = Math.floor(Math.random() * 66) + 12;
       const nextY = Math.floor(Math.random() * 66) + 12;
       setWatermarkPos({ x: nextX, y: nextY });
@@ -71,21 +71,15 @@ export default function Step8ModulePreview({
     return () => clearInterval(interval);
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Visual Question Bank & Quiz State (Items #5, #6)
-  // ---------------------------------------------------------------------------
+  // Quiz State
   const [isQuizPassed, setIsQuizPassed] = useState(false);
   const [quizScore, setQuizScore] = useState<number | null>(null);
   const [quizSubmitted, setQuizSubmitted] = useState(false);
-
-  // Sample questions illustrating the 3 question types from the specification
   const [selectedSingleChoice, setSelectedSingleChoice] = useState<number | null>(null);
   const [selectedMultiChoice, setSelectedMultiChoice] = useState<number[]>([]);
   const [shortAnswerText, setShortAnswerText] = useState("");
 
-  // ---------------------------------------------------------------------------
-  // Student Notes & Highlights State (Item #7)
-  // ---------------------------------------------------------------------------
+  // Student Notes
   const [savedNotes, setSavedNotes] = useState<StudentNote[]>([
     {
       id: "note-demo-1",
@@ -98,20 +92,6 @@ export default function Step8ModulePreview({
       videoTimestampSeconds: 42,
       createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
       updatedAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-      step: { id: module.id, sequence: module.sequence, title: module.title },
-      lesson: { id: activePreviewLesson?.id || "lesson-1", title: activePreviewLesson?.title || "Course Lecture", type: "VIDEO" },
-    },
-    {
-      id: "note-demo-2",
-      userId: "demo-user-1",
-      programId: "prog-demo-1",
-      stepId: module.id,
-      lessonId: activePreviewLesson?.id || "lesson-1",
-      noteText: "Action item: Audit personal emotional triggers during stressful meetings before applying the response matrix.",
-      highlightSnippet: null,
-      videoTimestampSeconds: 98,
-      createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
-      updatedAt: new Date(Date.now() - 3600000 * 6).toISOString(),
       step: { id: module.id, sequence: module.sequence, title: module.title },
       lesson: { id: activePreviewLesson?.id || "lesson-1", title: activePreviewLesson?.title || "Course Lecture", type: "VIDEO" },
     },
@@ -132,7 +112,6 @@ export default function Step8ModulePreview({
     return url;
   };
 
-  // Video playback listeners
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
@@ -164,10 +143,8 @@ export default function Step8ModulePreview({
     }
   };
 
-  // Locked Scrub Bar: enforce anti-skip rules
   const handleScrubAttempt = (e: React.ChangeEvent<HTMLInputElement>) => {
     const targetTime = Number(e.target.value);
-    // Allow scrubbing backwards or up to max watched progress
     if (targetTime > maxWatchedTime + 1.5) {
       setScrubBlockedNotice("Seeking ahead is locked. Anti-skip policy requires watching content sequentially.");
       setTimeout(() => setScrubBlockedNotice(null), 3500);
@@ -182,12 +159,10 @@ export default function Step8ModulePreview({
     }
   };
 
-  // Capture current timestamp for note
   const handleCaptureTimestamp = () => {
     setBookmarkTimestamp(Math.floor(currentTime));
   };
 
-  // Save new in-lesson student note
   const handleSaveInLessonNote = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inLessonNoteText.trim()) return;
@@ -219,7 +194,6 @@ export default function Step8ModulePreview({
     setSavedNotes(savedNotes.filter((n) => n.id !== noteId));
   };
 
-  // Submit quiz in visual question bank
   const handleEvaluateQuiz = (e: React.FormEvent) => {
     e.preventDefault();
     let score = 0;
@@ -238,7 +212,6 @@ export default function Step8ModulePreview({
     setQuizSubmitted(true);
   };
 
-  // Reset quiz attempt
   const handleResetQuiz = () => {
     setQuizSubmitted(false);
     setQuizScore(null);
@@ -247,28 +220,29 @@ export default function Step8ModulePreview({
     setShortAnswerText("");
   };
 
-  // Gating status
   const isVideoLockedByPreQuiz = isBeforeVideo && !isQuizPassed;
   const isQuizLockedByVideo = !isBeforeVideo && !isVideoCompleted;
 
   return (
-    <section className={styles.cardSurface}>
+    <section style={{ background: "#ffffff", border: "1px solid #e7decb", borderRadius: 16, padding: "1.75rem", boxShadow: "0 4px 16px rgba(0,0,0,0.03)" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.75rem", flexWrap: "wrap", gap: "1rem" }}>
         <div>
           <button
             type="button"
             onClick={onBackToEdit}
-            className={styles.backLink}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "none", border: "none", color: "#c97a1e", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: "8px" }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m15 18-6-6 6-6" />
             </svg>
             <span>Back to Module Editor</span>
           </button>
-          <div className={styles.stepEyebrow}>STEP 8: INTERACTIVE LEARNER &amp; MODULE PREVIEW</div>
+          <div style={{ fontSize: "0.75rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#c97a1e" }}>
+            MODULE PREVIEW
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginTop: "4px" }}>
-            <h2 className={styles.stepTitle} style={{ margin: 0 }}>
+            <h2 style={{ margin: 0, fontSize: "1.35rem", fontWeight: 800, color: "#14110f" }}>
               Module {module.sequence}: {module.title}
             </h2>
             {hasQuiz && (
@@ -283,43 +257,32 @@ export default function Step8ModulePreview({
                   border: `1px solid ${isBeforeVideo ? "#fde68a" : "#bfdbfe"}`,
                 }}
               >
-                {isBeforeVideo ? "Rule: Diagnostic Quiz First (Before Video)" : "Rule: Video First (After Video)"}
+                {isBeforeVideo ? "Diagnostic Quiz First (Before Video)" : "Video First (After Video)"}
               </span>
             )}
           </div>
-          <p className={styles.stepSubtitle}>
-            Full learner simulation with anti-skip video controls, moving watermark, configurable quiz placement, and chronological student notes.
+          <p style={{ margin: "4px 0 0", fontSize: "0.875rem", color: "#78716a" }}>
+            {courseTitle ? `${courseTitle} • ` : ""}Interactive preview with anti-skip video player, dynamic watermark, and module quiz.
           </p>
         </div>
 
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-          <Link
-            href="/simulator"
+          <button
+            type="button"
+            onClick={onBackToEdit}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: "6px",
-              padding: "0.45rem 0.95rem",
+              padding: "0.5rem 1rem",
               background: "#ffffff",
-              border: "1.5px solid var(--accent-primary, #c97a1e)",
-              color: "var(--accent-primary, #c97a1e)",
+              border: "1.5px solid #cbd5e1",
               borderRadius: "8px",
               fontSize: "0.8125rem",
               fontWeight: 700,
-              textDecoration: "none",
+              color: "#334155",
+              cursor: "pointer",
             }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polygon points="10 8 16 12 10 16 10 8" />
-            </svg>
-            <span>Launch Funnel Simulator</span>
-          </Link>
-
-          <button
-            type="button"
-            className={styles.secondaryActionBtn}
-            onClick={onBackToEdit}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -331,7 +294,7 @@ export default function Step8ModulePreview({
       </div>
 
       {/* Mode Navigation Tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid var(--border-light, #e7decb)", marginBottom: "1.5rem", gap: "1.5rem" }}>
+      <div style={{ display: "flex", borderBottom: "1px solid #e7decb", marginBottom: "1.5rem", gap: "1.5rem" }}>
         <button
           type="button"
           onClick={() => setActiveTab("PLAYER")}
@@ -339,10 +302,10 @@ export default function Step8ModulePreview({
             padding: "0.6rem 0.2rem",
             background: "none",
             border: "none",
-            borderBottom: activeTab === "PLAYER" ? "3px solid var(--accent-primary, #c97a1e)" : "3px solid transparent",
+            borderBottom: activeTab === "PLAYER" ? "3px solid #c97a1e" : "3px solid transparent",
             fontWeight: 700,
             fontSize: "0.9rem",
-            color: activeTab === "PLAYER" ? "var(--accent-primary, #c97a1e)" : "var(--text-muted, #78716a)",
+            color: activeTab === "PLAYER" ? "#c97a1e" : "#78716a",
             cursor: "pointer",
             display: "inline-flex",
             alignItems: "center",
@@ -368,10 +331,10 @@ export default function Step8ModulePreview({
               padding: "0.6rem 0.2rem",
               background: "none",
               border: "none",
-              borderBottom: activeTab === "QUIZ" ? "3px solid var(--accent-primary, #c97a1e)" : "3px solid transparent",
+              borderBottom: activeTab === "QUIZ" ? "3px solid #c97a1e" : "3px solid transparent",
               fontWeight: 700,
               fontSize: "0.9rem",
-              color: activeTab === "QUIZ" ? "var(--accent-primary, #c97a1e)" : "var(--text-muted, #78716a)",
+              color: activeTab === "QUIZ" ? "#c97a1e" : "#78716a",
               cursor: "pointer",
               display: "inline-flex",
               alignItems: "center",
@@ -404,10 +367,10 @@ export default function Step8ModulePreview({
             padding: "0.6rem 0.2rem",
             background: "none",
             border: "none",
-            borderBottom: activeTab === "NOTES" ? "3px solid var(--accent-primary, #c97a1e)" : "3px solid transparent",
+            borderBottom: activeTab === "NOTES" ? "3px solid #c97a1e" : "3px solid transparent",
             fontWeight: 700,
             fontSize: "0.9rem",
-            color: activeTab === "NOTES" ? "var(--accent-primary, #c97a1e)" : "var(--text-muted, #78716a)",
+            color: activeTab === "NOTES" ? "#c97a1e" : "#78716a",
             cursor: "pointer",
             display: "inline-flex",
             alignItems: "center",
@@ -429,7 +392,7 @@ export default function Step8ModulePreview({
         
         {/* LEFT COLUMN: ACTIVE PLAYER OR QUIZ */}
         <div>
-          {/* TAB 1: ANTI-SKIP COMPULSORY VIDEO PLAYER (ITEM #4) */}
+          {/* TAB 1: ANTI-SKIP COMPULSORY VIDEO PLAYER */}
           {activeTab === "PLAYER" && (
             <div>
               {/* Pre-Quiz Lock Banner */}
@@ -490,7 +453,7 @@ export default function Step8ModulePreview({
                   pointerEvents: isVideoLockedByPreQuiz ? "none" : "auto",
                 }}
               >
-                {/* Moving Dynamic Learner Watermark (Anti-Cheat & Anti-Leak) */}
+                {/* Moving Dynamic Learner Watermark */}
                 <div
                   style={{
                     position: "absolute",
@@ -547,7 +510,7 @@ export default function Step8ModulePreview({
                   />
                 </div>
 
-                {/* Stripped-Down Controls (NO 10s Forward/Backward Skip Buttons) */}
+                {/* Stripped-Down Controls */}
                 <div
                   style={{
                     background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 70%, transparent 100%)",
@@ -563,7 +526,6 @@ export default function Step8ModulePreview({
                       {formatVideoTime(currentTime)}
                     </span>
                     <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
-                      {/* Watched progress track */}
                       <input
                         type="range"
                         min={0}
@@ -573,7 +535,7 @@ export default function Step8ModulePreview({
                         style={{
                           width: "100%",
                           cursor: "pointer",
-                          accentColor: "var(--accent-primary, #c97a1e)",
+                          accentColor: "#c97a1e",
                         }}
                       />
                     </div>
@@ -582,14 +544,14 @@ export default function Step8ModulePreview({
                     </span>
                   </div>
 
-                  {/* Play & Info Bar (Forward/Backward 10s Skip Buttons are strictly omitted) */}
+                  {/* Play & Info Bar */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <button
                         type="button"
                         onClick={togglePlay}
                         style={{
-                          background: "var(--accent-primary, #c97a1e)",
+                          background: "#c97a1e",
                           border: "none",
                           color: "#ffffff",
                           width: "36px",
@@ -661,10 +623,10 @@ export default function Step8ModulePreview({
               {/* Lesson Metadata */}
               <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                 <div>
-                  <span style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, color: "var(--accent-primary, #c97a1e)" }}>
+                  <span style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, color: "#c97a1e" }}>
                     Current Unit
                   </span>
-                  <h3 style={{ margin: "2px 0 0", fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  <h3 style={{ margin: "2px 0 0", fontSize: "1.15rem", fontWeight: 700, color: "#14110f" }}>
                     {activePreviewLesson?.title || "Course Video"}
                   </h3>
                 </div>
@@ -689,7 +651,7 @@ export default function Step8ModulePreview({
                         Video Finished: Take Knowledge Check Quiz &rarr;
                       </button>
                     ) : (
-                      <span className={styles.lockedBadge} style={{ background: "#fef3c7", borderColor: "#fde68a", color: "#92400e" }}>
+                      <span style={{ fontSize: "0.8125rem", fontWeight: 700, padding: "6px 12px", borderRadius: 6, background: "#fef3c7", border: "1px solid #fde68a", color: "#92400e" }}>
                         Post-Quiz Locked until 100% Watched
                       </span>
                     )}
@@ -699,7 +661,7 @@ export default function Step8ModulePreview({
             </div>
           )}
 
-          {/* TAB 2: VISUAL QUESTION BANK & QUIZ ENGINE (ITEM #6) */}
+          {/* TAB 2: VISUAL QUESTION BANK & QUIZ */}
           {activeTab === "QUIZ" && (
             <div>
               {/* Post-Quiz Gated Lock Banner */}
@@ -748,22 +710,22 @@ export default function Step8ModulePreview({
                 </div>
               )}
 
-              {/* Visual Question Bank Interactive Form */}
+              {/* Visual Question Bank Form */}
               <div
                 style={{
                   background: "#ffffff",
-                  border: "1px solid var(--border-light, #e7decb)",
+                  border: "1px solid #e7decb",
                   borderRadius: 16,
                   padding: "1.75rem",
                   boxShadow: "0 4px 16px rgba(0,0,0,0.04)",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", borderBottom: "1px solid var(--border-light, #e7decb)", paddingBottom: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", borderBottom: "1px solid #e7decb", paddingBottom: "1rem" }}>
                   <div>
-                    <span style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 800, color: "var(--accent-primary, #c97a1e)" }}>
-                      Visual Question Bank Preview
+                    <span style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 800, color: "#c97a1e" }}>
+                      Question Bank Preview
                     </span>
-                    <h3 style={{ margin: "4px 0 0", fontSize: "1.25rem", fontWeight: 800, color: "var(--text-primary)" }}>
+                    <h3 style={{ margin: "4px 0 0", fontSize: "1.25rem", fontWeight: 800, color: "#14110f" }}>
                       {module.quiz?.title || "Module Knowledge Check Quiz"}
                     </h3>
                   </div>
@@ -825,19 +787,18 @@ export default function Step8ModulePreview({
                 )}
 
                 <form onSubmit={handleEvaluateQuiz}>
-                  {/* QUESTION 1: MULTIPLE_CHOICE (Google Forms Style Card with Images) */}
+                  {/* QUESTION 1 */}
                   <div style={{ marginBottom: "2rem", padding: "1.25rem", borderRadius: 12, background: "#fcfaf7", border: "1px solid #ebd9c8" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--accent-primary, #c97a1e)", textTransform: "uppercase" }}>
-                        Question 1 of 3 &bull; Single Choice
+                      <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "#c97a1e", textTransform: "uppercase" }}>
+                        Question 1 of 3 • Single Choice
                       </span>
                     </div>
 
-                    <h4 style={{ margin: "0 0 1rem", fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    <h4 style={{ margin: "0 0 1rem", fontSize: "0.95rem", fontWeight: 700, color: "#14110f" }}>
                       Which leadership practice is most effective in stabilizing psychological safety during organizational restructuring?
                     </h4>
 
-                    {/* 4 Google Forms Style Option Cards */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
                       {[
                         { id: 0, text: "Top-down directive delegation" },
@@ -854,7 +815,7 @@ export default function Step8ModulePreview({
                             padding: "12px 14px",
                             borderRadius: 10,
                             background: selectedSingleChoice === opt.id ? "#fef3c7" : "#ffffff",
-                            border: `1.5px solid ${selectedSingleChoice === opt.id ? "var(--accent-primary, #c97a1e)" : "#e2e8f0"}`,
+                            border: `1.5px solid ${selectedSingleChoice === opt.id ? "#c97a1e" : "#e2e8f0"}`,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
                           }}
@@ -864,7 +825,7 @@ export default function Step8ModulePreview({
                             name="q1_radio"
                             checked={selectedSingleChoice === opt.id}
                             onChange={() => setSelectedSingleChoice(opt.id)}
-                            style={{ accentColor: "var(--accent-primary, #c97a1e)" }}
+                            style={{ accentColor: "#c97a1e" }}
                           />
                           <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1e293b" }}>{opt.text}</span>
                         </label>
@@ -872,15 +833,15 @@ export default function Step8ModulePreview({
                     </div>
                   </div>
 
-                  {/* QUESTION 2: MULTI_SELECT (Multiple Checkboxes) */}
+                  {/* QUESTION 2 */}
                   <div style={{ marginBottom: "2rem", padding: "1.25rem", borderRadius: 12, background: "#fcfaf7", border: "1px solid #ebd9c8" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--accent-primary, #c97a1e)", textTransform: "uppercase" }}>
-                        Question 2 of 3 &bull; Multi-Select Checkboxes
+                      <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "#c97a1e", textTransform: "uppercase" }}>
+                        Question 2 of 3 • Multi-Select Checkboxes
                       </span>
                     </div>
 
-                    <h4 style={{ margin: "0 0 1rem", fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    <h4 style={{ margin: "0 0 1rem", fontSize: "0.95rem", fontWeight: 700, color: "#14110f" }}>
                       Select all foundational components of Roweena&apos;s Emotional Intelligence Framework:
                     </h4>
 
@@ -900,7 +861,7 @@ export default function Step8ModulePreview({
                             padding: "12px 14px",
                             borderRadius: 10,
                             background: selectedMultiChoice.includes(opt.id) ? "#fef3c7" : "#ffffff",
-                            border: `1.5px solid ${selectedMultiChoice.includes(opt.id) ? "var(--accent-primary, #c97a1e)" : "#e2e8f0"}`,
+                            border: `1.5px solid ${selectedMultiChoice.includes(opt.id) ? "#c97a1e" : "#e2e8f0"}`,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
                           }}
@@ -915,7 +876,7 @@ export default function Step8ModulePreview({
                                 setSelectedMultiChoice(selectedMultiChoice.filter((i) => i !== opt.id));
                               }
                             }}
-                            style={{ accentColor: "var(--accent-primary, #c97a1e)" }}
+                            style={{ accentColor: "#c97a1e" }}
                           />
                           <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1e293b" }}>{opt.text}</span>
                         </label>
@@ -923,15 +884,15 @@ export default function Step8ModulePreview({
                     </div>
                   </div>
 
-                  {/* QUESTION 3: SHORT_ANSWER (Text Box Input) */}
+                  {/* QUESTION 3 */}
                   <div style={{ marginBottom: "2rem", padding: "1.25rem", borderRadius: 12, background: "#fcfaf7", border: "1px solid #ebd9c8" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--accent-primary, #c97a1e)", textTransform: "uppercase" }}>
-                        Question 3 of 3 &bull; Short Answer (Reflective Text Box)
+                      <span style={{ fontSize: "0.75rem", fontWeight: 800, color: "#c97a1e", textTransform: "uppercase" }}>
+                        Question 3 of 3 • Short Answer
                       </span>
                     </div>
 
-                    <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem", fontWeight: 700, color: "#14110f" }}>
                       In your own words, describe how you intend to apply this module&apos;s mindset shift in your professional workflow:
                     </h4>
 
@@ -958,7 +919,7 @@ export default function Step8ModulePreview({
                       type="submit"
                       style={{
                         padding: "10px 24px",
-                        background: "var(--accent-primary, #c97a1e)",
+                        background: "#c97a1e",
                         color: "#ffffff",
                         border: "none",
                         borderRadius: "8px",
@@ -980,17 +941,17 @@ export default function Step8ModulePreview({
             <div
               style={{
                 background: "#ffffff",
-                border: "1px solid var(--border-light, #e7decb)",
+                border: "1px solid #e7decb",
                 borderRadius: 16,
                 padding: "1.75rem",
                 boxShadow: "0 4px 16px rgba(0,0,0,0.04)",
               }}
             >
-              <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.25rem", fontWeight: 800, color: "var(--text-primary)" }}>
+              <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.25rem", fontWeight: 800, color: "#14110f" }}>
                 Student Study Notes &amp; Highlights Notebook
               </h3>
-              <p style={{ margin: "0 0 1.5rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                Chronological listing of student study notes with the 3 mandatory audio-verified fields: Note/Highlight text, date written, and associated step &amp; lesson.
+              <p style={{ margin: "0 0 1.5rem", fontSize: "0.85rem", color: "#78716a" }}>
+                Chronological listing of student study notes with note/highlight text, date written, and associated step &amp; lesson.
               </p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -1006,18 +967,17 @@ export default function Step8ModulePreview({
                         padding: "1.25rem",
                         borderRadius: 12,
                         background: "#ffffff",
-                        border: "1px solid var(--border-light, #e7decb)",
+                        border: "1px solid #e7decb",
                         boxShadow: "0 2px 6px rgba(0,0,0,0.03)",
                       }}
                     >
-                      {/* Field 3: Module & Lesson */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ fontSize: "0.75rem", fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>
                             {stepTitle}
                           </span>
-                          <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                            &bull; {lessonTitle}
+                          <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#14110f" }}>
+                            • {lessonTitle}
                           </span>
                           {note.videoTimestampSeconds != null && (
                             <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#ede9fe", color: "#6d28d9" }}>
@@ -1026,28 +986,26 @@ export default function Step8ModulePreview({
                           )}
                         </div>
 
-                        {/* Field 2: Date written */}
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                          <span style={{ fontSize: "0.78rem", color: "#78716a" }}>
                             {dateWritten}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleDeleteNote(note.id)}
-                            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer" }}
+                            style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
                           >
                             ×
                           </button>
                         </div>
                       </div>
 
-                      {/* Quoted highlight snippet */}
                       {note.highlightSnippet && (
                         <blockquote
                           style={{
                             margin: "0.35rem 0",
                             padding: "6px 12px",
-                            borderLeft: "3px solid var(--accent-primary, #c97a1e)",
+                            borderLeft: "3px solid #c97a1e",
                             background: "#fbfaf8",
                             borderRadius: "0 6px 6px 0",
                             fontSize: "0.84rem",
@@ -1059,8 +1017,7 @@ export default function Step8ModulePreview({
                         </blockquote>
                       )}
 
-                      {/* Field 1: Note Text */}
-                      <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-primary)", lineHeight: 1.5 }}>
+                      <p style={{ margin: 0, fontSize: "0.88rem", color: "#14110f", lineHeight: 1.5 }}>
                         {note.noteText}
                       </p>
                     </div>
@@ -1071,21 +1028,20 @@ export default function Step8ModulePreview({
           )}
         </div>
 
-        {/* RIGHT COLUMN: IN-LESSON NOTE TAKING SIDEBAR & CHRONOLOGICAL CARDS */}
+        {/* RIGHT COLUMN: IN-LESSON NOTE TAKING SIDEBAR */}
         {activeTab !== "NOTES" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            {/* In-Lesson Quick Note Taking Card */}
             <div
               style={{
                 background: "#ffffff",
-                border: "1px solid var(--border-light, #e7decb)",
+                border: "1px solid #e7decb",
                 borderRadius: 14,
                 padding: "1.25rem",
                 boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#14110f" }}>
                   In-Lesson Note Taking
                 </h4>
                 {bookmarkTimestamp != null && (
@@ -1145,7 +1101,7 @@ export default function Step8ModulePreview({
                     style={{
                       background: "none",
                       border: "none",
-                      color: "var(--accent-primary, #c97a1e)",
+                      color: "#c97a1e",
                       fontSize: "0.75rem",
                       fontWeight: 700,
                       cursor: "pointer",
@@ -1158,7 +1114,7 @@ export default function Step8ModulePreview({
                   <button
                     type="submit"
                     style={{
-                      background: "var(--accent-primary, #c97a1e)",
+                      background: "#c97a1e",
                       color: "#ffffff",
                       border: "none",
                       borderRadius: 6,
@@ -1174,18 +1130,18 @@ export default function Step8ModulePreview({
               </form>
             </div>
 
-            {/* Dedicated "My Notes" Chronological Column */}
+            {/* Dedicated "My Notes" Column */}
             <div
               style={{
                 background: "#ffffff",
-                border: "1px solid var(--border-light, #e7decb)",
+                border: "1px solid #e7decb",
                 borderRadius: 14,
                 padding: "1.25rem",
                 boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#14110f" }}>
                   Recent Notes ({savedNotes.length})
                 </h4>
                 <button
@@ -1194,7 +1150,7 @@ export default function Step8ModulePreview({
                   style={{
                     background: "none",
                     border: "none",
-                    color: "var(--accent-primary, #c97a1e)",
+                    color: "#c97a1e",
                     fontSize: "0.75rem",
                     fontWeight: 700,
                     cursor: "pointer",
@@ -1216,9 +1172,8 @@ export default function Step8ModulePreview({
                       fontSize: "0.8125rem",
                     }}
                   >
-                    {/* Mandatory 3 fields */}
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", fontSize: "0.72rem", marginBottom: "3px" }}>
-                      <span>Step {module.sequence} &bull; {note.lesson?.title || activePreviewLesson?.title}</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#78716a", fontSize: "0.72rem", marginBottom: "3px" }}>
+                      <span>Step {module.sequence} • {note.lesson?.title || activePreviewLesson?.title}</span>
                       <span>{formatNoteDate(note.createdAt)}</span>
                     </div>
 
@@ -1240,11 +1195,23 @@ export default function Step8ModulePreview({
       </div>
 
       {/* Action Controls */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border-light, #e7decb)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid #e7decb" }}>
         <button
           type="button"
-          className={styles.btnBack}
           onClick={onBackToEdit}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "0.6rem 1.25rem",
+            background: "#ffffff",
+            border: "1.5px solid #cbd5e1",
+            borderRadius: "8px",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            color: "#334155",
+            cursor: "pointer",
+          }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
@@ -1254,8 +1221,20 @@ export default function Step8ModulePreview({
 
         <button
           type="button"
-          className={styles.btnPrimary}
           onClick={onContinueToReview}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "0.6rem 1.4rem",
+            background: "#c97a1e",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "8px",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
         >
           <span>Continue to Final Review &amp; Publish</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

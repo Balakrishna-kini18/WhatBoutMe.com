@@ -7,6 +7,8 @@ import {
   Request,
 } from '@nestjs/common';
 import { ProgressionService } from './progression.service.js';
+import { StageGateService } from './stage-gate.service.js';
+import { LearnerStage } from '@prisma/client';
 import { CreateProgressShareDto, StepOverrideDto } from './dto/index.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
@@ -14,7 +16,10 @@ import { Public } from '../../common/decorators/public.decorator.js';
 
 @Controller('progression')
 export class ProgressionController {
-  constructor(private readonly progressionService: ProgressionService) {}
+  constructor(
+    private readonly progressionService: ProgressionService,
+    private readonly stageGateService: StageGateService,
+  ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. LEARNER SELF-SERVICE
@@ -175,6 +180,30 @@ export class ProgressionController {
       enrolmentId,
       req.user,
     );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 6. 5-STAGE PROGRESSION STATE MACHINE
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @Get(['enrolments/:enrolmentId/stages', 'tree/:enrolmentId'])
+  async getEnrolmentStages(
+    @Param('enrolmentId') enrolmentId: string,
+    @Request() req: any,
+  ) {
+    return this.stageGateService.evaluateStages(enrolmentId, req?.user);
+  }
+
+  @RequirePermission(Permission.STEPS_UNLOCK)
+  @Post('admin/enrolments/:enrolmentId/stages/:stage/override')
+  async overrideStage(
+    @Param('enrolmentId') enrolmentId: string,
+    @Param('stage') stage: LearnerStage,
+    @Body('reason') reason: string,
+    @Request() req: any,
+  ) {
+    await this.stageGateService.overrideStage(enrolmentId, stage, req.user, reason);
+    return { success: true, message: `Stage ${stage} successfully overridden.` };
   }
 }
 

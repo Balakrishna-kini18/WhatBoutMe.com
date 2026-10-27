@@ -533,21 +533,77 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('rejects duplicate submission if attempt is already finalized', async () => {
+    it('gracefully resolves active IN_PROGRESS attempt if attemptId is omitted by client', async () => {
+      const questions = createMockQuestions(10);
+      const attemptData = {
+        id: 'attempt-auto-resolved',
+        quizId: 'quiz-step-1',
+        attemptNumber: 1,
+        status: AttemptStatus.IN_PROGRESS,
+        enrolment: mockEnrolment,
+        quiz: mockQuiz,
+        answers: questions.map((q) => ({
+          id: `ans-${q.id}`,
+          questionId: q.id,
+          question: q,
+        })),
+      };
+
+      prismaMock.quiz.findUnique.mockResolvedValueOnce(mockQuiz);
+      prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
+      prismaMock.attempt.findFirst.mockResolvedValueOnce(attemptData);
+      prismaMock.attempt.findUnique
+        .mockResolvedValueOnce(attemptData)
+        .mockResolvedValueOnce(attemptData);
+
+      prismaMock.attempt.update.mockResolvedValueOnce({
+        id: 'attempt-auto-resolved',
+        attemptNumber: 1,
+        score: 100,
+        passed: true,
+        status: AttemptStatus.PASSED,
+        completedAt: new Date(),
+      });
+      prismaMock.attempt.findMany.mockResolvedValueOnce([]);
+
+      const result = await service.submitQuiz('quiz-step-1', mockUser, {
+        answers: questions.map((q) => ({
+          questionId: q.id,
+          selectedOptionId: `opt-${q.id.split('-')[1]}-1`,
+        })),
+      });
+
+      expect(result.attemptId).toBe('attempt-auto-resolved');
+      expect(result.passed).toBe(true);
+    });
+
+    it('returns finalized attempt result idempotently if attempt is already finalized', async () => {
       prismaMock.attempt.findUnique.mockResolvedValueOnce({
         id: 'attempt-finalized',
         quizId: 'quiz-step-1',
+        attemptNumber: 1,
+        score: 100,
+        passed: true,
         status: AttemptStatus.PASSED,
+        completedAt: new Date(),
         enrolment: mockEnrolment,
+        answers: [],
+        quiz: mockQuiz,
+      });
+      prismaMock.attempt.findMany.mockResolvedValueOnce([
+        { id: 'attempt-finalized', attemptNumber: 1, createdAt: new Date() } as any,
+      ]);
+      prismaMock.auditLog.findFirst.mockResolvedValueOnce(null);
+
+      const result = await service.submitQuiz('quiz-step-1', mockUser, {
+        attemptId: 'attempt-finalized',
         answers: [],
       });
 
-      await expect(
-        service.submitQuiz('quiz-step-1', mockUser, {
-          attemptId: 'attempt-finalized',
-          answers: [],
-        }),
-      ).rejects.toThrow(BadRequestException);
+      expect(result.status).toBe(AttemptStatus.PASSED);
+      expect(result.score).toBe(100);
+      expect(result.passed).toBe(true);
+      expect(result.attemptId).toBe('attempt-finalized');
     });
 
     it('rejects submission with question ID not bound to the attempt', async () => {

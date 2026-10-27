@@ -391,7 +391,7 @@ export default function LmsEventsPage() {
         </div>
       ) : displayedEvents.length === 0 ? (
         <div className={styles.emptyState}>
-          <h3 style={{ fontFamily: "var(--font-playfair)", fontSize: "1.35rem", margin: 0, fontWeight: 700 }}>
+          <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.35rem", margin: 0, fontWeight: 700 }}>
             No sessions available
           </h3>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", maxWidth: "450px", margin: 0 }}>
@@ -545,7 +545,7 @@ export default function LmsEventsPage() {
                       {selectedEvent.type || "WORKSHOP"}
                     </span>
                   </div>
-                  <h3 style={{ fontFamily: "var(--font-playfair)", fontSize: "1.15rem", margin: 0, fontWeight: 700 }}>
+                  <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.15rem", margin: 0, fontWeight: 700 }}>
                     {selectedEvent.title}
                   </h3>
                   <p style={{ fontSize: "0.825rem", color: "var(--text-secondary)", margin: 0 }}>

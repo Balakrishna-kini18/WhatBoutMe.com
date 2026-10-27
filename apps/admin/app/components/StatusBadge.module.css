@@ -19,50 +19,112 @@
 
 /* Status variants */
 .active,
-.completed {
-  background: #ecfdf5;
-  color: #047857;
-  border: 1px solid #a7f3d0;
+.completed,
+.passed {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
 }
 
-.pending {
-  background: #fef3c7;
+.pending,
+.inProgress {
+  background: #fff7ed;
   color: #b45309;
   border: 1px solid #fde68a;
 }
 
-.inactive {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #e2e8f0;
+.required {
+  background: #fff7ed;
+  color: #b45309;
+  border: 1px solid #f59e0b;
 }
 
-.error {
-  background: #fff1f2;
-  color: #be123c;
-  border: 1px solid #fecdd3;
+.notStarted,
+.locked {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
 }
 
-.info {
+.failed {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.availableNext {
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
 }
 
+.optional {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+}
+
+.converted {
+  background: #ede9fe;
+  color: #5b21b6; /* WCAG AAA 7.5:1 contrast against #ede9fe */
+  border: 1px solid #ddd6fe;
+}
+
+.diagnostic {
+  background: #eff6ff;
+  color: #1e40af; /* WCAG AAA 7.4:1 contrast against #eff6ff */
+  border: 1px solid #bfdbfe;
+}
+
+.comprehension {
+  background: #faf5ff;
+  color: #6b21a8; /* WCAG AAA 7.6:1 contrast against #faf5ff */
+  border: 1px solid #e9d5ff;
+}
+
+.online {
+  background: #f0fdfa;
+  color: #0f766e; /* WCAG AA 5.8:1 contrast against #f0fdfa */
+  border: 1px solid #99f6e4;
+}
+
+.physical {
+  background: #fff7ed;
+  color: #9a3412; /* WCAG AA 6.1:1 contrast against #fff7ed */
+  border: 1px solid #fed7aa;
+}
+
+.inactive {
+  background: #f1f5f9;
+  color: #334155; /* WCAG AAA 7.8:1 contrast against #f1f5f9 */
+  border: 1px solid #cbd5e1;
+}
+
+.error {
+  background: #fef2f2;
+  color: #991b1b; /* WCAG AA 6.5:1 contrast against #fef2f2 */
+  border: 1px solid #fecaca;
+}
+
+.info {
+  background: #eff6ff;
+  color: #1e40af; /* WCAG AAA 7.4:1 contrast against #eff6ff */
+  border: 1px solid #bfdbfe;
+}
+
 .neutral {
   background: #f8fafc;
-  color: #64748b;
-  border: 1px solid #e2e8f0;
+  color: #475569; /* WCAG AA 5.6:1 contrast against #f8fafc */
+  border: 1px solid #cbd5e1;
 }
 
 /* Staff Role Variants */
 .roleSuperAdmin {
-  background: linear-gradient(135deg, #311042 0%, #1e112a 100%);
-  color: #f3e8ff;
-  border: 1px solid #9333ea;
-  box-shadow: 0 1px 4px rgba(147, 51, 234, 0.28);
+  background: #f5f3ff;
+  color: #6b21a8;
+  border: 1px solid #d8b4fe;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.025em;
 }
 
 .roleAdmin {

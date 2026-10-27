@@ -203,6 +203,7 @@ describe('Agreement-First Enrollment Flow End-to-End Suite', () => {
         consentVersion: 'v1.0',
         consentTimestamp: '2026-10-15T12:00:00.000Z',
         typedName: 'Learner A Legal Name',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         signatureType: 'DRAWN' as const,
       };
@@ -260,6 +261,7 @@ describe('Agreement-First Enrollment Flow End-to-End Suite', () => {
         enrolmentId: provisionalEnrolment.id,
         consentGiven: false,
         typedName: 'Learner A',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,valid',
       };
 
@@ -273,6 +275,7 @@ describe('Agreement-First Enrollment Flow End-to-End Suite', () => {
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: '   ',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,valid',
       };
 
@@ -286,6 +289,7 @@ describe('Agreement-First Enrollment Flow End-to-End Suite', () => {
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: 'Learner A',
+        typedAcknowledgement: 'I AGREE',
       };
 
       await expect(
@@ -300,6 +304,7 @@ describe('Agreement-First Enrollment Flow End-to-End Suite', () => {
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: 'Learner B Fraudulent',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,valid',
       };
 

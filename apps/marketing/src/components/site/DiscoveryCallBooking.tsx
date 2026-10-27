@@ -310,7 +310,7 @@ export default function DiscoveryCallBooking({
               onClick={onBack}
               className="text-xs text-ink-soft hover:text-ink ml-auto underline"
             >
-              Submit another inquiry
+              Submit another enquiry
             </button>
           )}
         </div>

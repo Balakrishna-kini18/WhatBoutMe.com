@@ -37,7 +37,7 @@
 }
 
 .headerTitle {
-  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-family: var(--font-sans);
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
@@ -257,7 +257,7 @@
 }
 
 .monthHeading {
-  font-family: var(--font-serif, "Playfair Display", Georgia, serif);
+  font-family: var(--font-sans);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary, #14110f);
@@ -1020,5 +1020,19 @@
   height: 8px;
   border-radius: 50%;
   background: #d97706;
+  display: inline-block;
+}
+
+.commitmentBtnActiveRequests {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.commitmentDotRequests {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
   display: inline-block;
 }

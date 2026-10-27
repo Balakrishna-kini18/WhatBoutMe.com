@@ -1,15 +1,24 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Request,
 } from '@nestjs/common';
 import { ExamsService } from './exams.service.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { Permission } from '../../config/permissions.config.js';
-import { StartExamDto, SubmitExamDto, ResetExamAttemptsDto } from './dto/index.js';
+import {
+  StartExamDto,
+  SubmitExamDto,
+  ResetExamAttemptsDto,
+  CreateExamDto,
+  UpdateExamDto,
+  SaveExamAnswersDto,
+} from './dto/index.js';
 
 @Controller()
 export class ExamsController {
@@ -63,6 +72,115 @@ export class ExamsController {
     @Request() req: any,
   ) {
     return this.examsService.getActiveAttempt(id, req?.user);
+  }
+
+  @Patch('exams/:id/attempt/answers')
+  saveAnswers(
+    @Param('id') id: string,
+    @Body() dto: SaveExamAnswersDto,
+    @Request() req: any,
+  ) {
+    return this.examsService.saveExamAnswers(id, dto, req?.user);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. ADMIN EXAM BUILDER & PUBLISHING
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams')
+  createExam(
+    @Body() dto: CreateExamDto,
+    @Request() req: any,
+  ) {
+    return this.examsService.createExam(dto, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Patch('exams/:id')
+  updateExam(
+    @Param('id') id: string,
+    @Body() dto: UpdateExamDto,
+    @Request() req: any,
+  ) {
+    return this.examsService.updateExam(id, dto, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams/:id/publish')
+  publishExam(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.publishExam(id, req?.user);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. DEDICATED FINAL EXAM QUESTION BANK (70-QUESTION POOL FOR 50-MARK EXAM)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  @RequirePermission(Permission.PROGRAMS_READ)
+  @Get('programs/:programId/exam/questions')
+  getProgramExamQuestions(
+    @Param('programId') programId: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.getProgramExamQuestions(programId, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_READ)
+  @Get('exams/:id/questions')
+  getExamQuestions(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.getExamQuestions(id, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams/:id/questions')
+  createExamQuestion(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.examsService.createExamQuestion(id, body, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Post('exams/:id/questions/bulk')
+  bulkCreateExamQuestions(
+    @Param('id') id: string,
+    @Body() body: { questions: any[]; replaceExisting?: boolean },
+    @Request() req: any,
+  ) {
+    return this.examsService.bulkCreateExamQuestions(
+      id,
+      body?.questions || [],
+      req?.user,
+      Boolean(body?.replaceExisting),
+    );
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Patch('exams/:id/questions/:questionId')
+  updateExamQuestion(
+    @Param('id') id: string,
+    @Param('questionId') questionId: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.examsService.updateExamQuestion(id, questionId, body, req?.user);
+  }
+
+  @RequirePermission(Permission.PROGRAMS_UPDATE)
+  @Delete('exams/:id/questions/:questionId')
+  deleteExamQuestion(
+    @Param('id') id: string,
+    @Param('questionId') questionId: string,
+    @Request() req: any,
+  ) {
+    return this.examsService.deleteExamQuestion(id, questionId, req?.user);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

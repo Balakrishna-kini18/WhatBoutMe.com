@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOutEverywhere as leavePortal } from "../lib/site";
 import SignaturePad, { SignatureMethod } from "../agreement/SignaturePad";
+import ProfileLoading from "./loading";
 import styles from "./profile.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -210,7 +211,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) return <div className={styles.frame}><p className={styles.muted}>Loading your profile...</p></div>;
+  if (loading) return <ProfileLoading />;
   if (!profile) return <div className={styles.frame}><p className={styles.muted}>We couldn&apos;t load your profile. Please refresh the page.</p></div>;
 
   const displayName = profile.name || "Learner";
@@ -229,14 +230,11 @@ export default function ProfilePage() {
     { label: "Email Address", value: profile.email },
     { label: "Mobile Number", value: profile.phone || "Not set" },
     { label: "Account Type", value: accountType },
-    { label: "Cohort", value: cohort || "Not enrolled" },
   ];
 
   return (
     <div className={styles.frame}>
       <article className={styles.panel}>
-        <div className={styles.cover} />
-
         <header className={styles.head}>
           <span className={styles.avatarWrap}>
             <span className={styles.avatar}>{initials}</span>
@@ -249,7 +247,6 @@ export default function ProfilePage() {
             <p>{profile.email}</p>
             <div className={styles.badges}>
               <span className={styles.badge}>{accountType}</span>
-              {cohort && <span className={`${styles.badge} ${styles.badgePlain}`}>{cohort}</span>}
             </div>
           </div>
           <div className={styles.actions}>
@@ -294,7 +291,6 @@ export default function ProfilePage() {
                     <Link href={`/programs/${p.programId}/steps`} className={styles.course}>
                       <span className={styles.courseText}>
                         <strong>{p.programTitle}</strong>
-                        <span>Cohort: {p.batchName}</span>
                       </span>
                       <span className={styles.courseProgress}>{p.progress ?? 0}%</span>
                       <span className={styles.open}>Open</span>

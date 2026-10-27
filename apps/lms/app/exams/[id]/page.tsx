@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useState, use, useRef } from "react";
+import { useEffect, useState, use, useRef, useCallback } from "react";
 import Link from "next/link";
 import { API_URL, getAuthHeaders, parseApiError } from "../../lib/api";
+import {
+  safeParseResponseJson as safeJson,
+  buildExamAnswersPayload,
+  reconcileExamProgress,
+  saveLocalExamProgress,
+  loadLocalExamProgress,
+  clearLocalExamProgress,
+} from "./examRunnerLogic";
 import styles from "../../page.module.css";
 import dash from "../../layout.module.css";
 
@@ -100,6 +108,53 @@ export default function ExamPage({
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "local">("saved");
+
+  // Keep refs of latest state for immediate synchronous flush on beforeunload / pagehide
+  const latestAnswersRef = useRef<Record<string, string>>({});
+  const latestQuestionIndexRef = useRef<number>(0);
+  const latestAttemptRef = useRef<ActiveAttempt | null>(null);
+  const latestExamIdRef = useRef<string>(paramId);
+
+  latestAnswersRef.current = selectedAnswers;
+  latestQuestionIndexRef.current = currentQuestionIndex;
+  latestAttemptRef.current = activeAttempt;
+  latestExamIdRef.current = activeAttempt?.examId || examId;
+
+  // Immediate server sync helper (supports keepalive for page refresh / tab close)
+  const syncProgressToServer = useCallback(
+    async (
+      targetAttempt: ActiveAttempt,
+      answersMap: Record<string, string>,
+      questionIdx: number,
+      keepalive = false,
+    ) => {
+      const targetExamId = targetAttempt.examId || latestExamIdRef.current;
+      if (!targetExamId || targetAttempt.status !== "IN_PROGRESS") return;
+      try {
+        setSaveState("saving");
+        const answersPayload = buildExamAnswersPayload(targetAttempt.questions || [], answersMap);
+        const res = await fetch(`${API_URL}/exams/${targetExamId}/attempt/answers`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          keepalive,
+          body: JSON.stringify({
+            answers: answersPayload,
+            currentQuestionIndex: questionIdx,
+          }),
+        });
+        if (res.ok) {
+          setSaveState("saved");
+        } else {
+          setSaveState("local");
+        }
+      } catch {
+        setSaveState("local");
+      }
+    },
+    [],
+  );
 
   // Initial load: resolve exam ID and load active attempt / latest status
   useEffect(() => {
@@ -115,22 +170,52 @@ export default function ExamPage({
         });
 
         if (configRes.ok) {
-          const cfg: ExamConfig = await configRes.json();
-          setConfig(cfg);
-          resolvedExamId = cfg.id;
-          setExamId(cfg.id);
+          const cfg = await safeJson<ExamConfig>(configRes);
+          if (cfg && cfg.id) {
+            setConfig(cfg);
+            resolvedExamId = cfg.id;
+            setExamId(cfg.id);
+          }
         }
 
-        // Fetch active attempt or recent attempt status
+        // Fetch active attempt or recent attempt status (returns empty body when no attempt exists yet)
         const attemptRes = await fetch(`${API_URL}/exams/${resolvedExamId}/attempt`, {
           headers: getAuthHeaders(),
         });
 
         if (attemptRes.ok) {
-          const data = await attemptRes.json();
+          const data = await safeJson<any>(attemptRes);
           if (data) {
             if (data.status === "IN_PROGRESS" && data.questions) {
+              const attemptId = data.attemptId || data.id;
+              const targetExamId = data.examId || resolvedExamId;
+              if (data.examId) setExamId(data.examId);
               setActiveAttempt(data);
+
+              // Reconcile server savedAnswers + local browser snapshot so refresh never loses anything
+              const localSnapshot = loadLocalExamProgress(attemptId, targetExamId);
+              const reconciled = reconcileExamProgress({
+                attemptData: data,
+                localSnapshot,
+              });
+
+              setSelectedAnswers(reconciled.selectedAnswers);
+              setCurrentQuestionIndex(reconciled.currentQuestionIndex);
+              saveLocalExamProgress(
+                attemptId,
+                targetExamId,
+                reconciled.selectedAnswers,
+                reconciled.currentQuestionIndex,
+              );
+
+              if (reconciled.needsServerSync) {
+                void syncProgressToServer(
+                  data,
+                  reconciled.selectedAnswers,
+                  reconciled.currentQuestionIndex,
+                );
+              }
+
               // Calculate remaining seconds
               const expires = new Date(data.expiresAt).getTime();
               const now = Date.now();
@@ -138,6 +223,7 @@ export default function ExamPage({
               setSecondsRemaining(remaining);
             } else if (data.status === "PASSED" || data.status === "FAILED") {
               setResult(data);
+              clearLocalExamProgress(data.attemptId || data.id, data.examId || resolvedExamId);
             }
           }
         }
@@ -150,7 +236,71 @@ export default function ExamPage({
     }
 
     initExam();
-  }, [paramId]);
+  }, [paramId, syncProgressToServer]);
+
+  // Debounced autosave effect: syncs learner answers & question index every 500ms
+  const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!activeAttempt || activeAttempt.status !== "IN_PROGRESS") {
+      return;
+    }
+    const attemptId = activeAttempt.attemptId || (activeAttempt as any).id;
+    const targetExamId = activeAttempt.examId || examId;
+
+    // Always persist synchronously to localStorage on every state update (0ms latency)
+    saveLocalExamProgress(attemptId, targetExamId, selectedAnswers, currentQuestionIndex);
+
+    if (Object.keys(selectedAnswers).length === 0 && currentQuestionIndex === 0) {
+      return;
+    }
+
+    if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
+
+    autosaveTimeoutRef.current = setTimeout(() => {
+      void syncProgressToServer(activeAttempt, selectedAnswers, currentQuestionIndex);
+    }, 500);
+
+    return () => {
+      if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
+    };
+  }, [selectedAnswers, currentQuestionIndex, activeAttempt, examId, syncProgressToServer]);
+
+  // Flush progress on browser refresh, tab close, or visibility change
+  useEffect(() => {
+    function flushOnExit() {
+      const attempt = latestAttemptRef.current;
+      if (!attempt || attempt.status !== "IN_PROGRESS") return;
+      const attemptId = attempt.attemptId || (attempt as any).id;
+      const targetExamId = attempt.examId || latestExamIdRef.current;
+      saveLocalExamProgress(
+        attemptId,
+        targetExamId,
+        latestAnswersRef.current,
+        latestQuestionIndexRef.current,
+      );
+      void syncProgressToServer(
+        attempt,
+        latestAnswersRef.current,
+        latestQuestionIndexRef.current,
+        true,
+      );
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        flushOnExit();
+      }
+    }
+
+    window.addEventListener("beforeunload", flushOnExit);
+    window.addEventListener("pagehide", flushOnExit);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", flushOnExit);
+      window.removeEventListener("pagehide", flushOnExit);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [syncProgressToServer]);
 
   // Countdown timer effect
   useEffect(() => {
@@ -171,7 +321,7 @@ export default function ExamPage({
     return () => clearInterval(timer);
   }, [secondsRemaining, activeAttempt]);
 
-  // Start exam attempt
+  // Start or resume exam attempt
   async function handleStartExam() {
     setError(null);
     setLoading(true);
@@ -187,11 +337,31 @@ export default function ExamPage({
         throw new Error(err.message);
       }
 
-      const attempt: ActiveAttempt = await res.json();
+      const attempt = await safeJson<ActiveAttempt>(res);
+      if (!attempt) {
+        throw new Error("Empty exam attempt response received from server.");
+      }
+      const attemptId = attempt.attemptId || (attempt as any).id;
+      const targetExamId = attempt.examId || examId;
+      if (attempt.examId) setExamId(attempt.examId);
+
+      // Reconcile any existing progress (if startExam resumed an active attempt)
+      const localSnapshot = loadLocalExamProgress(attemptId, targetExamId);
+      const reconciled = reconcileExamProgress({
+        attemptData: attempt,
+        localSnapshot,
+      });
+
       setActiveAttempt(attempt);
       setResult(null);
-      setSelectedAnswers({});
-      setCurrentQuestionIndex(0);
+      setSelectedAnswers(reconciled.selectedAnswers);
+      setCurrentQuestionIndex(reconciled.currentQuestionIndex);
+      saveLocalExamProgress(
+        attemptId,
+        targetExamId,
+        reconciled.selectedAnswers,
+        reconciled.currentQuestionIndex,
+      );
 
       const expires = new Date(attempt.expiresAt).getTime();
       const remaining = Math.max(0, Math.floor((expires - Date.now()) / 1000));
@@ -203,49 +373,39 @@ export default function ExamPage({
     }
   }
 
-  // Submit exam answers
-  async function handleExamSubmit(isTimeExpired = false) {
+  // Request exam submission (opens in-website confirmation modal unless timer expired)
+  function handleExamSubmit(isTimeExpired = false) {
     if (!activeAttempt || isSubmitting) return;
 
     if (!isTimeExpired) {
-      const answeredCount = Object.keys(selectedAnswers).length;
-      const total = activeAttempt.questions?.length || 50;
-      if (answeredCount < total) {
-        const confirmIncomplete = window.confirm(
-          `You have answered ${answeredCount} of ${total} questions. Are you sure you want to submit your final exam now?`
-        );
-        if (!confirmIncomplete) return;
-      } else {
-        const confirmSubmit = window.confirm(
-          `You have answered all ${total} questions. Ready to submit for server scoring?`
-        );
-        if (!confirmSubmit) return;
-      }
+      setIsSubmitConfirmOpen(true);
+      return;
     }
 
+    void executeExamSubmit();
+  }
+
+  // Execute server submission
+  async function executeExamSubmit() {
+    if (!activeAttempt || isSubmitting) return;
+
+    setIsSubmitConfirmOpen(false);
     setIsSubmitting(true);
     setSubmitWarning(null);
 
     try {
-      const answersPayload = (activeAttempt.questions || []).map((q) => {
-        const ans = selectedAnswers[q.id];
-        const isMulti = q.type === "MULTI_SELECT";
-        const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
-        return {
-          questionId: q.id,
-          optionId: !isMulti && !isText ? ans : undefined,
-          selectedOptionId: !isMulti && !isText ? ans : undefined,
-          selectedOptionIds: isMulti && ans ? ans.split(",").filter(Boolean) : undefined,
-          textResponse: isText ? ans : undefined,
-          textAnswer: isText ? ans : undefined,
-        };
-      });
+      const targetExamId = activeAttempt.examId || examId;
+      const attemptId = activeAttempt.attemptId || (activeAttempt as any).id;
+      const answersPayload = buildExamAnswersPayload(
+        activeAttempt.questions || [],
+        selectedAnswers,
+      );
 
-      const res = await fetch(`${API_URL}/exams/${examId}/submit`, {
+      const res = await fetch(`${API_URL}/exams/${targetExamId}/submit`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          attemptId: activeAttempt.attemptId,
+          attemptId,
           answers: answersPayload,
         }),
       });
@@ -255,8 +415,11 @@ export default function ExamPage({
         throw new Error(err.message);
       }
 
-      const resData: ExamResult = await res.json();
-      setResult(resData);
+      const resData = await safeJson<ExamResult>(res);
+      if (resData) {
+        setResult(resData);
+      }
+      clearLocalExamProgress(attemptId, targetExamId);
       setActiveAttempt(null);
       setSecondsRemaining(null);
     } catch (err: any) {
@@ -266,11 +429,33 @@ export default function ExamPage({
     }
   }
 
+  function navigateToQuestion(nextIdx: number) {
+    const total = activeAttempt?.questions?.length || 1;
+    const clamped = Math.min(Math.max(0, nextIdx), total - 1);
+    setCurrentQuestionIndex(clamped);
+    if (activeAttempt) {
+      const attemptId = activeAttempt.attemptId || (activeAttempt as any).id;
+      const targetExamId = activeAttempt.examId || examId;
+      saveLocalExamProgress(attemptId, targetExamId, selectedAnswers, clamped);
+    }
+  }
+
   function handleOptionSelect(questionId: string, optionId: string) {
-    setSelectedAnswers((prev) => ({
-      ...prev,
-      [questionId]: optionId,
-    }));
+    setSelectedAnswers((prev) => {
+      const nextMap = {
+        ...prev,
+        [questionId]: optionId,
+      };
+      if (activeAttempt) {
+        saveLocalExamProgress(
+          activeAttempt.attemptId || (activeAttempt as any).id,
+          activeAttempt.examId || examId,
+          nextMap,
+          currentQuestionIndex,
+        );
+      }
+      return nextMap;
+    });
   }
 
   function handleOptionToggle(questionId: string, optionId: string) {
@@ -279,18 +464,38 @@ export default function ExamPage({
       const next = current.includes(optionId)
         ? current.filter((id) => id !== optionId)
         : [...current, optionId];
-      return {
+      const nextMap = {
         ...prev,
         [questionId]: next.join(","),
       };
+      if (activeAttempt) {
+        saveLocalExamProgress(
+          activeAttempt.attemptId || (activeAttempt as any).id,
+          activeAttempt.examId || examId,
+          nextMap,
+          currentQuestionIndex,
+        );
+      }
+      return nextMap;
     });
   }
 
   function handleTextChange(questionId: string, text: string) {
-    setSelectedAnswers((prev) => ({
-      ...prev,
-      [questionId]: text,
-    }));
+    setSelectedAnswers((prev) => {
+      const nextMap = {
+        ...prev,
+        [questionId]: text,
+      };
+      if (activeAttempt) {
+        saveLocalExamProgress(
+          activeAttempt.attemptId || (activeAttempt as any).id,
+          activeAttempt.examId || examId,
+          nextMap,
+          currentQuestionIndex,
+        );
+      }
+      return nextMap;
+    });
   }
 
   const formatTime = (secs: number) => {
@@ -318,13 +523,16 @@ export default function ExamPage({
     const questions = activeAttempt.questions;
     const currentQ = questions[currentQuestionIndex] ?? questions[0];
     if (!currentQ) return null;
-    const answeredCount = Object.keys(selectedAnswers).length;
+    const answeredCount = questions.filter((q) => Boolean(selectedAnswers[q.id]?.trim())).length;
     const totalCount = questions.length;
+    const unansweredIndices = questions
+      .map((q, idx) => (!selectedAnswers[q.id]?.trim() ? idx : -1))
+      .filter((idx) => idx >= 0);
     const isLastQuestion = currentQuestionIndex === totalCount - 1;
 
     return (
       <div className={dash.page} style={{ maxWidth: "1000px", margin: "0 auto", padding: "1.5rem" }}>
-        {/* Header Bar with Countdown */}
+        {/* Header Bar with Countdown & Auto-Save Status */}
         <div
           style={{
             display: "flex",
@@ -332,18 +540,43 @@ export default function ExamPage({
             alignItems: "center",
             padding: "1rem 1.5rem",
             backgroundColor: "#0f172a",
-            color: "white",
+            color: "#ffffff",
             borderRadius: "12px",
             marginBottom: "1.5rem",
           }}
         >
           <div>
-            <h1 style={{ fontSize: "1.2rem", margin: 0, fontWeight: 700 }}>
+            <h1 style={{ fontSize: "1.2rem", margin: 0, fontWeight: 700, color: "#ffffff" }}>
               {activeAttempt.title || config?.title || "Final Comprehensive Examination"}
             </h1>
-            <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "#94a3b8" }}>
-              Attempt #{activeAttempt.attemptNumber} • Question {currentQuestionIndex + 1} of {totalCount} ({answeredCount} answered)
-            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px", flexWrap: "wrap" }}>
+              <p style={{ margin: 0, fontSize: "0.85rem", color: "#cbd5e1" }}>
+                Attempt #{activeAttempt.attemptNumber} • Question {currentQuestionIndex + 1} of {totalCount} ({answeredCount} answered)
+              </p>
+              <span
+                style={{
+                  fontSize: "0.73rem",
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: "999px",
+                  backgroundColor:
+                    saveState === "saving"
+                      ? "rgba(245, 158, 11, 0.2)"
+                      : "rgba(34, 197, 94, 0.2)",
+                  color: saveState === "saving" ? "#fcd34d" : "#86efac",
+                  border:
+                    saveState === "saving"
+                      ? "1px solid rgba(245, 158, 11, 0.35)"
+                      : "1px solid rgba(34, 197, 94, 0.35)",
+                }}
+              >
+                {saveState === "saving"
+                  ? "⟳ Saving progress..."
+                  : saveState === "local"
+                  ? "✓ Saved locally (resume-ready)"
+                  : "✓ Progress auto-saved"}
+              </span>
+            </div>
           </div>
 
           {secondsRemaining !== null && (
@@ -519,21 +752,33 @@ export default function ExamPage({
                       : selectedAnswers[currentQ.id] === opt.id;
 
                     return (
-                      <label
+                      <div
                         key={opt.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() =>
                           isMulti
                             ? handleOptionToggle(currentQ.id, opt.id)
                             : handleOptionSelect(currentQ.id, opt.id)
                         }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            if (isMulti) {
+                              handleOptionToggle(currentQ.id, opt.id);
+                            } else {
+                              handleOptionSelect(currentQ.id, opt.id);
+                            }
+                          }
+                        }}
                         style={{
                           display: "flex",
                           alignItems: "center",
                           gap: "12px",
                           padding: "12px 16px",
                           borderRadius: "8px",
-                          border: isSelected ? "2px solid #2563eb" : "1px solid #cbd5e1",
-                          backgroundColor: isSelected ? "#eff6ff" : "white",
+                          border: isSelected ? "2px solid #c97a1e" : "1px solid #cbd5e1",
+                          backgroundColor: isSelected ? "#fff8eb" : "white",
                           cursor: "pointer",
                           transition: "all 0.15s ease",
                         }}
@@ -542,17 +787,13 @@ export default function ExamPage({
                           type={isMulti ? "checkbox" : "radio"}
                           name={`question_${currentQ.id}`}
                           checked={isSelected}
-                          onChange={() =>
-                            isMulti
-                              ? handleOptionToggle(currentQ.id, opt.id)
-                              : handleOptionSelect(currentQ.id, opt.id)
-                          }
-                          style={{ accentColor: "#2563eb", width: "16px", height: "16px" }}
+                          readOnly
+                          style={{ accentColor: "#c97a1e", width: "16px", height: "16px", pointerEvents: "none" }}
                         />
-                        <span style={{ fontSize: "0.95rem", color: isSelected ? "#1e40af" : "#334155" }}>
+                        <span style={{ fontSize: "0.95rem", color: isSelected ? "#9a5810" : "#334155", fontWeight: isSelected ? 600 : 400 }}>
                           {opt.text}
                         </span>
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
@@ -563,7 +804,7 @@ export default function ExamPage({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: "1.25rem" }}>
               <button
                 type="button"
-                onClick={() => setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))}
+                onClick={() => navigateToQuestion(currentQuestionIndex - 1)}
                 disabled={currentQuestionIndex === 0}
                 style={{
                   padding: "8px 16px",
@@ -583,7 +824,7 @@ export default function ExamPage({
                 {!isLastQuestion ? (
                   <button
                     type="button"
-                    onClick={() => setCurrentQuestionIndex((prev) => Math.min(totalCount - 1, prev + 1))}
+                    onClick={() => navigateToQuestion(currentQuestionIndex + 1)}
                     style={{
                       padding: "8px 20px",
                       borderRadius: "6px",
@@ -648,14 +889,14 @@ export default function ExamPage({
               }}
             >
               {questions.map((q, idx) => {
-                const isAnswered = !!selectedAnswers[q.id];
+                const isAnswered = Boolean(selectedAnswers[q.id]?.trim());
                 const isCurrent = idx === currentQuestionIndex;
 
                 return (
                   <button
                     key={q.id}
                     type="button"
-                    onClick={() => setCurrentQuestionIndex(idx)}
+                    onClick={() => navigateToQuestion(idx)}
                     style={{
                       padding: "8px 0",
                       borderRadius: "6px",
@@ -707,6 +948,211 @@ export default function ExamPage({
             </div>
           </div>
         </div>
+
+        {/* In-Website Submit Confirmation Modal */}
+        {isSubmitConfirmOpen && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              backgroundColor: "rgba(20, 17, 15, 0.58)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1200,
+              padding: "1rem",
+            }}
+            onClick={() => setIsSubmitConfirmOpen(false)}
+          >
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                borderRadius: "16px",
+                border: "1px solid #ece6dd",
+                width: "100%",
+                maxWidth: "520px",
+                padding: "1.75rem",
+                boxShadow: "0 24px 48px rgba(20, 17, 15, 0.24)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1.1rem",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
+                <div>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      fontSize: "0.72rem",
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      padding: "0.2rem 0.65rem",
+                      borderRadius: "999px",
+                      backgroundColor: answeredCount < totalCount ? "#fef3c7" : "#dcfce7",
+                      color: answeredCount < totalCount ? "#b45309" : "#15803d",
+                      marginBottom: "0.45rem",
+                    }}
+                  >
+                    {answeredCount < totalCount ? "INCOMPLETE EXAM WARNING" : "READY FOR SUBMISSION"}
+                  </span>
+                  <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "#14110f" }}>
+                    Submit Final Examination?
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSubmitConfirmOpen(false)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    fontSize: "1.25rem",
+                    color: "#78716a",
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div
+                style={{
+                  padding: "1rem 1.15rem",
+                  borderRadius: "12px",
+                  backgroundColor: answeredCount < totalCount ? "#fffbeb" : "#f0fdf4",
+                  border: answeredCount < totalCount ? "1px solid #fde68a" : "1px solid #86efac",
+                  color: answeredCount < totalCount ? "#92400e" : "#166534",
+                  fontSize: "0.95rem",
+                  lineHeight: 1.5,
+                  fontWeight: 600,
+                }}
+              >
+                {answeredCount < totalCount ? (
+                  <>
+                    You have answered <strong>{answeredCount} of {totalCount}</strong> questions (
+                    <strong>{totalCount - answeredCount} unanswered</strong>). Are you sure you want to submit your final exam now?
+                  </>
+                ) : (
+                  <>
+                    You have answered all <strong>{totalCount}</strong> questions. Ready to submit your final examination for server scoring?
+                  </>
+                )}
+              </div>
+
+              {/* Stats Summary Row */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: "0.65rem",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ padding: "0.65rem", borderRadius: "10px", background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                  <div style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 700 }}>Answered</div>
+                  <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "#15803d" }}>{answeredCount}</div>
+                </div>
+                <div style={{ padding: "0.65rem", borderRadius: "10px", background: unansweredIndices.length > 0 ? "#fef2f2" : "#f8fafc", border: unansweredIndices.length > 0 ? "1px solid #fecaca" : "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: "0.72rem", color: unansweredIndices.length > 0 ? "#991b1b" : "#64748b", fontWeight: 700 }}>Unanswered</div>
+                  <div style={{ fontSize: "1.15rem", fontWeight: 800, color: unansweredIndices.length > 0 ? "#dc2626" : "#475569" }}>
+                    {unansweredIndices.length}
+                  </div>
+                </div>
+                <div style={{ padding: "0.65rem", borderRadius: "10px", background: "#faf6f0", border: "1px solid #ece4d7" }}>
+                  <div style={{ fontSize: "0.72rem", color: "#78716a", fontWeight: 700 }}>Total Marks</div>
+                  <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "#14110f" }}>{totalCount}</div>
+                </div>
+              </div>
+
+              {/* Quick Jump to Unanswered Questions */}
+              {unansweredIndices.length > 0 && (
+                <div>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#57534e", marginBottom: "0.4rem" }}>
+                    Click a number below to jump directly to an unanswered question:
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "6px",
+                      maxHeight: "110px",
+                      overflowY: "auto",
+                      padding: "4px 2px",
+                    }}
+                  >
+                    {unansweredIndices.map((qIdx) => (
+                      <button
+                        key={qIdx}
+                        type="button"
+                        onClick={() => {
+                          navigateToQuestion(qIdx);
+                          setIsSubmitConfirmOpen(false);
+                        }}
+                        style={{
+                          padding: "4px 9px",
+                          borderRadius: "6px",
+                          border: "1px solid #fdba74",
+                          backgroundColor: "#fff7ed",
+                          color: "#9a3412",
+                          fontSize: "0.76rem",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Q{qIdx + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "0.75rem",
+                  borderTop: "1px solid #ece6dd",
+                  paddingTop: "0.95rem",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsSubmitConfirmOpen(false)}
+                  style={{
+                    padding: "0.62rem 1.15rem",
+                    borderRadius: "9px",
+                    border: "1px solid #dcd5cb",
+                    backgroundColor: "#ffffff",
+                    color: "#44403c",
+                    fontWeight: 700,
+                    fontSize: "0.86rem",
+                    cursor: "pointer",
+                  }}
+                >
+                  Keep Reviewing
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => executeExamSubmit()}
+                  style={{
+                    padding: "0.62rem 1.35rem",
+                    borderRadius: "9px",
+                    border: "none",
+                    backgroundColor: "#16a34a",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "0.86rem",
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {isSubmitting ? "Submitting..." : "Yes, Submit Final Exam"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -753,20 +1199,20 @@ export default function ExamPage({
               <p style={{ color: "#15803d", fontSize: "1rem", margin: "0 0 1.5rem" }}>
                 Server Verified Score: <strong>{result.score}%</strong> (Required: {result.passMark}%)
               </p>
-              <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
                 <Link
-                  href="/certificates"
+                  href={`/programs/${config?.programId || paramId}/steps`}
                   style={{
-                    backgroundColor: "#166534",
+                    backgroundColor: "#c97a1e",
                     color: "white",
                     padding: "10px 24px",
-                    borderRadius: "6px",
+                    borderRadius: "8px",
                     textDecoration: "none",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     fontSize: "0.95rem",
                   }}
                 >
-                  View Your Certificate →
+                  Continue to 1-on-1 Coaching &amp; Learning Path →
                 </Link>
               </div>
             </>
@@ -886,10 +1332,10 @@ export default function ExamPage({
         >
           <div>
             <span style={{ fontSize: "0.8rem", color: "#64748b", display: "block" }}>
-              Total Questions
+              Format &amp; Marks
             </span>
-            <strong style={{ fontSize: "1.25rem", color: "#0f172a" }}>
-              {config?.questionCount || 50}
+            <strong style={{ fontSize: "1.15rem", color: "#14110f" }}>
+              {config?.questionCount || 50} Qs • {config?.questionCount || 50} Marks (Shuffled)
             </strong>
           </div>
           <div>
@@ -927,16 +1373,16 @@ export default function ExamPage({
             style={{
               width: "100%",
               padding: "14px",
-              borderRadius: "8px",
+              borderRadius: "10px",
               border: "none",
-              backgroundColor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#0f172a",
+              backgroundColor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#c97a1e",
               color: "white",
               fontSize: "1.05rem",
               fontWeight: 700,
               cursor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "not-allowed" : "pointer",
             }}
           >
-            {result ? "Start Next Attempt" : "Begin Final Examination"}
+            {result ? "Start Next Attempt (50 Shuffled Questions)" : `Begin ${config?.questionCount || 50}-Mark Final Examination`}
           </button>
         )}
       </div>

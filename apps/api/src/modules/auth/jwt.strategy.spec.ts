@@ -77,7 +77,16 @@ describe('JwtStrategy - Access Token Revocation & Session Enforcement (D1-019)',
       expiresAt: new Date(Date.now() + 1000000),
     });
 
-    await expect(strategy.validate(validPayload)).rejects.toThrow(UnauthorizedException);
+    try {
+      await strategy.validate(validPayload);
+      expect.fail('Should have thrown UnauthorizedException');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      const res = err.getResponse();
+      expect(res.reason).toBe('DEVICE_LIMIT_EXCEEDED');
+      expect(res.error).toBe('SESSION_REVOKED');
+      expect(res.message).toContain('another device');
+    }
   });
 
   it('3. Rejects request with 401 when UserSession is expired in the past', async () => {

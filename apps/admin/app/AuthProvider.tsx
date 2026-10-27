@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { onThisHost } from "./lib/host";
-import { API_URL, cachedFetch, autoInvalidateOnMutation, clearApiCache, renewOnce } from "./lib/api";
+import { API_URL, cachedFetch, autoInvalidateOnMutation, clearApiCache, clearApiCacheOnLogout, renewOnce } from "./lib/api";
 
 export interface UserData {
   id: string;
@@ -19,6 +19,7 @@ export interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  login: (session: { access_token: string; refresh_token?: string; user: UserData }) => void;
   revalidateUser: (force?: boolean) => Promise<UserData | null>;
   logout: () => Promise<void>;
 }
@@ -56,6 +57,50 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
     if (typeof input === "string") input = onThisHost(input);
     const token = localStorage.getItem("token");
     let newInit = init;
+
+    const urlStr =
+      typeof input === "string"
+        ? input
+        : input instanceof Request
+        ? input.url
+        : input.toString();
+
+    // Only intercept backend API requests (e.g. localhost:4000, API_URL, or /api/)
+    // Never intercept Next.js internal router navigations, RSC prefetch streams,
+    // or relative page navigations, which would block on cachedFetch stream reading and cause timeouts.
+    const isApiRequest =
+      urlStr.includes(API_URL) ||
+      urlStr.includes(":4000") ||
+      (typeof window !== "undefined" && urlStr.startsWith("/api/"));
+
+    const isNextInternal =
+      urlStr.includes("/_next/") ||
+      Boolean(init?.headers && new Headers(init.headers).has("RSC")) ||
+      (!isApiRequest && !urlStr.startsWith("http://") && !urlStr.startsWith("https://") && !urlStr.startsWith("/api"));
+
+    // Binary file downloads (PDFs, octet-streams, media) must bypass cachedFetch stream buffering
+    // to prevent UTF-8 string conversion from corrupting raw bytes with U+FFFD replacement characters.
+    const isBinaryDownload =
+      urlStr.includes("/pdf") ||
+      urlStr.includes("/download") ||
+      Boolean(
+        init?.headers &&
+          (new Headers(init.headers).get("Accept")?.includes("application/pdf") ||
+            new Headers(init.headers).get("accept")?.includes("application/pdf") ||
+            new Headers(init.headers).get("Accept")?.includes("application/octet-stream") ||
+            new Headers(init.headers).get("accept")?.includes("application/octet-stream"))
+      );
+
+    if (!isApiRequest || isNextInternal || isBinaryDownload) {
+      if (token && typeof input === "string" && input.includes(API_URL)) {
+        const headers = new Headers(init?.headers);
+        if (!headers.has("Authorization")) {
+          headers.set("Authorization", `Bearer ${token}`);
+          return originalFetch(input, { ...init, headers });
+        }
+      }
+      return originalFetch(input, init);
+    }
 
     if (token && typeof input === "string" && input.includes(API_URL)) {
       const headers = new Headers(init?.headers);
@@ -110,16 +155,25 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
         const code = typeof errorData.error === "string" ? errorData.error : errorData.error?.code;
 
         if (code === "SESSION_REVOKED") {
+          const reason = errorData.reason || errorData.error?.reason;
           localStorage.clear();
-          clearApiCache();
-          alert("You were signed out because your account was used on another device.");
+          clearApiCacheOnLogout();
+          if (reason === "DEVICE_LIMIT_EXCEEDED") {
+            alert("You were signed out because your account was logged into on another device.");
+          } else if (reason === "TOKEN_REUSED") {
+            alert("You were signed out for security reasons (token reuse detected). Please sign in again.");
+          } else if (reason === "EXPIRED") {
+            alert("Your session has expired. Please sign in again.");
+          } else {
+            alert("Your session has ended or been revoked. Please sign in again.");
+          }
           window.location.href = "/login";
           return response;
         } else if (code === "TOKEN_EXPIRED" || code === "UNAUTHORIZED") {
           const renewed = await renewOnce(originalFetch, token as string);
           if (renewed === "signed-out") {
             localStorage.clear();
-            clearApiCache();
+            clearApiCacheOnLogout();
             window.location.href = "/login";
           } else if (renewed) {
             const newHeaders = new Headers(init?.headers);
@@ -129,14 +183,14 @@ if (typeof window !== "undefined" && !(window as any).__fetchPatched) {
         } else {
           if (localStorage.getItem("token")) {
             localStorage.clear();
-            clearApiCache();
+            clearApiCacheOnLogout();
             window.location.href = "/login";
           }
         }
       } catch {
         if (localStorage.getItem("token")) {
           localStorage.clear();
-          clearApiCache();
+          clearApiCacheOnLogout();
           window.location.href = "/login";
         }
       }
@@ -156,11 +210,18 @@ export function useAuth(): AuthContextType {
       token,
       isLoading: false,
       isAuthenticated: Boolean(token && user),
+      login: (session) => {
+        if (typeof window !== "undefined") {
+          if (session.access_token) localStorage.setItem("token", session.access_token);
+          if (session.refresh_token) localStorage.setItem("refresh_token", session.refresh_token);
+          if (session.user) localStorage.setItem("user", JSON.stringify(session.user));
+        }
+      },
       revalidateUser: async () => user,
       logout: async () => {
         if (typeof window !== "undefined") {
           localStorage.clear();
-          clearApiCache();
+          clearApiCacheOnLogout();
           window.location.href = "/login";
         }
       },
@@ -182,6 +243,26 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const lastVerifiedAtRef = useRef<number>(user ? Date.now() : 0);
   const isVerifyingRef = useRef<boolean>(false);
 
+  const login = useCallback(
+    (session: { access_token: string; refresh_token?: string; user: UserData }) => {
+      if (typeof window !== "undefined") {
+        if (session.access_token) {
+          localStorage.setItem("token", session.access_token);
+        }
+        if (session.refresh_token) {
+          localStorage.setItem("refresh_token", session.refresh_token);
+        }
+        if (session.user) {
+          localStorage.setItem("user", JSON.stringify(session.user));
+        }
+      }
+      setToken(session.access_token);
+      setUser(session.user);
+      lastVerifiedAtRef.current = Date.now();
+    },
+    []
+  );
+
   const revalidateUser = useCallback(
     async (force: boolean = false): Promise<UserData | null> => {
       if (typeof window === "undefined") return null;
@@ -193,14 +274,25 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         return null;
       }
 
+      // Synchronously hydrate from localStorage if in-memory user state is null
+      let currentUser = user;
+      if (!currentUser) {
+        const cached = getInitialUser();
+        if (cached) {
+          currentUser = cached;
+          setUser(cached);
+          setToken(currentToken);
+        }
+      }
+
       const now = Date.now();
       // Stale-While-Revalidate window: 60 seconds
       const isFresh = !force && now - lastVerifiedAtRef.current < 60_000;
-      if (isFresh && user) {
-        return user;
+      if (isFresh && currentUser) {
+        return currentUser;
       }
 
-      if (isVerifyingRef.current) return user;
+      if (isVerifyingRef.current) return currentUser;
       isVerifyingRef.current = true;
 
       try {
@@ -212,15 +304,50 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         if (res.ok) {
           const verifiedUser: UserData = await res.json();
           lastVerifiedAtRef.current = Date.now();
-          setUser(verifiedUser);
+          const existing = currentUser || getInitialUser();
+          const mergedUser: UserData = {
+            ...existing,
+            ...verifiedUser,
+            permissions: verifiedUser.permissions || existing?.permissions || [],
+          };
+          setUser(mergedUser);
           setToken(currentToken);
-          localStorage.setItem("user", JSON.stringify(verifiedUser));
-          return verifiedUser;
+          localStorage.setItem("user", JSON.stringify(mergedUser));
+          return mergedUser;
         } else if (res.status === 401) {
+          // If access token expired but refresh token exists, attempt renewal before signing out
+          const refreshToken = localStorage.getItem("refresh_token");
+          if (refreshToken) {
+            const renewed = await renewOnce(rawFetch, currentToken);
+            if (renewed && renewed !== "signed-out") {
+              const retryRes = await rawFetch(`${API_URL}/auth/me`, {
+                headers: { Authorization: `Bearer ${renewed}` },
+              });
+              if (retryRes.ok) {
+                const verifiedUser: UserData = await retryRes.json();
+                lastVerifiedAtRef.current = Date.now();
+                const existing = currentUser || getInitialUser();
+                const mergedUser: UserData = {
+                  ...existing,
+                  ...verifiedUser,
+                  permissions: verifiedUser.permissions || existing?.permissions || [],
+                };
+                setUser(mergedUser);
+                setToken(renewed);
+                localStorage.setItem("user", JSON.stringify(mergedUser));
+                return mergedUser;
+              }
+            } else if (renewed === null) {
+              // Server unreachable / network blip: do NOT log the user out!
+              console.warn("[AuthProvider] Token renewal unreachable due to transient network error; retaining cached session");
+              return currentUser;
+            }
+          }
+
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
           localStorage.removeItem("user");
-          clearApiCache();
+          clearApiCacheOnLogout();
           setUser(null);
           setToken(null);
           if (pathname !== "/login" && typeof window !== "undefined") {
@@ -235,7 +362,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         isVerifyingRef.current = false;
       }
 
-      return user;
+      return currentUser;
     },
     [pathname, router, user]
   );
@@ -254,7 +381,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       localStorage.removeItem("token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("user");
-      clearApiCache();
+      clearApiCacheOnLogout();
       setUser(null);
       setToken(null);
       lastVerifiedAtRef.current = 0;
@@ -276,15 +403,27 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       return;
     }
 
+    // Immediate hydration on route navigation
+    if (!token && currentToken) {
+      setToken(currentToken);
+    }
+    if (!user) {
+      const stored = getInitialUser();
+      if (stored) {
+        setUser(stored);
+      }
+    }
+
     // Background SWR revalidation (only runs if last check > 60s ago)
     revalidateUser(false);
-  }, [pathname, revalidateUser, router]);
+  }, [pathname, revalidateUser, router, token, user]);
 
   const contextValue: AuthContextType = {
     user,
     token,
     isLoading,
     isAuthenticated: Boolean(token && user),
+    login,
     revalidateUser,
     logout,
   };

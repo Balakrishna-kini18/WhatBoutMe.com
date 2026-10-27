@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { LMS_URL } from "@/lib/api";
 import { initialsOf, openPortal, signOut, useUser } from "@/lib/auth";
+import { clearEnrollmentIntent } from "@/lib/auth-redirect";
 
 const ITEM =
   "block w-full rounded-xl px-3 py-2.5 text-left text-sm text-ink transition-colors hover:bg-cream-deep";
@@ -33,6 +34,7 @@ export default function ProfileMenu() {
     return (
       <Link
         href="/login"
+        onClick={() => clearEnrollmentIntent()}
         className="flex h-11 shrink-0 items-center rounded-full border border-cream/20 px-4 text-sm sm:px-5 font-medium text-cream/90 transition-colors duration-200 hover:border-gold hover:text-gold md:h-12 md:text-[15px]"
       >
         Login

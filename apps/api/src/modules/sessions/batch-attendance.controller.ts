@@ -4,6 +4,7 @@ import {
   Patch,
   Post,
   Param,
+  Query,
   Body,
   Request,
   UseGuards,
@@ -14,6 +15,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { SessionsService } from './sessions.service.js';
 import { AttendanceService } from './attendance.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { BatchScopeGuard } from '../../common/guards/batch-scope.guard.js';
@@ -98,6 +100,8 @@ export class BatchAttendanceController {
         joinTimeUtc: att?.joinTime ? att.joinTime.toISOString() : null,
         leaveTimeUtc: att?.leaveTime ? att.leaveTime.toISOString() : null,
         minutesPresent: att?.minutesPresent ?? att?.durationMin ?? 0,
+        liveMinutes: att?.liveMinutes ?? null,
+        recordedMinutes: att?.recordedMinutes ?? null,
         attendancePercentage:
           att?.attendancePercentage ??
           (att?.minutesPresent && session.durationMinutes
@@ -117,6 +121,7 @@ export class BatchAttendanceController {
         startTimeUtc: session.startTime.toISOString(),
         endTimeUtc: session.endTime.toISOString(),
         durationMinutes: session.durationMinutes || 60,
+        minAttendanceMinutes: session.minAttendanceMinutes ?? null,
         meetingProvider: session.meetingProvider,
         meetingLink: session.meetingLink || session.joinUrl,
         recordingLink: session.recordingLink || session.recordingUrl,
@@ -128,7 +133,9 @@ export class BatchAttendanceController {
           l.status === AttendanceStatus.PRESENT ||
           l.status === AttendanceStatus.PRESENT_AUTO ||
           l.status === AttendanceStatus.PRESENT_MANUAL ||
-          l.status === AttendanceStatus.CORRECTED,
+          l.status === AttendanceStatus.CORRECTED ||
+          l.status === (AttendanceStatus as any).PRESENT_LIVE ||
+          l.status === (AttendanceStatus as any).PRESENT_RECORDED,
       ).length,
       learners,
     };
@@ -374,3 +381,45 @@ export class BatchAttendanceController {
     };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH SESSIONS CONTROLLER: GET /batches/:batchId/sessions
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Controller('batches/:batchId/sessions')
+@UseGuards(BatchScopeGuard, PermissionsGuard)
+export class BatchSessionsController {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessionsService: SessionsService,
+  ) {}
+
+  /**
+   * Phase 5 Endpoint:
+   * GET /api/batches/:batchId/sessions
+   * List all sessions scheduled for a given batch.
+   * Scoped to manager's assigned cohort or global for Admin/SuperAdmin.
+   */
+  @RequirePermission(Permission.SESSIONS_READ)
+  @Get()
+  async getBatchSessions(
+    @Param('batchId') batchId: string,
+    @Request() req: any,
+    @Query() query: any,
+  ) {
+    const batch = await this.prisma.batch.findUnique({
+      where: { id: batchId },
+      select: { id: true, name: true, status: true },
+    });
+
+    if (!batch) {
+      throw new NotFoundException(`Batch with ID ${batchId} not found.`);
+    }
+
+    return this.sessionsService.getSessions(
+      { ...query, batchId },
+      req.user,
+    );
+  }
+}
+

@@ -1,17 +1,38 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowRight, KeyRound, MailCheck } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import { FIELD } from "@/components/site/PasswordField";
 import { requestPasswordResetUser } from "@/lib/api";
+import {
+  buildAuthHref,
+  extractRedirectParam,
+  peekEnrollmentIntent,
+  saveEnrollmentIntent,
+} from "@/lib/auth-redirect";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const redirectFromUrl = extractRedirectParam(params);
+    if (redirectFromUrl) {
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      setActiveRedirect(redirectFromUrl);
+    } else {
+      const stored = peekEnrollmentIntent();
+      if (stored?.returnUrl) {
+        setActiveRedirect(stored.returnUrl);
+      }
+    }
+  }, []);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -45,7 +66,7 @@ export default function ForgotPasswordPage() {
           </p>
           <div className="mt-8 space-y-3">
             <Link
-              href="/login"
+              href={buildAuthHref("/login", activeRedirect)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
               Back to Sign In
@@ -106,7 +127,10 @@ export default function ForgotPasswordPage() {
 
       <p className="mt-6 text-center text-sm text-ink-soft">
         Remember your password?{" "}
-        <Link href="/login" className="font-semibold text-gold-deep hover:underline">
+        <Link
+          href={buildAuthHref("/login", activeRedirect)}
+          className="font-semibold text-gold-deep hover:underline"
+        >
           Sign In
         </Link>
       </p>

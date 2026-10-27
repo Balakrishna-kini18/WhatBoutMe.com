@@ -238,6 +238,7 @@ describe('WhatBoutMe Agreement Administration & Enrollment Audit Suite', () => {
           enrolmentId: enrolmentPending.id,
           consentGiven: true,
           typedName: 'Alice Learner',
+          typedAcknowledgement: 'I AGREE',
           signatureData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA',
           signatureType: 'DRAWN',
         },
@@ -837,6 +838,7 @@ describe('WhatBoutMe Agreement Administration & Enrollment Audit Suite', () => {
             enrolmentId: enrolmentPending.id,
             consentGiven: false, // Explicit consent omitted
             typedName: 'Alice Learner',
+            typedAcknowledgement: 'I AGREE',
             useSavedSignature: true,
           },
           learnerA,

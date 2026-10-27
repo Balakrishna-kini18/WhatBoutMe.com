@@ -73,4 +73,8 @@ export class CreateResourceDto {
   @IsBoolean()
   @IsOptional()
   isPublished?: boolean = true;
+
+  @IsBoolean()
+  @IsOptional()
+  viewOnlyProtected?: boolean;
 }

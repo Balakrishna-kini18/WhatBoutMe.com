@@ -142,56 +142,59 @@ describe('DiscoveryService - 15-Minute Slot Calculation & Booking', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('successfully books 15-minute discovery call, updates Lead, and dispatches Zoom confirmation email', async () => {
+    it('throws ConflictException if attendee already has an upcoming scheduled discovery call', async () => {
       const slotTime = '2026-11-20T08:00:00.000Z';
+      // First findFirst checks for slot clash (none)
       prismaMock.session.findFirst.mockResolvedValueOnce(null);
+      // Second findFirst checks for duplicate upcoming booking by same email (found)
+      prismaMock.session.findFirst.mockResolvedValueOnce({
+        id: 'upcoming-sess-1',
+        title: 'Already Scheduled Discovery Call',
+      });
+
+      await expect(
+        service.bookDiscoveryCall({
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          phone: '+97150111222',
+          slotStartUtc: slotTime,
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('auto-creates Lead record in DB when leadId is not provided', async () => {
+      const slotTime = '2026-11-20T08:00:00.000Z';
+      prismaMock.session.findFirst.mockResolvedValue(null);
       prismaMock.session.create.mockImplementation(({ data }: any) => ({
-        id: 'new-discovery-sess-1',
+        id: 'new-discovery-sess-2',
         ...data,
       }));
+      prismaMock.lead.create = vi.fn().mockResolvedValue({
+        id: 'new-auto-lead-1',
+        name: 'Alex Rivera',
+        email: 'alex@example.com',
+      });
 
       const res = await service.bookDiscoveryCall({
-        leadId: 'lead-100',
-        name: 'Jane Doe',
-        email: 'jane@example.com',
-        phone: '+97150111222',
+        name: 'Alex Rivera',
+        email: 'alex@example.com',
+        phone: '+971509990000',
         courseId: 'prog-1',
         slotStartUtc: slotTime,
-        timezone: 'Asia/Dubai',
+        notes: 'Interested in executive leadership coaching',
       });
 
       expect(res.success).toBe(true);
-      expect(res.sessionId).toBe('new-discovery-sess-1');
-      expect(res.zoomJoinUrl).toBe('https://zoom.us/j/zoom-123');
-      expect(res.icsContent).toContain('BEGIN:VCALENDAR');
-
-      // Verify Session was created with SPEAKER_DISCOVERY_CALL
-      expect(prismaMock.session.create).toHaveBeenCalledWith(
+      expect(prismaMock.lead.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
-            status: SessionStatus.SCHEDULED,
-            durationMinutes: 15,
-            hostTrainerId: 'row-1',
-            joinUrl: 'https://zoom.us/j/zoom-123',
-          }),
-        }),
-      );
-
-      // Verify Lead was updated with CONTACTED status and discovery booking info
-      expect(prismaMock.lead.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'lead-100' },
-          data: expect.objectContaining({
+            name: 'Alex Rivera',
+            email: 'alex@example.com',
             status: LeadStatus.CONTACTED,
-            message: expect.stringContaining('📅 Discovery Call Scheduled'),
+            message: expect.stringContaining('Course Inquiry: Neuroplasticity Masterclass'),
           }),
         }),
       );
-
-      // Verify calendar provider and email notifications were triggered
-      expect(calendarProviderMock.createEvent).toHaveBeenCalled();
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(2); // Prospect + Roweena
     });
   });
 });

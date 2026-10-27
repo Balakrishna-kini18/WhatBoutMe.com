@@ -1,357 +1,649 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import styles from "../curriculum.module.css";
-import Certificate from "../../../certificates/Certificate";
+
+interface Lesson {
+  id: string;
+  title: string;
+  type: string;
+  mediaUrl?: string;
+  durationSec?: number | null;
+}
 
 interface Step {
   id: string;
   sequence: number;
   title: string;
   description: string;
-  lessons?: any[];
+  lessons?: Lesson[];
   quiz?: any | null;
 }
 
 interface Step2ModuleListProps {
   steps: Step[];
-  programTitle?: string;
+  activeModuleId: string | null;
+  onSelectModule: (stepId: string) => void;
   onOpenCreateModal: () => void;
-  onManageModule: (step: Step) => void;
+  onOpenAddLessonChooser: () => void;
+  onOpenQuizBuilder: () => void;
   onPreviewModule: (step: Step) => void;
   onDeleteModule: (stepId: string) => void;
+  onDeleteLesson: (lessonId: string) => void;
+  onDeleteQuiz: () => void;
+  onUpdateModule?: (stepId: string, updates: { title: string; description: string }) => Promise<void>;
   onBackToBasicDetails: () => void;
-  onContinueToReview: () => void;
+  onContinueToPricing: () => void;
+  onOpenFinalExam?: () => void;
 }
 
 export default function Step2ModuleList({
   steps,
-  programTitle,
+  activeModuleId,
+  onSelectModule,
   onOpenCreateModal,
-  onManageModule,
+  onOpenAddLessonChooser,
+  onOpenQuizBuilder,
   onPreviewModule,
   onDeleteModule,
+  onDeleteLesson,
+  onDeleteQuiz,
+  onUpdateModule,
   onBackToBasicDetails,
-  onContinueToReview,
+  onContinueToPricing,
+  onOpenFinalExam,
 }: Step2ModuleListProps) {
-  const [isPreviewCertOpen, setIsPreviewCertOpen] = useState(false);
+  // Find current active module, default to first step if none chosen
+  const currentStep =
+    steps.find((s) => s.id === activeModuleId) || (steps.length > 0 ? steps[0] : null);
+
+  const [localTitle, setLocalTitle] = useState(currentStep?.title || "");
+  const [localDesc, setLocalDesc] = useState(currentStep?.description || "");
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    if (currentStep) {
+      setLocalTitle(currentStep.title || "");
+      setLocalDesc(currentStep.description || "");
+    }
+  }, [currentStep?.id, currentStep?.title, currentStep?.description]);
+
+  const handleBlurSave = async () => {
+    if (!currentStep || !onUpdateModule) return;
+    if (
+      localTitle.trim() === currentStep.title &&
+      localDesc.trim() === (currentStep.description || "")
+    ) {
+      return;
+    }
+    if (!localTitle.trim()) return;
+
+    setIsUpdating(true);
+    try {
+      await onUpdateModule(currentStep.id, {
+        title: localTitle.trim(),
+        description: localDesc.trim(),
+      });
+    } catch (err) {
+      console.error("Failed to update module info:", err);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const formatDuration = (seconds?: number | null) => {
+    if (!seconds || seconds <= 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
   return (
     <section className={styles.cardSurface}>
-      {/* Header */}
-      <div className={styles.moduleListHeader}>
-        <div>
-          <div className={styles.stepEyebrow}>STEP 2: COURSE MODULES</div>
-          <h2 className={styles.stepTitle}>Course Modules</h2>
-          <p className={styles.stepSubtitle}>
-            Organize your course content into progressive modules and milestones.
-          </p>
+      {/* Step Header */}
+      <div className={styles.cardHeaderArea}>
+        <div className={styles.stepEyebrow}>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+            <polyline points="2 17 12 22 22 17" />
+            <polyline points="2 12 12 17 22 12" />
+          </svg>
+          <span>STEP 2: CURRICULUM BUILDER</span>
         </div>
-
-        <div className={styles.moduleListHeaderActions}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+          <div>
+            <h2 className={styles.stepTitle}>Curriculum Builder</h2>
+            <p className={styles.stepSubtitle}>
+              Organize modules, upload videos and study PDFs, and configure knowledge check quizzes.
+            </p>
+          </div>
           <span className={styles.moduleCountBadge}>
             {steps.length} {steps.length === 1 ? "Module" : "Modules"}
           </span>
-
-          <button
-            type="button"
-            className={styles.addModuleHeaderBtn}
-            onClick={onOpenCreateModal}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>Add Module</span>
-          </button>
         </div>
       </div>
 
-      {/* Empty State */}
-      {steps.length === 0 ? (
-        <div className={styles.emptyStateCard}>
-          <div className={styles.emptyStateIcon}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-          </div>
-          <h3 className={styles.emptyStateTitle}>No modules yet</h3>
-          <p className={styles.emptyStateDesc}>
-            Start by creating your first module. Modules help you organize your video lectures,
-            study documents, and interactive quizzes for learners.
-          </p>
+      {/* 2-Column Split Curriculum Builder (Left 34% Navigator | Right 66% Editor) */}
+      <div className={styles.curriculumSplitLayout}>
+        {/* =========================================================
+            Left Column (34%): Module Navigator
+            ========================================================= */}
+        <div className={styles.moduleNavigatorCol}>
           <button
             type="button"
-            className={styles.addModuleHeaderBtn}
+            className={styles.addModuleNavBtn}
             onClick={onOpenCreateModal}
           >
-            + Add First Module
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>+ Add Module</span>
           </button>
-        </div>
-      ) : (
-        /* Modules Stack */
-        <div className={styles.modulesStack}>
-          {steps.map((step) => {
-            const lessonsCount = step.lessons?.length || 0;
-            const hasQuiz = Boolean(step.quiz);
 
-            return (
-              <div key={step.id} className={styles.moduleItemCard}>
-                <div className={styles.moduleLeftInfo}>
-                  <div className={styles.moduleSeqCircle}>
-                    {step.sequence.toString().padStart(2, "0")}
-                  </div>
+          {/* Module Accordion List */}
+          {steps.length === 0 ? (
+            <div
+              style={{
+                padding: "2rem 1rem",
+                textAlign: "center",
+                background: "#faf7f2",
+                borderRadius: 12,
+                border: "1px dashed #ece6dd",
+                color: "#78716a",
+                fontSize: "0.88rem",
+              }}
+            >
+              No modules yet. Click &ldquo;+ Add Module&rdquo; to start your curriculum.
+            </div>
+          ) : (
+            <div className={styles.moduleAccordionList}>
+              {steps.map((step) => {
+                const isSelected = currentStep?.id === step.id;
+                const lessonsCount = step.lessons?.length || 0;
+                const hasQuiz = Boolean(step.quiz);
+                const totalUnits = lessonsCount + (hasQuiz ? 1 : 0);
 
-                  <div className={styles.moduleMetaCol}>
-                    <h3 className={styles.moduleCardTitle}>
-                      Module {step.sequence}: {step.title}
-                    </h3>
-                    <div className={styles.moduleStatsRow}>
-                      <span>{lessonsCount} {lessonsCount === 1 ? "Lesson" : "Lessons"}</span>
-                      <span>&bull;</span>
-                      <span>{hasQuiz ? "1 Quiz Attached" : "No Quiz"}</span>
-                      {step.description && (
-                        <>
-                          <span>&bull;</span>
-                          <span style={{ maxWidth: 320, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {step.description}
-                          </span>
-                        </>
-                      )}
+                return (
+                  <div
+                    key={step.id}
+                    className={`${styles.moduleAccordionCard} ${
+                      isSelected ? styles.moduleAccordionActive : ""
+                    }`}
+                  >
+                    <div
+                      className={styles.moduleAccordionHeader}
+                      onClick={() => onSelectModule(step.id)}
+                    >
+                      <div>
+                        <h4 className={styles.moduleAccordionTitle}>
+                          Module {step.sequence}: {step.title}
+                        </h4>
+                        <div className={styles.moduleAccordionSub}>
+                          {totalUnits} {totalUnits === 1 ? "lesson" : "lessons"}
+                        </div>
+                      </div>
+                      <span style={{ color: isSelected ? "#d97706" : "#a8a29e", fontSize: "0.85rem", fontWeight: 700 }}>
+                        {isSelected ? "●" : "○"}
+                      </span>
                     </div>
+
+                    {/* Expanded Mini Lesson List */}
+                    {isSelected && (
+                      <div className={styles.moduleAccordionBody}>
+                        {step.lessons && step.lessons.length > 0 ? (
+                          step.lessons.map((lesson, idx) => (
+                            <div key={lesson.id} className={styles.miniLessonRow}>
+                              <span style={{ color: "#d97706", fontWeight: 700, fontSize: "0.78rem" }}>
+                                {idx + 1}.
+                              </span>
+                              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {lesson.title}
+                              </span>
+                            </div>
+                          ))
+                        ) : null}
+
+                        {hasQuiz && (
+                          <div className={styles.miniLessonRow}>
+                            <span style={{ color: "#7e22ce", fontWeight: 700, fontSize: "0.78rem" }}>
+                              Q.
+                            </span>
+                            <span style={{ color: "#7e22ce", fontWeight: 600 }}>
+                              {step.quiz?.title || "Knowledge Check Quiz"}
+                            </span>
+                          </div>
+                        )}
+
+                        {totalUnits === 0 && (
+                          <div style={{ fontSize: "0.78rem", color: "#a8a29e", fontStyle: "italic", padding: "0.25rem 0" }}>
+                            No lessons added yet
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Post-Curriculum Final Exam (50 Marks · 70-Question Pool) Section */}
+          {onOpenFinalExam && (
+            <div
+              onClick={onOpenFinalExam}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onOpenFinalExam();
+              }}
+              style={{
+                marginTop: "0.85rem",
+                padding: "0.95rem 1rem",
+                borderRadius: 12,
+                border: "1.5px solid #d97706",
+                background: "#fffbeb",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.35rem",
+                boxShadow: "0 2px 6px rgba(217, 119, 6, 0.08)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span
+                  style={{
+                    fontSize: "0.7rem",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "#b45309",
+                    background: "#fde68a",
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                  }}
+                >
+                  Separate Exam Section
+                </span>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#b45309" }}>
+                  Configure &rarr;
+                </span>
+              </div>
+              <div style={{ fontWeight: 800, fontSize: "0.92rem", color: "#14110f" }}>
+                Final Examination (50 Marks)
+              </div>
+              <div style={{ fontSize: "0.78rem", color: "#6b655e", lineHeight: 1.35 }}>
+                50 questions randomly shuffled from a 70-question pool after all modules.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* =========================================================
+            Right Column (66%): Active Module Editor Card
+            ========================================================= */}
+        <div>
+          {currentStep ? (
+            <div className={styles.moduleEditorCard}>
+              {/* Header: Module Title & Delete Module */}
+              <div className={styles.moduleEditorHeader}>
+                <div>
+                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#d97706", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Active Module Editor
+                  </span>
+                  <h3 style={{ fontSize: "1.35rem", fontWeight: 700, margin: "2px 0 0", color: "#14110f" }}>
+                    Module {currentStep.sequence}: {currentStep.title}
+                  </h3>
                 </div>
 
-                <div className={styles.moduleRightActions}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <button
                     type="button"
                     className={styles.secondaryActionBtn}
-                    onClick={() => onPreviewModule(step)}
-                    title="Preview student view for this module"
+                    onClick={() => onPreviewModule(currentStep)}
+                    title="Student Preview"
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                       <circle cx="12" cy="12" r="3" />
                     </svg>
-                    <span>Preview</span>
+                    <span>Student Preview</span>
                   </button>
 
                   <button
                     type="button"
-                    className={styles.manageContentBtn}
-                    onClick={() => onManageModule(step)}
-                  >
-                    <span>Manage Lessons</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={styles.deleteItemBtn}
-                    onClick={() => onDeleteModule(step.id)}
+                    className={styles.deleteModuleAction}
+                    onClick={() => onDeleteModule(currentStep.id)}
                     title="Delete Module"
-                    aria-label="Delete module"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
                       <polyline points="3 6 5 6 21 6" />
                       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                     </svg>
+                    <span>Delete Module</span>
                   </button>
                 </div>
               </div>
-            );
-          })}
 
-          {/* Final Milestone: Certificate of Completion (Apna College Flow) */}
-          <div
-            className={styles.moduleItemCard}
-            style={{
-              background: "linear-gradient(135deg, rgba(254, 249, 195, 0.35) 0%, rgba(255, 255, 255, 1) 100%)",
-              borderColor: "#fde047",
-              boxShadow: "0 4px 16px rgba(234, 179, 8, 0.08)",
-            }}
-          >
-            <div className={styles.moduleLeftInfo}>
+              {/* Module Metadata Inputs */}
+              <div style={{ marginBottom: "1.75rem" }}>
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>
+                    <span>Module Title *</span>
+                    {isUpdating && <span style={{ fontSize: "0.75rem", color: "#d97706" }}>Saving...</span>}
+                  </label>
+                  <input
+                    type="text"
+                    value={localTitle}
+                    onChange={(e) => setLocalTitle(e.target.value)}
+                    onBlur={handleBlurSave}
+                    className={styles.formInput}
+                    placeholder="e.g. Introduction &amp; Foundations"
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>
+                    <span>Module Description</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={localDesc}
+                    onChange={(e) => setLocalDesc(e.target.value)}
+                    onBlur={handleBlurSave}
+                    className={styles.formTextarea}
+                    placeholder="Brief description of this module's objectives..."
+                    style={{ minHeight: 65 }}
+                  />
+                </div>
+              </div>
+
+              {/* Section Header: Lessons in this Module + Add Lesson Button */}
               <div
-                className={styles.moduleSeqCircle}
                 style={{
-                  background: "linear-gradient(135deg, #eab308 0%, #ca8a04 100%)",
-                  color: "#ffffff",
-                  boxShadow: "0 2px 8px rgba(202, 138, 4, 0.3)",
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="8" r="6" />
-                  <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                </svg>
-              </div>
-
-              <div className={styles.moduleMetaCol}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <h3 className={styles.moduleCardTitle} style={{ color: "#854d0e" }}>
-                    Final Milestone: Certificate of Completion
-                  </h3>
-                  <span
-                    style={{
-                      fontSize: "0.72rem",
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      background: "#fef08a",
-                      color: "#713f12",
-                      padding: "2px 8px",
-                      borderRadius: "6px",
-                    }}
-                  >
-                    Automatic Milestone
-                  </span>
-                </div>
-                <div className={styles.moduleStatsRow}>
-                  <span style={{ color: "#713f12", fontWeight: 600 }}>Unlocks at 100% Course Progress</span>
-                  <span>&bull;</span>
-                  <span>Awarded after completing all {steps.length} {steps.length === 1 ? "module" : "modules"} &amp; quizzes</span>
-                  <span>&bull;</span>
-                  <span>Learners receive downloadable PDF &amp; verifiable credential ID</span>
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.moduleRightActions}>
-              <button
-                type="button"
-                className={styles.secondaryActionBtn}
-                onClick={() => setIsPreviewCertOpen(true)}
-                title="Preview what learners see upon completing this course"
-                style={{
-                  borderColor: "#fde047",
-                  background: "#fefce8",
-                  color: "#854d0e",
-                  fontWeight: 600,
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <span>Preview Certificate</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Certificate Preview Modal */}
-      {isPreviewCertOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.75)",
-            backdropFilter: "blur(6px)",
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-          }}
-          onClick={() => setIsPreviewCertOpen(false)}
-        >
-          <div
-            style={{
-              backgroundColor: "#ffffff",
-              borderRadius: "16px",
-              maxWidth: "850px",
-              width: "100%",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-              padding: "24px",
-              position: "relative",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border-light)", paddingBottom: "12px" }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                  Learner Certificate Preview
-                </h3>
-                <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Learners will unlock and download this credential upon completing all {steps.length} modules.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsPreviewCertOpen(false)}
-                style={{
-                  background: "var(--bg-soft)",
-                  border: "none",
-                  borderRadius: "50%",
-                  width: "32px",
-                  height: "32px",
-                  fontSize: "1.2rem",
-                  cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
+                  justifyContent: "space-between",
+                  paddingBottom: "0.75rem",
+                  borderBottom: "1px solid #f1ece4",
                 }}
               >
-                &times;
-              </button>
-            </div>
+                <div>
+                  <h4 style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: "#14110f" }}>
+                    Lessons in this Module ({(currentStep.lessons?.length || 0) + (currentStep.quiz ? 1 : 0)})
+                  </h4>
+                  <span style={{ fontSize: "0.78rem", color: "#78716a" }}>
+                    Videos, study documents, and interactive quizzes
+                  </span>
+                </div>
 
-            <div style={{ padding: "16px 0", display: "flex", justifyContent: "center" }}>
-              <Certificate
-                recipientName="Alice Learner"
-                courseName={programTitle || "11 Steps to You Programme"}
-                issueDate={new Date().toISOString()}
-                certificateNo="CERT-WBM-11S-2026-001"
-                issuerName="Roweena Britto"
-                issuerTitle="Founder & Lead Facilitator"
-                brandName="whatboutme"
-              />
-            </div>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={onOpenAddLessonChooser}
+                  style={{ padding: "0.55rem 1rem", fontSize: "0.85rem", height: "auto" }}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  <span>+ Add Lesson</span>
+                </button>
+              </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+              {/* Lesson Sequence Rows */}
+              <div className={styles.lessonSequenceRows}>
+                {(!currentStep.lessons || currentStep.lessons.length === 0) && !currentStep.quiz ? (
+                  <div
+                    style={{
+                      padding: "2.5rem 1.5rem",
+                      textAlign: "center",
+                      background: "#fdfbf7",
+                      borderRadius: 12,
+                      border: "1px dashed #ded6cb",
+                      color: "#78716a",
+                    }}
+                  >
+                    <p style={{ fontWeight: 600, margin: "0 0 0.5rem", color: "#14110f" }}>
+                      No lessons attached to Module {currentStep.sequence}
+                    </p>
+                    <p style={{ fontSize: "0.85rem", margin: "0 0 1rem" }}>
+                      Add video lectures, PDF resources, or a knowledge check quiz.
+                    </p>
+                    <button
+                      type="button"
+                      className={styles.btnPrimary}
+                      onClick={onOpenAddLessonChooser}
+                    >
+                      + Add First Lesson
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Render Lessons */}
+                    {currentStep.lessons?.map((lesson, idx) => {
+                      const isVideo = lesson.type === "VIDEO";
+                      return (
+                        <div key={lesson.id} className={styles.lessonSequenceRow}>
+                          <div className={styles.lessonRowLeft}>
+                            <span className={styles.dragHandle} title="Drag to reorder">
+                              ⋮⋮
+                            </span>
+                            <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#d97706" }}>
+                              {idx + 1}.
+                            </span>
+                            <span className={styles.lessonRowTitle} title={lesson.title}>
+                              {lesson.title}
+                            </span>
+                          </div>
+
+                          <div className={styles.lessonRowRight}>
+                            <span className={isVideo ? styles.badgeVideo : styles.badgePdf}>
+                              {isVideo ? "VIDEO" : "PDF"}
+                            </span>
+                            <span className={styles.lessonDuration}>
+                              {isVideo ? formatDuration(lesson.durationSec) : "Resource"}
+                            </span>
+
+                            <button
+                              type="button"
+                              className={styles.actionIconBtnDanger}
+                              onClick={() => onDeleteLesson(lesson.id)}
+                              title="Delete Lesson"
+                            >
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Render Module Quiz Row */}
+                    {currentStep.quiz && (
+                      <div
+                        className={styles.lessonSequenceRow}
+                        style={{ borderLeft: "3px solid #7e22ce" }}
+                      >
+                        <div className={styles.lessonRowLeft}>
+                          <span className={styles.dragHandle} title="Drag to reorder">
+                            ⋮⋮
+                          </span>
+                          <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#7e22ce" }}>
+                            Q.
+                          </span>
+                          <span className={styles.lessonRowTitle} title={currentStep.quiz.title}>
+                            {currentStep.quiz.title || "Module Quiz"}
+                          </span>
+                        </div>
+
+                        <div className={styles.lessonRowRight}>
+                          <span className={styles.badgeQuiz}>QUIZ</span>
+                          <span className={styles.lessonDuration}>
+                            {currentStep.quiz.questions?.length ?? 10} Qs
+                          </span>
+
+                          <button
+                            type="button"
+                            className={styles.actionIconBtn}
+                            onClick={onOpenQuizBuilder}
+                            title="Edit Quiz"
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                          </button>
+
+                          <button
+                            type="button"
+                            className={styles.actionIconBtnDanger}
+                            onClick={onDeleteQuiz}
+                            title="Delete Quiz"
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Card Footer: Previous on Left, Warm-Orange Save & Continue on Right */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginTop: "2rem",
+                  paddingTop: "1.25rem",
+                  borderTop: "1px solid #ece6dd",
+                }}
+              >
+                <button
+                  type="button"
+                  className={styles.secondaryActionBtn}
+                  onClick={onBackToBasicDetails}
+                >
+                  &lt;- Back to Basic Details
+                </button>
+
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={onContinueToPricing}
+                >
+                  Save &amp; Continue -&gt;
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: "3rem 1.5rem",
+                textAlign: "center",
+                background: "#ffffff",
+                border: "1px solid #ece6dd",
+                borderRadius: 14,
+              }}
+            >
+              <h3 style={{ margin: "0 0 0.5rem" }}>No module selected</h3>
+              <p style={{ color: "#78716a", marginBottom: "1.5rem" }}>
+                Select a module from the left navigator or create a new module to begin.
+              </p>
               <button
                 type="button"
-                className={styles.addModuleHeaderBtn}
-                onClick={() => setIsPreviewCertOpen(false)}
+                className={styles.btnPrimary}
+                onClick={onOpenCreateModal}
               >
-                Close Preview
+                + Add Module
               </button>
             </div>
-          </div>
+          )}
         </div>
-      )}
-
-      {/* Wizard Bottom Controls */}
-      <div className={styles.wizardFooterControls}>
-        <button
-          type="button"
-          className={styles.btnBack}
-          onClick={onBackToBasicDetails}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
-          <span>Back to Basic Details</span>
-        </button>
-
-        <button
-          type="button"
-          className={styles.btnPrimary}
-          onClick={onContinueToReview}
-          disabled={steps.length === 0}
-        >
-          <span>Save &amp; Next: Review Course</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <line x1="5" y1="12" x2="19" y2="12" />
-            <polyline points="12 5 19 12 12 19" />
-          </svg>
-        </button>
       </div>
     </section>
   );

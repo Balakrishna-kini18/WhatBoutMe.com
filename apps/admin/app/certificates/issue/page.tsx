@@ -63,9 +63,9 @@ export default function IssueCertificatesPage() {
       <header className={`${page.header} ${styles.screenOnly}`}>
         <div className={page.headerText}>
           <h1 className={page.title}>Manual Certificate Generator</h1>
-          <p className={page.subtitle}>
+          {/* <p className={page.subtitle}>
             Issue formal CPD-accredited certificates or corporate participation credentials with unique verification numbers and LinkedIn share integration.
-          </p>
+          </p> */}
         </div>
         <div className={page.headerActions}>
           <Link href="/certificates" className={page.backLink} style={{ margin: 0 }}>

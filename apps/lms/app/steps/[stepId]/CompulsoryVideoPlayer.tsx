@@ -10,26 +10,26 @@ export interface CompulsoryVideoPlayerProps {
   userName?: string;
   userEmail?: string;
   durationSec?: number;
-  onHeartbeat: (positionSec: number, isEnded?: boolean, videoDurationSec?: number, deltaSec?: number) => void;
+  onHeartbeat: (
+    positionSec: number,
+    isEnded?: boolean,
+    videoDurationSec?: number,
+    deltaSec?: number,
+    fromSec?: number,
+    toSec?: number,
+  ) => void;
   onComplete: () => void;
   onRestart?: () => void;
   onTimeUpdate?: (currentSec: number) => void;
   seekToTime?: number | null;
 }
 
-function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || isNaN(seconds) || seconds < 0) {
-    return "00:00";
-  }
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  }
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
+import {
+  formatTime,
+  validateSeek,
+  calculateRewindTarget,
+  calculateTimelineSeekTime,
+} from "./videoPlayerLogic";
 
 export default function CompulsoryVideoPlayer({
   lessonId,
@@ -47,6 +47,20 @@ export default function CompulsoryVideoPlayer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
+  // Resolve upload streaming key or direct Cloudinary/S3 URL with auth token
+  const resolvedVideoSrc = React.useMemo(() => {
+    if (!videoSrc) return "";
+    if (videoSrc.startsWith("http://") || videoSrc.startsWith("https://") || videoSrc.startsWith("/")) {
+      return videoSrc;
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const isUpload = videoSrc.startsWith("upload:");
+    const rawKey = isUpload ? videoSrc.replace("upload:", "") : videoSrc;
+    const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+    return `${apiUrl}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+  }, [videoSrc]);
+
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -59,6 +73,36 @@ export default function CompulsoryVideoPlayer({
   const [showControls, setShowControls] = useState(true);
   const [seekWarning, setSeekWarning] = useState<string | null>(null);
   const [resumedNotice, setResumedNotice] = useState<number | null>(null);
+  const [hasEnded, setHasEnded] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
+  const speedMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close speed menu on outside click
+  useEffect(() => {
+    if (!showSpeedMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (speedMenuRef.current && !speedMenuRef.current.contains(e.target as Node)) {
+        setShowSpeedMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSpeedMenu]);
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed;
+    }
+    setShowSpeedMenu(false);
+  };
+
+  // Reset error when lesson or video source changes
+  useEffect(() => {
+    setVideoError(null);
+    setHasEnded(false);
+  }, [lessonId, resolvedVideoSrc]);
 
   // Anti-skip enforcement refs
   const maxWatchedSecRef = useRef<number>(initialPositionSec || 0);
@@ -81,14 +125,61 @@ export default function CompulsoryVideoPlayer({
     }, 2800);
   }, []);
 
-  // Keyboard navigation lockdown: disable ArrowLeft, ArrowRight, J, L
+  // Rewind helper: jump back by seconds (safe and non-destructive to watched progress)
+  const handleRewind = useCallback((seconds = 10) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const target = calculateRewindTarget(video.currentTime, seconds);
+    video.currentTime = target;
+    setCurrentTime(target);
+    lastValidTimeRef.current = target;
+    setHasEnded(false);
+  }, []);
+
+  // Keyboard navigation: Allow rewinding (ArrowLeft, J, Home, 0), block forward skipping into unwatched content
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const seekKeys = ["ArrowLeft", "ArrowRight", "KeyJ", "KeyL", "j", "l", "J", "L"];
-      if (seekKeys.includes(e.code) || seekKeys.includes(e.key)) {
+      // Rewind keys: ArrowLeft, KeyJ (10s back)
+      if (e.code === "ArrowLeft" || e.code === "KeyJ" || e.key === "j" || e.key === "J") {
         e.preventDefault();
         e.stopPropagation();
-        triggerSeekWarning("Skipping is strictly disabled. You must watch the lesson in full.");
+        handleRewind(10);
+        return;
+      }
+
+      // Rewatch from start: Home or 0
+      if (e.code === "Home" || e.code === "Digit0") {
+        e.preventDefault();
+        e.stopPropagation();
+        handleRestart();
+        return;
+      }
+
+      // Fast-forward keys: ArrowRight, KeyL (10s forward)
+      if (e.code === "ArrowRight" || e.code === "KeyL" || e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        e.stopPropagation();
+        const video = videoRef.current;
+        if (video) {
+          const effectiveDur = duration > 0 ? duration : (video.duration || 0);
+          const target = Math.min(effectiveDur > 0 ? effectiveDur : video.currentTime + 10, video.currentTime + 10);
+          const validation = validateSeek(
+            target,
+            lastValidTimeRef.current,
+            maxWatchedSecRef.current,
+            effectiveDur,
+            hasCompletedRef.current
+          );
+          if (!validation.allowed) {
+            triggerSeekWarning(validation.reason);
+            video.currentTime = validation.effectiveTime;
+            setCurrentTime(validation.effectiveTime);
+            return;
+          }
+          video.currentTime = validation.effectiveTime;
+          setCurrentTime(validation.effectiveTime);
+          lastValidTimeRef.current = validation.effectiveTime;
+        }
         return;
       }
 
@@ -109,7 +200,7 @@ export default function CompulsoryVideoPlayer({
         handleToggleFullscreen();
       }
     },
-    [triggerSeekWarning]
+    [triggerSeekWarning, handleRewind, duration]
   );
 
   // Synchronize mute with video element
@@ -177,28 +268,63 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Anti-skip seeking interceptor
+  // Seeking handler: update current time and progress safely against anti-skip rules
   const handleSeeking = () => {
     const video = videoRef.current;
     if (!video) return;
+    const validation = validateSeek(
+      video.currentTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      video.currentTime = validation.effectiveTime;
+      setCurrentTime(validation.effectiveTime);
+      return;
+    }
+    lastValidTimeRef.current = video.currentTime;
+    setCurrentTime(video.currentTime);
+  };
 
-    const target = video.currentTime;
-    const lastValid = lastValidTimeRef.current;
-    const maxWatched = maxWatchedSecRef.current;
-
-    // If attempting to skip ahead beyond watched seconds + threshold
-    if (target > maxWatched + 1.5 || Math.abs(target - lastValid) > 1.5) {
-      video.currentTime = lastValid;
-      triggerSeekWarning("Seeking ahead is locked. Forward skip buttons are disabled.");
+  // Playback rate: ensure video adheres to selected speed
+  const handleRateChange = () => {
+    const video = videoRef.current;
+    if (video && video.playbackRate !== playbackSpeed) {
+      video.playbackRate = playbackSpeed;
     }
   };
 
-  // Playback rate lock: strictly force 1.0x
-  const handleRateChange = () => {
+  // Interactive timeline click handler: seek directly to clicked position with anti-skip validation
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
-    if (video && video.playbackRate !== 1.0) {
-      video.playbackRate = 1.0;
+    if (!video || !duration || duration <= 0) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const targetTime = Math.max(0, Math.min(duration, (clickX / rect.width) * duration));
+
+    const validation = validateSeek(
+      targetTime,
+      lastValidTimeRef.current,
+      maxWatchedSecRef.current,
+      duration,
+      hasCompletedRef.current
+    );
+
+    if (!validation.allowed) {
+      triggerSeekWarning(validation.reason);
+      video.currentTime = validation.effectiveTime;
+      setCurrentTime(validation.effectiveTime);
+      return;
     }
+
+    video.currentTime = validation.effectiveTime;
+    setCurrentTime(validation.effectiveTime);
+    lastValidTimeRef.current = validation.effectiveTime;
+    setHasEnded(false);
   };
 
   // Time update loop & Heartbeats
@@ -218,33 +344,43 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send 10-second periodic heartbeat
+    // Send 15-second periodic heartbeat with exact interval segments
     const now = Date.now();
-    if (now - lastHeartbeatTimeRef.current >= 10000) {
+    if (now - lastHeartbeatTimeRef.current >= 15000) {
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = current;
-      onHeartbeat(Math.floor(current), false, dur > 0 ? dur : undefined, Math.floor(delta));
+      onHeartbeat(
+        Math.floor(current),
+        false,
+        dur > 0 ? dur : undefined,
+        Math.floor(delta),
+        Math.floor(fromSec),
+        Math.floor(toSec),
+      );
     }
 
     // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95
     if (dur > 0 && current >= dur * 0.95 && !hasCompletedRef.current) {
-      // Near end check
-      if (current >= dur - 2) {
-        hasCompletedRef.current = true;
-        onHeartbeat(dur, true, dur);
-        onComplete();
-      }
+      hasCompletedRef.current = true;
+      setHasEnded(true);
+      onHeartbeat(dur, true, dur);
+      onComplete();
     }
   };
 
-  // onEnded event
+  // onEnded event: triggers completion and enables full rewatch capability
   const handleEnded = () => {
     setIsPlaying(false);
+    setHasEnded(true);
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
-    hasCompletedRef.current = true;
-    onHeartbeat(dur, true, dur);
-    onComplete();
+    if (!hasCompletedRef.current) {
+      hasCompletedRef.current = true;
+      onHeartbeat(dur, true, dur);
+      onComplete();
+    }
   };
 
   // Auto-hide controls when playing and idle
@@ -289,14 +425,14 @@ export default function CompulsoryVideoPlayer({
     }
   };
 
-  // Restart video from beginning
+  // Restart / Rewatch video from beginning (preserves maxWatched progress)
   const handleRestart = () => {
     const video = videoRef.current;
     if (video) {
       video.currentTime = 0;
       lastValidTimeRef.current = 0;
-      maxWatchedSecRef.current = 0;
       setCurrentTime(0);
+      setHasEnded(false);
       setResumedNotice(null);
       video.play().catch(() => {});
     }
@@ -371,8 +507,8 @@ export default function CompulsoryVideoPlayer({
       ) : (
         <video
           ref={videoRef}
-          key={`${lessonId}-${videoSrc}`}
-          src={videoSrc}
+          key={`${lessonId}-${resolvedVideoSrc}`}
+          src={resolvedVideoSrc}
           playsInline
           preload="metadata"
           controls={false}
@@ -448,37 +584,78 @@ export default function CompulsoryVideoPlayer({
         }
       `}</style>
 
-      {/* 4. Seek Blocked Toast Warning */}
+      {/* 4. Seek Blocked Toast Warning (Apple HIG Accessibility Announcement) */}
       {seekWarning && (
         <div
+          role="status"
+          aria-live="polite"
           style={{
             position: "absolute",
             top: "20px",
             left: "50%",
             transform: "translateX(-50%)",
-            background: "rgba(15, 23, 42, 0.92)",
-            border: "1px solid rgba(239, 68, 68, 0.5)",
-            color: "#fecaca",
-            padding: "8px 16px",
-            borderRadius: "20px",
+            background: "rgba(15, 23, 42, 0.82)",
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            color: "#ffffff",
+            padding: "8px 18px",
+            borderRadius: "9999px",
             fontSize: "0.82rem",
             fontWeight: 600,
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            boxShadow: "0 8px 20px rgba(0,0,0,0.4)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
             zIndex: 60,
-            backdropFilter: "blur(6px)",
+            backdropFilter: "blur(20px) saturate(160%)",
+            WebkitBackdropFilter: "blur(20px) saturate(160%)",
             pointerEvents: "none",
           }}
         >
-          <Lock size={14} color="#ef4444" />
+          <Lock size={14} color="#f59e0b" />
           <span>{seekWarning}</span>
         </div>
       )}
 
-      {/* 5. Center Big Play / Pause Overlay when Paused */}
-      {!isPlaying && !videoError && (
+      {/* 5. Center Big Play / Rewatch Overlay */}
+      {hasEnded && !videoError ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            zIndex: 36,
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleRestart}
+            aria-label="Rewatch Lesson"
+            style={{
+              padding: "12px 26px",
+              background: "linear-gradient(135deg, #c97a1e, #d97706)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "9999px",
+              fontWeight: 700,
+              fontSize: "0.95rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              boxShadow: "0 10px 25px rgba(201, 122, 30, 0.45)",
+              transition: "transform 0.15s ease",
+            }}
+          >
+            <RotateCcw size={18} />
+            <span>Rewatch Lesson</span>
+          </button>
+        </div>
+      ) : !isPlaying && !videoError ? (
         <button
           type="button"
           onClick={togglePlay}
@@ -506,30 +683,35 @@ export default function CompulsoryVideoPlayer({
         >
           <Play size={28} fill="#ffffff" style={{ marginLeft: "4px" }} />
         </button>
-      )}
+      ) : null}
 
-      {/* 6. Custom Stripped-Down Compulsory Player Control Bar */}
+      {/* 6. Apple Liquid Glass Floating Player Transport Bar (HIG Playing Video & Liquid Glass) */}
       <div
         style={{
           position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 65%, transparent 100%)",
-          padding: "16px 18px 12px",
+          bottom: "12px",
+          left: "14px",
+          right: "14px",
+          background: "rgba(15, 23, 42, 0.72)",
+          backdropFilter: "blur(24px) saturate(160%)",
+          WebkitBackdropFilter: "blur(24px) saturate(160%)",
+          border: "1px solid rgba(255, 255, 255, 0.15)",
+          borderRadius: "14px",
+          padding: "10px 16px",
           display: "flex",
           flexDirection: "column",
           gap: "8px",
           opacity: showControls || !isPlaying ? 1 : 0,
           pointerEvents: showControls || !isPlaying ? "auto" : "none",
-          transition: "opacity 0.25s ease",
+          transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
+          boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
           zIndex: 50,
         }}
       >
-        {/* Compulsory Timeline Bar (Scrubbing Strictly Disabled) */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        {/* Timeline Bar (Full-width YouTube style) */}
+        <div style={{ display: "flex", alignItems: "center", width: "100%", padding: "4px 0" }}>
           <div
-            title="Timeline scrub bar is locked on compulsory lessons"
+            onClick={handleTimelineClick}
             style={{
               position: "relative",
               flex: 1,
@@ -537,21 +719,16 @@ export default function CompulsoryVideoPlayer({
               background: "rgba(255, 255, 255, 0.22)",
               borderRadius: "4px",
               overflow: "hidden",
-              cursor: "not-allowed",
-              pointerEvents: "none", // Prevent clicks or drags
+              cursor: "pointer",
+              transition: "height 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.height = "8px";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.height = "6px";
             }}
           >
-            {/* Furthest Watched Track (Subtle guide) */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                bottom: 0,
-                left: 0,
-                width: `${maxWatchedPercent}%`,
-                background: "rgba(255, 255, 255, 0.25)",
-              }}
-            />
             {/* Active Current Time Progress Track */}
             <div
               style={{
@@ -562,34 +739,15 @@ export default function CompulsoryVideoPlayer({
                 width: `${watchedPercent}%`,
                 background: "linear-gradient(90deg, #c97a1e, #f59e0b)",
                 boxShadow: "0 0 8px rgba(245, 158, 11, 0.5)",
+                borderRadius: "4px",
               }}
             />
           </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              fontSize: "0.72rem",
-              color: "#fbbf24",
-              fontWeight: 700,
-              background: "rgba(245, 158, 11, 0.12)",
-              border: "1px solid rgba(245, 158, 11, 0.3)",
-              padding: "2px 6px",
-              borderRadius: "4px",
-              letterSpacing: "0.03em",
-              flexShrink: 0,
-            }}
-          >
-            <Lock size={10} />
-            <span>Anti-Skip</span>
-          </div>
         </div>
 
-        {/* Lower Control Actions (NO 10s Skip Buttons) */}
+        {/* Lower Control Actions */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* Play/Pause Button */}
             <button
               type="button"
@@ -606,6 +764,30 @@ export default function CompulsoryVideoPlayer({
               }}
             >
               {isPlaying ? <Pause size={20} fill="#ffffff" /> : <Play size={20} fill="#ffffff" />}
+            </button>
+
+            {/* Rewind 10s Button */}
+            <button
+              type="button"
+              onClick={() => handleRewind(10)}
+              aria-label="Rewind 10 seconds"
+              title="Rewind 10 seconds (Left Arrow or J)"
+              style={{
+                background: "none",
+                border: "none",
+                color: "#e2e8f0",
+                cursor: "pointer",
+                padding: "4px",
+                display: "flex",
+                alignItems: "center",
+                gap: "2px",
+                fontSize: "0.74rem",
+                fontWeight: 700,
+                transition: "color 0.15s ease",
+              }}
+            >
+              <RotateCcw size={17} />
+              <span>10s</span>
             </button>
 
             {/* Volume & Mute */}
@@ -648,25 +830,112 @@ export default function CompulsoryVideoPlayer({
 
             {/* Timestamp Readout */}
             <span style={{ fontSize: "0.82rem", color: "#e2e8f0", fontFamily: "monospace", letterSpacing: "0.04em" }}>
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {formatTime(currentTime)}
             </span>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* Speed Lock Badge */}
-            <span
-              title="Speed is locked to 1.0x for compulsory accreditation tracking"
-              style={{
-                fontSize: "0.75rem",
-                color: "#94a3b8",
-                border: "1px solid rgba(255,255,255,0.18)",
-                padding: "2px 8px",
-                borderRadius: "4px",
-                fontFamily: "monospace",
-              }}
-            >
-              1.0x (Locked)
-            </span>
+            {/* Speed Selector (1, 1.5, 1.75, 2) */}
+            <div ref={speedMenuRef} style={{ position: "relative" }}>
+              {showSpeedMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    right: 0,
+                    background: "rgba(15, 23, 42, 0.96)",
+                    backdropFilter: "blur(10px)",
+                    border: "1px solid rgba(255, 255, 255, 0.15)",
+                    borderRadius: "8px",
+                    padding: "6px 0",
+                    minWidth: "120px",
+                    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.5)",
+                    zIndex: 100,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "4px 12px 6px",
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Speed
+                  </div>
+                  {[1, 1.5, 1.75, 2].map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() => handleSpeedChange(spd)}
+                      style={{
+                        background: playbackSpeed === spd ? "rgba(245, 158, 11, 0.2)" : "transparent",
+                        color: playbackSpeed === spd ? "#fbbf24" : "#f1f5f9",
+                        border: "none",
+                        padding: "7px 14px",
+                        textAlign: "left",
+                        fontSize: "0.8rem",
+                        fontWeight: playbackSpeed === spd ? 700 : 500,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        transition: "background 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (playbackSpeed !== spd) {
+                          e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (playbackSpeed !== spd) {
+                          e.currentTarget.style.background = "transparent";
+                        }
+                      }}
+                    >
+                      <span>{spd === 1 ? "1x (Normal)" : `${spd}x`}</span>
+                      {playbackSpeed === spd && <span style={{ fontSize: "0.75rem" }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowSpeedMenu((prev) => !prev)}
+                aria-label="Playback speed"
+                title="Playback speed"
+                style={{
+                  background: "rgba(255, 255, 255, 0.12)",
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  color: "#ffffff",
+                  padding: "3px 9px",
+                  borderRadius: "5px",
+                  fontSize: "0.76rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontFamily: "monospace",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.12)";
+                }}
+              >
+                <span>{playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`}</span>
+              </button>
+            </div>
 
             {/* Fullscreen Button */}
             <button

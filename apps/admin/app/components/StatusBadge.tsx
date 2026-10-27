@@ -9,6 +9,19 @@ export type StatusTone =
   | "error"
   | "info"
   | "neutral"
+  | "converted"
+  | "diagnostic"
+  | "comprehension"
+  | "online"
+  | "physical"
+  | "inProgress"
+  | "notStarted"
+  | "locked"
+  | "passed"
+  | "failed"
+  | "availableNext"
+  | "optional"
+  | "required"
   | "roleSuperAdmin"
   | "roleAdmin"
   | "roleManager"
@@ -25,11 +38,25 @@ export interface StatusBadgeProps {
 function resolveTone(rawStatus: string): StatusTone {
   const normalized = rawStatus.trim().toUpperCase().replace(/[\s-]+/g, "_");
   if (normalized === "ACTIVE" || normalized === "PUBLISHED") return "active";
+  if (normalized === "CONVERTED") return "converted";
+  if (normalized === "BEFORE_VIDEO" || normalized === "DIAGNOSTIC") return "diagnostic";
+  if (normalized === "AFTER_VIDEO" || normalized === "COMPREHENSION") return "comprehension";
+  if (normalized === "ONLINE" || normalized === "VIRTUAL") return "online";
+  if (normalized === "PHYSICAL" || normalized === "IN_PERSON") return "physical";
+
+  // Standardized Learner Status Labels
+  if (normalized === "IN_PROGRESS" || normalized === "INPROGRESS") return "inProgress";
+  if (normalized === "NOT_STARTED" || normalized === "NOTSTARTED") return "notStarted";
+  if (normalized === "LOCKED") return "locked";
+  if (normalized === "PASSED") return "passed";
+  if (normalized === "FAILED") return "failed";
+  if (normalized === "AVAILABLE_NEXT" || normalized === "AVAILABLENEXT") return "availableNext";
+  if (normalized === "OPTIONAL") return "optional";
+  if (normalized === "REQUIRED") return "required";
+
   if (
     normalized === "COMPLETED" ||
-    normalized === "PASSED" ||
     normalized === "PAID" ||
-    normalized === "CONVERTED" ||
     normalized === "SIGNED"
   ) {
     return "completed";
@@ -47,7 +74,6 @@ function resolveTone(rawStatus: string): StatusTone {
   if (normalized === "WAITLIST") return "info";
   if (normalized === "INACTIVE" || normalized === "ARCHIVED") return "inactive";
   if (
-    normalized === "FAILED" ||
     normalized === "CANCELLED" ||
     normalized === "REJECTED" ||
     normalized === "REVOKED" ||
@@ -68,12 +94,12 @@ function resolveTone(rawStatus: string): StatusTone {
 }
 
 function normalizeStatusLabel(rawStatus?: string | null): string {
-  if (!rawStatus) return "ACTIVE";
+  if (!rawStatus) return "Active";
   const trimmed = rawStatus.trim();
-  if (trimmed.toUpperCase() === "ACTIVE") {
-    return "ACTIVE";
-  }
-  return trimmed.replace(/_/g, " ").toUpperCase();
+  const words = trimmed.replace(/[_-]+/g, " ").split(/\s+/);
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export function StatusBadge({

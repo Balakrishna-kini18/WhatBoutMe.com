@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
-import { Modal, CustomSelect, ConfirmDialog, useToast } from "../../../../../components";
+import { Modal, CustomSelect, ConfirmDialog, useToast, TableSkeleton } from "../../../../../components";
 import { errorMessage as extractErrorMessage } from "../../../../../lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -53,6 +53,9 @@ export default function ReconciliationPage({
   const [isDismissing, setIsDismissing] = useState(false);
   const [dismissError, setDismissError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  // Tracks whether sync-attendance was called at least once this page session.
+  // Needed to distinguish "never synced" (empty = no data yet) from "synced with 0 unmatched".
+  const [syncRanOnce, setSyncRanOnce] = useState(false);
 
   const [linkModal, setLinkModal] = useState<{
     isOpen: boolean;
@@ -122,6 +125,7 @@ export default function ReconciliationPage({
         toastError(json.message || "No meeting attendance records were processed.", "Sync Notice");
         return;
       }
+      setSyncRanOnce(true);
       toastSuccess(`Meeting synchronized (${json.participantCount || 0} participants processed).`, "Attendance Synced");
       await fetchData();
     } catch (err: any) {
@@ -272,9 +276,9 @@ export default function ReconciliationPage({
             </Link>
           </div>
           <h1 className={styles.title}>Participant Reconciliation: {data?.session.title || "Session"}</h1>
-          <p className={styles.subtitle}>
-            Link unrecognized Zoom or Google Meet attendees to enrolled batch learners to update their attendance percentage.
-          </p>
+          {/* <p className={styles.subtitle}>
+            Link unrecognized Zoom attendees to enrolled batch learners to update their attendance percentage.
+          </p> */}
         </div>
 
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
@@ -283,7 +287,7 @@ export default function ReconciliationPage({
             className={styles.secondaryBtn}
             onClick={handleSyncMeeting}
             disabled={isSyncing}
-            title="Pull latest attendance report from Zoom or Google Meet"
+            title="Pull latest attendance report from Zoom"
             style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <svg
@@ -301,7 +305,7 @@ export default function ReconciliationPage({
               <polyline points="1 20 1 14 7 14"></polyline>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
             </svg>
-            <span>{isSyncing ? "Syncing..." : "Sync Meeting Report"}</span>
+            <span>{isSyncing ? "Syncing..." : "Sync Zoom Report"}</span>
           </button>
         </div>
       </header>
@@ -336,20 +340,32 @@ export default function ReconciliationPage({
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "30px" }}>
-                    Loading unmatched attendees...
-                  </td>
-                </tr>
+                <TableSkeleton columns={6} rows={4} />
               ) : !data || data.unmatched.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: "center", padding: "40px" }}>
-                    <div style={{ color: "#16a34a", fontSize: "1.1rem", fontWeight: 600, marginBottom: "4px" }}>
-                      ✓ All meeting attendees reconciled!
-                    </div>
-                    <span style={{ color: "#64748b", fontSize: "0.9rem" }}>
-                      There are no unmatched participants waiting for review.
-                    </span>
+                    {syncRanOnce ? (
+                      // Sync was run this session and the unmatched list is empty — genuinely reconciled
+                      <>
+                        <div style={{ color: "#16a34a", fontSize: "1.1rem", fontWeight: 600, marginBottom: "4px" }}>
+                          ✓ All participants matched!
+                        </div>
+                        <span style={{ color: "#64748b", fontSize: "0.9rem" }}>
+                          No unmatched meeting attendees remain after the last sync.
+                        </span>
+                      </>
+                    ) : (
+                      // Sync has not been run yet — empty list does not mean reconciled
+                      <>
+                        <div style={{ color: "#475569", fontSize: "1rem", fontWeight: 600, marginBottom: "6px" }}>
+                          No unmatched attendees yet
+                        </div>
+                        <span style={{ color: "#64748b", fontSize: "0.9rem" }}>
+                          Click <strong>Sync Zoom Report</strong> to import participant data from Zoom.
+                          Unrecognized attendees will appear here for review.
+                        </span>
+                      </>
+                    )}
                   </td>
                 </tr>
               ) : (

@@ -1,24 +1,14 @@
 "use client";
 
 import styles from "./page.module.css";
+import DashboardLoading from "./loading";
 import Image from "next/image";
 import Link from "next/link";
 import { SITE_URL } from "./lib/site";
-import { API_URL } from "./lib/api";
+import { API_URL, renewOnce } from "./lib/api";
 import { courseImageFor } from "./lib/courseImage";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-
-const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-const Icons = {
-  course: <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>,
-  meeting: <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>,
-  certificate: <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}><circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" /></svg>,
-  progress: <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>,
-  message: <svg width="18" height="18" viewBox="0 0 24 24" {...stroke}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
-  user: <svg width="18" height="18" viewBox="0 0 24 24" {...stroke}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>,
-  arrow: <svg width="16" height="16" viewBox="0 0 24 24" {...stroke}><polyline points="9 18 15 12 9 6" /></svg>,
-};
 
 interface EnrolledProgram {
   enrolmentId: string;
@@ -55,8 +45,6 @@ export default function LearnerDashboard() {
   const [certificates, setCertificates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-
-  const [complianceMap, setComplianceMap] = useState<Record<string, any>>({});
   const [attendanceSummary, setAttendanceSummary] = useState<{
     totalScheduledSessions: number;
     totalAttendedSessions: number;
@@ -64,40 +52,71 @@ export default function LearnerDashboard() {
     history: any[];
   } | null>(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
+  const loadDashboard = useCallback(
+    async (isInitial = false) => {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
 
-    const authHeaders = { Authorization: `Bearer ${token}` };
+      if (isInitial) {
+        setLoading(true);
+      }
 
-    fetch(`${API_URL}/auth/me`, {
-      headers: authHeaders,
-    })
-      .then((res) => {
+      let currentToken = token;
+      let authHeaders = { Authorization: `Bearer ${currentToken}` };
+
+      try {
+        let res = await fetch(`${API_URL}/auth/me`, {
+          headers: authHeaders,
+        });
+
         if (res.status === 401) {
-          localStorage.removeItem("token");
-          router.push("/login");
-          throw new Error("Unauthorized");
+          const refreshToken = localStorage.getItem("refresh_token");
+          if (refreshToken) {
+            const renewed = await renewOnce(fetch, currentToken);
+            if (renewed && renewed !== "signed-out") {
+              currentToken = renewed;
+              authHeaders = { Authorization: `Bearer ${renewed}` };
+              const retryRes = await fetch(`${API_URL}/auth/me`, {
+                headers: authHeaders,
+              });
+              if (retryRes.ok) {
+                res = retryRes;
+              } else if (retryRes.status === 401) {
+                localStorage.removeItem("token");
+                localStorage.removeItem("refresh_token");
+                router.push("/login");
+                return;
+              }
+            } else if (renewed === null) {
+              // Server unreachable or transient network failure: do NOT sign out!
+              if (isInitial) setLoadError(true);
+              return;
+            } else {
+              // Definitively signed out
+              localStorage.removeItem("token");
+              localStorage.removeItem("refresh_token");
+              router.push("/login");
+              return;
+            }
+          } else {
+            localStorage.removeItem("token");
+            router.push("/login");
+            return;
+          }
         }
+
         if (!res.ok) {
-          setLoadError(true);
-          throw new Error(`Dashboard failed to load (${res.status})`);
+          if (isInitial) setLoadError(true);
+          return;
         }
-        return res.json();
-      })
-      .then(async (profile: UserProfile) => {
+
+        const profile: UserProfile = await res.json();
         setUser(profile);
-        
-        // Fetch compliance, attendance summary, and certificates concurrently
-        const enrolled = profile.enrolledPrograms || [];
-        const compliancePromises = enrolled.map((ep) =>
-          fetch(`${API_URL}/attendance/compliance/${ep.enrolmentId}`, { headers: authHeaders })
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null)
-        );
+
+        // Fetch attendance summary and certificates concurrently
         const attendancePromise = fetch(`${API_URL}/me/attendance`, { headers: authHeaders })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null);
@@ -105,417 +124,399 @@ export default function LearnerDashboard() {
           .then((r) => (r.ok ? r.json() : []))
           .catch(() => []);
 
-        const [complianceResults, attData, certs] = await Promise.all([
-          Promise.all(compliancePromises),
+        const [attData, certs] = await Promise.all([
           attendancePromise,
           certificatesPromise,
         ]);
 
-        const compMap: Record<string, any> = {};
-        enrolled.forEach((ep, idx) => {
-          if (complianceResults[idx]) compMap[ep.enrolmentId] = complianceResults[idx];
-        });
-        setComplianceMap(compMap);
         if (attData) setAttendanceSummary(attData);
         setCertificates(certs || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [router]);
-
-  const requestCertificate = async (enrolmentId: string) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/certificates/request/${enrolmentId}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        alert("Certificate requested! It is now pending Admin approval.");
-        window.location.reload();
-      } else {
-        alert("Failed to request certificate. You may have already requested it.");
+      } catch {
+        if (isInitial) setLoadError(true);
+      } finally {
+        if (isInitial) setLoading(false);
       }
-    } catch (e) {
-      console.error(e);
-    }
-  };
+    },
+    [router]
+  );
 
+  useEffect(() => {
+    loadDashboard(true);
+
+    const onFocus = () => {
+      loadDashboard(false);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        loadDashboard(false);
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadDashboard]);
+
+  // SKELETON PLACEHOLDER DURING INITIAL LOAD (Apple HIG Standard)
   if (loading) {
-    return (
-      <div className={styles.dashboard}>
-        {/* Skeleton Greeting */}
-        <div className={styles.greeting} style={{ marginBottom: "1.5rem" }}>
-          <div className="skeleton" style={{ width: 48, height: 48, borderRadius: "50%" }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div className="skeleton" style={{ width: 220, height: 28, borderRadius: 8 }} />
-            <div className="skeleton" style={{ width: 160, height: 16, borderRadius: 6 }} />
-          </div>
-        </div>
-
-        {/* Skeleton Hero Banner */}
-        <div className="skeleton" style={{ height: 200, width: "100%", borderRadius: 24, marginBottom: "2rem" }} />
-
-        {/* Skeleton Stat Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.25rem", marginBottom: "2rem" }}>
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="skeleton" style={{ height: 110, borderRadius: 20 }} />
-          ))}
-        </div>
-
-        {/* Skeleton Course Section */}
-        <div className="skeleton" style={{ height: 260, width: "100%", borderRadius: 20 }} />
-      </div>
-    );
+    return <DashboardLoading />;
   }
 
-
+  // ERROR RECOVERY VIEW
   if (loadError) {
     return (
       <div className={styles.dashboard}>
-        <div style={{ textAlign: "center", padding: "60px 20px" }}>
-          <h2>We couldn&apos;t load your dashboard</h2>
-          <p style={{ color: "var(--text-secondary)" }}>You are still signed in. Please try again in a moment.</p>
-          <button type="button" className={styles.primaryBtn} style={{ border: "none", cursor: "pointer", font: "inherit", fontWeight: 600 }} onClick={() => window.location.reload()}>Try Again</button>
+        <div style={{ textAlign: "center", padding: "60px 20px", background: "#ffffff", borderRadius: 16, border: "1px solid #ece6dd" }}>
+          <h2 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#18181b", margin: "0 0 8px" }}>
+            We couldn&apos;t load your dashboard
+          </h2>
+          <p style={{ color: "#64748b", margin: "0 0 20px" }}>You are still signed in. Please refresh to load your learning metrics.</p>
+          <button
+            type="button"
+            className={styles.continueCourseBtn}
+            style={{ width: "auto", display: "inline-flex", padding: "0 24px" }}
+            onClick={() => window.location.reload()}
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
   }
 
-  if (!user) return null;
-
-  const firstName = user.name ? user.name.split(" ")[0] : "Learner";
+  // GREETING DATA
+  const firstName = user?.name ? user.name.split(" ")[0] : "Learner";
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
-  const numEnrolled = user.enrolledPrograms.length;
-  const isEnrolled = numEnrolled > 0;
+  const greetingText = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
 
-  const checkIn = async (session: Session) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/sessions/${session.id}/attend`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        if (session.joinUrl) window.open(session.joinUrl, '_blank');
-      } else {
-        const data = await res.json().catch(() => null);
-        alert(`Check-in failed: ${data?.error?.message || data?.message || 'Please try again.'}`);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  // ENROLLED COURSES: Ground truth data only
+  const enrolled = user?.enrolledPrograms || [];
+  const activeCount = enrolled.length;
 
-  const now = new Date();
-  const sessions = [...(user.upcomingSessions || [])].sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
-  );
-  const nextUp = sessions.find((s) => new Date(s.endTime) > now);
-  const completed = user.enrolledPrograms.filter((p) => p.progress === 100);
-  const siteCourses = `${SITE_URL}/courses`;
-  const overall = isEnrolled
-    ? Math.round(user.enrolledPrograms.reduce((sum, p) => sum + (p.progress || 0), 0) / numEnrolled)
-    : 0;
-
-  // the course the "Continue learning" card offers: one the learner can open
-  // right now (the same cases that show Resume/Start in the list), preferring
-  // one already started
-  const blocked = ["PENDING_AGREEMENT", "PENDING_PAYMENT", "WAITLIST", "REVOKED"];
-  const openable = user.enrolledPrograms.filter((p) => !blocked.includes(p.status) && p.progress < 100);
-  const continueProg = openable.find((p) => p.progress > 0) ?? openable[0];
-  const attendancePct = attendanceSummary?.overallAttendancePercentage ?? 0;
-  const attendanceMet = attendancePct >= 75;
-
-  const shortcuts = [
-    { label: "Live Sessions", href: "/live", icon: Icons.meeting },
-    { label: "Messages", href: "/chat", icon: Icons.message },
-    { label: "Certificates", href: "/certificates", icon: Icons.certificate },
-    { label: "My Profile", href: "/profile", icon: Icons.user },
+  const courseImages = [
+    "/brand/course-celebrate.webp",
+    "/brand/course-learning.webp",
+    "/brand/session.webp",
+    "/brand/course-photo.webp",
   ];
 
-  const timeRange = (s: Session) =>
-    `${new Date(s.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${new Date(s.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  // check-in opens 5 minutes before the start
-  const isOpen = (s: Session) =>
-    now >= new Date(new Date(s.startTime).getTime() - 5 * 60000) && now <= new Date(s.endTime);
+  const displayCourses = enrolled.map((p, idx) => ({
+    key: p.enrolmentId || `course-${p.programId || idx}`,
+    title: p.programTitle || "Certified Resilience Program",
+    progress: typeof p.progress === "number" ? p.progress : 0,
+    image: courseImages[idx % courseImages.length] || "/brand/course-learning.webp",
+    route: `/programs/${p.programId}/steps`,
+  }));
 
-  // the action for one course: exactly the cases the list has always had
-  const courseAction = (prog: EnrolledProgram, className = styles.darkBtn) =>
-    prog.status === "PENDING_AGREEMENT" ? (
-      <Link href="/agreement" className={className}>
-        Sign Agreement
-      </Link>
-    ) : prog.status === "PENDING_PAYMENT" ? (
-      <span className={`${styles.pill} ${styles.pillOff}`}>Payment Pending</span>
-    ) : prog.status === "WAITLIST" ? (
-      <span className={`${styles.pill} ${styles.pillOff}`}>On Waitlist</span>
-    ) : prog.status === "REVOKED" ? (
-      <span className={`${styles.pill} ${styles.pillOff}`}>Access Revoked</span>
-    ) : prog.progress === 100 ? (
-      <button type="button" onClick={() => requestCertificate(prog.enrolmentId)} className={styles.secondaryBtn}>
-        Request Certificate
-      </button>
-    ) : (
-      <Link href={`/programs/${prog.programId}/steps`} className={className}>
-        {prog.progress > 0 ? "Resume" : "Start"}
-        {Icons.arrow}
-      </Link>
-    );
+  // PROGRESS CALCULATIONS FOR THE TWO DONUTS (Apple Activity Rings)
+  const totalCourses = enrolled.length;
+  const completedCourses = enrolled.filter((p) => p.progress === 100).length;
+  const overallPct = enrolled.length > 0
+    ? Math.round(enrolled.reduce((sum, p) => sum + (p.progress || 0), 0) / enrolled.length)
+    : 0;
 
-  const compliance = (prog: EnrolledProgram) => {
-    const c = complianceMap[prog.enrolmentId];
-    if (!c || c.status === "NOT_APPLICABLE") return null;
-    const ok = c.status === "COMPLIANT";
-    return (
-      <span className={`${styles.attendTag} ${ok ? styles.attendOk : styles.attendLow}`}>
-        {ok ? "Attendance Compliant" : "Low Attendance"} ({Math.round(c.attendancePercentage)}%)
-      </span>
-    );
-  };
+  const attendancePct = attendanceSummary?.overallAttendancePercentage ?? 0;
+  const attendedSessions = attendanceSummary?.totalAttendedSessions ?? 0;
+  const totalSessions = attendanceSummary?.totalScheduledSessions ?? 0;
+
+  // SVG Circle Geometry for 116px Donut: radius 48, strokeWidth 10
+  const CIRCLE_RADIUS = 48;
+  const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS; // ~301.59px
+  const overallOffset = CIRCLE_CIRCUMFERENCE - (CIRCLE_CIRCUMFERENCE * Math.min(100, Math.max(0, overallPct))) / 100;
+  const attendanceOffset = CIRCLE_CIRCUMFERENCE - (CIRCLE_CIRCUMFERENCE * Math.min(100, Math.max(0, attendancePct))) / 100;
+
+  const greetingSubtitle = activeCount > 0
+    ? `You have ${activeCount} active ${activeCount === 1 ? "course" : "courses"} in progress — rewiring your brain for sustainable action.`
+    : "Welcome to your personal resilience workspace. Explore certified programs to begin.";
 
   return (
-    <div className={`${styles.dashboard} ${styles.home}`}>
-      <header className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>{greeting}, {firstName}</h1>
-          <p className={styles.pageSubtitle}>
-            {isEnrolled
-              ? `You have ${numEnrolled} active ${numEnrolled === 1 ? "course" : "courses"} in progress — rewiring your brain for sustainable action.`
-              : "For the people who hold everyone else together. Explore certified programmes built on neuroscience and lived experience."}
-          </p>
-        </div>
-        <Link href={siteCourses} className={styles.headerBtn}>Browse Courses</Link>
-      </header>
-
-      {/* the one thing most visits are for: pick up the course where it was left */}
-      {continueProg && (
-        <section className={styles.continueCard} aria-label="Continue learning">
-          <Image
-            src={courseImageFor(continueProg.programTitle)}
-            alt=""
-            width={168}
-            height={112}
-            quality={80}
-            sizes="(max-width: 600px) 88px, 168px"
-            className={styles.continueThumb}
-          />
-          <div className={styles.continueBody}>
-            <p className={styles.continueLabel}>
-              {continueProg.progress > 0 ? "Continue Where You Left Off" : "Ready When You Are"}
-            </p>
-            <h2 className={styles.continueTitle}>{continueProg.programTitle}</h2>
-            <p className={styles.muted}>Cohort: {continueProg.batchName}</p>
-            <div className={styles.progressLine}>
-              <div className={styles.progress} role="progressbar" aria-valuenow={continueProg.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${continueProg.programTitle} progress`}>
-                <span style={{ width: `${continueProg.progress}%` }} />
-              </div>
-              <span>{continueProg.progress}%</span>
-            </div>
+    <div className={styles.dashboard}>
+      {/* 1. TOP GREETING BAR */}
+      <section className={styles.topGreetingBar} aria-label="Welcome greeting">
+        <div className={styles.greetingLeft}>
+          <div className={styles.sunIconWrap} aria-hidden="true" style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--accent-primary-tint, rgba(201, 122, 30, 0.12))", color: "var(--accent-primary, #c97a1e)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
           </div>
-          <Link href={`/programs/${continueProg.programId}/steps`} className={styles.continueBtn}>
-            {continueProg.progress > 0 ? "Resume Course" : "Start Course"}
-            {Icons.arrow}
-          </Link>
-        </section>
-      )}
+          <div>
+            <h1 className={styles.greetingTitle}>
+              {greetingText}, {firstName}
+            </h1>
+            <p className={styles.greetingSubtitle}>
+              {greetingSubtitle}
+            </p>
+          </div>
+        </div>
+      </section>
 
-      <div className={styles.board}>
-        <div className={styles.boardMain}>
-          <section id="courses" className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2>Your Courses</h2>
-              <Link href={siteCourses} className={styles.textLink}>Browse All</Link>
-            </div>
-            {!isEnrolled ? (
-              <div className={styles.emptyBlock}>
-                <p className={styles.emptyTitle}>Start Your Brain Health Journey</p>
-                <p className={styles.muted}>
-                  From a 12-class CPD-certified programme to focused resilience workshops, rewire your brain for clarity, confidence, and fulfillment.
-                </p>
-                <Link href={siteCourses} className={styles.darkBtn}>
-                  Explore Programmes &amp; Workshops
-                </Link>
-              </div>
-            ) : (
-              <ul className={styles.courseGrid}>
-                {user.enrolledPrograms.map((prog) => (
-                  <li key={prog.programId} className={styles.courseCard}>
-                    {/* the picture takes most of the card; a little info below it */}
-                    <div className={styles.courseCardMedia}>
+      {/* 2. MAIN DASHBOARD 2-COLUMN GRID (65% Left / 35% Right) */}
+      <div className={styles.dashboardGrid}>
+        {/* LEFT COLUMN: YOUR COURSES CONTAINER */}
+        <section className={styles.yourCoursesContainer} aria-label="Your Courses">
+          <div className={styles.sectionHeaderRow}>
+            <h2 className={styles.sectionTitle}>Your Courses</h2>
+            <Link href="/courses" className={styles.viewAllLink}>
+              <span>View All</span>
+              <span aria-hidden="true">&rarr;</span>
+            </Link>
+          </div>
+
+          {/* 2x2 Course Cards Grid or Empty Discovery State */}
+          {displayCourses.length > 0 ? (
+            <div className={styles.coursesGrid2x2}>
+              {displayCourses.map((course) => {
+                const isCompleted = course.progress === 100;
+
+                return (
+                  <article key={course.key} className={styles.courseCard}>
+                    {/* 16:9 Cover Image */}
+                    <div className={styles.courseCoverWrap}>
                       <Image
-                        src={courseImageFor(prog.programTitle)}
-                        alt=""
+                        src={course.image}
+                        alt={course.title}
                         fill
-                        quality={80}
-                        loading="lazy"
-                        sizes="(max-width: 600px) 100vw, 320px"
-                        className={styles.courseCardImg}
+                        sizes="(max-width: 768px) 100vw, 360px"
+                        className={styles.courseCoverImg}
                       />
                     </div>
 
+                    {/* Card Body */}
                     <div className={styles.courseCardBody}>
-                      <p className={styles.courseCardTitle}>{prog.programTitle}</p>
-                      <p className={styles.muted}>{prog.batchName}</p>
-                    </div>
-
-                    {compliance(prog)}
-
-                    <div className={styles.courseCardProgress}>
-                      <div className={styles.courseCardProgressLabel}>
-                        <span>Progress</span>
-                        <strong>{prog.progress}%</strong>
+                      <div className={styles.courseTitleRow}>
+                        <h3 className={styles.courseTitle} title={course.title}>
+                          {course.title}
+                        </h3>
+                        <span className={styles.coursePercentage}>
+                          {course.progress}%
+                        </span>
                       </div>
-                      <div className={styles.courseCardBar} role="progressbar" aria-valuenow={prog.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${prog.programTitle} progress`}>
-                        <span style={{ width: `${prog.progress}%` }} />
-                      </div>
-                    </div>
 
-                    <div className={styles.courseCardAction}>{courseAction(prog, styles.courseCardBtn)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+                      {/* 6px Progress Bar */}
+                      <div
+                        className={styles.progressBarTrack}
+                        role="progressbar"
+                        aria-valuenow={course.progress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${course.title} completion progress`}
+                      >
+                        <div
+                          className={styles.progressBarFill}
+                          style={{ width: `${Math.min(100, Math.max(0, course.progress))}%` }}
+                        />
+                      </div>
 
-          {/* every meeting scheduled for the learner's cohorts; the next one is marked */}
-          <section id="meetings" className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2>Upcoming Sessions</h2>
-              <Link href="/live" className={styles.textLink}>View All</Link>
-            </div>
-            {sessions.length === 0 ? (
-              <p className={styles.empty}>
-                Nothing scheduled yet. New live sessions for your cohort will show up here.
-              </p>
-            ) : (
-              <ul className={styles.list}>
-                {sessions.map((session) => {
-                  const start = new Date(session.startTime);
-                  const ended = now > new Date(session.endTime);
-                  const open = isOpen(session);
-                  return (
-                    <li key={session.id} className={`${styles.row} ${session.id === nextUp?.id ? styles.rowNext : ""}`}>
-                      <div className={styles.dateBox}>
-                        <span>{start.toLocaleDateString([], { month: "short" })}</span>
-                        <strong>{start.getDate()}</strong>
-                      </div>
-                      <div className={styles.rowMain}>
-                        <p className={styles.rowTitle}>{session.title}</p>
-                        <p className={styles.muted}>
-                          {start.toLocaleDateString([], { weekday: "long" })}, {timeRange(session)}
-                          {session.recordingUrl && (
-                            <> · <a href={session.recordingUrl} target="_blank" rel="noreferrer" className={styles.textLink}>Recording</a></>
-                          )}
-                          {session.quizId && (
-                            <> · <Link href={`/steps/${session.quizId}?isQuiz=true`} className={styles.textLink}>Quiz</Link></>
-                          )}
-                        </p>
-                      </div>
-                      {open ? (
-                        <button type="button" onClick={() => checkIn(session)} className={styles.darkBtn}>Check In &amp; Join</button>
+                      {/* CTA Button */}
+                      {isCompleted ? (
+                        <Link href={course.route} className={styles.viewCourseBtn}>
+                          <span>View Course</span>
+                          <span aria-hidden="true">&rarr;</span>
+                        </Link>
                       ) : (
-                        <span className={`${styles.pill} ${ended ? styles.pillOff : ""}`}>{ended ? "Ended" : "Upcoming"}</span>
+                        <Link href={course.route} className={styles.continueCourseBtn}>
+                          <span>Continue Course</span>
+                          <span aria-hidden="true">&rarr;</span>
+                        </Link>
                       )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        <aside className={styles.boardSide}>
-          {/* progress, attendance and certificates in one place */}
-          <section className={styles.panel}>
-            <div className={styles.panelHead}>
-              <h2>Your Progress</h2>
-            </div>
-
-            <div className={styles.statCards}>
-              <div className={styles.statCard2}>
-                <div className={styles.courseCardProgressLabel}>
-                  <span>Overall Progress</span>
-                  <strong>{overall}%</strong>
-                </div>
-                <div className={styles.courseCardBar} role="progressbar" aria-valuenow={overall} aria-valuemin={0} aria-valuemax={100} aria-label="Overall progress">
-                  <span style={{ width: `${overall}%` }} />
-                </div>
-                <p className={styles.muted}>
-                  {completed.length} of {numEnrolled} {numEnrolled === 1 ? "course" : "courses"} completed
-                </p>
-              </div>
-
-              <div className={styles.statCard2}>
-                <div className={styles.courseCardProgressLabel}>
-                  <span>Attendance</span>
-                  <strong>{attendanceSummary ? `${attendanceSummary.overallAttendancePercentage}%` : "—"}</strong>
-                </div>
-                <div className={styles.attendBar} role="progressbar" aria-valuenow={attendancePct} aria-valuemin={0} aria-valuemax={100} aria-label="Attendance">
-                  <span
-                    className={attendanceMet ? styles.attendBarOk : styles.attendBarWarn}
-                    style={{ width: `${Math.min(100, attendancePct)}%` }}
-                  />
-                </div>
-                <p className={styles.muted}>
-                  {attendanceSummary
-                    ? `${attendanceSummary.totalAttendedSessions} of ${attendanceSummary.totalScheduledSessions} live sessions completed`
-                    : "Tracking live session attendance in real-time"}
-                </p>
-                <div className={styles.summaryRow}>
-                  <span className={`${styles.attendTag} ${attendanceMet ? styles.attendOk : styles.attendWarn}`}>
-                    {attendanceMet ? "Threshold Met (≥75%)" : "Needs 75% for Certificate"}
-                  </span>
-                  <Link href="/attendance" className={styles.textLink}>Details</Link>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className={`${styles.panel} ${styles.grow}`}>
-            <div className={styles.panelHead}>
-              <h2>Certificates</h2>
-              <Link href="/certificates" className={styles.textLink}>View All</Link>
-            </div>
-            {certificates.length === 0 ? (
-              <p className={styles.empty}>
-                {completed.length > 0
-                  ? "You have completed a course. Request your certificate."
-                  : "Complete a course to earn your certificate."}
-              </p>
-            ) : (
-              <ul className={styles.list}>
-                {certificates.map((cert) => (
-                  <li key={cert.id} className={styles.row}>
-                    <div className={styles.rowMain}>
-                      <p className={styles.rowTitle}>{cert.enrolment?.batch?.program?.title || "Certificate"}</p>
-                      <p className={styles.muted}>
-                        {cert.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : `Status: ${String(cert.status || "pending").toLowerCase()}`}
-                      </p>
                     </div>
-                    {/* only approved certificates are listed here */}
-                    <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtn}>View</Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: "48px 20px" }}>
+              <div style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--accent-primary-tint, rgba(201, 122, 30, 0.12))", color: "var(--accent-primary, #c97a1e)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                </svg>
+              </div>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: "0 0 6px", color: "var(--text-primary)" }}>
+                Start Your First Program
+              </h3>
+              <p style={{ fontSize: "0.875rem", color: "var(--text-muted)", margin: "0 0 18px", maxWidth: 360, marginLeft: "auto", marginRight: "auto" }}>
+                You have not enrolled in a course yet. Explore our certified neuroplasticity and resilience curriculums.
+              </p>
+              <Link href="/courses" className={styles.continueCourseBtn} style={{ width: "auto", display: "inline-flex", padding: "0 20px" }}>
+                Explore Courses &rarr;
+              </Link>
+            </div>
+          )}
+        </section>
+
+        {/* RIGHT COLUMN: YOUR PROGRESS & CERTIFICATES CARDS */}
+        <aside className={styles.rightStack} aria-label="Progress & Certificates Overview">
+          {/* Card 1: Your Progress (Keep ONLY two donuts in single card) */}
+          <section className={styles.yourProgressCard} aria-labelledby="your-progress-heading">
+            <h2 id="your-progress-heading" className={styles.sectionTitle}>
+              Your Progress
+            </h2>
+
+            <div className={styles.donutsGrid}>
+              {/* Donut 1: Overall Progress */}
+              <div className={`${styles.donutCol} ${styles.donutDivider}`}>
+                <div className={styles.donutRingWrap}>
+                  <svg
+                    className={styles.donutSvg}
+                    viewBox="0 0 120 120"
+                    role="img"
+                    aria-label={`Overall progress ${overallPct}%`}
+                  >
+                    <circle
+                      className={styles.donutTrack}
+                      cx="60"
+                      cy="60"
+                      r={CIRCLE_RADIUS}
+                      fill="none"
+                      strokeWidth="10"
+                    />
+                    <circle
+                      className={styles.donutFill}
+                      cx="60"
+                      cy="60"
+                      r={CIRCLE_RADIUS}
+                      fill="none"
+                      strokeWidth="10"
+                      strokeDasharray={CIRCLE_CIRCUMFERENCE}
+                      strokeDashoffset={overallOffset}
+                    />
+                  </svg>
+                  <span className={styles.donutCenterValue}>
+                    {overallPct}%
+                  </span>
+                </div>
+                <h3 className={styles.donutTitle}>Overall Progress</h3>
+                <p className={styles.donutSubtitle}>
+                  {completedCourses} of {totalCourses} courses completed
+                </p>
+              </div>
+
+              {/* Donut 2: Attendance */}
+              <div className={styles.donutCol}>
+                <div className={styles.donutRingWrap}>
+                  <svg
+                    className={styles.donutSvg}
+                    viewBox="0 0 120 120"
+                    role="img"
+                    aria-label={`Attendance rate ${attendancePct}%`}
+                  >
+                    <circle
+                      className={styles.donutTrack}
+                      cx="60"
+                      cy="60"
+                      r={CIRCLE_RADIUS}
+                      fill="none"
+                      strokeWidth="10"
+                    />
+                    <circle
+                      className={styles.donutFill}
+                      cx="60"
+                      cy="60"
+                      r={CIRCLE_RADIUS}
+                      fill="none"
+                      strokeWidth="10"
+                      strokeDasharray={CIRCLE_CIRCUMFERENCE}
+                      strokeDashoffset={attendanceOffset}
+                    />
+                  </svg>
+                  <span className={styles.donutCenterValue}>
+                    {attendancePct}%
+                  </span>
+                </div>
+                <h3 className={styles.donutTitle}>Attendance</h3>
+                <p className={styles.donutSubtitle}>
+                  {attendedSessions} of {totalSessions} live sessions completed
+                </p>
+              </div>
+            </div>
           </section>
 
-          {/* phones only: the sidebar carries these links on larger screens */}
-          <section className={`${styles.panel} ${styles.phoneOnly}`}>
-            <div className={styles.panelHead}>
-              <h2>Quick Links</h2>
+          {/* Card 2: Certificates */}
+          <section className={styles.certificatesCard} aria-labelledby="certificates-heading">
+            <div className={styles.sectionHeaderRow} style={{ marginBottom: "16px" }}>
+              <h2 id="certificates-heading" className={styles.sectionTitle}>
+                Certificates
+              </h2>
+              <Link href="/certificates" className={styles.viewAllLink}>
+                <span>View All</span>
+                <span aria-hidden="true">&rarr;</span>
+              </Link>
             </div>
-            <div className={styles.shortcuts}>
-              {shortcuts.map((item) => (
-                <Link key={item.label} href={item.href} className={styles.shortcut}>
-                  <span className={styles.shortcutIcon}>{item.icon}</span>
-                  {item.label}
-                  <span className={styles.shortcutArrow}>{Icons.arrow}</span>
-                </Link>
-              ))}
-            </div>
+
+            {certificates.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {certificates.slice(0, 2).map((cert: any) => (
+                  <div
+                    key={cert.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "#faf7f2",
+                      border: "1px solid #ece6dd",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#18181b" }}>
+                        {cert.program?.title || "Certificate of Completion"}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                        Issued on {new Date(cert.issuedAt || cert.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <Link
+                      href={`/certificates/${cert.id}`}
+                      style={{
+                        fontSize: "0.8rem",
+                        fontWeight: 600,
+                        color: "#d36b00",
+                        textDecoration: "none",
+                      }}
+                    >
+                      View &rarr;
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* Empty State matching exact design */
+              <div className={styles.certificatesEmptyState}>
+                <svg
+                  className={styles.certRibbonIcon}
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="8" r="6" />
+                  <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                </svg>
+                <h3 className={styles.certEmptyTitle}>No certificates yet</h3>
+                <p className={styles.certEmptySub}>
+                  Complete course requirements to earn your certificate.
+                </p>
+              </div>
+            )}
           </section>
         </aside>
       </div>

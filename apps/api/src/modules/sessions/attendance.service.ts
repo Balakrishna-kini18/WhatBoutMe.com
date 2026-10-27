@@ -167,6 +167,7 @@ export class AttendanceService {
           leaveTime: data?.leaveTime ?? existing?.leaveTime,
           durationMin: data?.durationMin ?? existing?.durationMin,
           minutesPresent: data?.durationMin ?? existing?.minutesPresent,
+          liveMinutes: data?.durationMin ?? existing?.liveMinutes,
           attendancePercentage: data?.attendancePercentage ?? existing?.attendancePercentage,
         },
         create: {
@@ -179,6 +180,7 @@ export class AttendanceService {
           leaveTime: data?.leaveTime,
           durationMin: data?.durationMin,
           minutesPresent: data?.durationMin,
+          liveMinutes: data?.durationMin,
           attendancePercentage: data?.attendancePercentage,
         },
       });

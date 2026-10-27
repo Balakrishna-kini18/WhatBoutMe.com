@@ -62,6 +62,12 @@ export default function EditProgramPage({
     earlyBirdCurrency?: "USD" | "AED" | "INR" | null;
     earlyBirdDeadline?: string | null;
     hasCertificate?: boolean;
+    requireExam?: boolean;
+    requireCoaching?: boolean;
+    requireMissionStatement?: boolean;
+    sequentialProgressionEnabled?: boolean;
+    attendanceRequired?: boolean;
+    attendanceThreshold?: number;
     faqs?: Array<{
       id?: string;
       question: string;
@@ -94,6 +100,12 @@ export default function EditProgramPage({
         earlyBirdCurrency: updatedData.earlyBirdCurrency || null,
         earlyBirdDeadline: updatedData.earlyBirdDeadline ? new Date(updatedData.earlyBirdDeadline).toISOString() : null,
         hasCertificate: Boolean(updatedData.hasCertificate),
+        requireExam: updatedData.requireExam !== undefined ? Boolean(updatedData.requireExam) : undefined,
+        requireCoaching: updatedData.requireCoaching !== undefined ? Boolean(updatedData.requireCoaching) : undefined,
+        requireMissionStatement: updatedData.requireMissionStatement !== undefined ? Boolean(updatedData.requireMissionStatement) : undefined,
+        sequentialProgressionEnabled: updatedData.sequentialProgressionEnabled !== undefined ? Boolean(updatedData.sequentialProgressionEnabled) : undefined,
+        attendanceRequired: updatedData.attendanceRequired !== undefined ? Boolean(updatedData.attendanceRequired) : undefined,
+        attendanceThreshold: updatedData.attendanceThreshold !== undefined ? Number(updatedData.attendanceThreshold) : undefined,
         shortDescription: updatedData.shortDescription || "",
         thumbnailUrl: updatedData.thumbnailUrl || "",
         category: updatedData.category || "",
@@ -148,9 +160,9 @@ export default function EditProgramPage({
             <span>Back to Curriculum Studio</span>
           </Link>
           <h1 className={styles.title}>Edit Course Details &amp; Pricing</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Update multi-currency pricing (USD, AED, INR), early-bird discounts, and course FAQs.
-          </p>
+          </p> */}
         </div>
       </header>
 

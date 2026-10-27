@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, StatusBadge } from "../components";
+import { CustomSelect, StatusBadge, TableSkeleton, EmptyState, AgreementMarkdown } from "../components";
 
 interface AgreementTemplate {
   id: string;
@@ -53,6 +53,7 @@ export default function AdminAgreementsPage() {
   const [initialContent, setInitialContent] = useState("");
   const [initialChangelog, setInitialChangelog] = useState("Initial terms and conditions release");
   const [publishImmediately, setPublishImmediately] = useState(false);
+  const [contentTab, setContentTab] = useState<"edit" | "preview">("edit");
 
   useEffect(() => {
     fetchData();
@@ -182,6 +183,7 @@ export default function AdminAgreementsPage() {
     setInitialContent("");
     setInitialChangelog("Initial terms and conditions release");
     setPublishImmediately(false);
+    setContentTab("edit");
   };
 
   return (
@@ -189,9 +191,9 @@ export default function AdminAgreementsPage() {
       <header className={styles.header}>
         <div className={styles.headerText}>
           <h1 className={styles.title}>Program Agreements</h1>
-          <p className={styles.subtitle}>
+          {/* <p className={styles.subtitle}>
             Author, version, and manage legally binding curriculum agreements and review signed learner records.
-          </p>
+          </p> */}
         </div>
         <div className={styles.headerActions}>
           <button
@@ -271,26 +273,17 @@ export default function AdminAgreementsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                    Loading agreement templates...
-                  </td>
-                </tr>
+                <TableSkeleton columns={7} rows={4} />
               ) : templates.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                    <p style={{ margin: "0 0 1rem 0", fontSize: "0.95rem" }}>No agreement templates configured yet.</p>
-                    <button
-                      className={styles.secondaryBtn}
-                      style={{ margin: "0 auto", display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-                      onClick={() => setIsModalOpen(true)}
-                    >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                      </svg>
-                      <span>Create First Agreement Template</span>
-                    </button>
+                  <td colSpan={7} style={{ padding: "32px 16px" }}>
+                    <EmptyState
+                      icon="document"
+                      title="No agreement templates configured yet"
+                      description="Create legal consent waivers and digital workshop terms before enrolling learners."
+                      actionLabel="Create First Agreement Template"
+                      onAction={() => setIsModalOpen(true)}
+                    />
                   </td>
                 </tr>
               ) : (
@@ -346,7 +339,7 @@ export default function AdminAgreementsPage() {
                               Shared Default
                             </span>
                             <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
-                              All unassigned courses
+                              All unassigned programs
                             </span>
                           </div>
                         ) : (
@@ -433,7 +426,7 @@ export default function AdminAgreementsPage() {
               <div>
                 <h2 id="agreement-modal-title">Create Agreement Template</h2>
                 <p className={styles.modalIntro}>
-                  Establish legal terms and conditions required before course payment and access.
+                  Establish legal terms and conditions required before program payment and access.
                 </p>
               </div>
               <button
@@ -494,7 +487,7 @@ export default function AdminAgreementsPage() {
                         Shared default
                       </div>
                       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                        Platform fallback for unassigned courses
+                        Platform fallback for unassigned programs
                       </div>
                     </button>
                   </div>
@@ -519,7 +512,7 @@ export default function AdminAgreementsPage() {
                       }))}
                     />
                     <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "4px 0 0" }}>
-                      Learners enrolling in this course will be required to sign this document before payment.
+                      Learners enrolling in this program will be required to sign this document before payment.
                     </p>
                   </div>
                 ) : (
@@ -533,7 +526,7 @@ export default function AdminAgreementsPage() {
                       color: "var(--text-secondary)",
                       lineHeight: 1.5,
                     }}>
-                      Shared default agreements apply automatically as a platform fallback to any course that does not have its own program-specific terms.
+                      Shared default agreements apply automatically as a platform fallback to any program that does not have its own program-specific terms.
                     </div>
                     {templates.some((t) => /\[Shared Default\]/.test(t.description ?? "")) && (
                       <div style={{
@@ -603,23 +596,87 @@ export default function AdminAgreementsPage() {
 
                 {/* 6. Agreement Terms */}
                 <div className={styles.formGroup}>
-                  <label>
-                    Agreement Terms &amp; Conditions <span style={{ color: "var(--status-error)" }}>*</span>
-                  </label>
-                  <textarea
-                    rows={6}
-                    placeholder="Enter agreement terms that the learner must review and consent to before checkout..."
-                    value={initialContent}
-                    onChange={(e) => setInitialContent(e.target.value)}
-                    required
-                    style={{
-                      fontFamily: "var(--font-sans), system-ui, sans-serif",
-                      fontSize: "0.88rem",
-                      lineHeight: "1.6",
-                      padding: "0.75rem 1rem",
-                      minHeight: "130px",
-                    }}
-                  />
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <label style={{ margin: 0 }}>
+                      Agreement Terms &amp; Conditions <span style={{ color: "var(--status-error)" }}>*</span>
+                    </label>
+                    <div style={{ display: "inline-flex", background: "var(--bg-soft, #f7f3ec)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)" }}>
+                      <button
+                        type="button"
+                        onClick={() => setContentTab("edit")}
+                        style={{
+                          border: "none",
+                          background: contentTab === "edit" ? "#ffffff" : "transparent",
+                          color: contentTab === "edit" ? "var(--text-primary)" : "var(--text-secondary)",
+                          padding: "4px 10px",
+                          borderRadius: "4px",
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: contentTab === "edit" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                        }}
+                      >
+                        Edit Markdown
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setContentTab("preview")}
+                        style={{
+                          border: "none",
+                          background: contentTab === "preview" ? "#ffffff" : "transparent",
+                          color: contentTab === "preview" ? "var(--text-primary)" : "var(--text-secondary)",
+                          padding: "4px 10px",
+                          borderRadius: "4px",
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: contentTab === "preview" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                        }}
+                      >
+                        Preview
+                      </button>
+                    </div>
+                  </div>
+
+                  {contentTab === "edit" ? (
+                    <textarea
+                      rows={6}
+                      placeholder="Enter agreement terms in Markdown format (# Headings, - Bullets, **Bold**)..."
+                      value={initialContent}
+                      onChange={(e) => setInitialContent(e.target.value)}
+                      required
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: "0.85rem",
+                        lineHeight: "1.6",
+                        padding: "0.75rem 1rem",
+                        minHeight: "140px",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        background: "#ffffff",
+                        border: "1px solid var(--border-light, #E7E0D6)",
+                        borderRadius: "8px",
+                        padding: "1rem 1.25rem",
+                        minHeight: "140px",
+                        maxHeight: "240px",
+                        overflowY: "auto",
+                        fontSize: "0.88rem",
+                        lineHeight: 1.65,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {initialContent.trim() ? (
+                        <AgreementMarkdown content={initialContent} />
+                      ) : (
+                        <p style={{ color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
+                          No content entered yet. Switch to &ldquo;Edit Markdown&rdquo; to add agreement text.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* 7. Publication Status Lifecycle */}
@@ -665,7 +722,13 @@ export default function AdminAgreementsPage() {
                   className={styles.primaryBtn}
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? "Creating..." : "Create Agreement"}
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner" /> Creating...
+                    </>
+                  ) : (
+                    "Create Agreement"
+                  )}
                 </button>
               </div>
             </form>

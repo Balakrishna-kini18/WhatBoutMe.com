@@ -4,7 +4,7 @@ import { useEffect, useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import { API_URL, errorMessage, cachedFetch } from "../lib/api";
-import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast, TableSkeleton, EmptyState } from "../components";
 
 interface Batch {
   id: string;
@@ -129,7 +129,7 @@ function BatchesContent() {
 
   const fetchManagers = async () => {
     try {
-      const res = await fetch(`${API_URL}/users?limit=100`);
+      const res = await cachedFetch(`${API_URL}/users?limit=100`);
       if (res.ok) {
         const json = await res.json();
         const userList = Array.isArray(json) ? json : json?.data || [];
@@ -149,7 +149,7 @@ function BatchesContent() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
+      const res = await cachedFetch(`${API_URL}/programs`);
       if (res.ok) {
         const data = await res.json();
         setPrograms(data);
@@ -161,7 +161,7 @@ function BatchesContent() {
 
   const fetchBatches = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
+      const res = await cachedFetch(`${API_URL}/batches`);
       if (res.ok) {
         const data = await res.json();
         const now = new Date();
@@ -329,7 +329,7 @@ function BatchesContent() {
         method: "DELETE",
       });
       if (res.ok || res.status === 404) {
-        toastSuccess(`Cohort batch "${batchToDelete.name}" deleted successfully.`);
+        toastSuccess(`Batch "${batchToDelete.name}" deleted successfully.`);
         setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);
         fetchBatches();
@@ -416,12 +416,12 @@ function BatchesContent() {
     <div className={styles.dashboardContainer}>
       <header className={styles.header}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches & Cohorts"}</h1>
-          <p className={styles.subtitle}>
-            {isManager
-              ? "View and manage sessions, attendance, and learners in your cohorts."
-              : "Organize learners into groups and schedule live sessions."}
-          </p>
+          <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches"}</h1>
+          {/* {isManager && (
+            <p className={styles.subtitle}>
+              View and manage sessions, attendance, and learners in your batches.
+            </p>
+          )} */}
         </div>
         {!isManager && (
           <div className={styles.headerActions}>
@@ -563,11 +563,11 @@ function BatchesContent() {
                 <th>Program</th>
                 <th>Manager</th>
                 <th>Start Date</th>
-                <th>Students</th>
+                <th>Learners</th>
                 <th>Status</th>
                 <th
                   className={styles.alignRight}
-                  style={{ width: "15.5rem", minWidth: "240px" }}
+                  style={{ width: "4rem", minWidth: "60px" }}
                 >
                   Action
                 </th>
@@ -575,18 +575,7 @@ function BatchesContent() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    style={{
-                      textAlign: "center",
-                      padding: "28px",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    Loading batches from database...
-                  </td>
-                </tr>
+                <TableSkeleton columns={7} rows={5} />
               ) : batches.filter((batch) => {
                   const q = search.toLowerCase();
                   const matchesSearch =
@@ -606,15 +595,17 @@ function BatchesContent() {
                   return matchesSearch && matchesProgram && matchesStatus;
                 }).length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={7}
-                    style={{
-                      textAlign: "center",
-                      padding: "28px",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    No batches found. Create one!
+                  <td colSpan={7} style={{ padding: "1rem" }}>
+                    <EmptyState
+                      title="No batches found"
+                      description={
+                        search
+                           ? `No batches match "${search}". Try adjusting your search query or filters.`
+                           : "Get started by launching a batch for an active program."
+                      }
+                      actionLabel={!isManager ? "Create Batch" : undefined}
+                      actionHref={!isManager ? "/batches/create" : undefined}
+                    />
                   </td>
                 </tr>
               ) : (
@@ -667,37 +658,9 @@ function BatchesContent() {
                       </td>
                       <td
                         className={styles.alignRight}
-                        style={{ minWidth: "240px" }}
+                        style={{ width: "4rem", minWidth: "60px" }}
                       >
-                        <div className={styles.rowActions}>
-                          {!isManager && (
-                            <button
-                              type="button"
-                              className={styles.rowActionBtn}
-                              disabled={issuingId !== null}
-                              onClick={() => setConfirmBatch(batch)}
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.75"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden="true"
-                              >
-                                <circle cx="12" cy="8" r="6" />
-                                <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                              </svg>
-                              <span>
-                                {issuingId === batch.id
-                                  ? "Issuing..."
-                                  : "Issue Certificates"}
-                              </span>
-                            </button>
-                          )}
+                        <div className={styles.rowActions} style={{ justifyContent: "flex-end" }}>
                           <ActionMenu
                             ariaLabel={`Actions for ${batch.name}`}
                             items={
@@ -732,48 +695,8 @@ function BatchesContent() {
                                       ),
                                       href: `/batches/${batch.id}/sessions`,
                                     },
-                                    {
-                                      label: "View Schedule",
-                                      icon: (
-                                        <svg
-                                          width="15"
-                                          height="15"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="1.75"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          aria-hidden="true"
-                                        >
-                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                      ),
-                                      onClick: () => openEditModal(batch),
-                                    },
                                   ]
                                 : [
-                                    {
-                                      label: "Edit Schedule",
-                                      icon: (
-                                        <svg
-                                          width="15"
-                                          height="15"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="1.75"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          aria-hidden="true"
-                                        >
-                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                      ),
-                                      onClick: () => openEditModal(batch),
-                                    },
                                     {
                                       label: "Manage Sessions & Attendance",
                                       icon: (
@@ -802,6 +725,46 @@ function BatchesContent() {
                                         </svg>
                                       ),
                                       href: `/batches/${batch.id}/sessions`,
+                                    },
+                                    {
+                                      label: "Edit Batch",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                        </svg>
+                                      ),
+                                      onClick: () => openEditModal(batch),
+                                    },
+                                    {
+                                      label: "Issue Certificates",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <circle cx="12" cy="8" r="6" />
+                                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                                        </svg>
+                                      ),
+                                      onClick: () => setConfirmBatch(batch),
                                     },
                                     {
                                       label: "Delete Batch",
@@ -950,7 +913,7 @@ function BatchesContent() {
                   <label>Batch Name</label>
                   <input
                     type="text"
-                    placeholder="e.g. Winter Cohort 2026"
+                    placeholder="e.g. Winter Batch 2026"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -1110,7 +1073,7 @@ function BatchesContent() {
                           lineHeight: 1.45,
                         }}
                       >
-                        Learners in this cohort will have the Certificate milestone at the end of their curriculum (just like Apna College) and unlock it upon completing all activities.
+                        Learners in this batch will have the Certificate milestone at the end of their curriculum (just like Apna College) and unlock it upon completing all activities.
                       </p>
                     </div>
                   </label>
@@ -1150,9 +1113,9 @@ function BatchesContent() {
           if (!isDeletingBatch) setBatchToDelete(null);
         }}
         onConfirm={confirmDeleteBatch}
-        title="Delete Cohort Batch?"
+        title="Delete Batch?"
         subtitle={batchToDelete?.name}
-        description="Are you sure you want to delete this cohort batch? This will permanently delete the batch schedule and associated sessions."
+        description="Are you sure you want to delete this batch? This will permanently delete the batch schedule and associated sessions."
         tone="danger"
         confirmText={isDeletingBatch ? "Deleting..." : "Delete Batch"}
         cancelText="Cancel"
@@ -1161,16 +1124,19 @@ function BatchesContent() {
         itemDetails={
           batchToDelete
             ? [
-                { label: "Cohort Name", value: batchToDelete.name },
+                { label: "Batch Name", value: batchToDelete.name },
                 { label: "Program", value: batchToDelete.program },
-                { label: "Enrolled Students", value: batchToDelete.students },
+                { label: "Enrolled Learners", value: batchToDelete.students },
                 { label: "Status", value: batchToDelete.status },
               ]
             : []
         }
         callout={{
           tone: "warning",
-          text: "Permanent action: Associated schedules and sessions for this cohort will be removed.",
+          text:
+            batchToDelete && batchToDelete.students > 0
+              ? `Caution: This batch has ${batchToDelete.students} enrolled learner(s). Deleting it will permanently remove the batch and associated records.`
+              : "Permanent action: This empty batch will be permanently removed.",
         }}
       />
     </div>

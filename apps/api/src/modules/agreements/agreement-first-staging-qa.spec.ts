@@ -284,6 +284,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: provisionalEnrolment.id,
         consentGiven: false,
         typedName: 'Alice Learner',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,validSignatureData',
       };
 
@@ -297,6 +298,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: '   ',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,validSignatureData',
       };
 
@@ -310,6 +312,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: 'Alice Learner',
+        typedAcknowledgement: 'I AGREE',
       };
 
       await expect(
@@ -322,6 +325,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: 'Alice Learner',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:application/pdf;base64,fakePdfData',
         signatureType: 'UPLOADED' as const,
       };
@@ -337,6 +341,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: provisionalEnrolment.id,
         consentGiven: true,
         typedName: 'Alice Learner',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: largeSignature,
         signatureType: 'UPLOADED' as const,
       };
@@ -344,6 +349,35 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
       await expect(
         agreementsService.signAgreement(dto as any, learnerA),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('2.6: Rejects signing if typedAcknowledgement is missing, empty, or incorrect', async () => {
+      // Missing
+      await expect(
+        agreementsService.signAgreement(
+          {
+            enrolmentId: provisionalEnrolment.id,
+            consentGiven: true,
+            typedName: 'Alice Learner',
+            drawnSignature: 'data:image/png;base64,validSignatureData',
+          } as any,
+          learnerA,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      // Incorrect text
+      await expect(
+        agreementsService.signAgreement(
+          {
+            enrolmentId: provisionalEnrolment.id,
+            consentGiven: true,
+            typedName: 'Alice Learner',
+            typedAcknowledgement: 'I DISAGREE',
+            drawnSignature: 'data:image/png;base64,validSignatureData',
+          } as any,
+          learnerA,
+        ),
+      ).rejects.toThrow(/typed acknowledgement "I AGREE"/i);
     });
   });
 
@@ -373,6 +407,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         consentVersion: 'v1.0',
         consentTimestamp: new Date().toISOString(),
         typedName: 'Alice Learner',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,validSignatureData',
         signatureType: 'DRAWN' as const,
       };
@@ -542,6 +577,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: enrolmentA.id,
         consentGiven: true,
         typedName: 'Fraudulent Signer',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,validSignatureData',
       };
 
@@ -601,6 +637,7 @@ describe('Staging QA: Agreement-First Enrollment Flow Complete Verification', ()
         enrolmentId: legacyEnrolment.id,
         consentGiven: true,
         typedName: 'Alice Learner',
+        typedAcknowledgement: 'I AGREE',
         drawnSignature: 'data:image/png;base64,validSignatureData',
       };
 

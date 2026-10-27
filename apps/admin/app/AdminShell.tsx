@@ -104,11 +104,6 @@ const Icons = {
       <line x1="7" y1="7" x2="7.01" y2="7" />
     </svg>
   ),
-  Messages: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  ),
   Enquiries: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -216,15 +211,6 @@ interface SearchablePageItem {
 
 const SEARCH_ITEMS: SearchablePageItem[] = [
   {
-    id: "simulator",
-    title: "Learner & Funnel Simulator",
-    description: "Interactive test runner for video lock, e-signature, discovery call, and test-bypass checkout",
-    href: "/simulator",
-    category: "Overview",
-    iconName: "Dashboard",
-    keywords: ["simulator", "funnel", "checkout", "signature", "discovery", "contact", "notes", "player", "preview"],
-  },
-  {
     id: "dashboard",
     title: "Dashboard Overview",
     description: "Key metrics, active enrolments, and platform health",
@@ -253,12 +239,21 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
   },
   {
     id: "revenue",
-    title: "Revenue & Finance",
-    description: "Financial analytics, payments, invoices, and metrics",
+    title: "Revenue",
+    description: "Revenue metrics, payment transactions, invoices, and refunds",
     href: "/revenue",
     category: "Overview",
     iconName: "Analytics",
-    keywords: ["finance", "payments", "invoices", "sales", "analytics", "income"],
+    keywords: ["revenue", "finance", "payments", "invoices", "sales", "analytics", "income"],
+  },
+  {
+    id: "audit-logs",
+    title: "Compliance & Audit Logs",
+    description: "System-wide immutable audit trail, administrative overrides, and compliance history",
+    href: "/audit-logs",
+    category: "Overview",
+    iconName: "Approvals",
+    keywords: ["audit", "logs", "compliance", "forensics", "history", "overrides", "security"],
   },
   {
     id: "programs",
@@ -323,15 +318,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Coupons",
     keywords: ["coupons", "promo", "discount", "stripe", "vouchers", "sale", "pricing"],
   },
-  {
-    id: "messages",
-    title: "Messages & Inquiries",
-    description: "Direct communications with learners and instructors",
-    href: "/messages",
-    category: "Communication",
-    iconName: "Messages",
-    keywords: ["chat", "inbox", "support", "conversations"],
-  },
+  
   {
     id: "leads",
     title: "Enquiries (CRM & Leads)",
@@ -636,7 +623,17 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   }
 
   // If client is mounted and has no session token on protected route, redirect to login
-  if (mounted && !user && typeof window !== "undefined" && !localStorage.getItem("token")) {
+  const effectiveUser: UserData | null =
+    user || (typeof window !== "undefined" ? (() => {
+      try {
+        const raw = localStorage.getItem("user");
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })() : null);
+
+  if (mounted && !effectiveUser && typeof window !== "undefined" && !localStorage.getItem("token")) {
     window.location.href = "/login";
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FBF8F4" }}>
@@ -645,7 +642,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     );
   }
 
-  const userName = mounted && user?.name ? user.name : "Administrator";
+  const userName = effectiveUser?.name ? effectiveUser.name : "Administrator";
   const formatRole = (role?: string) => {
     if (!role) return "Admin";
     switch (role) {
@@ -661,20 +658,27 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         return role.charAt(0) + role.slice(1).toLowerCase();
     }
   };
-  const userRole = mounted && user?.role ? formatRole(user.role) : "Admin";
-  const userEmail = mounted && user?.email ? user.email : "admin@whatboutme.com";
+  const userRole = effectiveUser?.role ? formatRole(effectiveUser.role) : "Admin";
+  const userEmail = effectiveUser?.email ? effectiveUser.email : "admin@whatboutme.com";
 
-  const isManager = mounted && (user?.role === "MANAGER" || user?.role === "TEACHER");
+  const isManager = Boolean(effectiveUser?.role === "MANAGER" || effectiveUser?.role === "TEACHER");
 
   const hasPermission = (perm: string) => {
-    if (!mounted) return true;
-    if (!user) return false;
-    if (user.role === "SUPER_ADMIN") return true;
+    const currentUser = effectiveUser;
+    if (!currentUser) {
+      // If token exists in localStorage, grant default access during hydration rather than hiding menus
+      if (typeof window !== "undefined" && localStorage.getItem("token")) {
+        return true;
+      }
+      return !mounted;
+    }
+
+    if (currentUser.role === "SUPER_ADMIN") return true;
 
     // Strict Manager Isolation per PDF specification (Page 3-4):
-    // Managers are restricted to assigned batches, live sessions, attendance, and cohort chat.
+    // Managers are restricted to assigned batches, live sessions, and attendance.
     // They cannot access finance/revenue, global marketing/website, CRM leads, or curriculum authoring.
-    if (isManager) {
+    if (currentUser.role === "MANAGER" || currentUser.role === "TEACHER") {
       if (
         perm === "view_finance" ||
         perm === "manage_coupons" ||
@@ -695,22 +699,24 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     }
 
     // Admin role handling
-    if (!user.permissions || user.permissions.length === 0) return true;
+    if (!currentUser.permissions || currentUser.permissions.length === 0) return true;
     switch (perm) {
       case "view_users":
-        return user.permissions.includes("users:read") || user.permissions.includes("users:read_assigned");
+        return currentUser.permissions.includes("users:read") || currentUser.permissions.includes("users:read_assigned");
       case "view_batches":
-        return user.permissions.includes("batches:read") || user.permissions.includes("batches:read_assigned");
+        return currentUser.permissions.includes("batches:read") || currentUser.permissions.includes("batches:read_assigned");
       case "manage_curriculum":
-        return user.permissions.includes("programs:read") || user.permissions.includes("programs:create");
+        return currentUser.permissions.includes("programs:read") || currentUser.permissions.includes("programs:create");
       case "manage_website":
-        return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+        return currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN";
       case "view_finance":
-        return user.permissions.includes("payments:read") || user.permissions.includes("invoices:read");
+        return currentUser.permissions.includes("payments:read") || currentUser.permissions.includes("invoices:read");
       case "manage_coupons":
-        return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+        return currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN";
       case "manage_operations":
-        return user.permissions.includes("sessions:read") || user.permissions.includes("certificates:read");
+        return currentUser.permissions.includes("sessions:read") || currentUser.permissions.includes("certificates:read");
+      case "super_admin_only":
+        return currentUser.role === "SUPER_ADMIN";
       default:
         return true;
     }
@@ -724,10 +730,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
-        { label: "Analytics", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
+        { label: "Revenue", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
         { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
-        // a testing tool, so after the pages used every day
-        { label: "Funnel Simulator", href: "/simulator", icon: <Icons.Megaphone />, perm: "all" },
+        { label: "Audit Logs", href: "/audit-logs", icon: <Icons.Approvals />, perm: "super_admin_only" },
       ],
     },
     {
@@ -746,10 +751,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       title: "COMMUNICATION",
       permission: hasPermission("manage_operations"),
       items: [
-        { label: "Messages", href: "/messages", icon: <Icons.Messages />, perm: "manage_operations" },
         { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
         { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
-        { label: "Announcements", href: "/meetings", icon: <Icons.Announcements />, perm: "manage_operations" },
+        { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Events />, perm: "manage_operations" },
       ],
     },
     {

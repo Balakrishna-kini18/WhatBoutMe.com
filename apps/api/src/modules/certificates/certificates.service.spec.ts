@@ -33,6 +33,7 @@ describe('D1-052 & D1-053: CertificatesService (Workflow, Code & Public Verifica
         findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         upsert: vi.fn(),
       },
       auditLog: {

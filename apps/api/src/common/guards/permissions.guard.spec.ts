@@ -337,9 +337,9 @@ describe('D1-027: PermissionsGuard & @RequirePermission() Decorator', () => {
   describe('8. @RequirePermission() Decorator Metadata Attachment', () => {
     it('correctly sets single permission metadata on target function', () => {
       class TestController {
-        @RequirePermission(Permission.PROGRAMS_CREATE)
         testMethod() {}
       }
+      RequirePermission(Permission.PROGRAMS_CREATE)(TestController.prototype, 'testMethod', Object.getOwnPropertyDescriptor(TestController.prototype, 'testMethod')!);
 
       const instance = new TestController();
       const metadata = Reflect.getMetadata(PERMISSIONS_KEY, instance.testMethod);
@@ -348,9 +348,9 @@ describe('D1-027: PermissionsGuard & @RequirePermission() Decorator', () => {
 
     it('correctly sets multiple permissions metadata on target function', () => {
       class TestController {
-        @RequirePermission(Permission.STEPS_READ, Permission.STEPS_UNLOCK)
         testMethod() {}
       }
+      RequirePermission(Permission.STEPS_READ, Permission.STEPS_UNLOCK)(TestController.prototype, 'testMethod', Object.getOwnPropertyDescriptor(TestController.prototype, 'testMethod')!);
 
       const instance = new TestController();
       const metadata = Reflect.getMetadata(PERMISSIONS_KEY, instance.testMethod);
@@ -358,8 +358,8 @@ describe('D1-027: PermissionsGuard & @RequirePermission() Decorator', () => {
     });
 
     it('correctly sets permissions on class level with RequirePermissions alias', () => {
-      @RequirePermissions(Permission.PROGRAMS_READ)
       class TestController {}
+      RequirePermissions(Permission.PROGRAMS_READ)(TestController);
 
       const metadata = Reflect.getMetadata(PERMISSIONS_KEY, TestController);
       expect(metadata).toEqual([Permission.PROGRAMS_READ]);

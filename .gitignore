@@ -51,6 +51,8 @@ baton/
 .claude/
 .cursor/
 .kiro/
+.vscode/
+apple-design-skill-main/
 
 # files the API stores on disk (uploads, website content)
 apps/api/storage/

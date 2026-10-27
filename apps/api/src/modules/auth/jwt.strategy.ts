@@ -30,7 +30,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const guardKey = await this.cacheHelper.getGuardKey(payload.sub, payload.sessionId);
     
-    const isSessionValid = await this.cacheHelper.getOrSet(
+    const sessionCheck = await this.cacheHelper.getOrSet(
       guardKey,
       async () => {
         const session = await this.prisma.userSession.findUnique({
@@ -43,15 +43,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           session.revokedAt !== null || 
           (session.expiresAt && session.expiresAt <= new Date())
         ) {
-          return false;
+          const reason = session?.revokedReason || (session?.expiresAt && session.expiresAt <= new Date() ? 'EXPIRED' : 'SESSION_REVOKED');
+          return { valid: false, reason };
         }
-        return true;
+        return { valid: true };
       },
       900 // 15 mins cache for session validity
     );
 
+    const isSessionValid = typeof sessionCheck === 'boolean' ? sessionCheck : Boolean(sessionCheck?.valid);
     if (!isSessionValid) {
-      throw new UnauthorizedException({ message: 'Session has been revoked', error: 'SESSION_REVOKED' });
+      const reason = typeof sessionCheck === 'object' && sessionCheck?.reason ? sessionCheck.reason : 'SESSION_REVOKED';
+      throw new UnauthorizedException({
+        message: reason === 'DEVICE_LIMIT_EXCEEDED'
+          ? 'You were logged out because this account was logged in from another device'
+          : 'Session has been revoked',
+        error: 'SESSION_REVOKED',
+        reason,
+      });
     }
 
     // Live server-side user lookup to enforce fresh role and active status on EVERY request

@@ -342,7 +342,7 @@ export default function EventsAdminPage() {
 
     // Strict location type validation
     if (locationType === "ONLINE" && !meetingLink.trim()) {
-      setFormError("Online events require a Virtual Meeting Link (Zoom / Google Meet URL)");
+      setFormError("Online events require a Virtual Meeting Link (Zoom URL)");
       return;
     }
 
@@ -496,9 +496,9 @@ export default function EventsAdminPage() {
       <div className={styles.header}>
         <div>
           <h1 className={styles.headerTitle}>Events & Ticketing</h1>
-          <p className={styles.headerSubtitle}>
+          {/* <p className={styles.headerSubtitle}>
             Manage community workshops, masterclasses, and live webinars with dynamic multi-currency pricing
-          </p>
+          </p> */}
         </div>
         <button type="button" className={styles.primaryBtn} onClick={openCreateModal}>
           <Icons.Plus />
@@ -585,8 +585,26 @@ export default function EventsAdminPage() {
 
       {/* Events Grid */}
       {isLoading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "#64748b" }}>
-          Loading events roster...
+        <div className={styles.eventsGrid}>
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="skeletonCard"
+              style={{
+                height: 380,
+                borderRadius: 16,
+                padding: "1rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+              }}
+            >
+              <div className="skeleton" style={{ width: "100%", height: 160, borderRadius: 12 }} />
+              <div className="skeleton" style={{ width: "65%", height: 22, borderRadius: 6 }} />
+              <div className="skeleton" style={{ width: "90%", height: 16, borderRadius: 4 }} />
+              <div className="skeleton" style={{ width: "40%", height: 16, borderRadius: 4, marginTop: "auto" }} />
+            </div>
+          ))}
         </div>
       ) : filteredEvents.length === 0 ? (
         <div className={styles.emptyState}>
@@ -798,7 +816,7 @@ export default function EventsAdminPage() {
             {/* Conditional Location Inputs */}
             {locationType === "ONLINE" ? (
               <div className={styles.formGroup}>
-                <label className={styles.label}>Virtual Meeting Link (Zoom / Google Meet URL) *</label>
+                <label className={styles.label}>Virtual Meeting Link (Zoom URL) *</label>
                 <input
                   type="url"
                   placeholder="https://zoom.us/j/1234567890"
@@ -997,7 +1015,13 @@ export default function EventsAdminPage() {
                 Cancel
               </button>
               <button type="submit" className={styles.primaryBtn} disabled={isSubmitting}>
-                {isSubmitting ? "Saving..." : editingEvent ? "Save Changes" : "Create Event"}
+                {isSubmitting ? (
+                  <>
+                    <span className="spinner" /> Saving...
+                  </>
+                ) : (
+                  editingEvent ? "Save Changes" : "Create Event"
+                )}
               </button>
             </div>
           </form>

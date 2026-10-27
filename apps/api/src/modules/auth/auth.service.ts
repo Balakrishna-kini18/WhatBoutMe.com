@@ -140,6 +140,64 @@ export class AuthService {
           },
         });
       }
+
+      // PDF Page 13: Log unusual activity, such as many logins from different countries, for admin review
+      if (isSuspicious) {
+        const suspiciousAuditData = {
+          actorId: params.userId,
+          action: 'UNUSUAL_LOGIN_DETECTED',
+          entity: 'User',
+          entityId: params.userId,
+          meta: {
+            country: params.country ?? null,
+            ipAddress: params.ipAddress ?? null,
+            userAgent: params.userAgent ?? null,
+            reason: params.reason || 'Unusual login activity detected (country hopping or suspicious pattern)',
+          },
+          ip: params.ipAddress ?? null,
+        };
+        if (typeof (this.prisma as any).logAction === 'function') {
+          await (this.prisma as any).logAction(suspiciousAuditData).catch(() => null);
+        } else if (typeof (this.prisma as any).auditLog?.create === 'function') {
+          await (this.prisma as any).auditLog.create({ data: suspiciousAuditData }).catch(() => null);
+        }
+      }
+
+      // PDF Pages 4, 5 & 13: Log successful user sign-in to immutable AuditLog for admin review and compliance
+      if (
+        !isSuspicious &&
+        (params.reason === 'SUCCESS' ||
+          params.reason === 'SUCCESS_SETUP_REQUIRED' ||
+          params.reason === '2FA_SUCCESS')
+      ) {
+        let loginDetail = 'User signed in successfully';
+        if (params.reason === '2FA_SUCCESS') {
+          loginDetail = 'Signed in with two-factor authentication';
+        } else if (params.reason === 'SUCCESS_SETUP_REQUIRED') {
+          loginDetail = 'Signed in successfully (2FA setup pending)';
+        }
+
+        const loginAuditData = {
+          actorId: params.userId,
+          action: 'LOGIN',
+          entity: 'UserSession',
+          entityId: params.userId,
+          meta: {
+            country: params.country ?? null,
+            ipAddress: params.ipAddress ?? null,
+            userAgent: params.userAgent ?? null,
+            deviceFingerprint: params.deviceFingerprint ?? null,
+            reason: loginDetail,
+          },
+          ip: params.ipAddress ?? null,
+        };
+
+        if (typeof (this.prisma as any).logAction === 'function') {
+          await (this.prisma as any).logAction(loginAuditData).catch(() => null);
+        } else if (typeof (this.prisma as any).auditLog?.create === 'function') {
+          await (this.prisma as any).auditLog.create({ data: loginAuditData }).catch(() => null);
+        }
+      }
     } catch {
       // Non-blocking: audit write failure must not break the authentication flow
     }
@@ -533,6 +591,20 @@ export class AuthService {
     };
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
 
+    if (typeof (this.prisma as any).logAction === 'function') {
+      await (this.prisma as any).logAction({
+        actorId: user.id,
+        action: 'USER_REGISTERED',
+        entity: 'User',
+        entityId: user.id,
+        meta: {
+          email: user.email,
+          country: user.country,
+          reason: 'Learner registered new account',
+        },
+      }).catch(() => {});
+    }
+
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -774,7 +846,7 @@ export class AuthService {
         }
 
         if (!targetSessionId) {
-          throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED' });
+          throw new UnauthorizedException({ message: 'Session has expired or been revoked', error: 'SESSION_REVOKED', reason: 'SESSION_REVOKED' });
         }
       }
 
@@ -794,25 +866,25 @@ export class AuthService {
           session.revokedAt !== null ||
           (session.expiresAt && session.expiresAt <= new Date())
         ) {
-          throw new UnauthorizedException({
-            message: 'Session has expired or been revoked',
-            error: 'SESSION_REVOKED',
-          });
+          return {
+            status: 'SESSION_REVOKED' as const,
+            reason: session?.revokedReason || (session?.expiresAt && session.expiresAt <= new Date() ? 'EXPIRED' : 'SESSION_REVOKED'),
+          };
         }
 
         // Verify token hash against the current, locked session token
         const isValid = await bcrypt.compare(refreshTokenStr, session.token);
         if (!isValid) {
-          // Reuse detected! Revoke the session immediately to protect against token theft
+          // Reuse detected! Revoke the session immediately to protect against token theft.
+          // We commit this update inside the transaction boundary so it is permanently written to PostgreSQL.
           await tx.userSession.update({
             where: { id: session.id },
             data: { revokedAt: new Date(), revokedReason: 'TOKEN_REUSED' },
           });
-          forgetSessions();
-          throw new UnauthorizedException({
-            message: 'Session revoked due to token reuse',
-            error: 'SESSION_REVOKED',
-          });
+          return {
+            status: 'TOKEN_REUSED' as const,
+            reason: 'TOKEN_REUSED' as const,
+          };
         }
 
         // Generate rotated tokens
@@ -847,10 +919,33 @@ export class AuthService {
 
         const accessToken = this.jwtService.sign(newPayload, { expiresIn: '15m' });
 
-        return { access_token: accessToken, refresh_token: newRefreshToken };
+        return {
+          status: 'SUCCESS' as const,
+          tokens: { access_token: accessToken, refresh_token: newRefreshToken },
+        };
       });
 
-      return result;
+      if (result.status === 'TOKEN_REUSED') {
+        forgetSessions();
+        await this.cacheHelper.invalidateNamespace(`auth_user:${user.id}`);
+        throw new UnauthorizedException({
+          message: 'Session revoked due to token reuse',
+          error: 'SESSION_REVOKED',
+          reason: 'TOKEN_REUSED',
+        });
+      }
+
+      if (result.status === 'SESSION_REVOKED') {
+        throw new UnauthorizedException({
+          message: result.reason === 'DEVICE_LIMIT_EXCEEDED'
+            ? 'You were logged out because this account was logged in from another device'
+            : 'Session has expired or been revoked',
+          error: 'SESSION_REVOKED',
+          reason: result.reason,
+        });
+      }
+
+      return result.tokens;
     } catch (e: any) {
       if (e instanceof UnauthorizedException) {
         throw e;
@@ -948,26 +1043,36 @@ export class AuthService {
 
     if (enrolmentIds.length > 0) {
       const [lessonProgress, passedAttempts] = await Promise.all([
-        this.prisma.userLessonProgress.groupBy({
-          by: ['enrolmentId'],
+        this.prisma.userLessonProgress.findMany({
           where: {
             enrolmentId: { in: enrolmentIds },
             viewed: true,
           },
-          _count: { lessonId: true },
+          select: { enrolmentId: true, lessonId: true },
         }),
         this.prisma.attempt.findMany({
           where: {
             enrolmentId: { in: enrolmentIds },
-            status: AttemptStatus.PASSED,
+            OR: [
+              { status: AttemptStatus.PASSED },
+              { passed: true },
+            ],
           },
           select: { enrolmentId: true, quizId: true },
         }),
       ]);
 
+      const viewedLessonSetByEnrolment: Record<string, Set<string>> = {};
       for (const lp of lessonProgress) {
-        enrolmentCompletedItems[lp.enrolmentId] =
-          (enrolmentCompletedItems[lp.enrolmentId] || 0) + lp._count.lessonId;
+        if (!viewedLessonSetByEnrolment[lp.enrolmentId]) {
+          viewedLessonSetByEnrolment[lp.enrolmentId] = new Set();
+        }
+        viewedLessonSetByEnrolment[lp.enrolmentId].add(lp.lessonId);
+      }
+
+      for (const [enrolId, lessonSet] of Object.entries(viewedLessonSetByEnrolment)) {
+        enrolmentCompletedItems[enrolId] =
+          (enrolmentCompletedItems[enrolId] || 0) + lessonSet.size;
       }
 
       const passedQuizSetByEnrolment: Record<string, Set<string>> = {};
@@ -1023,7 +1128,9 @@ export class AuthService {
       enrolledPrograms,
       upcomingSessions: sessions,
     };
-  });
+      },
+      30, // 30-second TTL prevents stale progression while shielding DB from request storms
+    );
   }
 
   /**
@@ -1157,6 +1264,7 @@ export class AuthService {
           action: 'LOGOUT',
           entity: 'UserSession',
           entityId: sessionId,
+          meta: { reason: 'User session signed out' },
         }).catch(() => {});
       }
     } else {
@@ -1184,7 +1292,7 @@ export class AuthService {
         action: 'LOGOUT_ALL_SESSIONS',
         entity: 'User',
         entityId: userId,
-        meta: { count: res.count },
+        meta: { count: res.count, reason: 'All active sessions revoked' },
       }).catch(() => {});
     }
 
@@ -1298,6 +1406,7 @@ export class AuthService {
         action: 'REVOKE_SESSION',
         entity: 'UserSession',
         entityId: sessionIdToRevoke,
+        meta: { reason: 'Specific user session revoked' },
       }).catch(() => {});
     }
 
@@ -1462,6 +1571,7 @@ export class AuthService {
         action: 'PASSWORD_RESET',
         entity: 'User',
         entityId: resetToken.userId,
+        meta: { reason: 'Password reset confirmed via token' },
       }).catch(() => {});
     }
 

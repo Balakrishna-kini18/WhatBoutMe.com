@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -41,24 +41,42 @@ export default function CertificatesPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
 
-  useEffect(() => {
+  const loadCertificates = useCallback(async (isInitial = false) => {
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/login");
       return;
     }
     const headers = { Authorization: `Bearer ${token}` };
-    Promise.all([
-      fetch(`${API_URL}/auth/me`, { headers }).then((res) => (res.ok ? res.json() : { enrolledPrograms: [] })),
-      fetch(`${API_URL}/certificates/mine`, { headers }).then((res) => (res.ok ? res.json() : [])),
-    ])
-      .then(([profile, certs]) => {
-        setCourses(profile.enrolledPrograms || []);
-        setCertificates(Array.isArray(certs) ? certs : []);
-      })
-      .catch(() => setNotice("Could not reach the server. Please try again in a moment."))
-      .finally(() => setLoading(false));
+    try {
+      const [profile, certs] = await Promise.all([
+        fetch(`${API_URL}/auth/me`, { headers }).then((res) => (res.ok ? res.json() : { enrolledPrograms: [] })),
+        fetch(`${API_URL}/certificates/mine`, { headers }).then((res) => (res.ok ? res.json() : [])),
+      ]);
+      setCourses(profile.enrolledPrograms || []);
+      setCertificates(Array.isArray(certs) ? certs : []);
+    } catch {
+      if (isInitial) setNotice("Could not reach the server. Please try again in a moment.");
+    } finally {
+      if (isInitial) setLoading(false);
+    }
   }, [router]);
+
+  useEffect(() => {
+    loadCertificates(true);
+
+    const onFocus = () => loadCertificates(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") loadCertificates(false);
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadCertificates]);
 
   const request = async (enrolmentId: string) => {
     setNotice("");
@@ -91,7 +109,6 @@ export default function CertificatesPage() {
       <header className={dash.pageHeader}>
         <div>
           <h1 className={dash.pageTitle}>My Certificates</h1>
-          <p className={dash.pageSubtitle}>Your verified credentials.</p>
         </div>
       </header>
 
@@ -113,7 +130,37 @@ export default function CertificatesPage() {
               <h2>Your Courses</h2>
             </div>
             {loading ? (
-              <p className={dash.empty}>Loading your certificates...</p>
+              <ul className={dash.list} aria-hidden="true">
+                {[1, 2, 3].map((i) => (
+                  <li key={i} className={dash.course} style={{ pointerEvents: "none" }}>
+                    <div
+                      className="skeleton"
+                      style={{ width: 104, height: 68, borderRadius: 8, flexShrink: 0 }}
+                    />
+                    <div className={dash.rowMain}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div className="skeleton" style={{ width: "45%", height: 18, borderRadius: 4 }} />
+                        <div className="skeleton" style={{ width: 75, height: 20, borderRadius: 999 }} />
+                      </div>
+                      <div
+                        className="skeleton"
+                        style={{ width: "100%", height: 6, borderRadius: 999, marginBottom: 12 }}
+                      />
+                      <div
+                        className="skeleton"
+                        style={{ width: 120, height: 32, borderRadius: 8, marginLeft: "auto" }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
             ) : courses.length === 0 ? (
               <p className={dash.empty}>Enrol in a course and complete it to earn your first certificate.</p>
             ) : (
@@ -137,10 +184,11 @@ export default function CertificatesPage() {
                       />
                       <div className={dash.rowMain}>
                         <p className={dash.rowTitle}>
-                          {course.programTitle} <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
+                          <span>{course.programTitle}</span>
+                          <span className={`${dash.pill} ${status === "In progress" ? dash.pillOff : ""}`}>{status}</span>
                         </p>
                         <p className={dash.muted}>
-                          {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : `Cohort: ${course.batchName}`}
+                          {cert?.issuedAt ? `Issued ${new Date(cert.issuedAt).toLocaleDateString()}` : "In Progress"}
                         </p>
                         <div className={dash.progressLine}>
                           <div className={dash.progress} role="progressbar" aria-valuenow={course.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${course.programTitle} progress`}>

@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import styles from "../curriculum.module.css";
 import { API_URL, cachedFetch, errorMessage, uploadFile } from "../../../lib/api";
 import { ConfirmDialog, useToast } from "../../../components";
+import MarkdownQuestionImportModal from "./MarkdownQuestionImportModal";
+import { ParsedMarkdownQuestion } from "../../../lib/markdown-question-parser";
 
 interface Option {
   id?: string;
@@ -84,6 +86,7 @@ export default function Step7QuizBuilder({
   const [isAddingQuestion, setIsAddingQuestion] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [isMarkdownModalOpen, setIsMarkdownModalOpen] = useState(false);
 
   const handleSelectKind = (kind: QuestionKind) => {
     setSelectedKind(kind);
@@ -433,15 +436,97 @@ export default function Step7QuizBuilder({
     }
   };
 
+  const handleMarkdownQuizImport = async (
+    parsedQuestions: ParsedMarkdownQuestion[],
+    replaceExisting: boolean
+  ) => {
+    const activeQId = await ensureQuizEntity();
+
+    if (replaceExisting && questions.length > 0) {
+      for (const existingQ of questions) {
+        await cachedFetch(`${API_URL}/quizzes/questions/${existingQ.id}?force=true`, {
+          method: "DELETE",
+        }).catch(() => null);
+      }
+      setQuestions([]);
+    }
+
+    const createdList: Question[] = [];
+    for (const q of parsedQuestions) {
+      const mappedType =
+        q.type === "SHORT_ANSWER"
+          ? "TEXT_BOX"
+          : q.type === "MULTI_SELECT"
+            ? "MULTIPLE_CHOICE"
+            : "SINGLE_CHOICE";
+
+      const payload: any = {
+        text: q.text,
+        type: mappedType,
+        points: q.points || 1,
+        explanation: q.explanation || undefined,
+        imageUrl: q.imageUrl || undefined,
+        options:
+          q.type === "SHORT_ANSWER"
+            ? []
+            : q.options.map((o, idx) => ({
+                text: o.text,
+                isCorrect: Boolean(o.isCorrect),
+                order: idx + 1,
+              })),
+      };
+
+      const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}/questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const createdQ = await res.json();
+        if (createdQ) createdList.push(createdQ);
+      }
+    }
+
+    setQuestions((prev) => (replaceExisting ? createdList : [...prev, ...createdList]));
+    toast.success(`Imported ${createdList.length} quiz questions from Markdown (.md)!`);
+  };
+
   return (
     <section className={styles.cardSurface}>
       {/* Header */}
-      <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>STEP 7: VISUAL QUESTION BANK &amp; QUIZ BUILDER</div>
-        <h2 className={styles.stepTitle}>Create Quiz for {moduleTitle}</h2>
-        <p className={styles.stepSubtitle}>
-          Configure pass criteria and build Google-Forms-style visual assessments with image choices, dynamic options, and written reflections.
-        </p>
+      <div
+        className={styles.cardHeaderArea}
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
+        <div>
+          <div className={styles.stepEyebrow}>STEP 7: VISUAL QUESTION BANK &amp; QUIZ BUILDER</div>
+          <h2 className={styles.stepTitle}>Create Quiz for {moduleTitle}</h2>
+          <p className={styles.stepSubtitle}>
+            Configure pass criteria and build Google-Forms-style visual assessments with image choices, dynamic options, and written reflections.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsMarkdownModalOpen(true)}
+          style={{
+            padding: "0.55rem 1rem",
+            borderRadius: 9,
+            border: "1px solid #14110f",
+            background: "#14110f",
+            color: "#ffffff",
+            fontWeight: 700,
+            fontSize: "0.82rem",
+            cursor: "pointer",
+          }}
+        >
+          📤 Upload .md Questions
+        </button>
       </div>
 
       {/* Top Configuration Grid */}
@@ -1153,6 +1238,17 @@ export default function Step7QuizBuilder({
         confirmText={isDeletingQuestion ? "Deleting..." : "Delete Question"}
         cancelText="Cancel"
         isLoading={isDeletingQuestion}
+      />
+
+      <MarkdownQuestionImportModal
+        isOpen={isMarkdownModalOpen}
+        onClose={() => setIsMarkdownModalOpen(false)}
+        title={`Upload Markdown (.md) Questions — ${quizTitle || moduleTitle}`}
+        programTitle={moduleTitle}
+        existingQuestions={questions as any}
+        allowReplaceMode={true}
+        defaultSampleCount={5}
+        onImport={handleMarkdownQuizImport}
       />
     </section>
   );

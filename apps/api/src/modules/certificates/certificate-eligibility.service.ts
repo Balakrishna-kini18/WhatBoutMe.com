@@ -1,12 +1,14 @@
-import { Injectable, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceComplianceService, AttendanceComplianceResult } from '../sessions/attendance-compliance.service.js';
+import { StageGateService } from '../progression/stage-gate.service.js';
 import {
   AttemptStatus,
   AttendanceStatus,
   BookingStatus,
   CertificateType,
   ContentStatus,
+  LearnerStage,
   OralAssessmentStatus,
   SessionStatus,
   SessionType,
@@ -61,6 +63,14 @@ export interface ClosingCallRequirementResult {
   isMet: boolean;
 }
 
+export interface MissionStatementRequirementResult {
+  required: boolean;
+  completed: boolean;
+  status: string | null;
+  reviewedAt: Date | null;
+  isMet: boolean;
+}
+
 export interface CertificateEligibilityEvaluation {
   enrolmentId: string;
   userId: string;
@@ -77,19 +87,30 @@ export interface CertificateEligibilityEvaluation {
   oralAssessment: OralAssessmentRequirementResult;
   attendance: AttendanceRequirementResult;
   closingCall: ClosingCallRequirementResult;
+  missionStatement?: MissionStatementRequirementResult;
   unmetRequirements: string[];
 }
 
 @Injectable()
 export class CertificateEligibilityService {
+  private readonly stageGateServiceInstance: StageGateService;
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => AttendanceComplianceService))
     private readonly attendanceComplianceService: AttendanceComplianceService,
-  ) {}
+    @Optional()
+    @Inject(forwardRef(() => StageGateService))
+    private readonly stageGateService?: StageGateService,
+  ) {
+    this.stageGateServiceInstance =
+      this.stageGateService ||
+      new StageGateService(this.prisma, this.attendanceComplianceService);
+  }
 
   /**
    * D1-051 & D1-051b: Evaluates complete certificate eligibility for an enrolment.
+   * Leverages StageGateService as the single authoritative 5-stage progression engine.
    * Completely read-only: does not modify or issue certificates.
    */
   async evaluateEligibility(
@@ -109,19 +130,120 @@ export class CertificateEligibilityService {
       throw new NotFoundException(`Enrolment with ID ${enrolmentId} not found`);
     }
 
-    // Determine Certificate Type (Professional vs Corporate Track)
-    const certType =
-      requestedType ||
-      (enrolment.program.title.toLowerCase().includes('corporate') ||
-      enrolment.batch.name.toLowerCase().includes('corporate')
-        ? CertificateType.CORPORATE_PARTICIPATION
-        : CertificateType.PROFESSIONAL);
+    const stageEval = await this.stageGateServiceInstance.evaluateStages(enrolment.id);
+    const certType = requestedType || stageEval.certificateType;
 
     if (certType === CertificateType.CORPORATE_PARTICIPATION) {
       return this.evaluateCorporateTrack(enrolment);
     }
 
-    return this.evaluateProfessionalTrack(enrolment);
+    const s1 = stageEval.stages[LearnerStage.STAGE_1_CURRICULUM];
+    const s2 = stageEval.stages[LearnerStage.STAGE_2_EXAM];
+    const s3 = stageEval.stages[LearnerStage.STAGE_3_ATTENDANCE];
+    const s4 = stageEval.stages[LearnerStage.STAGE_4_ONE_ON_ONE];
+    const s5 = stageEval.stages[LearnerStage.STAGE_5_MISSION_STATEMENT];
+
+    const unmetRequirements: string[] = [];
+    if (s1.details?.uncompletedStepTitles && s1.details.uncompletedStepTitles.length > 0) {
+      unmetRequirements.push(
+        `Program steps incomplete: ${s1.details.completedSteps}/${s1.details.totalSteps} completed. Remaining: ${s1.details.uncompletedStepTitles.join(', ')}`,
+      );
+    }
+    if (s1.details?.unpassedQuizStepTitles && s1.details.unpassedQuizStepTitles.length > 0) {
+      unmetRequirements.push(
+        `Step quizzes incomplete: ${s1.details.passedQuizzes}/${s1.details.requiredQuizzes} passed. Missing: ${s1.details.unpassedQuizStepTitles.join(', ')}`,
+      );
+    }
+    if (s2.details?.examRequired && !s2.details?.examPassed) {
+      unmetRequirements.push('Final 50-question exam not passed.');
+    }
+    if (s2.details?.oralRequired && !s2.details?.oralPassed) {
+      unmetRequirements.push('Oral assessment not marked as PASSED.');
+    }
+    if (s3.details?.complianceStatus === 'NOT_COMPLIANT') {
+      unmetRequirements.push(
+        `Attendance requirement not met: ${Math.round(
+          s3.details?.attendancePercentage ?? 0,
+        )}% attended (${s3.details?.attendedSessions ?? 0}/${
+          s3.details?.requiredSessions ?? 0
+        } sessions), minimum threshold is ${s3.details?.thresholdPercent ?? 80}%.`,
+      );
+    }
+    if (!s4.isCompleted) {
+      unmetRequirements.push(
+        'Required 1-on-1 closing call has not been completed.',
+      );
+    }
+    if (!s5.isCompleted) {
+      unmetRequirements.push(
+        'Handwritten mission statement has not been approved.',
+      );
+    }
+
+    const isEligible = unmetRequirements.length === 0;
+
+    return {
+      enrolmentId: enrolment.id,
+      userId: enrolment.userId,
+      programId: enrolment.programId,
+      programTitle: enrolment.program.title,
+      batchId: enrolment.batchId,
+      certificateType: CertificateType.PROFESSIONAL,
+      isEligible,
+      status: isEligible ? 'ELIGIBLE' : 'INELIGIBLE',
+      evaluatedAt: stageEval.evaluatedAt,
+      steps: {
+        required: s1.details?.totalSteps ?? 0,
+        completed: s1.details?.completedSteps ?? 0,
+        isMet: (s1.details?.uncompletedStepTitles?.length ?? 0) === 0,
+        uncompletedStepTitles: s1.details?.uncompletedStepTitles,
+      },
+      quizzes: {
+        required: s1.details?.requiredQuizzes ?? 0,
+        passed: s1.details?.passedQuizzes ?? 0,
+        isMet: (s1.details?.unpassedQuizStepTitles?.length ?? 0) === 0,
+        unpassedQuizStepTitles: s1.details?.unpassedQuizStepTitles,
+      },
+      finalExam: {
+        required: s2.details?.examRequired ?? false,
+        passed: s2.details?.examPassed ?? false,
+        score: s2.details?.examScore ?? null,
+        attemptCount: s2.details?.attemptCount ?? 0,
+        isMet: s2.details?.examRequired ? s2.details?.examPassed : true,
+      },
+      oralAssessment: {
+        required: s2.details?.oralRequired ?? false,
+        passed: s2.details?.oralPassed ?? false,
+        score: s2.details?.oralScore ?? null,
+        status: s2.details?.oralStatus ?? null,
+        isMet: s2.details?.oralRequired ? s2.details?.oralPassed : true,
+      },
+      attendance: {
+        required: true,
+        thresholdUsed: s3.details?.thresholdPercent ?? 80,
+        attendancePercentage: s3.details?.attendancePercentage ?? 100,
+        requiredSessions: s3.details?.requiredSessions ?? 0,
+        attendedSessions: s3.details?.attendedSessions ?? 0,
+        status: s3.details?.complianceStatus ?? 'NOT_APPLICABLE',
+        isMet: s3.details?.complianceStatus !== 'NOT_COMPLIANT',
+      },
+      closingCall: {
+        required: true,
+        completed: s4.isCompleted,
+        sessionId: s4.details?.completedSessionId ?? null,
+        sessionTitle: s4.details?.completedSessionTitle ?? null,
+        completedAt: s4.completedAt,
+        isMet: s4.isCompleted,
+      },
+      missionStatement: {
+        required: true,
+        completed: s5.isCompleted,
+        status: s5.details?.latestStatus ?? null,
+        reviewedAt: s5.completedAt,
+        isMet: s5.isCompleted,
+      },
+      unmetRequirements,
+    };
   }
 
   /**

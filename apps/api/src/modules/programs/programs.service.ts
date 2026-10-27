@@ -165,6 +165,12 @@ export class ProgramsService {
         status: data.status ?? ContentStatus.DRAFT,
         hasCertificate: data.hasCertificate ?? false,
         certificateTemplate: data.certificateTemplate ?? null,
+        requireExam: data.requireExam !== undefined ? data.requireExam : true,
+        requireCoaching: data.requireCoaching !== undefined ? data.requireCoaching : true,
+        requireMissionStatement: data.requireMissionStatement !== undefined ? data.requireMissionStatement : true,
+        sequentialProgressionEnabled: data.sequentialProgressionEnabled !== undefined ? data.sequentialProgressionEnabled : true,
+        attendanceRequired: data.attendanceRequired !== undefined ? data.attendanceRequired : true,
+        attendanceThreshold: data.attendanceThreshold !== undefined ? Number(data.attendanceThreshold) : 80,
         faqs: data.faqs ? (data.faqs as any) : [],
       },
     });
@@ -199,6 +205,12 @@ export class ProgramsService {
     if (data.status !== undefined) updateData.status = data.status;
     if (data.hasCertificate !== undefined) updateData.hasCertificate = data.hasCertificate;
     if (data.certificateTemplate !== undefined) updateData.certificateTemplate = data.certificateTemplate;
+    if (data.requireExam !== undefined) updateData.requireExam = Boolean(data.requireExam);
+    if (data.requireCoaching !== undefined) updateData.requireCoaching = Boolean(data.requireCoaching);
+    if (data.requireMissionStatement !== undefined) updateData.requireMissionStatement = Boolean(data.requireMissionStatement);
+    if (data.sequentialProgressionEnabled !== undefined) updateData.sequentialProgressionEnabled = Boolean(data.sequentialProgressionEnabled);
+    if (data.attendanceRequired !== undefined) updateData.attendanceRequired = Boolean(data.attendanceRequired);
+    if (data.attendanceThreshold !== undefined) updateData.attendanceThreshold = Number(data.attendanceThreshold);
     if (data.faqs !== undefined) updateData.faqs = data.faqs as any;
 
     const updated = await this.prisma.program.update({

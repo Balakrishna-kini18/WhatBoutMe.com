@@ -5,7 +5,7 @@ import { AttendanceService } from './attendance.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
 import { AttendanceComplianceService } from './attendance-compliance.service.js';
 import { AttendanceController } from './attendance.controller.js';
-import { BatchAttendanceController } from './batch-attendance.controller.js';
+import { BatchAttendanceController, BatchSessionsController } from './batch-attendance.controller.js';
 import { SessionCheckinController } from './session-checkin.controller.js';
 import { MeAttendanceController } from './me-attendance.controller.js';
 import { SessionLifecycleService } from './session-lifecycle.service.js';
@@ -19,12 +19,15 @@ import { CALENDAR_PROVIDER } from '../../common/interfaces/calendar-provider.int
 import { MeetingSyncProcessor } from './meeting-sync.processor.js';
 import { EmailModule } from '../email/email.module.js';
 import { CertificatesModule } from '../certificates/certificates.module.js';
+import { ProgressionModule } from '../progression/progression.module.js';
 import { AuditModule } from '../../common/audit/audit.module.js';
 
 import { MicrosoftGraphCalendarProvider } from './providers/microsoft-graph.provider.js';
 
 import { DiscoveryController, SessionsDiscoveryController } from './discovery.controller.js';
 import { DiscoveryService } from './discovery.service.js';
+import { OneOnOneController } from './one-on-one.controller.js';
+import { OneOnOneService } from './one-on-one.service.js';
 
 const isWorkerMode = process.env.WORKER_MODE === 'true';
 
@@ -35,19 +38,23 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
     EmailModule,
     AuditModule,
     forwardRef(() => CertificatesModule),
+    forwardRef(() => ProgressionModule),
   ],
   controllers: [
-    SessionsController,
     DiscoveryController,
     SessionsDiscoveryController,
+    OneOnOneController,
+    SessionsController,
     AttendanceController,
     BatchAttendanceController,
+    BatchSessionsController,
     SessionCheckinController,
     MeAttendanceController,
   ],
   providers: [
     SessionsService,
     DiscoveryService,
+    OneOnOneService,
     AttendanceService,
     AttendanceReconciliationService,
     AttendanceComplianceService,
@@ -67,6 +74,7 @@ const isWorkerMode = process.env.WORKER_MODE === 'true';
   ],
   exports: [
     DiscoveryService,
+    OneOnOneService,
     SessionsService,
     SessionLifecycleService,
     AttendanceService,

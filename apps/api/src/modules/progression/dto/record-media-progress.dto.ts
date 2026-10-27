@@ -20,6 +20,16 @@ export class RecordMediaProgressDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  fromSec?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  toSec?: number;
+
+  @IsOptional()
+  @IsNumber()
   deltaWatchedSec?: number;
 
   @IsOptional()

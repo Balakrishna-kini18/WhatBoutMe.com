@@ -28,6 +28,12 @@ export class UsersService {
       this.prisma.user.findUnique({
         where: { id },
         include: {
+          managedBatches: {
+            include: {
+              program: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          },
           enrolments: {
             include: {
               batch: {
@@ -39,6 +45,7 @@ export class UsersService {
               signedAgreement: {
                 select: {
                   id: true,
+                  templateId: true,
                   status: true,
                   templateVersion: true,
                   signedAt: true,
@@ -154,6 +161,7 @@ export class UsersService {
               batchId: true,
               programId: true,
               status: true,
+              createdAt: true,
               batch: { select: { id: true, name: true, programId: true } },
               program: { select: { id: true, title: true } },
               stepProgress: {
@@ -318,8 +326,18 @@ export class UsersService {
           programId: e.programId,
           programTitle: e.program?.title || 'Unknown',
           status: e.status,
+          createdAt: e.createdAt,
         })),
-        joined: new Date(user.createdAt).toLocaleDateString(),
+        enrolledAt: primaryEnrolment?.createdAt || null,
+        createdAt: user.createdAt,
+        joined: (() => {
+          const d = new Date(user.createdAt);
+          if (isNaN(d.getTime())) return '—';
+          const dd = String(d.getDate()).padStart(2, '0');
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const yyyy = d.getFullYear();
+          return `${dd}/${mm}/${yyyy}`;
+        })(),
       };
     });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isDateInRange, type DateRangeFilter } from "./date-range";
+import { isDateInRange, calculateRevenuePeriodDates, type DateRangeFilter } from "./date-range";
 import { getPageNumbers } from "../components/pagination-utils";
 import { formatRevenueMetric, formatCurrencyAmount } from "./revenue-utils";
 
@@ -82,32 +82,81 @@ describe("Revenue Page Unified Ledger & Filter Semantics", () => {
   // ─────────────────────────────────────────────────────────────────────────────
   // 2. DATE RANGE FILTERING LOGIC
   // ─────────────────────────────────────────────────────────────────────────────
-  describe("Date Range Filtering (isDateInRange)", () => {
+  describe("Date Range Filtering (isDateInRange & calculateRevenuePeriodDates)", () => {
     const fixedNow = new Date("2026-10-25T12:00:00Z");
 
-    it("includes everything when filter is 'all'", () => {
+    it("includes everything when filter is 'all' or 'ALL'", () => {
       expect(isDateInRange("2024-01-01T00:00:00Z", "all", fixedNow)).toBe(true);
-      expect(isDateInRange("2026-10-25T11:00:00Z", "all", fixedNow)).toBe(true);
+      expect(isDateInRange("2026-10-25T11:00:00Z", "ALL", fixedNow)).toBe(true);
     });
 
-    it("filters accurately for 'today'", () => {
+    it("filters accurately for 'today' and 'TODAY'", () => {
       expect(isDateInRange("2026-10-25T02:00:00Z", "today", fixedNow)).toBe(true);
+      expect(isDateInRange("2026-10-25T02:00:00Z", "TODAY", fixedNow)).toBe(true);
       expect(isDateInRange("2026-10-24T23:59:59Z", "today", fixedNow)).toBe(false);
     });
 
-    it("filters accurately for 'week'", () => {
+    it("filters accurately for 'YESTERDAY'", () => {
+      expect(isDateInRange("2026-10-24T10:00:00Z", "YESTERDAY", fixedNow)).toBe(true);
+      expect(isDateInRange("2026-10-25T10:00:00Z", "YESTERDAY", fixedNow)).toBe(false);
+      expect(isDateInRange("2026-10-23T23:59:59Z", "YESTERDAY", fixedNow)).toBe(false);
+    });
+
+    it("filters accurately for 'week' and 'LAST_7_DAYS'", () => {
       expect(isDateInRange("2026-10-23T10:00:00Z", "week", fixedNow)).toBe(true);
-      expect(isDateInRange("2026-10-10T10:00:00Z", "week", fixedNow)).toBe(false);
+      expect(isDateInRange("2026-10-20T00:00:00Z", "LAST_7_DAYS", fixedNow)).toBe(true);
+      expect(isDateInRange("2026-10-10T10:00:00Z", "LAST_7_DAYS", fixedNow)).toBe(false);
     });
 
-    it("filters accurately for 'month'", () => {
+    it("filters accurately for 'LAST_30_DAYS'", () => {
+      expect(isDateInRange("2026-10-01T10:00:00Z", "LAST_30_DAYS", fixedNow)).toBe(true);
+      expect(isDateInRange("2026-09-20T10:00:00Z", "LAST_30_DAYS", fixedNow)).toBe(false);
+    });
+
+    it("filters accurately for 'month' and 'THIS_MONTH'", () => {
       expect(isDateInRange("2026-10-02T10:00:00Z", "month", fixedNow)).toBe(true);
-      expect(isDateInRange("2026-09-30T23:59:59Z", "month", fixedNow)).toBe(false);
+      expect(isDateInRange("2026-10-02T10:00:00Z", "THIS_MONTH", fixedNow)).toBe(true);
+      expect(isDateInRange("2026-09-30T23:59:59Z", "THIS_MONTH", fixedNow)).toBe(false);
     });
 
-    it("filters accurately for 'year'", () => {
+    it("filters accurately for 'year' and 'THIS_YEAR'", () => {
       expect(isDateInRange("2026-02-15T10:00:00Z", "year", fixedNow)).toBe(true);
-      expect(isDateInRange("2025-12-31T23:59:59Z", "year", fixedNow)).toBe(false);
+      expect(isDateInRange("2026-02-15T10:00:00Z", "THIS_YEAR", fixedNow)).toBe(true);
+      expect(isDateInRange("2025-12-31T23:59:59Z", "THIS_YEAR", fixedNow)).toBe(false);
+    });
+
+    it("filters accurately for 'CUSTOM' date range", () => {
+      const customRange = { startDate: "2026-10-10", endDate: "2026-10-20" };
+      expect(isDateInRange("2026-10-15T10:00:00Z", "CUSTOM", fixedNow, customRange)).toBe(true);
+      expect(isDateInRange("2026-10-09T23:59:59Z", "CUSTOM", fixedNow, customRange)).toBe(false);
+      expect(isDateInRange("2026-10-21T00:00:00Z", "CUSTOM", fixedNow, customRange)).toBe(false);
+    });
+
+    it("computes accurate preset dates via calculateRevenuePeriodDates", () => {
+      expect(calculateRevenuePeriodDates("TODAY", fixedNow)).toEqual({
+        startDate: "2026-10-25",
+        endDate: "2026-10-25",
+      });
+      expect(calculateRevenuePeriodDates("YESTERDAY", fixedNow)).toEqual({
+        startDate: "2026-10-24",
+        endDate: "2026-10-24",
+      });
+      expect(calculateRevenuePeriodDates("LAST_7_DAYS", fixedNow)).toEqual({
+        startDate: "2026-10-19",
+        endDate: "2026-10-25",
+      });
+      expect(calculateRevenuePeriodDates("THIS_MONTH", fixedNow)).toEqual({
+        startDate: "2026-10-01",
+        endDate: "2026-10-25",
+      });
+      expect(calculateRevenuePeriodDates("THIS_YEAR", fixedNow)).toEqual({
+        startDate: "2026-01-01",
+        endDate: "2026-10-25",
+      });
+      expect(calculateRevenuePeriodDates("ALL", fixedNow)).toEqual({
+        startDate: "",
+        endDate: "",
+      });
     });
   });
 

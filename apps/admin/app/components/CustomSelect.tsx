@@ -42,7 +42,7 @@ export function CustomSelect({
   className = "",
   disabled = false,
   id,
-  menuMaxHeight = "280px",
+  menuMaxHeight = "380px",
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -80,7 +80,7 @@ export function CustomSelect({
       if (!button) return;
       const rect = button.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      const parsedMaxH = parseInt(menuMaxHeight, 10) || 280;
+      const parsedMaxH = parseInt(menuMaxHeight, 10) || 380;
       const estimatedHeight = Math.min(options.length * 36 + 12, parsedMaxH);
       const openUpwards =
         spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;

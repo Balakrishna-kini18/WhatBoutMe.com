@@ -35,6 +35,8 @@ export class RevenueController {
   async getRevenueStats(
     @Req() _req: any,
     @Query('period') period?: string,
+    @Query('startDate') startDateParam?: string,
+    @Query('endDate') endDateParam?: string,
   ) {
     const [invoices, standalonePayments, totalLearnersCount] = await Promise.all([
       this.prisma.invoice.findMany({
@@ -154,17 +156,42 @@ export class RevenueController {
 
     // Determine optional date range filter threshold (UTC standard)
     let startDate: Date | null = null;
-    if (period && period !== 'all') {
+    let endDate: Date | null = null;
+
+    if (startDateParam) {
+      const parts = startDateParam.split('-').map(Number);
+      if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+        startDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0));
+      }
+    }
+    if (endDateParam) {
+      const parts = endDateParam.split('-').map(Number);
+      if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+        endDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999));
+      }
+    }
+
+    if (!startDate && !endDate && period && period !== 'all' && period !== 'ALL') {
       const now = new Date();
-      if (period === 'today') {
+      const p = period.toUpperCase();
+      if (p === 'TODAY') {
         startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-      } else if (period === 'week') {
-        const day = now.getUTCDay();
-        const diff = now.getUTCDate() - day + (day === 0 ? -6 : 1);
-        startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff, 0, 0, 0, 0));
-      } else if (period === 'month') {
+      } else if (p === 'YESTERDAY') {
+        startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1, 0, 0, 0, 0));
+        endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1, 23, 59, 59, 999));
+      } else if (p === 'WEEK' || p === 'LAST_7_DAYS') {
+        if (period === 'week') {
+          const day = now.getUTCDay();
+          const diff = now.getUTCDate() - day + (day === 0 ? -6 : 1);
+          startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff, 0, 0, 0, 0));
+        } else {
+          startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6, 0, 0, 0, 0));
+        }
+      } else if (p === 'LAST_30_DAYS') {
+        startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29, 0, 0, 0, 0));
+      } else if (p === 'MONTH' || p === 'THIS_MONTH') {
         startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-      } else if (period === 'year') {
+      } else if (p === 'YEAR' || p === 'THIS_YEAR') {
         startDate = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
       }
     }
@@ -269,7 +296,7 @@ export class RevenueController {
       const invDate = new Date(inv.createdAt);
 
       // Check period filter if active
-      const inPeriod = !startDate || invDate >= startDate;
+      const inPeriod = (!startDate || invDate >= startDate) && (!endDate || invDate <= endDate);
 
       if (isPaid && inPeriod) {
         paidInvoicesCount++;
@@ -318,7 +345,7 @@ export class RevenueController {
       const enrol = p.enrolment;
       const pDate = new Date(p.createdAt);
 
-      const inPeriod = !startDate || pDate >= startDate;
+      const inPeriod = (!startDate || pDate >= startDate) && (!endDate || pDate <= endDate);
 
       if (isSucceeded && p.amount > 0 && inPeriod) {
         paidStandaloneCount++;
@@ -356,7 +383,11 @@ export class RevenueController {
 
     // Merge transactions and sort by date descending
     const allTransactions = [...invoiceTransactions, ...paymentTransactions].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      (a, b) => {
+        const diff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        if (diff !== 0) return diff;
+        return (a.id || '').localeCompare(b.id || '');
+      },
     );
 
     // Format monthly records sorted chronologically
@@ -397,6 +428,8 @@ export class RevenueController {
       totalInvoicesCount: invoices.length,
       transactions: allTransactions,
       period: period || 'all',
+      startDate: startDateParam || null,
+      endDate: endDateParam || null,
     };
   }
 }

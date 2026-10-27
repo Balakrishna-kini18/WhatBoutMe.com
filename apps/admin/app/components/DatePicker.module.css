@@ -1,0 +1,303 @@
+.container {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.trigger {
+  border-radius: 8px;
+  border: 1px solid var(--border-light, #e7decb);
+  background: #ffffff;
+  color: var(--text-primary, #14110f);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(20, 17, 15, 0.03);
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.md {
+  height: 38px;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.sm {
+  height: 32px;
+  padding: 0 0.65rem;
+  font-size: 0.78rem;
+}
+
+.trigger:hover:not(:disabled) {
+  background: #fcf9f5;
+  border-color: #d6cab8;
+  box-shadow: 0 2px 4px rgba(20, 17, 15, 0.05);
+}
+
+.triggerOpen,
+.trigger:focus-visible {
+  border-color: var(--accent-primary, #c97a1e);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(201, 122, 30, 0.12);
+  outline: none;
+}
+
+.triggerDisabled {
+  background: #f5f2eb !important;
+  color: var(--text-muted, #7c7267) !important;
+  border-color: var(--border-light, #e7decb) !important;
+  cursor: not-allowed !important;
+  opacity: 0.75;
+}
+
+.triggerValue {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  color: var(--text-primary, #14110f);
+}
+
+.placeholder {
+  color: var(--text-muted, #78716a);
+  font-weight: 400;
+}
+
+.iconGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.calendarIcon {
+  color: var(--text-muted, #78716a);
+  transition: color 0.15s ease;
+}
+
+.triggerOpen .calendarIcon,
+.trigger:hover .calendarIcon {
+  color: var(--accent-primary, #c97a1e);
+}
+
+.clearBtn {
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: var(--text-muted, #78716a);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: all 0.12s ease;
+}
+
+.clearBtn:hover {
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ANCHORED CALENDAR DROPDOWN POPOVER
+───────────────────────────────────────────────────────────────────────────── */
+.calendarPortal {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 290px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px -4px rgba(30, 24, 16, 0.18), 0 4px 12px -2px rgba(30, 24, 16, 0.08);
+  padding: 0.85rem;
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: calendarFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+}
+
+.calendarOpenUpwards {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.calendarAlignRight {
+  left: auto;
+  right: 0;
+}
+
+@keyframes calendarFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.calendarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.2rem;
+}
+
+.monthYearDisplay {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  letter-spacing: -0.01em;
+  user-select: none;
+}
+
+.navButtonGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.navButton {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #4a443d);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.navButton:hover {
+  background: #faf6f0;
+  border-color: var(--border-light, #e7decb);
+  color: var(--accent-primary, #c97a1e);
+}
+
+/* Weekday header */
+.weekdaysRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+}
+
+.weekdayCell {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted, #78716a);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0;
+  user-select: none;
+}
+
+/* Days Grid */
+.daysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.dayButton {
+  aspect-ratio: 1;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary, #14110f);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.dayButton:hover:not(.daySelected):not(.dayDisabled) {
+  background: #fdf5ea;
+  color: var(--accent-primary, #c97a1e);
+  font-weight: 600;
+}
+
+.dayOutside {
+  color: #b8b0a5;
+  font-weight: 400;
+}
+
+.dayToday {
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+  font-weight: 700;
+}
+
+.daySelected {
+  background: var(--accent-primary, #c97a1e) !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  border-color: var(--accent-primary, #c97a1e);
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.35);
+}
+
+.dayDisabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+/* Footer Actions */
+.calendarFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--border-light, #e7decb);
+  padding-top: 0.6rem;
+  margin-top: 0.15rem;
+}
+
+.footerActionBtn {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-primary, #c97a1e);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.12s ease;
+}
+
+.footerActionBtn:hover {
+  background: #fdf5ea;
+  color: #b46b18;
+}
+
+.footerClearBtn {
+  color: var(--text-muted, #78716a);
+}
+
+.footerClearBtn:hover {
+  background: #f5f2eb;
+  color: #14110f;
+}

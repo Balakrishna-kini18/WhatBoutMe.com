@@ -36,3 +36,6 @@ export type { LearnerPortalFlowProps, StageNode } from "./LearnerPortalFlow";
 export { Pagination } from "./Pagination";
 export type { PaginationProps } from "./Pagination";
 
+export { DatePicker } from "./DatePicker";
+export type { DatePickerProps } from "./DatePicker";
+

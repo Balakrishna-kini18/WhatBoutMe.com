@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SessionLifecycleService } from './session-lifecycle.service.js';
-import { SessionStatus, NotificationChannel, DeliveryStatus } from '@prisma/client';
+import { SessionStatus, SessionType, NotificationChannel, DeliveryStatus } from '@prisma/client';
 
 describe('D2-Lifecycle: SessionLifecycleService', () => {
   let service: SessionLifecycleService;
@@ -377,6 +377,57 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
           subject: 'Reminder: Recovered Session starts in 24 hours',
         }),
       );
+    });
+
+    it('does NOT leak 1-on-1 reminders to other batch learners when 1-on-1 session has a batchId', async () => {
+      const oneOnOneSessionWithBatch = {
+        id: 'sess-1on1-batch',
+        title: '1-on-1 Coaching: Dedicated Learner',
+        sessionType: SessionType.ONE_ON_ONE,
+        learnerId: 'dedicated-user-id',
+        startTime: new Date('2026-10-21T10:00:00.000Z'),
+        endTime: new Date('2026-10-21T10:45:00.000Z'),
+        status: SessionStatus.SCHEDULED,
+        learner: {
+          id: 'dedicated-user-id',
+          email: 'dedicated@example.com',
+          name: 'Dedicated Student',
+          timezone: 'Asia/Kolkata',
+        },
+        bookings: [],
+        batch: {
+          id: 'cohort-batch-1',
+          enrolments: [
+            { user: { id: 'peer-user-1', email: 'peer1@example.com', name: 'Peer 1', timezone: 'UTC' } },
+            { user: { id: 'peer-user-2', email: 'peer2@example.com', name: 'Peer 2', timezone: 'UTC' } },
+          ],
+        },
+      };
+
+      prismaMock.session.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([oneOnOneSessionWithBatch])
+        .mockResolvedValueOnce([]);
+
+      prismaMock.notification.findFirst.mockResolvedValueOnce(null);
+
+      const stats = await service.processLifecycleTransitions();
+
+      expect(stats.reminders24hSent).toBe(1);
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(1);
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'dedicated@example.com',
+          subject: 'Reminder: 1-on-1 Coaching: Dedicated Learner starts in 24 hours',
+        }),
+      );
+      expect(prismaMock.notification.create).toHaveBeenCalledTimes(1);
+      expect(prismaMock.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'dedicated-user-id',
+        }),
+      });
     });
   });
 

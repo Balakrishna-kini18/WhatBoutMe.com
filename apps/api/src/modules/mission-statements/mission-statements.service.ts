@@ -182,11 +182,13 @@ export class MissionStatementsService {
     }
 
     // Always persist to local disk in UPLOAD_DIR and fallback directories for immediate static serving
-    const targetDirs = [
-      UPLOAD_DIR,
-      join(process.cwd(), 'storage', 'uploads'),
-      join(process.cwd(), 'apps', 'api', 'storage', 'uploads'),
-    ];
+    const targetDirs = [UPLOAD_DIR];
+    const cwdStorage = join(process.cwd(), 'storage', 'uploads');
+    if (!targetDirs.includes(cwdStorage)) targetDirs.push(cwdStorage);
+    if (!process.cwd().replace(/\\/g, '/').endsWith('apps/api')) {
+      const monorepoSubDir = join(process.cwd(), 'apps', 'api', 'storage', 'uploads');
+      if (!targetDirs.includes(monorepoSubDir)) targetDirs.push(monorepoSubDir);
+    }
 
     for (const baseDir of targetDirs) {
       try {

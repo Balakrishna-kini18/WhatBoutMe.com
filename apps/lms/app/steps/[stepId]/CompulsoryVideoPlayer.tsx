@@ -344,9 +344,10 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send 15-second periodic heartbeat with exact interval segments
+    // Send dynamic periodic heartbeat with exact interval segments (faster for short clips)
     const now = Date.now();
-    if (now - lastHeartbeatTimeRef.current >= 15000) {
+    const intervalMs = dur > 0 && dur < 60 ? Math.max(2500, Math.floor((dur * 1000) / 4)) : 10000;
+    if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
@@ -366,7 +367,12 @@ export default function CompulsoryVideoPlayer({
     if (dur > 0 && current >= dur * 0.95 && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
       setHasEnded(true);
-      onHeartbeat(dur, true, dur);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = dur;
+      const delta = Math.max(0, toSec - fromSec);
+      lastHeartbeatTimeRef.current = now;
+      lastHeartbeatPositionRef.current = toSec;
+      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
       onComplete();
     }
   };
@@ -378,7 +384,12 @@ export default function CompulsoryVideoPlayer({
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
     if (!hasCompletedRef.current) {
       hasCompletedRef.current = true;
-      onHeartbeat(dur, true, dur);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = dur;
+      const delta = Math.max(0, toSec - fromSec);
+      lastHeartbeatTimeRef.current = Date.now();
+      lastHeartbeatPositionRef.current = toSec;
+      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
       onComplete();
     }
   };
@@ -422,6 +433,23 @@ export default function CompulsoryVideoPlayer({
       video.play().catch(() => {});
     } else {
       video.pause();
+      const cur = video.currentTime;
+      const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = cur;
+      const delta = Math.max(0, toSec - fromSec);
+      if (delta >= 1) {
+        lastHeartbeatTimeRef.current = Date.now();
+        lastHeartbeatPositionRef.current = toSec;
+        onHeartbeat(
+          Math.floor(cur),
+          false,
+          dur > 0 ? dur : undefined,
+          Math.floor(delta),
+          Math.floor(fromSec),
+          Math.floor(toSec),
+        );
+      }
     }
   };
 

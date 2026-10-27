@@ -1472,9 +1472,13 @@ export class ProgressionService {
 
     // Authoritative completion rule:
     // Only earned when interval coverage meets threshold against authoritative duration
-    const earnedCompletion = isAlreadyCompleted || trackerResult.earnedCompletion;
+    const isFinished = Boolean(isEnded && effectiveDuration && effectiveDuration > 0 && positionSec >= Math.min(effectiveDuration, Math.floor(effectiveDuration * (minWatchPercent / 100))));
+    const earnedCompletion = isAlreadyCompleted || trackerResult.earnedCompletion || isFinished;
     const viewed = earnedCompletion;
-    const newProgressPercent = Math.max(existingProgress?.progressPercent ?? 0, trackerResult.progressPercent);
+    const newProgressPercent = Math.max(existingProgress?.progressPercent ?? 0, trackerResult.progressPercent, isFinished ? 100 : 0);
+    const finalRanges = isFinished && effectiveDuration && effectiveDuration > 0
+      ? WatchIntervalTracker.mergeIntervals([...trackerResult.updatedRanges, [0, effectiveDuration]])
+      : trackerResult.updatedRanges;
 
     // Clamped position for resume bookmarking
     let clampedPosition = positionSec;
@@ -1500,7 +1504,7 @@ export class ProgressionService {
         viewed,
         progressPercent: newProgressPercent,
         lastPositionSec: clampedPosition,
-        watchedRanges: trackerResult.updatedRanges as any,
+        watchedRanges: finalRanges as any,
         lastHeartbeatAt: new Date(),
         completedAt,
       },
@@ -1508,7 +1512,7 @@ export class ProgressionService {
         viewed,
         progressPercent: newProgressPercent,
         lastPositionSec: clampedPosition,
-        watchedRanges: trackerResult.updatedRanges as any,
+        watchedRanges: finalRanges as any,
         lastHeartbeatAt: new Date(),
         completedAt,
       },

@@ -234,7 +234,7 @@ export class StageGateService {
         where: { programId: enrolment.programId },
       }),
 
-      // 9. 1-on-1 sessions
+      // 9. 1-on-1 sessions scoped strictly to this enrolment or batch
       this.prisma.session.findMany({
         where: {
           OR: [
@@ -246,9 +246,20 @@ export class StageGateService {
           AND: [
             {
               OR: [
-                { learnerId: enrolment.userId },
-                { bookings: { some: { userId: enrolment.userId } } },
+                { oneOnOneRequests: { some: { enrolmentId: enrolment.id } } },
                 { attendances: { some: { enrolmentId: enrolment.id } } },
+                { bookings: { some: { enrolmentId: enrolment.id } } },
+                ...(enrolment.batchId
+                  ? [
+                      {
+                        batchId: enrolment.batchId,
+                        OR: [
+                          { learnerId: enrolment.userId },
+                          { bookings: { some: { userId: enrolment.userId } } },
+                        ],
+                      },
+                    ]
+                  : []),
               ],
             },
           ],
@@ -548,8 +559,8 @@ export class StageGateService {
         isOverridden: stage4Overridden,
         completedAt: stage4CompletedAt,
         details: {
-          completedSessionId: completedOneOnOne?.id ?? null,
-          completedSessionTitle: completedOneOnOne?.title ?? null,
+          completedSessionId: stage4Met ? (completedOneOnOne?.id ?? null) : null,
+          completedSessionTitle: stage4Met ? (completedOneOnOne?.title ?? null) : null,
         },
         unmetPrerequisites: stage4Unlocked
           ? !stage4Met

@@ -34,6 +34,17 @@ function resolveVideoSrc(rawUrl?: string | null): string {
   return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 }
 
+function resolveMediaDownloadUrl(rawUrl?: string | null): string {
+  if (!rawUrl) return "";
+  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.startsWith("/")) {
+    return rawUrl;
+  }
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const isUpload = rawUrl.startsWith("upload:");
+  const rawKey = isUpload ? rawUrl.replace("upload:", "") : rawUrl;
+  return `${API_URL}/media/stream/${rawKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+}
+
 export default function StepPage({ params }: { params: Promise<{ stepId: string }> }) {
   const router = useRouter();
   const unwrappedParams = use(params);
@@ -197,12 +208,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       const progPromise = stepData.programId
         ? fetch(`${API_URL}/progression/me/${stepData.programId}`, {
             headers: getAuthHeaders(),
+            cache: "no-store",
           })
         : Promise.resolve(null);
 
       const quizPromise = stepData.quiz?.id
         ? fetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
             headers: getAuthHeaders(),
+            cache: "no-store",
           }).catch(() => null)
         : Promise.resolve(null);
 
@@ -346,6 +359,89 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     effectiveQuizPlacement === "BEFORE_VIDEO" ||
     areAllVideosDone
   );
+
+  const hasQuiz = Boolean(step?.quiz && step.quiz.id);
+  const stepMaterials = useMemo(() => {
+    const list: Array<{
+      id: string;
+      title: string;
+      type: string;
+      mediaUrl?: string | null;
+      size?: string | null;
+      durationSec?: number | null;
+    }> = [];
+
+    // 1. Non-video/audio lessons (PDF, TEXT, LINK, etc.)
+    for (const l of allLessons) {
+      const t = (l.type || "").toUpperCase();
+      if (t && t !== "VIDEO" && t !== "AUDIO") {
+        list.push({
+          id: l.id,
+          title: l.title,
+          type: t || "PDF",
+          mediaUrl: l.mediaUrl || null,
+          size: null,
+          durationSec: l.durationSec || null,
+        });
+      }
+    }
+
+    // 2. Step resources
+    if (Array.isArray(step?.resources)) {
+      for (const r of step.resources) {
+        if (!list.some((existing) => existing.id === r.id)) {
+          let sizeStr: string | null = null;
+          if (r.fileSize) {
+            sizeStr =
+              r.fileSize > 1048576
+                ? `${(r.fileSize / 1048576).toFixed(1)} MB`
+                : `${Math.round(r.fileSize / 1024)} KB`;
+          }
+          list.push({
+            id: r.id,
+            title: r.title,
+            type: (r.type || "PDF").toUpperCase(),
+            mediaUrl: r.mediaUrl,
+            size: sizeStr,
+            durationSec: null,
+          });
+        }
+      }
+    }
+
+    // 3. Step resource items
+    if (Array.isArray((step as any)?.resourceItems)) {
+      for (const ri of (step as any).resourceItems) {
+        if (!list.some((existing) => existing.id === ri.id)) {
+          let sizeStr: string | null = null;
+          if (ri.fileSizeBytes) {
+            sizeStr =
+              ri.fileSizeBytes > 1048576
+                ? `${(ri.fileSizeBytes / 1048576).toFixed(1)} MB`
+                : `${Math.round(ri.fileSizeBytes / 1024)} KB`;
+          }
+          list.push({
+            id: ri.id,
+            title: ri.title,
+            type: (ri.type || "PDF").toUpperCase(),
+            mediaUrl: ri.fileUrl || ri.mediaUrl,
+            size: sizeStr,
+            durationSec: null,
+          });
+        }
+      }
+    }
+
+    return list;
+  }, [allLessons, step?.resources, (step as any)?.resourceItems]);
+
+  useEffect(() => {
+    if (activeTab === "quiz" && !hasQuiz) {
+      setActiveTab("video");
+    } else if (activeTab === "materials" && stepMaterials.length === 0) {
+      setActiveTab("video");
+    }
+  }, [activeTab, hasQuiz, stepMaterials.length]);
 
   // Proactively pre-warm quiz attempt in background when user views quiz tab AND quiz is unlocked
   useEffect(() => {
@@ -527,7 +623,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const handleLessonComplete = async (lessonId: string) => {
     try {
       const lesson = allLessons.find((l: any) => l.id === lessonId);
-      if (lesson && lesson.type !== "VIDEO" && lesson.type !== "AUDIO") {
+      const dur = lesson?.durationSec || 0;
+      if (lesson && (lesson.type === "VIDEO" || lesson.type === "AUDIO")) {
+        await sendMediaHeartbeat(lessonId, dur, true, dur, dur, 0, dur);
+      } else if (lesson) {
         await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
           method: "POST",
           headers: getAuthHeaders(),
@@ -535,7 +634,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
       setLessonProgress((prev) => ({
         ...prev,
-        [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true },
+        [lessonId]: { ...prev[lessonId], isCompleted: true, viewed: true, progressPercent: 100 },
       }));
       invalidateCache("/progression");
       fetchStepAndProgression();
@@ -848,26 +947,28 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (isQuizUnlocked) {
-                  setActiveTab("quiz");
+            {hasQuiz && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isQuizUnlocked) {
+                    setActiveTab("quiz");
+                  }
+                }}
+                className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
+                title={
+                  !isQuizUnlocked
+                    ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
+                    : "Take Module Quiz"
                 }
-              }}
-              className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
-              title={
-                !isQuizUnlocked
-                  ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
-                  : "Take Module Quiz"
-              }
-            >
-              <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
-              <span>Quiz</span>
-              {quizQuestions.length > 0 && isQuizUnlocked && (
-                <span className={styles.learningTabCount}>{quizQuestions.length}</span>
-              )}
-            </button>
+              >
+                <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
+                <span>Quiz</span>
+                {quizQuestions.length > 0 && isQuizUnlocked && (
+                  <span className={styles.learningTabCount}>{quizQuestions.length}</span>
+                )}
+              </button>
+            )}
 
             {/* Notes Tab Button - hidden per user request
             <button
@@ -881,14 +982,17 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             </button>
             */}
 
-            <button
-              type="button"
-              onClick={() => setActiveTab("materials")}
-              className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
-            >
-              <span>📁</span>
-              <span>Materials</span>
-            </button>
+            {stepMaterials.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("materials")}
+                className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
+              >
+                <span>📁</span>
+                <span>Materials</span>
+                <span className={styles.learningTabCount}>{stepMaterials.length}</span>
+              </button>
+            )}
           </nav>
 
           {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
@@ -1146,7 +1250,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           )}
 
           {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
-          {activeTab === "quiz" && (
+          {activeTab === "quiz" && hasQuiz && (
             <div>
               {!isQuizUnlocked ? (
                 <div className={styles.quizLockedCard}>
@@ -1580,7 +1684,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           */}
 
           {/* TAB 4: LEARNING MATERIALS (SCREEN 6) */}
-          {activeTab === "materials" && (
+          {activeTab === "materials" && stepMaterials.length > 0 && (
             <div className={styles.materialsTabStack}>
               <div className={styles.materialsSearchCard}>
                 <div className={styles.searchBarContainer}>
@@ -1596,42 +1700,65 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
 
               <div className={styles.materialsListStack}>
-                {[
-                  { id: "mat-1", title: `${step?.title || "Module"} - Slides`, type: "PDF", size: "2.1 MB" },
-                  { id: "mat-2", title: "Exercise & Framework Files", type: "ZIP", size: "8.4 MB" },
-                  { id: "mat-3", title: "Reference Implementation Guide", type: "PDF", size: "1.8 MB" },
-                  { id: "mat-4", title: "Executive Cheat Sheet & Formulas", type: "PDF", size: "1.2 MB" },
-                ]
+                {stepMaterials
                   .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
-                  .map((m) => (
-                    <div key={m.id} className={styles.materialRowCard}>
-                      <div className={styles.materialLeftGroup}>
-                        <div
-                          className={`${styles.materialTypeBadge} ${
-                            m.type === "PDF"
-                              ? styles.badgePdf
-                              : m.type === "ZIP"
-                              ? styles.badgeZip
-                              : styles.badgeGeneric
-                          }`}
-                        >
-                          {m.type}
+                  .map((m) => {
+                    const downloadUrl = resolveMediaDownloadUrl(m.mediaUrl);
+                    return (
+                      <div key={m.id} className={styles.materialRowCard}>
+                        <div className={styles.materialLeftGroup}>
+                          <div
+                            className={`${styles.materialTypeBadge} ${
+                              m.type === "PDF"
+                                ? styles.badgePdf
+                                : m.type === "ZIP"
+                                ? styles.badgeZip
+                                : styles.badgeGeneric
+                            }`}
+                          >
+                            {m.type}
+                          </div>
+                          <div>
+                            <h4 className={styles.materialTitle}>{m.title}</h4>
+                            <span className={styles.materialMeta}>
+                              {m.type}
+                              {m.size ? ` • ${m.size}` : m.durationSec ? ` • ${Math.ceil(m.durationSec / 60)} min read` : ""}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className={styles.materialTitle}>{m.title}</h4>
-                          <span className={styles.materialMeta}>{m.type} • {m.size}</span>
-                        </div>
-                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => alert(`Downloading ${m.title}...`)}
-                        className={styles.btnSecondaryOutline}
-                      >
-                        &darr; Download
-                      </button>
-                    </div>
-                  ))}
+                        {downloadUrl ? (
+                          <a
+                            href={downloadUrl}
+                            download={m.title}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.btnSecondaryOutline}
+                            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                          >
+                            &darr; Download
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            className={styles.btnSecondaryOutline}
+                            style={{ opacity: 0.5, cursor: "not-allowed" }}
+                          >
+                            Unavailable
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                {stepMaterials.filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase())).length === 0 && (
+                  <div className={styles.emptyStateCard} style={{ padding: "2rem", textAlign: "center" }}>
+                    <p style={{ margin: 0, color: "#78716a" }}>
+                      No materials found matching &ldquo;{materialsSearch}&rdquo;
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

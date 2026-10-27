@@ -296,7 +296,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
       try {
         const headers = getAuthHeaders();
-        const res = await fetch(`${API_URL}/progression/me/${id}`, { headers });
+        const res = await fetch(`${API_URL}/progression/me/${id}`, { headers, cache: "no-store" });
 
         if (res.status === 401) {
           router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
@@ -315,7 +315,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         const enrolmentId = data.enrolmentId;
         const [stagesRes, examBundle, coachingRes, missionRes] = await Promise.all([
           enrolmentId
-            ? fetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, { headers }).catch(() => null)
+            ? fetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, { headers, cache: "no-store" }).catch(() => null)
             : Promise.resolve(null),
           fetch(`${API_URL}/programs/${id}/exam`, { headers })
             .then(async (eRes) => {
@@ -338,7 +338,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
               return { eConfig, eAttempt };
             })
             .catch(() => null),
-          fetch(`${API_URL}/one-on-one/my-requests`, { headers }).catch(() => null),
+          fetch(`${API_URL}/one-on-one/my-requests${enrolmentId ? `?enrolmentId=${enrolmentId}` : ""}`, { headers }).catch(() => null),
           fetch(`${API_URL}/mission-statements/my-submissions`, { headers }).catch(() => null),
         ]);
 
@@ -358,7 +358,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           const cList = await coachingRes.json();
           if (Array.isArray(cList)) {
             setCoachingRequests(
-              enrolmentId ? cList.filter((r: any) => !r.enrolmentId || r.enrolmentId === enrolmentId) : cList
+              enrolmentId ? cList.filter((r: any) => r.enrolmentId === enrolmentId) : cList
             );
           }
         }
@@ -367,7 +367,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           const mList = await missionRes.json();
           if (Array.isArray(mList)) {
             setMissionSubmissions(
-              enrolmentId ? mList.filter((m: any) => !m.enrolmentId || m.enrolmentId === enrolmentId) : mList
+              enrolmentId ? mList.filter((m: any) => m.enrolmentId === enrolmentId) : mList
             );
           }
         }
@@ -510,8 +510,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const isLatestRejected = !activeCoachingReq && latestCoachingReq?.status === "REJECTED";
   const isCoachingCompleted = Boolean(
     stage4State?.isOverridden === true ||
-      Boolean(stage4State?.details?.completedSessionId) ||
-      coachingRequests.some((r) => r.session?.status === "COMPLETED")
+      (isCoachingUnlocked && (
+        stage4State?.isCompleted === true ||
+        Boolean(stage4State?.details?.completedSessionId) ||
+        coachingRequests.some((r) => r.session?.status === "COMPLETED")
+      ))
   );
 
   const stage5State = stagesEval?.stages?.STAGE_5_MISSION_STATEMENT;
@@ -521,7 +524,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const latestMission = missionSubmissions[0] || null;
   const isMissionApproved = Boolean(
     stage5State?.isOverridden === true ||
-      missionSubmissions.some((m) => m.status === "APPROVED")
+      (isMissionUnlocked && (
+        stage5State?.isCompleted === true ||
+        missionSubmissions.some((m) => m.status === "APPROVED")
+      ))
   );
 
   const isCertificateUnlocked = Boolean(

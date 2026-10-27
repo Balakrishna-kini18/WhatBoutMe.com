@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   API_URL,
+  cachedFetch,
   getAuthHeaders,
   parseApiError,
   invalidateCache,
@@ -180,8 +181,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     } catch (e) {}
   }, [stepId, quizAnswers, activeQuizIndex, activeTab]);
 
-  // 2. Fetch Step & Progression
-  const fetchStepAndProgression = useCallback(async () => {
+  // 2. Fetch Step & Progression with automatic retry & cache resilience
+  const fetchStepAndProgression = useCallback(async (isRetry = false) => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
 
@@ -194,8 +195,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
     try {
       setLoadError(null);
-      const stepRes = await fetch(`${API_URL}/programs/steps/${stepId}`, {
+      const stepRes = await cachedFetch(`${API_URL}/programs/steps/${stepId}`, {
         headers: getAuthHeaders(),
+        ttlMs: 30_000,
       });
       if (!stepRes.ok) {
         if (stepRes.status === 401) {
@@ -212,16 +214,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       // Concurrent fetch of progression and quiz attempt
       let progData: EnrolmentProgressionResponse | null = null;
       const progPromise = stepData.programId
-        ? fetch(`${API_URL}/progression/me/${stepData.programId}`, {
+        ? cachedFetch(`${API_URL}/progression/me/${stepData.programId}`, {
             headers: getAuthHeaders(),
-            cache: "no-store",
+            ttlMs: 20_000,
           })
         : Promise.resolve(null);
 
       const quizPromise = stepData.quiz?.id
-        ? fetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
+        ? cachedFetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
             headers: getAuthHeaders(),
-            cache: "no-store",
+            ttlMs: 20_000,
           }).catch(() => null)
         : Promise.resolve(null);
 
@@ -257,8 +259,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         try {
           await Promise.all(
             stepData.lessons.map(async (l: any) => {
-              const lpRes = await fetch(`${API_URL}/progress/lessons/${l.id}`, {
+              const lpRes = await cachedFetch(`${API_URL}/progress/lessons/${l.id}`, {
                 headers: getAuthHeaders(),
+                ttlMs: 15_000,
               });
               if (lpRes.ok) {
                 const d = await lpRes.json();
@@ -301,7 +304,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
     } catch (err: any) {
       console.error(err);
-      setLoadError(err.message || "Failed to load step information");
+      if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch") || err.message?.includes("network"))) {
+        isFetchingRef.current = false;
+        setTimeout(() => {
+          fetchStepAndProgression(true);
+        }, 1200);
+        return;
+      }
+      setStep((currentStep: any) => {
+        if (!currentStep) {
+          setLoadError(
+            err.message?.includes("fetch")
+              ? "Connecting to learning server... The server was temporarily reconnecting. Please click Retry Loading below."
+              : (err.message || "Failed to load step information")
+          );
+        }
+        return currentStep;
+      });
     } finally {
       setLoading(false);
       isFetchingRef.current = false;
@@ -806,14 +825,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return <StepLoading />;
   }
 
-  // Error State
-  if (loadError) {
+  // Error State: Only show blocking error card if step is not already available in memory
+  if (loadError && !step) {
     return (
       <div className={styles.container}>
         <div className={styles.emptyStateCard}>
           <h2 style={{ color: "#dc2626", margin: "0 0 8px" }}>Could not load curriculum</h2>
           <p style={{ margin: "0 0 1.5rem" }}>{loadError}</p>
-          <button type="button" onClick={() => fetchStepAndProgression()} className={styles.btnPrimaryOrange}>
+          <button
+            type="button"
+            onClick={() => {
+              isFetchingRef.current = false;
+              fetchStepAndProgression(false);
+            }}
+            className={styles.btnPrimaryOrange}
+          >
             Retry Loading
           </button>
         </div>

@@ -379,6 +379,8 @@
   padding: 0.75rem 0.85rem;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  min-height: 62px;
   gap: 0.4rem;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -403,6 +405,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.25rem;
+  min-height: 20px;
 }
 
 .stepNumberPill {

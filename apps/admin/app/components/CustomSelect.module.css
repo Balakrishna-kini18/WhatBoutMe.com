@@ -123,10 +123,6 @@
   box-sizing: border-box;
 }
 
-.searchIcon {
-  color: var(--text-muted, #7c7267);
-  flex-shrink: 0;
-}
 
 .searchInput {
   flex: 1;

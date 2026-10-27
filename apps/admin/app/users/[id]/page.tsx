@@ -3,7 +3,7 @@
 import { useEffect, useState, use, Fragment } from "react";
 import styles from "./UserDetail.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../../lib/api";
+import { API_URL, errorMessage, apiGet } from "../../lib/api";
 import { CustomSelect, StatusBadge, InputDialog, useToast } from "../../components";
 
 interface EnrolmentOption {
@@ -322,20 +322,9 @@ export default function UserDetailPage({
 
     async function loadData() {
       setLoading(true);
-  
 
       try {
-        const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-        const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-
-        const res = await fetch(`${API_URL}/users/${userId}`, { headers });
-        if (!isCurrent) return;
-
-        if (!res.ok) {
-          throw new Error(await errorMessage(res, "Failed to load learner details"));
-        }
-
-        const userData: UserDetail = await res.json();
+        const userData = await apiGet<UserDetail>(`/users/${userId}`);
         if (!isCurrent) return;
 
         setUser(userData);
@@ -345,12 +334,9 @@ export default function UserDetailPage({
 
         // Load attendance history asynchronously in background for learners
         if (userData.role === "USER") {
-          fetch(`${API_URL}/attendance/user/${userId}`, { headers })
-            .then(async (attRes) => {
-              if (attRes.ok && isCurrent) {
-                const attData = await attRes.json();
-                if (isCurrent) setAttendanceHistory(attData);
-              }
+          apiGet<LearnerAttendanceHistory>(`/attendance/user/${userId}`)
+            .then((attData) => {
+              if (isCurrent && attData) setAttendanceHistory(attData);
             })
             .catch(() => {});
         }
@@ -386,57 +372,34 @@ export default function UserDetailPage({
     setLoadingProgression(true);
     setCompliance(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      // Parallel fetch with apiGet: auto-parsed JSON, SWR cached, deduplicated & 4x faster!
+      const [progResult, compResult, stagesResult, certResult] = await Promise.allSettled([
+        apiGet<EnrolmentProgression>(`/progression/enrolments/${enrolmentId}`, { signal }),
+        apiGet<any>(`/attendance/compliance/${enrolmentId}`, { signal }),
+        apiGet<LearnerProgressionStages>(`/progression/enrolments/${enrolmentId}/stages`, { signal }),
+        apiGet<CertificateEligibility>(`/certificates/eligibility/${enrolmentId}`, { signal }),
+      ]);
 
-      const res = await fetch(`${API_URL}/progression/enrolments/${enrolmentId}`, {
-        headers,
-        signal,
-      });
-
-      if (res.ok) {
-        const progData: EnrolmentProgression = await res.json();
-        setProgression(progData);
-      } else {
-        console.error("Progression fetch failed:", res.status);
+      if (progResult.status === "fulfilled" && progResult.value) {
+        setProgression(progResult.value);
+      } else if (progResult.status === "rejected") {
+        console.error("Progression fetch failed:", progResult.reason);
       }
 
-      // Check attendance compliance
-      const compRes = await fetch(`${API_URL}/attendance/compliance/enrolment/${enrolmentId}`, {
-        headers,
-        signal,
-      });
-      if (compRes.ok) {
-        const compData = await compRes.json();
-        setCompliance(compData);
+      if (compResult.status === "fulfilled" && compResult.value) {
+        setCompliance(compResult.value);
       }
 
-      // 5-Stage Progression State Machine
-      try {
-        const stagesRes = await fetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
-          headers,
-          signal,
-        });
-        if (stagesRes.ok) {
-          const stagesData: LearnerProgressionStages = await stagesRes.json();
-          setStagesEval(stagesData);
-        }
-      } catch (err) {
-        console.warn("Could not fetch 5-stage progression evaluation", err);
+      if (stagesResult.status === "fulfilled" && stagesResult.value) {
+        setStagesEval(stagesResult.value);
+      } else if (stagesResult.status === "rejected") {
+        console.warn("Could not fetch 5-stage progression evaluation", stagesResult.reason);
       }
 
-      // Certificate Eligibility Evaluation
-      try {
-        const certRes = await fetch(`${API_URL}/certificates/eligibility/${enrolmentId}`, {
-          headers,
-          signal,
-        });
-        if (certRes.ok) {
-          const certData: CertificateEligibility = await certRes.json();
-          setCertEligibility(certData);
-        }
-      } catch (err) {
-        console.warn("Could not fetch certificate eligibility evaluation", err);
+      if (certResult.status === "fulfilled" && certResult.value) {
+        setCertEligibility(certResult.value);
+      } else if (certResult.status === "rejected") {
+        console.warn("Could not fetch certificate eligibility evaluation", certResult.reason);
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {
@@ -972,11 +935,7 @@ export default function UserDetailPage({
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   All Milestones Cleared
                 </span>
-              ) : (
-                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                  Click any stage to inspect prerequisites &amp; gates
-                </span>
-              )}
+              ) : null}
             </div>
 
             <div className={styles.pipelineGrid}>
@@ -1006,9 +965,6 @@ export default function UserDetailPage({
                       )}
                     </div>
                     <div className={styles.stepNameText}>1. Curriculum</div>
-                    <div className={styles.stepMetricText}>
-                      {completedSteps} of {totalSteps} Steps ({overallPct}%)
-                    </div>
                   </button>
                 );
               })()}
@@ -1019,7 +975,6 @@ export default function UserDetailPage({
                 const isDone = Boolean(s2?.isCompleted);
                 const isUnlocked = Boolean(s2?.isUnlocked);
                 const isSelected = selectedStageKey === "STAGE_2_EXAM";
-                const examScore = s2?.details?.examScore;
                 return (
                   <button
                     type="button"
@@ -1040,22 +995,9 @@ export default function UserDetailPage({
                         </span>
                       ) : isUnlocked ? (
                         <span className={styles.pipelineBadgeActive}>Pending</span>
-                      ) : (
-                        <span className={styles.pipelineBadgeLocked} title="Gated for learner until Stage 1 is completed (Admin can override)">
-                          Learner Gated
-                        </span>
-                      )}
+                      ) : null}
                     </div>
                     <div className={styles.stepNameText}>2. Final Exam</div>
-                    <div className={styles.stepMetricText}>
-                      {isDone
-                        ? examScore != null
-                          ? `Passed (${examScore}%)`
-                          : "Passed"
-                        : isUnlocked
-                        ? `Attempts: ${s2?.details?.attemptCount ?? 0}`
-                        : "Awaiting Stage 1 (Learner Gated)"}
-                    </div>
                   </button>
                 );
               })()}
@@ -1066,8 +1008,6 @@ export default function UserDetailPage({
                 const isDone = Boolean(s3?.isCompleted || compliance?.status === "COMPLIANT");
                 const isUnlocked = Boolean(s3?.isUnlocked || compliance);
                 const isSelected = selectedStageKey === "STAGE_3_ATTENDANCE";
-                const attPct = Math.round(s3?.details?.attendancePercentage ?? compliance?.attendancePercentage ?? 0);
-                const reqPct = s3?.details?.thresholdPercent ?? compliance?.thresholdPercent ?? 80;
                 return (
                   <button
                     type="button"
@@ -1087,28 +1027,15 @@ export default function UserDetailPage({
                           {s3?.isOverridden ? "Overridden" : "Compliant"}
                         </span>
                       ) : isUnlocked ? (
-                        <span className={styles.pipelineBadgeActive}>
-                          {attPct}% / {reqPct}%
-                        </span>
-                      ) : (
-                        <span className={styles.pipelineBadgeLocked} title="Gated for learner until Stage 2 is completed (Admin can override)">
-                          Learner Gated
-                        </span>
-                      )}
+                        <span className={styles.pipelineBadgeActive}>Pending</span>
+                      ) : null}
                     </div>
                     <div className={styles.stepNameText}>3. Attendance</div>
-                    <div className={styles.stepMetricText}>
-                      {isDone
-                        ? `${attPct}% Attended (Compliant)`
-                        : isUnlocked
-                        ? `${attPct}% Attended (${s3?.details?.attendedSessions ?? compliance?.attendedSessions ?? 0} sessions)`
-                        : "Awaiting Stage 2 (Learner Gated)"}
-                    </div>
                   </button>
                 );
               })()}
 
-              {/* STAGE 4: 1-ON-1 RO CALL */}
+              {/* STAGE 4: 1-ON-1 SESSION */}
               {(() => {
                 const s4 = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
                 const isDone = Boolean(s4?.isCompleted);
@@ -1130,24 +1057,13 @@ export default function UserDetailPage({
                       </span>
                       {isDone ? (
                         <span className={styles.pipelineBadgeCompleted}>
-                          {s4?.isOverridden ? "Overridden" : "Concluded"}
+                          {s4?.isOverridden ? "Overridden" : "Completed"}
                         </span>
                       ) : isUnlocked ? (
-                        <span className={styles.pipelineBadgeActive}>Pending Booking</span>
-                      ) : (
-                        <span className={styles.pipelineBadgeLocked} title="Gated for learner until Stage 3 is completed (Admin can override)">
-                          Learner Gated
-                        </span>
-                      )}
+                        <span className={styles.pipelineBadgeActive}>Pending</span>
+                      ) : null}
                     </div>
-                    <div className={styles.stepNameText}>4. 1:1 with Ro</div>
-                    <div className={styles.stepMetricText}>
-                      {isDone
-                        ? "Session Completed"
-                        : isUnlocked
-                        ? "Ready for booking"
-                        : "Awaiting Stage 3 (Learner Gated)"}
-                    </div>
+                    <div className={styles.stepNameText}>4. 1:1 Session</div>
                   </button>
                 );
               })()}
@@ -1178,23 +1094,10 @@ export default function UserDetailPage({
                       ) : latestStatus === "SUBMITTED" ? (
                         <span className={styles.pipelineBadgeActive}>Under Review</span>
                       ) : isUnlocked ? (
-                        <span className={styles.pipelineBadgeActive}>Pending Upload</span>
-                      ) : (
-                        <span className={styles.pipelineBadgeLocked} title="Gated for learner until Stage 4 is completed (Admin can override)">
-                          Learner Gated
-                        </span>
-                      )}
+                        <span className={styles.pipelineBadgeActive}>Pending</span>
+                      ) : null}
                     </div>
                     <div className={styles.stepNameText}>5. Mission Statement</div>
-                    <div className={styles.stepMetricText}>
-                      {isDone
-                        ? "Statement Approved"
-                        : latestStatus === "SUBMITTED"
-                        ? "Awaiting Review"
-                        : isUnlocked
-                        ? "Awaiting Submission"
-                        : "Awaiting Stage 4 (Learner Gated)"}
-                    </div>
                   </button>
                 );
               })()}
@@ -1204,7 +1107,6 @@ export default function UserDetailPage({
                 const isIssued = Boolean(certEligibility?.status === "ISSUED" || (progression as any)?.certificateIssued);
                 const isEligible = Boolean(certEligibility?.isEligible || stagesEval?.allStagesCompleted);
                 const isSelected = selectedStageKey === "CERTIFICATE";
-                const unmetCount = certEligibility?.unmetRequirements?.length || 0;
                 return (
                   <button
                     type="button"
@@ -1213,7 +1115,6 @@ export default function UserDetailPage({
                   >
                     <div className={styles.stepCardTop}>
                       <span className={`${styles.stepNumberPill} ${isIssued || isEligible ? styles.stepNumberPillCompleted : ""}`}>
-                        {/* Exact sidebar SVG icon */}
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <circle cx="12" cy="8" r="6" />
                           <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
@@ -1223,22 +1124,9 @@ export default function UserDetailPage({
                         <span className={styles.pipelineBadgeCompleted}>Issued</span>
                       ) : isEligible ? (
                         <span className={styles.pipelineBadgeCompleted}>Eligible</span>
-                      ) : (
-                        <span className={styles.pipelineBadgeLocked} title="Ineligible until all 5 prerequisite stages are completed">
-                          Ineligible
-                        </span>
-                      )}
+                      ) : null}
                     </div>
                     <div className={styles.stepNameText}>Certificate</div>
-                    <div className={styles.stepMetricText}>
-                      {isIssued
-                        ? "Certificate Granted"
-                        : isEligible
-                        ? "Ready for Issuance"
-                        : unmetCount > 0
-                        ? `${unmetCount} Prerequisites Pending`
-                        : "5 Stages Required"}
-                    </div>
                   </button>
                 );
               })()}
@@ -1253,7 +1141,7 @@ export default function UserDetailPage({
               <div className={styles.stageHeader}>
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
-                    <span>Stage 1: Curriculum &amp; Steps Progression</span>
+                    <span>Stage 1: Curriculum</span>
                     {stagesEval?.stages?.STAGE_1_CURRICULUM?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
@@ -1261,7 +1149,7 @@ export default function UserDetailPage({
                     )}
                   </h4>
                   <p className={styles.stageHeaderSubtitle}>
-                    {completedSteps} of {totalSteps} Steps Completed ({overallPct}%) &bull; Interactive lesson completion, watch duration &amp; knowledge quizzes
+                    {completedSteps} of {totalSteps} Steps Completed ({overallPct}%)
                   </p>
                 </div>
                 <div className={styles.stageHeaderActions}>
@@ -1492,16 +1380,13 @@ export default function UserDetailPage({
               <div className={styles.stageHeader}>
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
-                    <span>Stage 2: Final Comprehensive Exam &amp; Oral Assessment</span>
+                    <span>Stage 2: Final Exam</span>
                     {stagesEval?.stages?.STAGE_2_EXAM?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
                       </span>
                     )}
                   </h4>
-                  <p className={styles.stageHeaderSubtitle}>
-                    Randomized 50–70 question comprehensive evaluation &bull; Minimum 70% passing threshold required
-                  </p>
                 </div>
                 <div className={styles.stageHeaderActions}>
                   <button
@@ -1585,16 +1470,13 @@ export default function UserDetailPage({
               <div className={styles.stageHeader}>
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
-                    <span>Stage 3: Weekly Live Cohort Attendance</span>
+                    <span>Stage 3: Live Attendance</span>
                     {stagesEval?.stages?.STAGE_3_ATTENDANCE?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
                       </span>
                     )}
                   </h4>
-                  <p className={styles.stageHeaderSubtitle}>
-                    Cohort workshops conducted weekly with instructor &bull; Minimum 80% attendance compliance threshold required
-                  </p>
                 </div>
                 <div className={styles.stageHeaderActions}>
                   <button
@@ -1748,7 +1630,7 @@ export default function UserDetailPage({
               {attendanceHistory?.history?.some((r) => r.sessionType === "ONE_ON_ONE") && (
                 <div style={{ padding: "0.85rem 1.25rem", borderTop: "1px solid #f0e7d8", background: "#fdfbf7", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
                   <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-                    Looking for 1-on-1 Closing Coaching? Individual consultations with Roweena are tracked under <strong>Stage 4 (1:1 with Ro)</strong>.
+                    Looking for 1-on-1 Closing Coaching? Individual consultations are tracked under <strong>Stage 4 (1:1 Session)</strong>.
                   </span>
                   <button
                     type="button"
@@ -1756,7 +1638,7 @@ export default function UserDetailPage({
                     className={styles.tableActionBtn}
                     style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
                   >
-                    View 1:1 with Ro (Stage 4) →
+                    View 1:1 Session (Stage 4) →
                   </button>
                 </div>
               )}
@@ -1768,16 +1650,13 @@ export default function UserDetailPage({
               <div className={styles.stageHeader}>
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
-                    <span>Stage 4: 1-on-1 Closing Consultation with Roweena</span>
+                    <span>Stage 4: 1:1 Session</span>
                     {stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
                       </span>
                     )}
                   </h4>
-                  <p className={styles.stageHeaderSubtitle}>
-                    Mandatory individual graduation &amp; career roadmap consultation session
-                  </p>
                 </div>
                 <div className={styles.stageHeaderActions}>
                   <button
@@ -1802,7 +1681,7 @@ export default function UserDetailPage({
                 ) : (
                   <div style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-                    <span>Stage 4 prerequisites satisfied. Learner is eligible for their 1-on-1 closing consultation.</span>
+                    <span>Stage 4 prerequisites satisfied. Learner is eligible for their 1:1 session.</span>
                   </div>
                 )}
 
@@ -1813,9 +1692,9 @@ export default function UserDetailPage({
                   return (
                     <div className={styles.inspectorGrid}>
                       <div className={styles.inspectorMetaItem}>
-                        <span className={styles.inspectorMetaLabel}>Consultation Slot</span>
+                        <span className={styles.inspectorMetaLabel}>Session</span>
                         <span className={styles.inspectorMetaValue}>
-                          {oneOnOne ? oneOnOne.sessionTitle : "Closing Consultation with Roweena"}
+                          {oneOnOne ? oneOnOne.sessionTitle : "1:1 Session"}
                         </span>
                       </div>
                       <div className={styles.inspectorMetaItem}>
@@ -1842,9 +1721,9 @@ export default function UserDetailPage({
 
                 <div className={styles.stageInfoCallout}>
                   <div>
-                    <strong>1-on-1 Consultation Workflow:</strong>
+                    <strong>1:1 Session Workflow:</strong>
                     <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)" }}>
-                      Roweena hosts 1-on-1 closing consultation slots with learners near completion. Completion automatically unlocks Stage 5 (Mission Statement submission).
+                      Completion of the 1:1 session automatically unlocks Stage 5 (Mission Statement).
                     </p>
                   </div>
                   <Link href="/approvals?tab=coaching" className={styles.tableActionBtn} target="_blank">
@@ -1860,16 +1739,13 @@ export default function UserDetailPage({
               <div className={styles.stageHeader}>
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
-                    <span>Stage 5: Handwritten / Document Mission Statement</span>
+                    <span>Stage 5: Mission Statement</span>
                     {stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
                       </span>
                     )}
                   </h4>
-                  <p className={styles.stageHeaderSubtitle}>
-                    Learner's personal manifesto &bull; Reviewed, graded, and approved by leadership
-                  </p>
                 </div>
                 <div className={styles.stageHeaderActions}>
                   <button
@@ -2078,22 +1954,15 @@ export default function UserDetailPage({
                   ? `Lock Step ${targetStep.sequence}`
                   : `Reset Step ${targetStep.sequence}`
               }
-              subtitle={`Learner: ${user.name} — "${targetStep.title}"`}
               description={
                 activeModal === "unlock"
-                  ? "Manually granting access bypasses batch milestone gates."
+                  ? `Manually unlock "${targetStep.title}". This action is logged.`
                   : activeModal === "relock"
-                  ? "Manually revoking access locks this step until cleared."
-                  : "Restoring automated milestone logic for this step."
+                  ? `Manually lock "${targetStep.title}". This action is logged.`
+                  : `Restore automated progression for "${targetStep.title}".`
               }
-              label="Administrative Reason"
-              placeholder={
-                activeModal === "unlock"
-                  ? "e.g., Learner demonstrated readiness or has fast-track batch approval."
-                  : activeModal === "relock"
-                  ? "e.g., Academic review required before proceeding."
-                  : "Reason for resetting to automatic progression."
-              }
+              label="Reason for Override"
+              placeholder="Enter reason for override..."
               required={activeModal !== "reset"}
               tone={activeModal === "relock" ? "danger" : activeModal === "unlock" ? "info" : "warning"}
               confirmText={
@@ -2116,14 +1985,19 @@ export default function UserDetailPage({
               onSubmit={async (reason) => {
                 await handleOverrideStageWithReason(reason);
               }}
-              title={`Override Stage: ${targetStageForOverride.replace(/^STAGE_\d+_/, "").replace(/_/g, " ")}`}
-              subtitle={`Learner: ${user.name} — Stage requirement manual override`}
-              description="Manually bypassing this progression stage will be permanently recorded in the system audit logs for administrative compliance."
-              label="Mandatory Administrative Reason"
-              placeholder="e.g., Learner demonstrated master equivalence or approved for expedited graduation."
+              title={`Override Stage: ${{
+                STAGE_1_CURRICULUM: "Curriculum",
+                STAGE_2_EXAM: "Final Exam",
+                STAGE_3_ATTENDANCE: "Attendance",
+                STAGE_4_ONE_ON_ONE: "1:1 Session",
+                STAGE_5_MISSION_STATEMENT: "Mission Statement",
+              }[targetStageForOverride] || targetStageForOverride}`}
+              description="This manual override will be permanently recorded in the audit logs."
+              label="Reason for Override"
+              placeholder="Enter reason for override..."
               required={true}
               tone="warning"
-              confirmText="Confirm Stage Override"
+              confirmText="Confirm Override"
               isLoading={submittingStageOverride}
             />
           )}

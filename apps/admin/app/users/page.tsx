@@ -16,8 +16,14 @@ interface UserEnrolment {
   id: string;
   batchId: string | null;
   batchName: string | null;
+  programId?: string | null;
   programTitle: string | null;
   status: string;
+  currentStepNumber?: number | null;
+  totalSteps?: number | null;
+  isStepLocked?: boolean;
+  stepLabel?: string | null;
+  isAgreementSigned?: boolean;
   createdAt?: string | Date;
 }
 
@@ -111,6 +117,9 @@ export default function UsersPage() {
   const [programFilter, setProgramFilter] = useState<string>("ALL");
   const [agreementFilter, setAgreementFilter] = useState<"ALL" | "SIGNED" | "PENDING">("ALL");
   const [batchFilter, setBatchFilter] = useState<string>("ALL");
+
+  // In-row Active Program Selector for Multi-Course Learners
+  const [selectedProgramByUser, setSelectedProgramByUser] = useState<Record<string, string>>({});
 
   // CSV Export State
   const [isExporting, setIsExporting] = useState(false);
@@ -424,22 +433,60 @@ export default function UsersPage() {
       valA = weights[a.role] || 0;
       valB = weights[b.role] || 0;
     } else if (sortField === "program") {
-      valA = (a.enrolments?.[0]?.programTitle || "").toLowerCase();
-      valB = (b.enrolments?.[0]?.programTitle || "").toLowerCase();
+      const getProgTitle = (u: User) => {
+        const active =
+          (programFilter !== "ALL"
+            ? u.enrolments?.find(e => e.programTitle?.toLowerCase() === programFilter.toLowerCase() || e.programId === programFilter || e.id === programFilter)
+            : null) ||
+          (selectedProgramByUser[u.id] ? u.enrolments?.find(e => e.id === selectedProgramByUser[u.id] || e.programId === selectedProgramByUser[u.id]) : null) ||
+          u.enrolments?.[0];
+        return (active?.programTitle || "").toLowerCase();
+      };
+      valA = getProgTitle(a);
+      valB = getProgTitle(b);
     } else if (sortField === "step") {
-      valA = a.role === "USER" ? (a.currentStepNumber || 1) : -1;
-      valB = b.role === "USER" ? (b.currentStepNumber || 1) : -1;
+      const getStepVal = (u: User) => {
+        if (u.role !== "USER") return -1;
+        const active =
+          (programFilter !== "ALL"
+            ? u.enrolments?.find(e => e.programTitle?.toLowerCase() === programFilter.toLowerCase() || e.programId === programFilter || e.id === programFilter)
+            : null) ||
+          (selectedProgramByUser[u.id] ? u.enrolments?.find(e => e.id === selectedProgramByUser[u.id] || e.programId === selectedProgramByUser[u.id]) : null) ||
+          u.enrolments?.[0];
+        if (active?.isStepLocked) return 0;
+        return active?.currentStepNumber || u.currentStepNumber || 1;
+      };
+      valA = getStepVal(a);
+      valB = getStepVal(b);
     } else if (sortField === "agreement") {
-      valA = a.role === "USER" ? (a.isAgreementSigned ? 2 : 1) : 0;
-      valB = b.role === "USER" ? (b.isAgreementSigned ? 2 : 1) : 0;
+      const getAgreementVal = (u: User) => {
+        if (u.role !== "USER") return 0;
+        const active =
+          (programFilter !== "ALL"
+            ? u.enrolments?.find(e => e.programTitle?.toLowerCase() === programFilter.toLowerCase() || e.programId === programFilter || e.id === programFilter)
+            : null) ||
+          (selectedProgramByUser[u.id] ? u.enrolments?.find(e => e.id === selectedProgramByUser[u.id] || e.programId === selectedProgramByUser[u.id]) : null) ||
+          u.enrolments?.[0];
+        const signed = active ? active.isAgreementSigned ?? u.isAgreementSigned : u.isAgreementSigned;
+        return signed ? 2 : 1;
+      };
+      valA = getAgreementVal(a);
+      valB = getAgreementVal(b);
     } else if (sortField === "batch") {
       const getBatchVal = (u: User) => {
         if (u.role === "SUPER_ADMIN" || u.role === "ADMIN") return "—";
         if (u.role === "MANAGER") return u.managedBatches?.[0]?.name || "Unassigned";
-        return u.cohort && u.cohort !== "Unassigned" ? u.cohort : "Unassigned";
+        const active =
+          (programFilter !== "ALL"
+            ? u.enrolments?.find(e => e.programTitle?.toLowerCase() === programFilter.toLowerCase() || e.programId === programFilter || e.id === programFilter)
+            : null) ||
+          (selectedProgramByUser[u.id] ? u.enrolments?.find(e => e.id === selectedProgramByUser[u.id] || e.programId === selectedProgramByUser[u.id]) : null) ||
+          u.enrolments?.[0];
+        const bName = active?.batchName && active.batchName !== "Unassigned" ? active.batchName : (u.cohort && u.cohort !== "Unassigned" ? u.cohort : "Unassigned");
+        return bName.toLowerCase();
       };
-      valA = getBatchVal(a).toLowerCase();
-      valB = getBatchVal(b).toLowerCase();
+      valA = getBatchVal(a);
+      valB = getBatchVal(b);
     } else if (sortField === "date") {
       const dateA = a.enrolments?.[0]?.createdAt || a.enrolledAt || a.createdAt || a.joined || 0;
       const dateB = b.enrolments?.[0]?.createdAt || b.enrolledAt || b.createdAt || b.joined || 0;
@@ -1090,11 +1137,11 @@ export default function UsersPage() {
                     <th
                       onClick={() => handleSort("step")}
                       style={{ cursor: "pointer", userSelect: "none" }}
-                      title="Click to sort by Unlocked Step"
+                      title="Click to sort by Curriculum Progress"
                       aria-sort={sortField === "step" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
                     >
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
-                        Unlocked Step {renderSortIcon("step")}
+                        Curriculum Progress {renderSortIcon("step")}
                       </span>
                     </th>
                     <th
@@ -1208,141 +1255,287 @@ export default function UsersPage() {
                   {/* Curriculum columns for ALL & USER */}
                   {(roleFilter === "ALL" || roleFilter === "USER") && (
                     <>
-                      <td>
-                        {user.enrolments && user.enrolments.length > 0 ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                              {user.enrolments[0]?.programTitle || "11 Steps to You"}
-                            </span>
-                            {user.enrolments.length > 1 && (
-                              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                                +{user.enrolments.length - 1} other program{user.enrolments.length > 2 ? "s" : ""}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className={styles.cellTextMuted}>{user.role === "USER" ? "None" : "—"}</span>
-                        )}
-                      </td>
-                      <td>
-                        {user.role === "USER" && user.enrolments && user.enrolments.length > 0 && !user.isStepLocked ? (
-                          (() => {
-                            const label = user.stageLabel || (user.currentStepNumber ? `Step ${user.currentStepNumber} / ${user.totalSteps || 11}` : "Step 1 / 11");
-                            const isCert = label === "Certified" || label === "Cert Ready";
-                            const isMilestone = ["Final Exam", "Attendance", "1:1 Ro Call", "Mission"].includes(label);
-                            const bg = isCert ? "#dcfce7" : isMilestone ? "#ede9fe" : "#fef3c7";
-                            const color = isCert ? "#15803d" : isMilestone ? "#6b21a8" : "#92400e";
-                            const border = isCert ? "#bbf7d0" : isMilestone ? "#ddd6fe" : "#fde68a";
+                      {(() => {
+                        const activeEnrolment =
+                          (programFilter !== "ALL"
+                            ? user.enrolments?.find(
+                                (e) =>
+                                  e.programTitle?.toLowerCase() === programFilter.toLowerCase() ||
+                                  e.programId === programFilter ||
+                                  e.id === programFilter
+                              )
+                            : null) ||
+                          (batchFilter !== "ALL" && batchFilter !== "UNASSIGNED"
+                            ? user.enrolments?.find((e) => e.batchId === batchFilter || e.batchName === batchFilter)
+                            : null) ||
+                          (selectedProgramByUser[user.id]
+                            ? user.enrolments?.find(
+                                (e) => e.id === selectedProgramByUser[user.id] || e.programId === selectedProgramByUser[user.id]
+                              )
+                            : null) ||
+                          user.enrolments?.find((e) => e.status !== "REVOKED") ||
+                          user.enrolments?.[0];
 
-                            return (
-                              <span style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                fontSize: "0.75rem",
-                                fontWeight: 700,
-                                background: bg,
-                                color: color,
-                                border: `1px solid ${border}`,
-                                padding: "2px 8px",
-                                borderRadius: "100px",
-                                whiteSpace: "nowrap",
-                              }}>
-                                {label}
-                              </span>
-                            );
-                          })()
-                        ) : user.isStepLocked ? (
-                          <span style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                            background: "#fee2e2",
-                            color: "#991b1b",
-                            border: "1px solid #fecaca",
-                            padding: "2px 8px",
-                            borderRadius: "100px",
-                          }}>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                            </svg>
-                            <span>Locked</span>
-                          </span>
-                        ) : (
-                          <span className={styles.cellTextMuted}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        {user.role === "USER" ? (
-                          user.isAgreementSigned ? (
-                            <span style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              background: "#f0fdf4",
-                              color: "#166534",
-                              border: "1px solid #bbf7d0",
-                              padding: "2px 8px",
-                              borderRadius: "100px",
-                            }}>
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              <span>Signed</span>
-                            </span>
-                          ) : (
-                            <span style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              fontSize: "0.75rem",
-                              fontWeight: 600,
-                              background: "#fffbeb",
-                              color: "#b45309",
-                              border: "1px solid #fde68a",
-                              padding: "2px 8px",
-                              borderRadius: "100px",
-                            }}>
-                              Pending
-                            </span>
-                          )
-                        ) : (
-                          <span className={styles.cellTextMuted}>—</span>
-                        )}
-                      </td>
-                      <td>
-                        {user.role === "SUPER_ADMIN" || user.role === "ADMIN" ? (
-                          <span className={styles.cellTextMuted}>—</span>
-                        ) : user.role === "MANAGER" ? (
-                          user.managedBatches && user.managedBatches.length > 0 ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1e3a8a" }}>
-                                {user.managedBatches[0]?.name}
-                              </span>
-                              {user.managedBatches.length > 1 && (
-                                <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                                  +{user.managedBatches.length - 1} more batch{user.managedBatches.length > 2 ? "es" : ""}
-                                </span>
+                        const hasMultipleCourses = (user.enrolments?.length || 0) > 1;
+                        const otherProgramsText = hasMultipleCourses
+                          ? user.enrolments!.slice(1).map((e) => e.programTitle).filter(Boolean).join(", ")
+                          : "";
+
+                        return (
+                          <>
+                            {/* ENROLLED PROGRAMS */}
+                            <td>
+                              {user.enrolments && user.enrolments.length > 0 ? (
+                                programFilter !== "ALL" ? (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                    <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                      {activeEnrolment?.programTitle || programFilter}
+                                    </span>
+                                    {hasMultipleCourses && (
+                                      <span
+                                        style={{ fontSize: "0.72rem", color: "var(--text-muted)", cursor: "default" }}
+                                        title={otherProgramsText}
+                                      >
+                                        +{user.enrolments.length - 1} other program{user.enrolments.length > 2 ? "s" : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : hasMultipleCourses ? (
+                                  <div style={{ maxWidth: "200px" }}>
+                                    <CustomSelect
+                                      value={activeEnrolment?.id || ""}
+                                      onChange={(val) => {
+                                        setSelectedProgramByUser((prev) => ({ ...prev, [user.id]: val }));
+                                      }}
+                                      options={user.enrolments.map((enr) => ({
+                                        value: enr.id,
+                                        label: enr.programTitle || "Program",
+                                      }))}
+                                      size="sm"
+                                      minWidth="160px"
+                                      width="100%"
+                                      menuMinWidth="230px"
+                                      searchable={false}
+                                      ariaLabel={`Select enrolled program for ${user.name}`}
+                                    />
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                    {activeEnrolment?.programTitle || "11 Steps to You"}
+                                  </span>
+                                )
+                              ) : (
+                                <span className={styles.cellTextMuted}>{user.role === "USER" ? "None" : "—"}</span>
                               )}
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
-                          )
-                        ) : (
-                          <span className={styles.cellText}>
-                            {user.cohort && user.cohort !== "Unassigned" ? (
-                              user.cohort
-                            ) : (
-                              <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
-                            )}
-                          </span>
-                        )}
-                      </td>
+                            </td>
+
+                            {/* CURRICULUM PROGRESS */}
+                            <td>
+                              {user.role === "USER" && user.enrolments && user.enrolments.length > 0 ? (
+                                (() => {
+                                  const enr = activeEnrolment;
+                                  const isLocked = enr?.isStepLocked ?? user.isStepLocked;
+                                  if (isLocked) {
+                                    return (
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          fontSize: "0.72rem",
+                                          fontWeight: 600,
+                                          background: "#fee2e2",
+                                          color: "#991b1b",
+                                          border: "1px solid #fecaca",
+                                          padding: "2px 8px",
+                                          borderRadius: "100px",
+                                        }}
+                                      >
+                                        <svg
+                                          width="11"
+                                          height="11"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2.5"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                        </svg>
+                                        <span>Locked</span>
+                                      </span>
+                                    );
+                                  }
+
+                                  const isCertified = enr?.stepLabel === "Certified";
+                                  if (isCertified) {
+                                    return (
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          fontSize: "0.72rem",
+                                          fontWeight: 700,
+                                          background: "#dcfce7",
+                                          color: "#15803d",
+                                          border: "1px solid #bbf7d0",
+                                          padding: "2px 8px",
+                                          borderRadius: "100px",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        <svg
+                                          width="11"
+                                          height="11"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="3"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                        <span>Certified</span>
+                                      </span>
+                                    );
+                                  }
+
+                                  const label = enr?.currentStepNumber
+                                    ? `Step ${enr.currentStepNumber} / ${enr.totalSteps || 11}`
+                                    : enr?.stepLabel && !enr.stepLabel.startsWith("Completed")
+                                    ? enr.stepLabel
+                                    : `Step ${user.currentStepNumber || 1} / ${user.totalSteps || 11}`;
+
+                                  return (
+                                    <span
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        background: "#fef3c7",
+                                        color: "#92400e",
+                                        border: "1px solid #fde68a",
+                                        padding: "2px 8px",
+                                        borderRadius: "100px",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {label}
+                                    </span>
+                                  );
+                                })()
+                              ) : (
+                                <span className={styles.cellTextMuted}>—</span>
+                              )}
+                            </td>
+
+                            {/* AGREEMENT */}
+                            <td>
+                              {user.role === "USER" ? (
+                                (activeEnrolment ? activeEnrolment.isAgreementSigned ?? user.isAgreementSigned : user.isAgreementSigned) ? (
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                      background: "#f0fdf4",
+                                      color: "#166534",
+                                      border: "1px solid #bbf7d0",
+                                      padding: "2px 8px",
+                                      borderRadius: "100px",
+                                    }}
+                                  >
+                                    <svg
+                                      width="11"
+                                      height="11"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="3"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden="true"
+                                    >
+                                      <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    <span>Signed</span>
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                      background: "#fffbeb",
+                                      color: "#b45309",
+                                      border: "1px solid #fde68a",
+                                      padding: "2px 8px",
+                                      borderRadius: "100px",
+                                    }}
+                                  >
+                                    Pending
+                                  </span>
+                                )
+                              ) : (
+                                <span className={styles.cellTextMuted}>—</span>
+                              )}
+                            </td>
+
+                            {/* BATCH */}
+                            <td>
+                              {user.role === "SUPER_ADMIN" || user.role === "ADMIN" ? (
+                                <span className={styles.cellTextMuted}>—</span>
+                              ) : user.role === "MANAGER" ? (
+                                user.managedBatches && user.managedBatches.length > 0 ? (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1e3a8a" }}>
+                                      {user.managedBatches[0]?.name}
+                                    </span>
+                                    {user.managedBatches.length > 1 && (
+                                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                        +{user.managedBatches.length - 1} more batch{user.managedBatches.length > 2 ? "es" : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
+                                )
+                              ) : (
+                                (() => {
+                                  const batchName =
+                                    activeEnrolment?.batchName && activeEnrolment.batchName !== "Unassigned"
+                                      ? activeEnrolment.batchName
+                                      : (programFilter !== "ALL" ? "Unassigned" : (user.cohort && user.cohort !== "Unassigned" ? user.cohort : "Unassigned"));
+
+                                  return (
+                                    <span className={styles.cellText}>
+                                      {batchName !== "Unassigned" ? (
+                                        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                          {batchName}
+                                        </span>
+                                      ) : (
+                                        <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
+                                      )}
+                                    </span>
+                                  );
+                                })()
+                              )}
+                            </td>
+                          </>
+                        );
+                      })()}
                       {roleFilter === "USER" && (
                         <td>
                           <span className={styles.cellTextMuted}>

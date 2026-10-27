@@ -34,50 +34,108 @@
 }
 
 /* -------------------------------------------------------------------------
-   HEADER & BREADCRUMBS
+   HEADER & BREADCRUMBS (Consistent Learning Path format)
    ------------------------------------------------------------------------- */
-.pageHeaderRow {
+.header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
 }
 
-.breadcrumbBack {
+.backLink {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: none;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #d97706;
-  cursor: pointer;
-  padding: 0;
-  margin-bottom: 0.35rem;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding: 0.35rem 0.75rem 0.35rem 0.45rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
   text-decoration: none;
-  transition: color 0.15s ease;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.breadcrumbBack:hover {
-  color: #b45309;
-  text-decoration: underline;
+.backLink:hover {
+  background: #fff8f0;
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+  transform: translateX(-2px);
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.12);
 }
 
-.pageMainTitle {
-  font-size: 1.65rem;
-  font-weight: 800;
-  color: #1c1917;
-  margin: 0 0 4px;
+.backIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fdf5ea;
+  color: var(--accent-primary, #c97a1e);
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.backLink:hover .backIconWrap {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+}
+
+.backText {
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
-.pageSubtitle {
-  font-size: 0.88rem;
-  color: #78716c;
+.headerDivider {
+  width: 1px;
+  height: 1.45rem;
+  background: var(--border-light, #ece4d7);
+  flex-shrink: 0;
+}
+
+.headerTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.pageMainTitle {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-primary, #14110f);
   margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.cardMetaBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: #fdf5ea;
+  border: 1px solid #fed7aa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #b45309;
+  white-space: nowrap;
+}
+
+.cardMetaDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ea580c;
+  flex-shrink: 0;
 }
 
 .lessonCardsList {
@@ -1580,3 +1638,283 @@
   }
 }
 
+
+/* -------------------------------------------------------------------------
+   IN-BROWSER PDF VIEWER & ACTIONS
+   ------------------------------------------------------------------------- */
+.materialActionsGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.btnPrimaryView {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #d97706;
+  color: #ffffff;
+  border: 1px solid #d97706;
+  border-radius: 8px;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.btnPrimaryView:hover {
+  background: #b45309;
+  border-color: #b45309;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25);
+  color: #ffffff;
+}
+
+.materialRowCardClickable {
+  cursor: pointer;
+}
+
+.pdfModalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(4px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  animation: fadeInModal 0.18s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pdfModalContainer {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  width: 94vw;
+  max-width: 1280px;
+  height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.pdfModalFullscreen {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+}
+
+.pdfModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid #e7e5e4;
+  background: #fafaf9;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.pdfModalHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pdfHeaderBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 0.78rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pdfModalTitleGroup {
+  min-width: 0;
+}
+
+.pdfModalTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdfModalSub {
+  font-size: 0.75rem;
+  color: #78716c;
+  display: block;
+}
+
+.pdfModalActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pdfActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #44403c;
+  background: #ffffff;
+  border: 1px solid #d6d3d1;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdfActionBtn:hover {
+  background: #f5f5f4;
+  border-color: #a8a29e;
+  color: #1c1917;
+}
+
+.pdfActionBtnIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  color: #57534e;
+  background: #ffffff;
+  border: 1px solid #d6d3d1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdfActionBtnIcon:hover {
+  background: #f5f5f4;
+  color: #1c1917;
+}
+
+.pdfCloseBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  color: #78716c;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdfCloseBtn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.pdfModalBody {
+  flex: 1;
+  position: relative;
+  background: #525659;
+  min-height: 0;
+}
+
+.pdfLoadingState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #f5f5f4;
+  background: rgba(30, 41, 59, 0.95);
+  z-index: 10;
+}
+
+.pdfLoadingSpinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pdfErrorState {
+  padding: 3rem;
+  text-align: center;
+  color: #fef2f2;
+}
+
+.pdfFrameObject {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.pdfFrame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.pdfFallbackNotice {
+  padding: 2rem;
+  text-align: center;
+  color: #ffffff;
+}
+
+/* In-viewport PDF lesson styles */
+.pdfLessonViewport {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #ece6dd;
+}
+
+.pdfLessonHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  background: #fafaf9;
+  border-bottom: 1px solid #ece6dd;
+  gap: 1rem;
+}
+
+.pdfLessonEmbedContainer {
+  height: 600px;
+  width: 100%;
+  background: #525659;
+}

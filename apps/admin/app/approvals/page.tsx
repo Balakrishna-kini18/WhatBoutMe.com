@@ -235,6 +235,7 @@ export default function ApprovalsPage() {
   const [missionStatements, setMissionStatements] = useState<MissionStatementItem[]>([]);
   const [loadingMissions, setLoadingMissions] = useState(false);
   const [missionFilter, setMissionFilter] = useState<string>("ALL");
+  const [previewMissionDoc, setPreviewMissionDoc] = useState<MissionStatementItem | null>(null);
 
   const [approvingMission, setApprovingMission] = useState<MissionStatementItem | null>(null);
   const [approvalFeedback, setApprovalFeedback] = useState("");
@@ -1372,6 +1373,45 @@ export default function ApprovalsPage() {
          ───────────────────────────────────────────────────────────────────────────── */}
       {activeTab === "missions" && (
         <div>
+          {/* Header context description matching student portal wording */}
+          <div style={{
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderRadius: "10px",
+            padding: "1rem 1.25rem",
+            marginBottom: "1.25rem",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "10px",
+          }}>
+            <div>
+              <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Final Requirement · Personal Commitment (Stage 5)
+              </div>
+              <h3 style={{ margin: "4px 0 2px", fontSize: "1.05rem", color: "#78350f", fontWeight: 800 }}>
+                Handwritten Mission Statement Approval Queue
+              </h3>
+              <p style={{ margin: 0, fontSize: "0.84rem", color: "#92400e" }}>
+                Learners upload their handwritten &amp; signed personal Mission Statement after completing 1-on-1 coaching. Approving a submission marks Stage 5 Complete and automatically generates their verified graduation certificate.
+              </p>
+            </div>
+            {pendingMissionsCount > 0 && (
+              <span style={{
+                background: "#fef3c7",
+                border: "1px solid #f59e0b",
+                color: "#92400e",
+                fontWeight: 700,
+                fontSize: "0.82rem",
+                padding: "4px 10px",
+                borderRadius: "20px",
+              }}>
+                {pendingMissionsCount} Awaiting Coach Review
+              </span>
+            )}
+          </div>
+
           {/* Submissions Filter Toolbar */}
           <div style={{
             display: "flex",
@@ -1448,7 +1488,7 @@ export default function ApprovalsPage() {
                     filteredMissions.map((m) => {
                       const fileLink = m.fileUrl.startsWith("http")
                         ? m.fileUrl
-                        : `${API_URL}${m.fileUrl}`;
+                        : `${API_URL}/mission-statements/${m.id}/file`;
                       const sizeMb = (m.sizeBytes / (1024 * 1024)).toFixed(2);
 
                       return (
@@ -1483,33 +1523,46 @@ export default function ApprovalsPage() {
                             </span>
                           </td>
                           <td>
-                            <a
-                              href={fileLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                color: "#b8860b",
-                                textDecoration: "none",
-                                fontWeight: 600,
-                                fontSize: "0.82rem",
-                              }}
-                              title="Download & View Document"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                <polyline points="14 2 14 8 20 8"></polyline>
-                                <line x1="12" y1="18" x2="12" y2="12"></line>
-                                <line x1="9" y1="15" x2="15" y2="15"></line>
-                              </svg>
-                              <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {m.fileName}
-                              </span>
-                            </a>
-                            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                              {sizeMb} MB · {m.mimeType.split("/")[1]?.toUpperCase() || "PDF"}
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              <button
+                                type="button"
+                                onClick={() => setPreviewMissionDoc(m)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  color: "#b8860b",
+                                  fontWeight: 700,
+                                  fontSize: "0.84rem",
+                                  textAlign: "left",
+                                }}
+                                title="Click to preview handwritten manifesto"
+                              >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {m.fileName}
+                                </span>
+                              </button>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                                <span>{sizeMb} MB · {m.mimeType.split("/")[1]?.toUpperCase() || "PDF"}</span>
+                                <span>·</span>
+                                <a
+                                  href={fileLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: "#0284c7", textDecoration: "underline", fontWeight: 600 }}
+                                  title="Open in new browser tab"
+                                >
+                                  Open Tab &nearr;
+                                </a>
+                              </div>
                             </div>
                           </td>
                           <td>
@@ -2154,6 +2207,121 @@ export default function ApprovalsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          STAGE 5: INLINE MISSION STATEMENT DOCUMENT PREVIEW MODAL
+         ───────────────────────────────────────────────────────────────────────────── */}
+      {previewMissionDoc && (
+        <Modal
+          isOpen={true}
+          onClose={() => setPreviewMissionDoc(null)}
+          title={`Review Mission Statement: ${previewMissionDoc.user?.name || "Learner"}`}
+          subtitle={`${previewMissionDoc.enrolment?.program?.title || "Program"} · Version v${previewMissionDoc.version} · ${previewMissionDoc.fileName}`}
+          maxWidth="900px"
+          footer={
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+              <a
+                href={
+                  previewMissionDoc.fileUrl.startsWith("http")
+                    ? previewMissionDoc.fileUrl
+                    : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: "0.82rem",
+                  color: "#0284c7",
+                  fontWeight: 600,
+                  textDecoration: "underline",
+                }}
+              >
+                Download Raw Document &darr;
+              </a>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => setPreviewMissionDoc(null)}
+                >
+                  Close Preview
+                </button>
+                {previewMissionDoc.status === "SUBMITTED" && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.dangerBtnSmall}
+                      onClick={() => {
+                        const doc = previewMissionDoc;
+                        setPreviewMissionDoc(null);
+                        setRejectingMission(doc);
+                        setRejectionFeedback("");
+                      }}
+                    >
+                      Request Revisions
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.primaryBtnSmall}
+                      onClick={() => {
+                        const doc = previewMissionDoc;
+                        setPreviewMissionDoc(null);
+                        setApprovingMission(doc);
+                        setApprovalFeedback("Outstanding mission statement. Approved for professional certification.");
+                      }}
+                    >
+                      Approve &amp; Issue Certificate &rarr;
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          }
+        >
+          <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div
+              style={{
+                width: "100%",
+                minHeight: "450px",
+                maxHeight: "68vh",
+                overflow: "auto",
+                background: "#18181b",
+                borderRadius: 8,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid #e4e4e7",
+                padding: "8px",
+              }}
+            >
+              {(previewMissionDoc.mimeType || "").includes("image") ? (
+                <img
+                  src={
+                    previewMissionDoc.fileUrl.startsWith("http")
+                      ? previewMissionDoc.fileUrl
+                      : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
+                  }
+                  alt="Learner Mission Statement"
+                  style={{ maxWidth: "100%", maxHeight: "65vh", objectFit: "contain", borderRadius: 4 }}
+                />
+              ) : (
+                <iframe
+                  src={
+                    previewMissionDoc.fileUrl.startsWith("http")
+                      ? previewMissionDoc.fileUrl
+                      : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
+                  }
+                  title="Learner Mission Statement Document"
+                  style={{ width: "100%", height: "550px", border: "none", borderRadius: 4 }}
+                />
+              )}
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "#57534e", lineHeight: 1.45 }}>
+              <strong>Submission Summary:</strong> Uploaded on {new Date(previewMissionDoc.createdAt).toLocaleString()} ·
+              Size: {(previewMissionDoc.sizeBytes / (1024 * 1024)).toFixed(2)} MB · Format: {previewMissionDoc.mimeType}
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────

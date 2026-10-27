@@ -379,6 +379,84 @@ typeof this.prisma.auditLog?.findMany === 'function'
       : [];
     const actorMap = new Map(actors.map((a) => [a.id, a]));
 
+    // Group target entity IDs to resolve human-readable labels
+    const oneOnOneIds = rawLogs.filter((l) => l.entity === 'OneOnOneRequest').map((l) => l.entityId);
+    const sessionIds = rawLogs.filter((l) => l.entity === 'Session').map((l) => l.entityId);
+    const userIds = rawLogs.filter((l) => l.entity === 'User').map((l) => l.entityId);
+    const enrolmentIds = rawLogs.filter((l) => l.entity === 'Enrolment').map((l) => l.entityId);
+    const certificateIds = rawLogs.filter((l) => l.entity === 'Certificate').map((l) => l.entityId);
+    const leadIds = rawLogs.filter((l) => l.entity === 'Lead').map((l) => l.entityId);
+    const couponIds = rawLogs.filter((l) => l.entity === 'Coupon').map((l) => l.entityId);
+    const eventIds = rawLogs.filter((l) => l.entity === 'Event').map((l) => l.entityId);
+
+    const [oneOnOnes, sessions, users, enrolments, certificates, leads, coupons, events] = await Promise.all([
+      oneOnOneIds.length > 0
+        ? this.prisma.oneOnOneRequest.findMany({
+            where: { id: { in: oneOnOneIds } },
+            select: {
+              id: true,
+              user: { select: { name: true, email: true } },
+              enrolment: { select: { program: { select: { title: true } } } },
+            },
+          })
+        : [],
+      sessionIds.length > 0
+        ? this.prisma.session.findMany({
+            where: { id: { in: sessionIds } },
+            select: { id: true, title: true, sessionType: true },
+          })
+        : [],
+      userIds.length > 0
+        ? this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true, email: true },
+          })
+        : [],
+      enrolmentIds.length > 0
+        ? this.prisma.enrolment.findMany({
+            where: { id: { in: enrolmentIds } },
+            select: {
+              id: true,
+              user: { select: { name: true } },
+              program: { select: { title: true } },
+            },
+          })
+        : [],
+      certificateIds.length > 0 && typeof this.prisma.certificate?.findMany === 'function'
+        ? this.prisma.certificate.findMany({
+            where: { id: { in: certificateIds } },
+            select: { id: true, certificateNumber: true, recipientName: true, programTitle: true },
+          })
+        : [],
+      leadIds.length > 0
+        ? this.prisma.lead.findMany({
+            where: { id: { in: leadIds } },
+            select: { id: true, name: true, email: true },
+          })
+        : [],
+      couponIds.length > 0
+        ? this.prisma.coupon.findMany({
+            where: { id: { in: couponIds } },
+            select: { id: true, code: true },
+          })
+        : [],
+      eventIds.length > 0
+        ? this.prisma.event.findMany({
+            where: { id: { in: eventIds } },
+            select: { id: true, title: true },
+          })
+        : [],
+    ]);
+
+    const oneOnOneMap = new Map(oneOnOnes.map((o) => [o.id, o]));
+    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+    const userTargetMap = new Map(users.map((u) => [u.id, u]));
+    const enrolmentMap = new Map(enrolments.map((e) => [e.id, e]));
+    const certMap = new Map(certificates.map((c) => [c.id, c]));
+    const leadMap = new Map(leads.map((l) => [l.id, l]));
+    const couponMap = new Map(coupons.map((c) => [c.id, c]));
+    const eventMap = new Map(events.map((e) => [e.id, e]));
+
     const logs = rawLogs.map((log) => {
       const actor = log.actorId ? actorMap.get(log.actorId) : null;
       // Sanitize any sensitive tokens/passwords from meta
@@ -390,6 +468,67 @@ typeof this.prisma.auditLog?.findMany === 'function'
         delete sanitizedMeta.jwt;
         delete sanitizedMeta.refreshToken;
       }
+
+      // Resolve human-readable target labels
+      let targetLabel = log.entity;
+      let targetSubLabel: string | null = null;
+
+      if (log.entity === 'OneOnOneRequest') {
+        const item = oneOnOneMap.get(log.entityId);
+        targetLabel = item?.user?.name ? `1-on-1: ${item.user.name}` : '1-on-1 Coaching Request';
+        targetSubLabel = item?.enrolment?.program?.title || item?.user?.email || null;
+      } else if (log.entity === 'Session') {
+        const item = sessionMap.get(log.entityId);
+        targetLabel = item?.title ? item.title : 'Session';
+        targetSubLabel = item?.sessionType ? item.sessionType.replace(/_/g, ' ') : null;
+      } else if (log.entity === 'User') {
+        const item = userTargetMap.get(log.entityId);
+        targetLabel = item?.name ? `User: ${item.name}` : 'User Account';
+        targetSubLabel = item?.email || null;
+      } else if (log.entity === 'Enrolment') {
+        const item = enrolmentMap.get(log.entityId);
+        targetLabel = item?.user?.name ? `Enrolment: ${item.user.name}` : 'Course Enrolment';
+        targetSubLabel = item?.program?.title || null;
+      } else if (log.entity === 'Certificate') {
+        const item = certMap.get(log.entityId);
+        targetLabel = item?.recipientName ? `Certificate: ${item.recipientName}` : 'Certificate';
+        targetSubLabel = item?.certificateNumber || item?.programTitle || null;
+      } else if (log.entity === 'Lead') {
+        const item = leadMap.get(log.entityId);
+        targetLabel = item?.name ? `Lead: ${item.name}` : 'Lead';
+        targetSubLabel = item?.email || null;
+      } else if (log.entity === 'Coupon') {
+        const item = couponMap.get(log.entityId);
+        targetLabel = item?.code ? `Coupon: ${item.code}` : 'Coupon';
+      } else if (log.entity === 'Event') {
+        const item = eventMap.get(log.entityId);
+        targetLabel = item?.title ? item.title : 'Event';
+      }
+
+      // Synthesize clean summary notes
+      let summaryNote = sanitizedMeta?.reason || sanitizedMeta?.title || null;
+      if (!summaryNote) {
+        if (log.action === 'ONE_ON_ONE_APPROVED' && sanitizedMeta?.startTime) {
+          summaryNote = `Approved & scheduled for ${new Date(sanitizedMeta.startTime).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'UTC',
+          })} UTC`;
+        } else if (log.action === 'ONE_ON_ONE_REQUESTED' && sanitizedMeta?.requestedStart) {
+          summaryNote = `Requested for ${new Date(sanitizedMeta.requestedStart).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'UTC',
+          })} UTC`;
+        } else if (sanitizedMeta?.feedback) {
+          summaryNote = sanitizedMeta.feedback;
+        }
+      }
+
       return {
         id: log.id,
         actorId: log.actorId,
@@ -399,6 +538,9 @@ typeof this.prisma.auditLog?.findMany === 'function'
         action: log.action,
         entity: log.entity,
         entityId: log.entityId,
+        targetLabel,
+        targetSubLabel,
+        summaryNote,
         meta: sanitizedMeta,
         ip: log.ip,
         createdAt: log.createdAt,

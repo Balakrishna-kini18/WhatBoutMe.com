@@ -7,6 +7,9 @@ export interface AuditLogItem {
   action: string;
   entity: string;
   entityId: string;
+  targetLabel?: string;
+  targetSubLabel?: string;
+  summaryNote?: string;
   meta: Record<string, any> | null;
   ip: string | null;
   createdAt: string;
@@ -101,6 +104,9 @@ export function calculatePeriodDates(period: string): { startDate: string; endDa
  * provide clear human-readable descriptions rather than blank values.
  */
 export function getAuditDetails(log: AuditLogItem): string {
+  if (log.summaryNote && typeof log.summaryNote === "string" && log.summaryNote.trim()) {
+    return log.summaryNote.trim();
+  }
   const meta = log.meta;
 
   // 1. Explicit reason or administrative explanation

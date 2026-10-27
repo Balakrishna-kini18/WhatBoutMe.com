@@ -175,6 +175,13 @@ export class MissionStatementsService {
         const uploaded = await this.objectStorage.uploadBuffer(storageKey, file.buffer, file.mimetype);
         if (typeof uploaded === 'string' && (uploaded.startsWith('http://') || uploaded.startsWith('https://'))) {
           fileUrl = uploaded;
+        } else if (typeof uploaded === 'string' && uploaded.length > 0) {
+          try {
+            const presigned = await this.objectStorage.getPresignedGetUrl(uploaded);
+            if (presigned) fileUrl = presigned;
+          } catch {
+            // ignore
+          }
         }
       } catch (err: any) {
         this.logger.warn(`Object storage upload error: ${err?.message}`);
@@ -200,7 +207,12 @@ export class MissionStatementsService {
       }
     }
 
-    if (!fileUrl) {
+    // Crucial for Serverless (Vercel Lambda): if Object Storage did not return an external URL,
+    // persist buffer as data URI in PostgreSQL so the uploaded document is NEVER lost across ephemeral lambdas!
+    if (!fileUrl && file.buffer) {
+      const mime = file.mimetype || 'image/jpeg';
+      fileUrl = `data:${mime};base64,${file.buffer.toString('base64')}`;
+    } else if (!fileUrl) {
       fileUrl = `/uploads/${storageKey}`;
     }
 
@@ -365,6 +377,55 @@ export class MissionStatementsService {
   }
 
   /**
+   * Retrieves the file content, stream, redirect URL, or buffer for viewing/downloading.
+   */
+  async getFile(id: string, actorUser?: any): Promise<{
+    filePath?: string;
+    buffer?: Buffer;
+    mimeType: string;
+    fileName: string;
+    redirectUrl?: string;
+  }> {
+    const submission = await this.getById(id, actorUser);
+    const mimeType = submission.mimeType || 'application/pdf';
+    const fileName = submission.fileName || `mission_statement_v${submission.version}.pdf`;
+
+    // 1. If stored as external HTTP/HTTPS URL (e.g. Cloudinary/S3), redirect directly
+    if (submission.fileUrl && (submission.fileUrl.startsWith('http://') || submission.fileUrl.startsWith('https://'))) {
+      return { redirectUrl: submission.fileUrl, mimeType, fileName };
+    }
+
+    // 2. If object storage is configured and can provide a signed URL
+    if (this.objectStorage && submission.storageKey) {
+      try {
+        const signedUrl = await this.objectStorage.getPresignedGetUrl(submission.storageKey, 300);
+        if (signedUrl && signedUrl.startsWith('http')) {
+          return { redirectUrl: signedUrl, mimeType, fileName };
+        }
+      } catch {
+        // Continue to buffer or local file lookup
+      }
+    }
+
+    // 3. If stored as Base64 Data URI in database, decode buffer directly!
+    if (submission.fileUrl && submission.fileUrl.startsWith('data:')) {
+      try {
+        const base64Data = submission.fileUrl.split('base64,')[1];
+        if (base64Data) {
+          const buffer = Buffer.from(base64Data, 'base64');
+          return { buffer, mimeType, fileName };
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to decode base64 data URI for ${id}: ${err?.message}`);
+      }
+    }
+
+    // 4. Fallback to physical disk lookup
+    const { filePath, mimeType: resolvedMime, fileName: resolvedName } = await this.getFilePath(id, actorUser);
+    return { filePath, mimeType: resolvedMime, fileName: resolvedName };
+  }
+
+  /**
    * Retrieves the physical file path and MIME metadata for streaming/viewing.
    * Multi-root aware: checks UPLOAD_DIR, process.cwd(), and subpath variations.
    */
@@ -395,7 +456,7 @@ export class MissionStatementsService {
       }
     }
 
-    // Prioritize candidates with real file size (> 200 bytes) over dummy 1x1 placeholders
+    // Prioritize candidates with real file size (> 200 bytes) over dummy placeholders
     let foundPath = candidatePaths.find((p) => {
       try {
         if (!fsSync.existsSync(p)) return false;
@@ -420,18 +481,58 @@ export class MissionStatementsService {
     if (!foundPath) {
       const fallbackPath = join(UPLOAD_DIR, submission.storageKey);
       mkdirSync(dirname(fallbackPath), { recursive: true });
-      const isPdf = (submission.mimeType || '').includes('pdf');
-      if (isPdf) {
-        const placeholderPdf = Buffer.from(
-          `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000010 00000 n\n0000000053 00000 n\n0000000102 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF`
-        );
-        writeFileSync(fallbackPath, placeholderPdf);
-      } else {
-        // High-contrast legible SVG-rendered JPEG representation
-        const placeholderJpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20, 0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0xbf, 0x00, 0xff, 0xd9]);
-        writeFileSync(fallbackPath, placeholderJpg);
+
+      // If submission.fileUrl has a data URI, write the real buffer to fallbackPath!
+      if (submission.fileUrl && submission.fileUrl.startsWith('data:')) {
+        try {
+          const base64Data = submission.fileUrl.split('base64,')[1];
+          if (base64Data) {
+            const buffer = Buffer.from(base64Data, 'base64');
+            writeFileSync(fallbackPath, buffer);
+            foundPath = fallbackPath;
+          }
+        } catch {
+          // ignore
+        }
       }
-      foundPath = fallbackPath;
+
+      if (!foundPath) {
+        let isGeneratedSvg = false;
+        const isPdf = (submission.mimeType || '').includes('pdf');
+        if (isPdf) {
+          const placeholderPdf = Buffer.from(
+            `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000010 00000 n\n0000000053 00000 n\n0000000102 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF`
+          );
+          writeFileSync(fallbackPath, placeholderPdf);
+        } else {
+          isGeneratedSvg = true;
+          // High-contrast, legible document preview placeholder SVG
+          const safeName = (submission.fileName || 'mission-statement.jpg').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const safeDate = new Date(submission.createdAt).toLocaleDateString();
+          const safeSize = (submission.sizeBytes / (1024 * 1024)).toFixed(2);
+          const previewSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+            <rect width="800" height="600" fill="#fbf8f3"/>
+            <rect x="40" y="40" width="720" height="520" rx="16" fill="#ffffff" stroke="#e8ded1" stroke-width="2"/>
+            <circle cx="400" cy="180" r="50" fill="#fdf3e7"/>
+            <path d="M385 155 h30 v50 h-30 z M392 165 h16 M392 175 h16 M392 185 h12" fill="none" stroke="#c97a1e" stroke-width="3" stroke-linecap="round"/>
+            <text x="400" y="270" font-family="system-ui, sans-serif" font-size="22" font-weight="700" fill="#14110f" text-anchor="middle">Personal Mission Statement</text>
+            <text x="400" y="305" font-family="system-ui, sans-serif" font-size="15" font-weight="600" fill="#78350f" text-anchor="middle">File: ${safeName}</text>
+            <rect x="240" y="335" width="320" height="70" rx="8" fill="#faf6f0" stroke="#ece4d7" stroke-width="1"/>
+            <text x="400" y="362" font-family="system-ui, sans-serif" font-size="13" fill="#6c6359" text-anchor="middle">Uploaded: ${safeDate} · Size: ${safeSize} MB</text>
+            <text x="400" y="385" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#15803d" text-anchor="middle">Status: PENDING REVIEW</text>
+            <text x="400" y="450" font-family="system-ui, sans-serif" font-size="13" fill="#92400e" text-anchor="middle">Document recorded in database. If visual preview is blank, please request re-upload.</text>
+          </svg>`;
+          writeFileSync(fallbackPath, Buffer.from(previewSvg));
+        }
+        foundPath = fallbackPath;
+        if (isGeneratedSvg) {
+          return {
+            filePath: foundPath,
+            mimeType: 'image/svg+xml',
+            fileName: submission.fileName || 'mission-statement.svg',
+          };
+        }
+      }
     } else {
       // Mirror to standard UPLOAD_DIR / storageKey location if not already there
       const canonicalPath = join(UPLOAD_DIR, submission.storageKey);

@@ -164,8 +164,16 @@ export default function LmsSidebar() {
         setLogoutError(null);
       }
     };
+    if (showSignOutConfirm) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showSignOutConfirm, isLoggingOut]);
 
   const openSignOutConfirm = () => {
@@ -374,7 +382,7 @@ export default function LmsSidebar() {
               <div className={styles.confirmIconWrap}>
                 <Icons.Logout />
               </div>
-              <div>
+              <div className={styles.confirmHeaderText}>
                 <h3 id="signout-dialog-title" className={styles.confirmModalTitle}>
                   Sign out of WhatBoutMe?
                 </h3>

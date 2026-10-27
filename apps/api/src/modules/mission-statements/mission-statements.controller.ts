@@ -83,11 +83,21 @@ export class MissionStatementsController {
     @Param('id') id: string,
     @Res() res: any,
   ) {
-    const { filePath, mimeType, fileName } = await this.missionStatementsService.getFilePath(id);
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName)}"`);
+    const fileResult = await this.missionStatementsService.getFile(id);
+    if (fileResult.redirectUrl) {
+      return res.redirect(fileResult.redirectUrl);
+    }
+    res.setHeader('Content-Type', fileResult.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileResult.fileName)}"`);
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    return res.sendFile(filePath);
+    if (fileResult.buffer) {
+      res.setHeader('Content-Length', fileResult.buffer.length);
+      return res.end(fileResult.buffer);
+    }
+    if (fileResult.filePath) {
+      return res.sendFile(fileResult.filePath);
+    }
+    return res.status(404).send('File not found');
   }
 
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)

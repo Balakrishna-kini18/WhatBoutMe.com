@@ -274,6 +274,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [showReapplyForm, setShowReapplyForm] = useState(false);
 
   const [showMissionPanel, setShowMissionPanel] = useState(false);
+  const [showMissionReplaceForm, setShowMissionReplaceForm] = useState(false);
   const [selectedMissionFile, setSelectedMissionFile] = useState<File | null>(null);
   const [submittingMission, setSubmittingMission] = useState(false);
   const [missionFeedbackMsg, setMissionFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -489,6 +490,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
       if (isConflict) {
         invalidateCache("/one-on-one");
+        let foundExisting = false;
         try {
           const freshRes = await cachedFetch(
             `${API_URL}/one-on-one/my-requests${progression?.enrolmentId ? `?enrolmentId=${progression.enrolmentId}` : ""}`,
@@ -497,28 +499,51 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           if (freshRes.ok) {
             const freshList = await freshRes.json();
             if (Array.isArray(freshList) && freshList.length > 0) {
-              setCoachingRequests(
-                progression?.enrolmentId
-                  ? freshList.filter(
-                      (r: any) =>
-                        r.enrolmentId === progression.enrolmentId ||
-                        r.enrolment?.id === progression.enrolmentId ||
-                        r.enrolment?.programId === id ||
-                        r.enrolment?.program?.id === id
-                    )
-                  : freshList
-              );
-              setShowRescheduleForm(false);
-              setShowReapplyForm(false);
+              const matched = progression?.enrolmentId
+                ? freshList.filter(
+                    (r: any) =>
+                      r.enrolmentId === progression.enrolmentId ||
+                      r.enrolment?.id === progression.enrolmentId ||
+                      r.enrolment?.programId === id ||
+                      r.enrolment?.program?.id === id
+                  )
+                : freshList;
+              if (matched.length > 0) {
+                setCoachingRequests(matched);
+                foundExisting = true;
+              }
             }
           }
         } catch {
           // ignore background re-fetch failure
         }
+
+        if (!foundExisting) {
+          const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+          const reqStart = `${preferredDate}T${preferredTime}:00`;
+          const reqEnd = new Date(new Date(reqStart).getTime() + 45 * 60000).toISOString();
+          setCoachingRequests((prev) => [
+            {
+              id: `pending-${Date.now()}`,
+              enrolmentId: progression?.enrolmentId || "",
+              status: "PENDING_APPROVAL",
+              requestedStart: reqStart,
+              requestedEnd: reqEnd,
+              learnerTimezone: tz,
+              notes: coachingNotes,
+              createdAt: new Date().toISOString(),
+            },
+            ...prev,
+          ]);
+        }
+
+        setShowRescheduleForm(false);
+        setShowReapplyForm(false);
         setCoachingFeedbackMsg({
           type: "err",
           text: "A 1-on-1 coaching call request is already pending review for this enrolment. Showing your current request below.",
         });
+        await loadProgression(true);
       } else {
         setCoachingFeedbackMsg({ type: "err", text: errMsg });
       }
@@ -592,12 +617,16 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       }
 
       const uploaded = await res.json();
+      invalidateCache("/mission-statements");
+      invalidateCache("/progression");
       setMissionSubmissions((prev) => [uploaded, ...prev]);
       setSelectedMissionFile(null);
+      setShowMissionReplaceForm(false);
       setMissionFeedbackMsg({
         type: "ok",
         text: "Mission Statement uploaded! Our team will review and approve your submission shortly.",
       });
+      await loadProgression(true);
     } catch (err: any) {
       setMissionFeedbackMsg({ type: "err", text: err.message || "Upload failed." });
     } finally {
@@ -1935,14 +1964,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </button>
                                   <button
                                     type="submit"
-                                    disabled={submittingCoaching || Boolean(activeCoachingReq) || !preferredDate || !preferredTime}
+                                    disabled={submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime}
                                     className={styles.startBtn}
                                     style={{
-                                      cursor: submittingCoaching || Boolean(activeCoachingReq) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
-                                      opacity: submittingCoaching || Boolean(activeCoachingReq) || !preferredDate || !preferredTime ? 0.7 : 1,
+                                      cursor: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
+                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.7 : 1,
                                     }}
                                   >
-                                    {submittingCoaching ? "Submitting Booking Request..." : "Submit Booking Request"}
+                                    {submittingCoaching
+                                      ? "Submitting Booking Request..."
+                                      : Boolean(activeCoachingReq && !showRescheduleForm)
+                                      ? "Request Already Pending"
+                                      : showRescheduleForm
+                                      ? "Confirm Reschedule Slot"
+                                      : "Submit Booking Request"}
                                   </button>
                                 </div>
                               </div>
@@ -2066,26 +2101,45 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </div>
                                 )}
                               </div>
-                              <a
-                                href={
-                                  latestMission.fileUrl.startsWith("http")
-                                    ? latestMission.fileUrl
-                                    : `${API_URL}/mission-statements/${latestMission.id}/file`
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.reviewBtn}
-                                style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
-                              >
-                                View Uploaded File
-                              </a>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                                <a
+                                  href={
+                                    latestMission.fileUrl.startsWith("http") || latestMission.fileUrl.startsWith("data:")
+                                      ? latestMission.fileUrl
+                                      : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                  }
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.reviewBtn}
+                                  style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
+                                >
+                                  View Uploaded File
+                                </a>
+                                {!isMissionApproved && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowMissionReplaceForm((prev) => !prev)}
+                                    className={styles.reviewBtn}
+                                    style={{
+                                      padding: "0.35rem 0.75rem",
+                                      fontSize: "0.78rem",
+                                      cursor: "pointer",
+                                      background: showMissionReplaceForm ? "#f5efe6" : undefined,
+                                    }}
+                                  >
+                                    {showMissionReplaceForm ? "Cancel Replacement" : "Upload Replacement Copy"}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )}
 
-                          {!isMissionApproved && latestMission?.status !== "SUBMITTED" && (
+                          {!isMissionApproved && (!latestMission || latestMission.status !== "SUBMITTED" || showMissionReplaceForm) && (
                             <form onSubmit={handleUploadMissionStatement} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                               <label style={{ fontWeight: 700, fontSize: "0.84rem", color: "#14110f" }}>
-                                Upload Handwritten Mission Statement (PDF, JPG, PNG — Max 15MB)
+                                {showMissionReplaceForm
+                                  ? `Upload Replacement Mission Statement (Will become Version #${(latestMission?.version ?? 0) + 1})`
+                                  : "Upload Handwritten Mission Statement (PDF, JPG, PNG — Max 15MB)"}
                               </label>
                               <input
                                 type="file"
@@ -2113,7 +2167,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
                                 <button
                                   type="button"
-                                  onClick={() => setShowMissionPanel(false)}
+                                  onClick={() => {
+                                    setShowMissionPanel(false);
+                                    setShowMissionReplaceForm(false);
+                                  }}
                                   className={styles.reviewBtn}
                                   style={{ cursor: "pointer" }}
                                 >
@@ -2125,7 +2182,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   className={styles.startBtn}
                                   style={{ cursor: "pointer" }}
                                 >
-                                  {submittingMission ? "Uploading..." : "Submit Mission Statement"}
+                                  {submittingMission
+                                    ? "Uploading..."
+                                    : showMissionReplaceForm
+                                    ? "Submit Replacement Copy"
+                                    : "Submit Mission Statement"}
                                 </button>
                               </div>
                             </form>

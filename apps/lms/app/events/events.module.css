@@ -3,41 +3,133 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  padding: 2rem 2.5rem;
-  max-width: 1300px;
-  margin: 0 auto;
+  gap: 1.15rem;
   width: 100%;
+  max-width: 100%;
+  padding: 1.25rem 2.25rem 2.5rem;
+  animation: fadeIn 0.4s ease-out;
+  box-sizing: border-box;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 1.5rem;
+  gap: 1rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.35rem;
 }
 
-.titleArea {
+.headerLeft {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding: 0.35rem 0.75rem 0.35rem 0.45rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.backLink:hover {
+  background: #fff8f0;
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+  transform: translateX(-2px);
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.12);
+}
+
+.backIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fdf5ea;
+  color: var(--accent-primary, #c97a1e);
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.backLink:hover .backIconWrap {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+}
+
+.backText {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.headerDivider {
+  width: 1px;
+  height: 1.45rem;
+  background: var(--border-light, #ece4d7);
+  flex-shrink: 0;
+}
+
+.headerTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 2.25rem;
+  font-size: 1.6rem;
   font-weight: 800;
-  color: var(--text-primary);
+  color: var(--text-primary, #14110f);
   margin: 0;
-  letter-spacing: -0.02em;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.headerBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #fdf5ea;
+  border: 1px solid #fed7aa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.headerBadgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ea580c;
+  flex-shrink: 0;
 }
 
 .subtitle {
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
   margin: 0;
-  max-width: 600px;
   line-height: 1.5;
 }
 
@@ -47,48 +139,61 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  padding: 0.75rem 1rem;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e2e8f0);
+  padding: 0.65rem 0.85rem;
   border-radius: 16px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
 }
 
 .segmented {
   display: inline-flex;
-  background: rgba(0, 0, 0, 0.04);
+  background: #f1f5f9;
   padding: 0.25rem;
-  border-radius: 12px;
+  border-radius: 999px;
   gap: 0.25rem;
+  border: 1px solid #e2e8f0;
 }
 
 .segmentBtn {
   border: none;
   background: transparent;
-  padding: 0.45rem 1rem;
-  border-radius: 9px;
-  font-size: 0.85rem;
+  padding: 0.4rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: #64748b;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.18s ease;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }
 
+.segmentBtn:hover {
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.6);
+}
+
 .segmentBtnActive {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  background: #ffffff;
+  color: #ea580c;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 .countBadge {
-  background: rgba(0, 0, 0, 0.08);
+  background: rgba(100, 116, 139, 0.12);
+  color: inherit;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 700;
+}
+
+.segmentBtnActive .countBadge {
+  background: #fff7ed;
+  color: #ea580c;
 }
 
 .eventsGrid {

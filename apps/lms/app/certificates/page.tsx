@@ -33,6 +33,56 @@ const STEPS = [
   "Request your certificate. It is issued once approved.",
 ];
 
+const ArrowLeft = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="19" y1="12" x2="5" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+const AwardIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="8" r="6" />
+    <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
+  </svg>
+);
+
+const SparkleIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+  </svg>
+);
+
 /** Every enrolled course with its certificate status. */
 export default function CertificatesPage() {
   const router = useRouter();
@@ -106,9 +156,18 @@ export default function CertificatesPage() {
 
   return (
     <div className={dash.dashboard}>
-      <header className={dash.pageHeader}>
-        <div>
-          <h1 className={dash.pageTitle}>My Certificates</h1>
+      <header className={styles.header}>
+        <Link href="/" className={styles.backLink} title="Back to Dashboard">
+          <span className={styles.backIconWrap}>{ArrowLeft}</span>
+          <span className={styles.backText}>Back</span>
+        </Link>
+        <span className={styles.headerDivider} aria-hidden="true" />
+        <div className={styles.headerTitleGroup}>
+          <h1 className={styles.title}>My Certificates</h1>
+          <span className={styles.headerBadge}>
+            <span className={styles.headerBadgeDot} aria-hidden="true" />
+            Verified Credentials & Proof of Completion
+          </span>
         </div>
       </header>
 
@@ -204,11 +263,20 @@ export default function CertificatesPage() {
                         </div>
                       </div>
                       {isReady ? (
-                        <Link href={`/certificates/${cert.id}`} className={dash.darkBtn}>View Certificate</Link>
+                        <Link href={`/certificates/${cert.id}`} className={styles.certBtnView}>
+                          <AwardIcon />
+                          <span>View Certificate</span>
+                        </Link>
                       ) : cert ? null : done ? (
-                        <button type="button" onClick={() => request(course.enrolmentId)} className={dash.darkBtn}>Request Certificate</button>
+                        <button type="button" onClick={() => request(course.enrolmentId)} className={styles.certBtnRequest}>
+                          <SparkleIcon />
+                          <span>Request Certificate</span>
+                        </button>
                       ) : (
-                        <Link href={`/programs/${course.programId}/steps`} className={dash.secondaryBtn}>Continue</Link>
+                        <Link href={`/programs/${course.programId}/steps`} className={styles.certBtnContinue}>
+                          <span>Continue Course</span>
+                          <span>&rarr;</span>
+                        </Link>
                       )}
                     </li>
                   );

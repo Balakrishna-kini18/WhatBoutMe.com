@@ -1,3 +1,181 @@
+/* Page Header */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding: 0.35rem 0.75rem 0.35rem 0.45rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid var(--border-light, #ece4d7);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.backLink:hover {
+  background: #fff8f0;
+  border-color: var(--accent-primary, #c97a1e);
+  color: var(--accent-primary, #c97a1e);
+  transform: translateX(-2px);
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.12);
+}
+
+.backIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fdf5ea;
+  color: var(--accent-primary, #c97a1e);
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.backLink:hover .backIconWrap {
+  background: var(--accent-primary, #c97a1e);
+  color: #ffffff;
+}
+
+.backText {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.headerDivider {
+  width: 1px;
+  height: 1.45rem;
+  background: var(--border-light, #ece4d7);
+  flex-shrink: 0;
+}
+
+.headerTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.headerBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #fdf5ea;
+  border: 1px solid #fed7aa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.headerBadgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ea580c;
+  flex-shrink: 0;
+}
+
+/* Modern Certificate Action Buttons */
+.certBtnView {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  color: #ffffff !important;
+  border: 1px solid rgba(234, 88, 12, 0.4);
+  border-radius: 12px;
+  padding: 0.65rem 1.35rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(234, 88, 12, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.certBtnView:hover {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(234, 88, 12, 0.38);
+}
+
+.certBtnRequest {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  color: #ffffff;
+  border: 1px solid rgba(234, 88, 12, 0.4);
+  border-radius: 12px;
+  padding: 0.65rem 1.35rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(234, 88, 12, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.certBtnRequest:hover {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(234, 88, 12, 0.38);
+}
+
+.certBtnContinue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.65rem 1.25rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.certBtnContinue:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+  transform: translateY(-2px);
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -40,9 +40,12 @@ export class OneOnOneController {
 
   @Roles(Role.USER, Role.ADMIN, Role.SUPER_ADMIN)
   @Get('my-requests')
-  async getMyRequests(@Request() req: any) {
+  async getMyRequests(
+    @Request() req: any,
+    @Query('enrolmentId') enrolmentId?: string,
+  ) {
     const userId = req.user?.sub ?? req.user?.id;
-    return this.oneOnOneService.getMyRequests(userId);
+    return this.oneOnOneService.getMyRequests(userId, enrolmentId);
   }
 
   @Roles(Role.USER, Role.ADMIN, Role.SUPER_ADMIN)

@@ -381,15 +381,15 @@ export function computeUnifiedJourneyProgress(params: {
       isUnlocked: examPassed,
       statusLabel: coachingCompleted
         ? "Completed"
+        : !examPassed
+        ? "Locked"
         : params.coachingStatus === "APPROVED"
         ? "Scheduled"
         : params.coachingStatus === "PENDING_APPROVAL"
         ? "Pending Approval"
         : params.coachingStatus === "REJECTED"
         ? "Declined (Reapply Available)"
-        : examPassed
-        ? "Ready to Book"
-        : "Locked",
+        : "Ready to Book",
       detail: coachingCompleted ? "1-on-1 session conducted with trainer" : "Dedicated session with Roweena / trainer",
     },
     {
@@ -399,11 +399,11 @@ export function computeUnifiedJourneyProgress(params: {
       isUnlocked: coachingCompleted,
       statusLabel: missionApproved
         ? "Approved"
+        : !coachingCompleted
+        ? "Locked"
         : params.missionStatus === "SUBMITTED"
         ? "Under Review"
-        : coachingCompleted
-        ? "Ready to Upload"
-        : "Locked",
+        : "Ready to Upload",
       detail: missionApproved ? "Personal mission statement approved" : "Signed transformation commitment",
     },
   ];

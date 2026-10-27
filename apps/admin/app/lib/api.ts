@@ -538,6 +538,9 @@ export async function cachedFetch(
   if (isGet && cacheKey && apiCacheManager.getInFlight(cacheKey)) {
     const inFlight = apiCacheManager.getInFlight(cacheKey)!;
     const resPayload = await inFlight;
+    if (resPayload instanceof Response) {
+      return resPayload;
+    }
     const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startTime;
     logSlowApiCall(method, url, resPayload.status, durationMs, resPayload.headers, "Deduplicated");
     return createSafeJsonResponse(resPayload.bodyText, {

@@ -206,9 +206,12 @@ export class OneOnOneService {
   /**
    * Learner views all their 1-on-1 requests and scheduled sessions.
    */
-  async getMyRequests(userId: string) {
+  async getMyRequests(userId: string, enrolmentId?: string) {
     return this.prisma.oneOnOneRequest.findMany({
-      where: { userId },
+      where: {
+        userId,
+        ...(enrolmentId ? { enrolmentId } : {}),
+      },
       include: {
         enrolment: {
           include: {

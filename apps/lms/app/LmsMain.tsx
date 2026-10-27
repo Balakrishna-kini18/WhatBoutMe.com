@@ -48,13 +48,14 @@ function Notifications() {
     sessionReminders: true,
   });
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefsError, setPrefsError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   const loadUnreadCountOnly = async () => {
     try {
       const count = await fetchUnreadNotificationCount();
       setUnreadCount(count);
-    } catch {
+    } catch (err: any) {
       // Fallback silently
     }
   };
@@ -67,7 +68,7 @@ function Notifications() {
       ]);
       setNotices(list);
       setUnreadCount(count);
-    } catch {
+    } catch (err: any) {
       // Fallback silently
     }
   };
@@ -89,22 +90,24 @@ function Notifications() {
   }, [open]);
 
   const handleOpenPrefs = async () => {
+    setPrefsError(null);
     try {
       const p = await fetchNotificationPreferences();
       setPrefs(p);
       setShowPrefs(true);
-    } catch {
+    } catch (err: any) {
       setShowPrefs(true);
     }
   };
 
   const handleSavePrefs = async () => {
     setSavingPrefs(true);
+    setPrefsError(null);
     try {
       await updateNotificationPreferences(prefs);
       setShowPrefs(false);
-    } catch {
-      // Silent error handling
+    } catch (err: any) {
+      setPrefsError(err?.message || "Failed to update notification preferences.");
     } finally {
       setSavingPrefs(false);
     }
@@ -363,6 +366,11 @@ function Notifications() {
               </button>
             </div>
 
+            {prefsError && (
+              <div style={{ background: "#fee2e2", border: "1px solid #f87171", color: "#991b1b", padding: "8px 12px", borderRadius: "8px", fontSize: "0.8125rem", marginBottom: "16px" }}>
+                {prefsError}
+              </div>
+            )}
             <p style={{ fontSize: "0.8125rem", color: "#718096", lineHeight: 1.5, margin: "0 0 20px" }}>
               Control your push alert and in-app updates. Mandatory transactional emails (payment confirmation, agreement copies, and session access links) are always sent.
             </p>
@@ -513,7 +521,7 @@ function ProfileMenu() {
       const user = JSON.parse(localStorage.getItem("user") || "{}");
       setName(user.name || user.email || "");
       setEmail(user.email || "");
-    } catch {
+    } catch (err: any) {
       setName("");
       setEmail("");
     }

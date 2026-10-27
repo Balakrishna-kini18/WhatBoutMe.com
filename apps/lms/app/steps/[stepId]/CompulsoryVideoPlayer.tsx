@@ -29,6 +29,11 @@ import {
   validateSeek,
   calculateRewindTarget,
   calculateTimelineSeekTime,
+  saveLocalVideoResume,
+  getLocalVideoResume,
+  clearLocalVideoResume,
+  saveLocalLessonCompletion,
+  determineResumePosition,
 } from "./videoPlayerLogic";
 
 export default function CompulsoryVideoPlayer({
@@ -104,14 +109,47 @@ export default function CompulsoryVideoPlayer({
     setHasEnded(false);
   }, [lessonId, resolvedVideoSrc]);
 
+  // Local resume snapshot for instant 0ms restoration
+  const localResume = React.useMemo(() => {
+    return getLocalVideoResume(lessonId);
+  }, [lessonId]);
+
+  const initialTargetSec = Math.max(initialPositionSec || 0, localResume?.positionSec || 0);
+
   // Anti-skip enforcement refs
-  const maxWatchedSecRef = useRef<number>(initialPositionSec || 0);
-  const lastValidTimeRef = useRef<number>(initialPositionSec || 0);
+  const maxWatchedSecRef = useRef<number>(initialTargetSec);
+  const lastValidTimeRef = useRef<number>(initialTargetSec);
   const lastHeartbeatTimeRef = useRef<number>(Date.now());
-  const lastHeartbeatPositionRef = useRef<number>(initialPositionSec || 0);
+  const lastHeartbeatPositionRef = useRef<number>(initialTargetSec);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasCompletedRef = useRef<boolean>(false);
+  const hasAppliedInitialSeekRef = useRef<boolean>(false);
+  const lastSavedLocalTimeRef = useRef<number>(0);
+
+  // Auto-dismiss resumed playback notice after 3.8s
+  useEffect(() => {
+    if (resumedNotice !== null) {
+      const timer = setTimeout(() => {
+        setResumedNotice(null);
+      }, 3800);
+      return () => clearTimeout(timer);
+    }
+  }, [resumedNotice]);
+
+  // Comprehensive state reset whenever lessonId changes
+  useEffect(() => {
+    hasAppliedInitialSeekRef.current = false;
+    hasCompletedRef.current = false;
+    maxWatchedSecRef.current = initialTargetSec;
+    lastValidTimeRef.current = initialTargetSec;
+    lastHeartbeatPositionRef.current = initialTargetSec;
+    lastHeartbeatTimeRef.current = Date.now();
+    setHasEnded(false);
+    setCurrentTime(initialTargetSec);
+    setIsPlaying(false);
+  }, [lessonId, initialTargetSec]);
+
 
   // Watermark text
   const watermarkLabel = [userName, userEmail].filter(Boolean).join(" • ") || "WhatBoutMe Compulsory LMS";
@@ -248,6 +286,46 @@ export default function CompulsoryVideoPlayer({
     return () => document.removeEventListener("fullscreenchange", handleFsChange);
   }, []);
 
+  // Dedicated seamless resume evaluator
+  const applyResumeIfEligible = useCallback(
+    (videoEl?: HTMLVideoElement | null) => {
+      const video = videoEl || videoRef.current;
+      if (!video || hasAppliedInitialSeekRef.current) return;
+
+      const rawDur = Math.floor(video.duration || 0);
+      const effectiveDur =
+        Number.isFinite(rawDur) && rawDur > 0
+          ? rawDur
+          : initialDurationSec || duration || 0;
+
+      const { resumeSec, shouldResume } = determineResumePosition({
+        initialPositionSec,
+        localResumeSec: localResume?.positionSec,
+        durationSec: effectiveDur,
+        isCompleted: hasCompletedRef.current,
+      });
+
+      if (shouldResume && resumeSec > 5) {
+        hasAppliedInitialSeekRef.current = true;
+        video.currentTime = resumeSec;
+        setCurrentTime(resumeSec);
+        lastValidTimeRef.current = resumeSec;
+        maxWatchedSecRef.current = Math.max(maxWatchedSecRef.current, resumeSec);
+        lastHeartbeatPositionRef.current = resumeSec;
+        setResumedNotice(Math.floor(resumeSec));
+      }
+    },
+    [initialPositionSec, localResume, initialDurationSec, duration]
+  );
+
+  // Synchronize when initialPositionSec arrives asynchronously from server
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && !hasAppliedInitialSeekRef.current && video.currentTime < 5) {
+      applyResumeIfEligible(video);
+    }
+  }, [initialPositionSec, applyResumeIfEligible]);
+
   // Loaded metadata: resume playback & sanitize duration
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     setVideoError(null);
@@ -259,14 +337,9 @@ export default function CompulsoryVideoPlayer({
     setDuration(effectiveDur);
 
     // Resume from saved position if valid
-    if (initialPositionSec && initialPositionSec > 5 && effectiveDur > 0 && initialPositionSec < effectiveDur - 5) {
-      video.currentTime = initialPositionSec;
-      lastValidTimeRef.current = initialPositionSec;
-      maxWatchedSecRef.current = initialPositionSec;
-      setCurrentTime(initialPositionSec);
-      setResumedNotice(Math.floor(initialPositionSec));
-    }
+    applyResumeIfEligible(video);
   };
+
 
   // Seeking handler: update current time and progress safely against anti-skip rules
   const handleSeeking = () => {
@@ -344,9 +417,10 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send 15-second periodic heartbeat with exact interval segments
+    // Send dynamic periodic heartbeat with exact interval segments (faster for short clips)
     const now = Date.now();
-    if (now - lastHeartbeatTimeRef.current >= 15000) {
+    const intervalMs = dur > 0 && dur < 60 ? Math.max(2500, Math.floor((dur * 1000) / 4)) : 10000;
+    if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
@@ -362,11 +436,24 @@ export default function CompulsoryVideoPlayer({
       );
     }
 
-    // Server-enforced compulsory completion: watchedSeconds >= duration * 0.95
-    if (dur > 0 && current >= dur * 0.95 && !hasCompletedRef.current) {
+    // Save watch position to localStorage every 2 seconds for instant 0ms resume
+    if (now - lastSavedLocalTimeRef.current >= 2000 && current > 0) {
+      lastSavedLocalTimeRef.current = now;
+      saveLocalVideoResume(lessonId, current, dur);
+    }
+
+    // Server-enforced compulsory completion: watchedSeconds >= duration * 0.90 or within 1s of end
+    if (dur > 0 && (current >= dur * 0.90 || current >= dur - 1.0) && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
       setHasEnded(true);
-      onHeartbeat(dur, true, dur);
+      clearLocalVideoResume(lessonId);
+      saveLocalLessonCompletion(lessonId);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = dur;
+      const delta = Math.max(0, toSec - fromSec);
+      lastHeartbeatTimeRef.current = now;
+      lastHeartbeatPositionRef.current = toSec;
+      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
       onComplete();
     }
   };
@@ -375,13 +462,21 @@ export default function CompulsoryVideoPlayer({
   const handleEnded = () => {
     setIsPlaying(false);
     setHasEnded(true);
+    clearLocalVideoResume(lessonId);
+    saveLocalLessonCompletion(lessonId);
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
     if (!hasCompletedRef.current) {
       hasCompletedRef.current = true;
-      onHeartbeat(dur, true, dur);
-      onComplete();
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = dur;
+      const delta = Math.max(0, toSec - fromSec);
+      lastHeartbeatTimeRef.current = Date.now();
+      lastHeartbeatPositionRef.current = toSec;
+      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
     }
+    onComplete();
   };
+
 
   // Auto-hide controls when playing and idle
   const handleMouseMove = () => {
@@ -422,6 +517,23 @@ export default function CompulsoryVideoPlayer({
       video.play().catch(() => {});
     } else {
       video.pause();
+      const cur = video.currentTime;
+      const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const toSec = cur;
+      const delta = Math.max(0, toSec - fromSec);
+      if (delta >= 1) {
+        lastHeartbeatTimeRef.current = Date.now();
+        lastHeartbeatPositionRef.current = toSec;
+        onHeartbeat(
+          Math.floor(cur),
+          false,
+          dur > 0 ? dur : undefined,
+          Math.floor(delta),
+          Math.floor(fromSec),
+          Math.floor(toSec),
+        );
+      }
     }
   };
 
@@ -522,6 +634,7 @@ export default function CompulsoryVideoPlayer({
           onSeeking={handleSeeking}
           onRateChange={handleRateChange}
           onLoadedMetadata={handleLoadedMetadata}
+          onCanPlay={(e) => applyResumeIfEligible(e.currentTarget)}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           onError={() => {
@@ -613,6 +726,38 @@ export default function CompulsoryVideoPlayer({
         >
           <Lock size={14} color="#f59e0b" />
           <span>{seekWarning}</span>
+        </div>
+      )}
+
+      {/* 4b. Resumed Playback Notice (Surfaces exact resume timestamp) */}
+      {resumedNotice !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "absolute",
+            top: "20px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(15, 23, 42, 0.88)",
+            border: "1px solid rgba(245, 158, 11, 0.5)",
+            color: "#ffffff",
+            padding: "8px 18px",
+            borderRadius: "9999px",
+            fontSize: "0.82rem",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            zIndex: 60,
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            pointerEvents: "none",
+          }}
+        >
+          <span style={{ color: "#f59e0b" }}>▶</span>
+          <span>Resumed playback from {formatTime(resumedNotice)}</span>
         </div>
       )}
 

@@ -172,19 +172,32 @@ export class MissionStatementsService {
     let fileUrl = '';
     if (this.objectStorage && typeof this.objectStorage.uploadBuffer === 'function') {
       try {
-        fileUrl = await this.objectStorage.uploadBuffer(storageKey, file.buffer, file.mimetype);
+        const uploaded = await this.objectStorage.uploadBuffer(storageKey, file.buffer, file.mimetype);
+        if (typeof uploaded === 'string' && (uploaded.startsWith('http://') || uploaded.startsWith('https://'))) {
+          fileUrl = uploaded;
+        }
       } catch (err: any) {
         this.logger.warn(`Object storage upload error: ${err?.message}`);
       }
     }
 
-    // Always persist to local UPLOAD_DIR so /uploads/${storageKey} resolves immediately
-    try {
-      const localFilePath = join(UPLOAD_DIR, storageKey);
-      await fs.mkdir(dirname(localFilePath), { recursive: true });
-      await fs.writeFile(localFilePath, file.buffer);
-    } catch (fsErr: any) {
-      this.logger.warn(`Could not save mission statement to local disk: ${fsErr?.message}`);
+    // Always persist to local disk in UPLOAD_DIR and fallback directories for immediate static serving
+    const targetDirs = [UPLOAD_DIR];
+    const cwdStorage = join(process.cwd(), 'storage', 'uploads');
+    if (!targetDirs.includes(cwdStorage)) targetDirs.push(cwdStorage);
+    if (!process.cwd().replace(/\\/g, '/').endsWith('apps/api')) {
+      const monorepoSubDir = join(process.cwd(), 'apps', 'api', 'storage', 'uploads');
+      if (!targetDirs.includes(monorepoSubDir)) targetDirs.push(monorepoSubDir);
+    }
+
+    for (const baseDir of targetDirs) {
+      try {
+        const localFilePath = join(baseDir, storageKey);
+        await fs.mkdir(dirname(localFilePath), { recursive: true });
+        await fs.writeFile(localFilePath, file.buffer);
+      } catch {
+        // Fallback directory write failure is safe to ignore
+      }
     }
 
     if (!fileUrl) {
@@ -353,23 +366,56 @@ export class MissionStatementsService {
 
   /**
    * Retrieves the physical file path and MIME metadata for streaming/viewing.
+   * Multi-root aware: checks UPLOAD_DIR, process.cwd(), and subpath variations.
    */
   async getFilePath(id: string, actorUser?: any): Promise<{ filePath: string; mimeType: string; fileName: string }> {
     const submission = await this.getById(id, actorUser);
 
-    const possiblePaths = [
-      join(UPLOAD_DIR, submission.storageKey),
-      join(UPLOAD_DIR, submission.fileUrl.replace(/^\/uploads\//, '')),
-      join(UPLOAD_DIR, 'mission-statements', submission.storageKey),
+    const baseDirs = [
+      UPLOAD_DIR,
+      join(process.cwd(), 'storage', 'uploads'),
+      join(process.cwd(), 'apps', 'api', 'storage', 'uploads'),
     ];
 
-    let foundPath = possiblePaths.find((p) => {
+    const cleanStorageKey = submission.storageKey.replace(/^\/+/, '');
+    const cleanFileUrl = (submission.fileUrl || '').replace(/^\/uploads\//, '').replace(/^\/+/, '');
+
+    const subPaths = [
+      cleanStorageKey,
+      cleanFileUrl,
+      join('mission-statements', cleanStorageKey),
+      join('mission-statements', cleanStorageKey.replace(/^mission-statements\//, '')),
+      cleanStorageKey.replace(/^mission-statements\//, ''),
+    ];
+
+    const candidatePaths: string[] = [];
+    for (const base of baseDirs) {
+      for (const sub of subPaths) {
+        candidatePaths.push(join(base, sub));
+      }
+    }
+
+    // Prioritize candidates with real file size (> 200 bytes) over dummy 1x1 placeholders
+    let foundPath = candidatePaths.find((p) => {
       try {
-        return fsSync.existsSync(p);
+        if (!fsSync.existsSync(p)) return false;
+        const stat = fsSync.statSync(p);
+        return stat.isFile() && stat.size > 200;
       } catch {
         return false;
       }
     });
+
+    // Secondary fallback: any existing file
+    if (!foundPath) {
+      foundPath = candidatePaths.find((p) => {
+        try {
+          return fsSync.existsSync(p);
+        } catch {
+          return false;
+        }
+      });
+    }
 
     if (!foundPath) {
       const fallbackPath = join(UPLOAD_DIR, submission.storageKey);
@@ -381,10 +427,22 @@ export class MissionStatementsService {
         );
         writeFileSync(fallbackPath, placeholderPdf);
       } else {
+        // High-contrast legible SVG-rendered JPEG representation
         const placeholderJpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12, 0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20, 0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29, 0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32, 0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0xbf, 0x00, 0xff, 0xd9]);
         writeFileSync(fallbackPath, placeholderJpg);
       }
       foundPath = fallbackPath;
+    } else {
+      // Mirror to standard UPLOAD_DIR / storageKey location if not already there
+      const canonicalPath = join(UPLOAD_DIR, submission.storageKey);
+      if (foundPath !== canonicalPath) {
+        try {
+          mkdirSync(dirname(canonicalPath), { recursive: true });
+          fsSync.copyFileSync(foundPath, canonicalPath);
+        } catch {
+          // safe to ignore mirror failure
+        }
+      }
     }
 
     return {

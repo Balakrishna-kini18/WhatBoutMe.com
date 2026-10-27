@@ -356,6 +356,40 @@ describe("LMS Learning Path Progression Logic", () => {
       expect(coachingM?.isCompleted).toBe(false);
       expect(coachingM?.statusLabel).toBe("Declined (Reapply Available)");
     });
+
+    it("evaluates user screenshot scenario: 1 total step, 0 done, all gates locked, 0 of 4 milestones completed (0%)", () => {
+      const progress = computeUnifiedJourneyProgress({
+        totalSteps: 1,
+        completedSteps: 0,
+        examPassed: false,
+        coachingCompleted: false,
+        missionApproved: false,
+      });
+
+      expect(progress.totalSteps).toBe(1);
+      expect(progress.completedSteps).toBe(0);
+      expect(progress.curriculumPercent).toBe(0);
+      expect(progress.totalMilestones).toBe(4); // 1 curriculum module + 3 post-curriculum gates
+      expect(progress.completedMilestones).toBe(0);
+      expect(progress.overallJourneyPercent).toBe(0);
+      expect(progress.summaryLabel).toBe("0 of 4 milestones completed");
+
+      const [curriculumM, examM, coachingM, missionM] = progress.milestones;
+      expect(curriculumM?.isCompleted).toBe(false);
+      expect(curriculumM?.statusLabel).toBe("0/1 Done");
+
+      expect(examM?.isCompleted).toBe(false);
+      expect(examM?.isUnlocked).toBe(false);
+      expect(examM?.statusLabel).toBe("Locked");
+
+      expect(coachingM?.isCompleted).toBe(false);
+      expect(coachingM?.isUnlocked).toBe(false);
+      expect(coachingM?.statusLabel).toBe("Locked");
+
+      expect(missionM?.isCompleted).toBe(false);
+      expect(missionM?.isUnlocked).toBe(false);
+      expect(missionM?.statusLabel).toBe("Locked");
+    });
   });
 
 });

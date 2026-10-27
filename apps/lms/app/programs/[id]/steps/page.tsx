@@ -15,6 +15,7 @@ import {
 } from "./learningPathLogic";
 import {
   API_URL,
+  cachedFetch,
   getAuthHeaders,
   getAuthToken,
   parseApiError,
@@ -291,12 +292,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         return;
       }
 
-      setLoading(true);
       setErrorMessage(null);
 
       try {
         const headers = getAuthHeaders();
-        const res = await fetch(`${API_URL}/progression/me/${id}`, { headers });
+        const res = await cachedFetch(`${API_URL}/progression/me/${id}`, {
+          headers,
+          ttlMs: 20_000,
+        });
 
         if (res.status === 401) {
           router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
@@ -311,66 +314,88 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         const data: EnrolmentProgressionResponse = await res.json();
         setProgression(data);
 
-        // Fetch post-curriculum milestone statuses in parallel
+        // Immediate UI unblock: display steps timeline, progress circle, and continue button instantly!
+        setLoading(false);
+
+        // Secondary milestone statuses: fetch in the background without blocking the primary view
         const enrolmentId = data.enrolmentId;
-        const [stagesRes, examBundle, coachingRes, missionRes] = await Promise.all([
-          enrolmentId
-            ? fetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, { headers }).catch(() => null)
-            : Promise.resolve(null),
-          fetch(`${API_URL}/programs/${id}/exam`, { headers })
-            .then(async (eRes) => {
-              if (!eRes || !eRes.ok) return null;
-              const eConfig: ExamConfigSummary = await eRes.json();
-              let eAttempt: ExamAttemptSummary | null = null;
-              if (eConfig?.id) {
-                const attRes = await fetch(`${API_URL}/exams/${eConfig.id}/attempt`, { headers }).catch(() => null);
-                if (attRes && attRes.ok) {
-                  const attText = await attRes.text();
-                  if (attText) {
-                    try {
-                      eAttempt = JSON.parse(attText);
-                    } catch {
-                      // ignore empty JSON
+        const allStepsCompleted = (data.steps || []).every((s) => s.isCompleted);
+
+        void (async () => {
+          try {
+            const [stagesRes, examRes, coachingRes, missionRes] = await Promise.all([
+              enrolmentId
+                ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
+                    headers,
+                    ttlMs: 30_000,
+                  }).catch(() => null)
+                : Promise.resolve(null),
+              cachedFetch(`${API_URL}/programs/${id}/exam`, {
+                headers,
+                ttlMs: 60_000,
+              }).catch(() => null),
+              cachedFetch(
+                `${API_URL}/one-on-one/my-requests${enrolmentId ? `?enrolmentId=${enrolmentId}` : ""}`,
+                { headers, ttlMs: 30_000 }
+              ).catch(() => null),
+              cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
+                headers,
+                ttlMs: 30_000,
+              }).catch(() => null),
+            ]);
+
+            let stage2Unlocked = false;
+            if (stagesRes && stagesRes.ok) {
+              const sData = await stagesRes.json();
+              setStagesEval(sData);
+              stage2Unlocked = Boolean(sData?.stages?.STAGE_2_EXAM?.isUnlocked);
+            }
+
+            if (examRes && examRes.ok) {
+              const eConfig: ExamConfigSummary = await examRes.json();
+              setExamConfig(eConfig);
+
+              // Only query attempt if the learner is actually eligible/unlocked for the Final Exam
+              // Completely avoids running the heavy 10-second attempt query when on early steps
+              if (eConfig?.id && (allStepsCompleted || stage2Unlocked)) {
+                try {
+                  const attRes = await cachedFetch(`${API_URL}/exams/${eConfig.id}/attempt`, {
+                    headers,
+                    ttlMs: 15_000,
+                  });
+                  if (attRes && attRes.ok) {
+                    const attText = await attRes.text();
+                    if (attText) {
+                      setExamAttempt(JSON.parse(attText));
                     }
                   }
+                } catch {
+                  // ignore
                 }
               }
-              return { eConfig, eAttempt };
-            })
-            .catch(() => null),
-          fetch(`${API_URL}/one-on-one/my-requests`, { headers }).catch(() => null),
-          fetch(`${API_URL}/mission-statements/my-submissions`, { headers }).catch(() => null),
-        ]);
+            }
 
-        if (stagesRes && stagesRes.ok) {
-          const sData = await stagesRes.json();
-          setStagesEval(sData);
-        }
+            if (coachingRes && coachingRes.ok) {
+              const cList = await coachingRes.json();
+              if (Array.isArray(cList)) {
+                setCoachingRequests(
+                  enrolmentId ? cList.filter((r: any) => r.enrolmentId === enrolmentId) : cList
+                );
+              }
+            }
 
-        if (examBundle?.eConfig) {
-          setExamConfig(examBundle.eConfig);
-          if (examBundle.eAttempt) {
-            setExamAttempt(examBundle.eAttempt);
+            if (missionRes && missionRes.ok) {
+              const mList = await missionRes.json();
+              if (Array.isArray(mList)) {
+                setMissionSubmissions(
+                  enrolmentId ? mList.filter((m: any) => m.enrolmentId === enrolmentId) : mList
+                );
+              }
+            }
+          } catch {
+            // Milestone background fetch failure does not affect primary curriculum view
           }
-        }
-
-        if (coachingRes && coachingRes.ok) {
-          const cList = await coachingRes.json();
-          if (Array.isArray(cList)) {
-            setCoachingRequests(
-              enrolmentId ? cList.filter((r: any) => !r.enrolmentId || r.enrolmentId === enrolmentId) : cList
-            );
-          }
-        }
-
-        if (missionRes && missionRes.ok) {
-          const mList = await missionRes.json();
-          if (Array.isArray(mList)) {
-            setMissionSubmissions(
-              enrolmentId ? mList.filter((m: any) => !m.enrolmentId || m.enrolmentId === enrolmentId) : mList
-            );
-          }
-        }
+        })();
       } catch (err: any) {
         if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch"))) {
           setTimeout(() => {
@@ -380,7 +405,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         }
         console.error("Progression fetch error:", err);
         setErrorMessage(err.message || "Could not load learning progression.");
-      } finally {
         setLoading(false);
       }
     },
@@ -510,8 +534,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const isLatestRejected = !activeCoachingReq && latestCoachingReq?.status === "REJECTED";
   const isCoachingCompleted = Boolean(
     stage4State?.isOverridden === true ||
-      Boolean(stage4State?.details?.completedSessionId) ||
-      coachingRequests.some((r) => r.session?.status === "COMPLETED")
+      (isCoachingUnlocked && (
+        stage4State?.isCompleted === true ||
+        Boolean(stage4State?.details?.completedSessionId) ||
+        coachingRequests.some((r) => r.session?.status === "COMPLETED")
+      ))
   );
 
   const stage5State = stagesEval?.stages?.STAGE_5_MISSION_STATEMENT;
@@ -521,7 +548,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const latestMission = missionSubmissions[0] || null;
   const isMissionApproved = Boolean(
     stage5State?.isOverridden === true ||
-      missionSubmissions.some((m) => m.status === "APPROVED")
+      (isMissionUnlocked && (
+        stage5State?.isCompleted === true ||
+        missionSubmissions.some((m) => m.status === "APPROVED")
+      ))
   );
 
   const isCertificateUnlocked = Boolean(
@@ -1707,7 +1737,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 )}
                               </div>
                               <a
-                                href={latestMission.fileUrl}
+                                href={
+                                  latestMission.fileUrl.startsWith("http")
+                                    ? latestMission.fileUrl
+                                    : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className={styles.reviewBtn}

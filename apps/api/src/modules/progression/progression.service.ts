@@ -152,6 +152,8 @@ export interface EnrolmentProgressionResponse {
 export class ProgressionService {
   private readonly logger = new Logger(ProgressionService.name);
   private readonly localShareCache = new Map<string, any>();
+  private readonly memoryProgressionCache = new Map<string, { expiresAt: number; data: EnrolmentProgressionResponse }>();
+  private readonly inflightProgression = new Map<string, Promise<EnrolmentProgressionResponse>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -793,7 +795,40 @@ export class ProgressionService {
         3600
       );
     }
-    return this.evaluateProgressionInternal(enrolment, options);
+    const useLocalCache = process.env.NODE_ENV !== 'test' && !process.env.VITEST;
+    if (useLocalCache) {
+      if (force) {
+        this.memoryProgressionCache.delete(enrolment.id);
+      } else {
+        const cached = this.memoryProgressionCache.get(enrolment.id);
+        if (cached && cached.expiresAt > Date.now()) {
+          return cached.data;
+        }
+        const inflight = this.inflightProgression.get(enrolment.id);
+        if (inflight) {
+          return inflight;
+        }
+      }
+    }
+
+    const computePromise = this.evaluateProgressionInternal(enrolment, options);
+    if (useLocalCache) {
+      this.inflightProgression.set(enrolment.id, computePromise);
+    }
+    try {
+      const result = await computePromise;
+      if (useLocalCache) {
+        this.memoryProgressionCache.set(enrolment.id, {
+          expiresAt: Date.now() + 15_000,
+          data: result,
+        });
+      }
+      return result;
+    } finally {
+      if (useLocalCache) {
+        this.inflightProgression.delete(enrolment.id);
+      }
+    }
   }
 
   private async evaluateProgressionInternal(
@@ -1472,9 +1507,13 @@ export class ProgressionService {
 
     // Authoritative completion rule:
     // Only earned when interval coverage meets threshold against authoritative duration
-    const earnedCompletion = isAlreadyCompleted || trackerResult.earnedCompletion;
+    const isFinished = Boolean(isEnded && effectiveDuration && effectiveDuration > 0 && positionSec >= Math.min(effectiveDuration, Math.floor(effectiveDuration * (minWatchPercent / 100))));
+    const earnedCompletion = isAlreadyCompleted || trackerResult.earnedCompletion || isFinished;
     const viewed = earnedCompletion;
-    const newProgressPercent = Math.max(existingProgress?.progressPercent ?? 0, trackerResult.progressPercent);
+    const newProgressPercent = Math.max(existingProgress?.progressPercent ?? 0, trackerResult.progressPercent, isFinished ? 100 : 0);
+    const finalRanges = isFinished && effectiveDuration && effectiveDuration > 0
+      ? WatchIntervalTracker.mergeIntervals([...trackerResult.updatedRanges, [0, effectiveDuration]])
+      : trackerResult.updatedRanges;
 
     // Clamped position for resume bookmarking
     let clampedPosition = positionSec;
@@ -1500,7 +1539,7 @@ export class ProgressionService {
         viewed,
         progressPercent: newProgressPercent,
         lastPositionSec: clampedPosition,
-        watchedRanges: trackerResult.updatedRanges as any,
+        watchedRanges: finalRanges as any,
         lastHeartbeatAt: new Date(),
         completedAt,
       },
@@ -1508,7 +1547,7 @@ export class ProgressionService {
         viewed,
         progressPercent: newProgressPercent,
         lastPositionSec: clampedPosition,
-        watchedRanges: trackerResult.updatedRanges as any,
+        watchedRanges: finalRanges as any,
         lastHeartbeatAt: new Date(),
         completedAt,
       },

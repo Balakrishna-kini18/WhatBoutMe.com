@@ -632,6 +632,24 @@
     display: none !important;
   }
 
+  .certificateOuterWrap {
+    width: 297mm !important;
+    height: 210mm !important;
+    max-width: 297mm !important;
+    max-height: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+  }
+
   .stack {
     display: block;
   }
@@ -649,11 +667,27 @@
   .sheet {
     width: 297mm !important;
     height: 210mm !important;
-    max-width: none !important;
+    max-width: 297mm !important;
+    max-height: 210mm !important;
+    aspect-ratio: 297 / 210 !important;
     margin: 0 auto !important;
     border: none !important;
     box-shadow: none !important;
-    page-break-inside: avoid;
-    break-inside: avoid;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  .sheet,
+  .sheet * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 }

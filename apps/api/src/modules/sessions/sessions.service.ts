@@ -1136,20 +1136,32 @@ export class SessionsService {
    */
   private async notifyEnrolledLearnersOfSession(session: any, batch: any) {
     try {
+      const is1on1 =
+        session.sessionType === SessionType.ONE_ON_ONE ||
+        session.sessionType === SessionType.ONE_ON_ONE_WITH_RO ||
+        Boolean(session.learnerId) ||
+        (typeof session.title === 'string' && (
+          session.title.toLowerCase().includes('1-on-1') ||
+          session.title.toLowerCase().includes('1-to-1') ||
+          session.title.toLowerCase().startsWith('1:1')
+        ));
+
+      const dedicatedLearnerId = session.learnerId || (is1on1 ? session.bookings?.[0]?.userId : null);
+
       // 1. In-App notifications
-      await this.remindLearners(session.batchId, session.title, session.startTime, session.learnerId);
+      await this.remindLearners(session.batchId, session.title, session.startTime, dedicatedLearnerId);
 
       // 2. Fetch enrolled learners with emails
       let learners: Array<{ id: string; name: string | null; email: string; timezone: string | null }> = [];
-      if (session.sessionType === SessionType.ONE_ON_ONE && session.learnerId) {
+      if (is1on1 && dedicatedLearnerId) {
         const singleLearner = await this.prisma.user.findUnique({
-          where: { id: session.learnerId },
+          where: { id: dedicatedLearnerId },
           select: { id: true, name: true, email: true, timezone: true },
         });
         if (singleLearner?.email) {
           learners = [singleLearner];
         }
-      } else {
+      } else if (!is1on1 && session.batchId) {
         const enrolments = await this.prisma.enrolment.findMany({
           where: {
             batchId: session.batchId,

@@ -89,3 +89,113 @@ export function calculateTimelineSeekTime(
   const ratio = Math.max(0, Math.min(1, clickX / trackWidth));
   return ratio * durationSec;
 }
+
+export interface VideoResumeData {
+  positionSec: number;
+  durationSec: number;
+  updatedAt: number;
+}
+
+/**
+ * Persists current video watch position to localStorage for 0ms instant resume
+ */
+export function saveLocalVideoResume(
+  lessonId: string,
+  positionSec: number,
+  durationSec?: number
+): void {
+  if (typeof window === "undefined" || !lessonId) return;
+  try {
+    const safePos = Math.floor(Math.max(0, positionSec));
+    if (safePos <= 0) return;
+    const payload: VideoResumeData = {
+      positionSec: safePos,
+      durationSec: Math.floor(durationSec || 0),
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(`wbm_video_resume_${lessonId}`, JSON.stringify(payload));
+  } catch (e) {
+    // quota or privacy mode safe
+  }
+}
+
+/**
+ * Retrieves persisted video watch position from localStorage
+ */
+export function getLocalVideoResume(lessonId: string): VideoResumeData | null {
+  if (typeof window === "undefined" || !lessonId) return null;
+  try {
+    const raw = localStorage.getItem(`wbm_video_resume_${lessonId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.positionSec === "number" && parsed.positionSec > 0) {
+      return parsed;
+    }
+  } catch (e) {
+    // ignore corrupt data
+  }
+  return null;
+}
+
+/**
+ * Clears local resume marker once video is fully completed
+ */
+export function clearLocalVideoResume(lessonId: string): void {
+  if (typeof window === "undefined" || !lessonId) return;
+  try {
+    localStorage.removeItem(`wbm_video_resume_${lessonId}`);
+  } catch (e) {}
+}
+
+/**
+ * Immediately marks a lesson as completed locally so next parts unlock with 0ms lag
+ */
+export function saveLocalLessonCompletion(lessonId: string): void {
+  if (typeof window === "undefined" || !lessonId) return;
+  try {
+    localStorage.setItem(`wbm_lesson_completed_${lessonId}`, "true");
+  } catch (e) {}
+}
+
+export function isLocalLessonCompleted(lessonId: string): boolean {
+  if (typeof window === "undefined" || !lessonId) return false;
+  try {
+    return localStorage.getItem(`wbm_lesson_completed_${lessonId}`) === "true";
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Computes optimal resume timestamp combining server snapshot and local tracker
+ */
+export function determineResumePosition({
+  initialPositionSec = 0,
+  localResumeSec = 0,
+  durationSec = 0,
+  isCompleted = false,
+}: {
+  initialPositionSec?: number;
+  localResumeSec?: number;
+  durationSec?: number;
+  isCompleted?: boolean;
+}): { resumeSec: number; shouldResume: boolean } {
+  // If video is already completed, allow starting fresh or rewatching
+  if (isCompleted) {
+    return { resumeSec: 0, shouldResume: false };
+  }
+
+  const effectivePos = Math.max(
+    Number.isFinite(initialPositionSec) ? Math.floor(initialPositionSec) : 0,
+    Number.isFinite(localResumeSec) ? Math.floor(localResumeSec) : 0
+  );
+
+  const dur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
+
+  // Only resume if learner watched more than 5s and has not reached the very end (within 5s)
+  if (effectivePos > 5 && (dur === 0 || effectivePos < dur - 5)) {
+    return { resumeSec: effectivePos, shouldResume: true };
+  }
+
+  return { resumeSec: 0, shouldResume: false };
+}

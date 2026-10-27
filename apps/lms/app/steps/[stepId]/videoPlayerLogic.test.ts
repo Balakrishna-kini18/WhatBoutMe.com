@@ -4,6 +4,7 @@ import {
   validateSeek,
   calculateRewindTarget,
   calculateTimelineSeekTime,
+  determineResumePosition,
 } from "./videoPlayerLogic";
 
 describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
@@ -100,4 +101,58 @@ describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
       expect(result.allowed).toBe(true);
     });
   });
+
+  describe("determineResumePosition (Video Tracker / Resume Logic)", () => {
+    it("resumes from half hour (1800s) on a 1-hour video (3600s)", () => {
+      const res = determineResumePosition({
+        initialPositionSec: 1800,
+        localResumeSec: 1800,
+        durationSec: 3600,
+        isCompleted: false,
+      });
+      expect(res.shouldResume).toBe(true);
+      expect(res.resumeSec).toBe(1800);
+    });
+
+    it("prioritizes the furthest position between server snapshot and local storage", () => {
+      const res = determineResumePosition({
+        initialPositionSec: 1200,
+        localResumeSec: 1850,
+        durationSec: 3600,
+        isCompleted: false,
+      });
+      expect(res.shouldResume).toBe(true);
+      expect(res.resumeSec).toBe(1850);
+    });
+
+    it("does not force resume if video is already completed (allows starting fresh or rewatching)", () => {
+      const res = determineResumePosition({
+        initialPositionSec: 3600,
+        durationSec: 3600,
+        isCompleted: true,
+      });
+      expect(res.shouldResume).toBe(false);
+      expect(res.resumeSec).toBe(0);
+    });
+
+    it("does not force resume if learner only watched less than 5 seconds", () => {
+      const res = determineResumePosition({
+        initialPositionSec: 3,
+        durationSec: 3600,
+        isCompleted: false,
+      });
+      expect(res.shouldResume).toBe(false);
+      expect(res.resumeSec).toBe(0);
+    });
+
+    it("does not force resume if learner is at the very end of the video (within 5 seconds of duration)", () => {
+      const res = determineResumePosition({
+        initialPositionSec: 3598,
+        durationSec: 3600,
+        isCompleted: false,
+      });
+      expect(res.shouldResume).toBe(false);
+    });
+  });
 });
+

@@ -225,7 +225,7 @@ export default function CourseCertificatePage({
               aside,
               nav,
               header:not(article header),
-              footer,
+              footer:not(article footer):not([class*="footerRow"]),
               [class*="sidebar"],
               [class*="topbar"],
               [class*="topBar"],
@@ -233,9 +233,8 @@ export default function CourseCertificatePage({
               [class*="PushNotification"] {
                 display: none !important;
               }
-              main,
-              [class*="mainContent"],
-              [class*="appContainer"] {
+              body > div[class*="appContainer"],
+              div[class*="appContainer"] > main[class*="mainContent"] {
                 margin: 0 !important;
                 margin-left: 0 !important;
                 padding: 0 !important;

@@ -114,16 +114,17 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
               aside,
               nav,
               header:not(article header),
-              footer,
+              footer:not(article footer):not([class*="footerRow"]),
               [class*="sidebar"],
               [class*="topbar"],
-              [class*="Header"] {
+              [class*="Header"],
+              [class*="toolbar"],
+              [class*="linkedinShareWrap"] {
                 display: none !important;
               }
-              main,
-              [class*="mainContent"],
-              [class*="appContainer"],
-              [class*="dashboardContainer"] {
+              body > div[class*="appContainer"],
+              div[class*="mainContent"],
+              div[class*="dashboardContainer"] {
                 margin: 0 !important;
                 margin-left: 0 !important;
                 padding: 0 !important;

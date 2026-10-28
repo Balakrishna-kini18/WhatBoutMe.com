@@ -11,6 +11,7 @@ import {
 import { formatNoteDate, formatVideoTime } from "../../../lib/timezone";
 import { normalizeStudentNote } from "../../../lib/notesAdapter";
 import { ConfirmModal } from "../../../components/ui/ConfirmModal";
+import { markdownToHtml, sanitizeNoteHtml } from "../../../lib/richTextHelper";
 
 interface LessonNotesPanelProps {
   programId?: string;
@@ -528,21 +529,24 @@ export default function LessonNotesPanel({
                           fontSize: "0.9rem",
                           color: "var(--text-primary)",
                           lineHeight: 1.5,
-                          whiteSpace: "pre-wrap",
                         }}
                       >
                         {(() => {
                           const norm = normalizeStudentNote(note);
+                          const formattedHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
                           return (
                             <div>
                               {norm.noteTitle && norm.noteTitle !== 'Untitled Note' && (
-                                <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 2, color: 'var(--text-primary)' }}>
+                                <strong style={{ display: 'block', fontSize: '0.92rem', marginBottom: 4, color: 'var(--text-primary)' }}>
                                   {norm.noteTitle}
                                 </strong>
                               )}
-                              <div style={{ whiteSpace: 'pre-wrap' }}>{norm.noteContent}</div>
+                              <div
+                                style={{ lineHeight: 1.6 }}
+                                dangerouslySetInnerHTML={{ __html: formattedHtml }}
+                              />
                               {norm.tags && norm.tags.length > 0 && (
-                                <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
                                   {norm.tags.map((t) => (
                                     <span key={t} style={{ fontSize: '0.72rem', background: '#ffedd5', color: '#9a3412', padding: '1px 6px', borderRadius: 4 }}>
                                       #{t}

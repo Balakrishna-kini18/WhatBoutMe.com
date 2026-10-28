@@ -122,4 +122,122 @@ describe('notesAdapter', () => {
     expect(getMyNotesExplorerUrl({ courseId: 'c1', moduleId: 'm1', lessonId: 'l1', noteId: 'n1' }))
       .toBe('/notes?courseId=c1&moduleId=m1&lessonId=l1&noteId=n1');
   });
+
+  it('maintains 100% parity between notes created in video step section and My Notes page', () => {
+    // 1. Note created in /steps/[stepId] (Video Lesson companion section)
+    const stepLessonPayload = serializeCreateNotePayload({
+      courseId: 'course-1',
+      moduleId: 'module-1',
+      lessonId: 'lesson-1',
+      noteTitle: 'Important Video Note',
+      noteContent: 'Key takeaway at this timestamp',
+      isFavorite: true,
+      videoTimestampSec: 8,
+      sourcePage: 'lesson_player',
+    });
+
+    const stepRawNote: StudentNote = {
+      id: 'note-step-1',
+      userId: 'user-1',
+      programId: stepLessonPayload.programId || null,
+      stepId: stepLessonPayload.stepId || null,
+      lessonId: stepLessonPayload.lessonId || null,
+      noteText: stepLessonPayload.noteText,
+      highlightSnippet: stepLessonPayload.highlightSnippet || null,
+      videoTimestampSeconds: stepLessonPayload.videoTimestampSeconds,
+      createdAt: '2026-10-28T12:00:00Z',
+      updatedAt: '2026-10-28T12:00:00Z',
+    };
+
+    const stepNormalized = normalizeStudentNote(stepRawNote);
+
+    // 2. Note created in /notes (My Notes page)
+    const myNotesPayload = serializeCreateNotePayload({
+      courseId: 'course-1',
+      moduleId: 'module-1',
+      lessonId: 'lesson-1',
+      noteTitle: 'Important Video Note',
+      noteContent: 'Key takeaway at this timestamp',
+      isFavorite: true,
+      videoTimestampSec: 8,
+      sourcePage: 'my_notes',
+    });
+
+    const myNotesRawNote: StudentNote = {
+      id: 'note-my-notes-1',
+      userId: 'user-1',
+      programId: myNotesPayload.programId || null,
+      stepId: myNotesPayload.stepId || null,
+      lessonId: myNotesPayload.lessonId || null,
+      noteText: myNotesPayload.noteText,
+      highlightSnippet: myNotesPayload.highlightSnippet || null,
+      videoTimestampSeconds: myNotesPayload.videoTimestampSeconds,
+      createdAt: '2026-10-28T12:00:00Z',
+      updatedAt: '2026-10-28T12:00:00Z',
+    };
+
+    const myNotesNormalized = normalizeStudentNote(myNotesRawNote);
+
+    // Both must normalize with identical titles, content, favorite status, and timestamps
+    expect(stepNormalized.noteTitle).toBe(myNotesNormalized.noteTitle);
+    expect(stepNormalized.noteContent).toBe(myNotesNormalized.noteContent);
+    expect(stepNormalized.isFavorite).toBe(myNotesNormalized.isFavorite);
+    expect(stepNormalized.isFavorite).toBe(true);
+    expect(stepNormalized.videoTimestampSec).toBe(myNotesNormalized.videoTimestampSec);
+    expect(stepNormalized.formattedTimestamp).toBe('0:08');
+  });
+
+  it('correctly toggles favorite status round-trip on both views', () => {
+    // Start with non-favorite
+    const initialPayload = serializeCreateNotePayload({
+      courseId: 'c1',
+      moduleId: 'm1',
+      lessonId: 'l1',
+      noteTitle: 'Toggling Note',
+      noteContent: 'Content here',
+      isFavorite: false,
+      videoTimestampSec: 42,
+    });
+
+    let rawNote: StudentNote = {
+      id: 'toggle-note',
+      userId: 'user-1',
+      programId: 'c1',
+      stepId: 'm1',
+      lessonId: 'l1',
+      noteText: initialPayload.noteText,
+      videoTimestampSeconds: 42,
+      createdAt: '2026-10-28T12:00:00Z',
+      updatedAt: '2026-10-28T12:00:00Z',
+    };
+
+    expect(normalizeStudentNote(rawNote).isFavorite).toBe(false);
+
+    // Toggle favorite ON (false -> true)
+    const updatePayloadOn = serializeUpdateNotePayload({
+      noteTitle: 'Toggling Note',
+      noteContent: 'Content here',
+      isFavorite: true,
+      videoTimestampSec: 42,
+    });
+    rawNote = {
+      ...rawNote,
+      noteText: updatePayloadOn.noteText || rawNote.noteText,
+    };
+    expect(normalizeStudentNote(rawNote).isFavorite).toBe(true);
+
+    // Toggle favorite OFF (true -> false)
+    const updatePayloadOff = serializeUpdateNotePayload({
+      noteTitle: 'Toggling Note',
+      noteContent: 'Content here',
+      isFavorite: false,
+      videoTimestampSec: 42,
+    });
+    rawNote = {
+      ...rawNote,
+      noteText: updatePayloadOff.noteText || rawNote.noteText,
+    };
+    expect(normalizeStudentNote(rawNote).isFavorite).toBe(false);
+  });
 });
+

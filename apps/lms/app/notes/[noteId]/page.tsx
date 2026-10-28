@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { RichNoteEditorView } from '../../components/notes/RichNoteEditorView';
 import { useNotesStore } from '../../lib/useNotesStore';
 import { getLessonPlayerUrl } from '../../lib/notesAdapter';
+import styles from '../../components/notes/richNoteEditor.module.css';
 import Link from 'next/link';
 
 export default function NoteDetailPage({
@@ -23,9 +24,12 @@ export default function NoteDetailPage({
 
   if (loading) {
     return (
-      <div style={{ maxWidth: 800, margin: '3rem auto', padding: '1rem' }}>
-        <div className="skeleton" style={{ width: 140, height: 20, borderRadius: 4, marginBottom: 20 }} />
-        <div className="skeleton" style={{ width: '100%', height: 360, borderRadius: 16 }} />
+      <div className={styles.editorPageWrapper}>
+        <div className={styles.editorPageCard}>
+          <div className="skeleton" style={{ width: 140, height: 20, borderRadius: 4 }} />
+          <div className="skeleton" style={{ width: '60%', height: 32, borderRadius: 6 }} />
+          <div className="skeleton" style={{ width: '100%', height: 320, borderRadius: 12 }} />
+        </div>
       </div>
     );
   }

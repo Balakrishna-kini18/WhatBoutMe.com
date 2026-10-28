@@ -34,15 +34,15 @@
   position: relative;
   overflow: hidden;
   background: linear-gradient(135deg, #fffaf4 0%, #fff3e2 55%, #feeeda 100%);
-  border: 1px solid #f5e5d3;
+  border: 1px solid #fed7aa;
   border-radius: 16px;
-  padding: 16px 24px;
+  padding: 14px 22px;
   margin-bottom: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  box-shadow: 0 4px 20px -4px rgba(224, 109, 40, 0.06), 0 1px 3px rgba(28, 25, 23, 0.03);
+  gap: 16px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
 }
 
 .heroLeft {
@@ -106,7 +106,7 @@
 .mainGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1.15fr);
-  gap: 14px;
+  gap: 16px;
   align-items: start;
 }
 
@@ -137,11 +137,11 @@
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 14px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 14px;
-  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
@@ -253,12 +253,12 @@
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 16px;
-  padding: 18px 20px 16px;
-  box-shadow: 0 2px 12px rgba(28, 25, 23, 0.04);
+  padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
 }
 
 .cardHeader {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .cardTitle {
@@ -283,17 +283,17 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .courseItem {
   background: #ffffff;
-  border: 1px solid #f0ece4;
+  border: 1px solid #ece6dd;
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
   transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease, border-color 0.15s ease;
 }
@@ -586,12 +586,11 @@
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 16px;
-  padding: 18px 20px 14px;
-  box-shadow: 0 2px 12px rgba(28, 25, 23, 0.04);
+  padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 14px;
+  gap: 12px;
 }
 
 .howHeader {
@@ -639,7 +638,7 @@
   gap: 12px;
   position: relative;
   z-index: 2;
-  padding-bottom: 12px;
+  padding-bottom: 10px;
 }
 
 .stepItem:last-child {
@@ -703,8 +702,8 @@
   margin-top: 4px;
   border-radius: 12px;
   background: linear-gradient(135deg, #fffaf4 0%, #fff4e5 55%, #feeeda 100%);
-  border: 1px solid #f5e5d3;
-  padding: 10px 12px;
+  border: 1px solid #fed7aa;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -12,6 +12,9 @@ interface PdfViewerModalProps {
   title: string;
   mediaUrl?: string | null;
   downloadUrl?: string | null;
+  isRead?: boolean;
+  onMarkAsRead?: (documentId: string) => void;
+  onNextSection?: (documentId: string) => void;
 }
 
 export default function PdfViewerModal({
@@ -21,6 +24,9 @@ export default function PdfViewerModal({
   title,
   mediaUrl,
   downloadUrl,
+  isRead = false,
+  onMarkAsRead,
+  onNextSection,
 }: PdfViewerModalProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,6 +41,16 @@ export default function PdfViewerModal({
       activeBlobRef.current = null;
     }
   };
+
+  // Automatically mark as read when learner opens and views the document
+  useEffect(() => {
+    if (isOpen && documentId && onMarkAsRead) {
+      const timer = setTimeout(() => {
+        onMarkAsRead(documentId);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, documentId, onMarkAsRead]);
 
   useEffect(() => {
     if (!isOpen || !documentId) {
@@ -154,6 +170,24 @@ export default function PdfViewerModal({
               <StepIcons.FilePdf size={18} />
               <span>PDF</span>
             </div>
+            {isRead && (
+              <span
+                style={{
+                  background: "#dcfce7",
+                  color: "#15803d",
+                  border: "1px solid #bbf7d0",
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                ✓ Read
+              </span>
+            )}
             <div className={styles.pdfModalTitleGroup}>
               <h3 className={styles.pdfModalTitle}>{title}</h3>
               <span className={styles.pdfModalSub}>In-Browser Document Reader</span>
@@ -161,6 +195,25 @@ export default function PdfViewerModal({
           </div>
 
           <div className={styles.pdfModalActions}>
+            {/* Mark as Read & Next Section */}
+            <button
+              type="button"
+              onClick={() => {
+                if (onNextSection) {
+                  onNextSection(documentId);
+                } else if (onMarkAsRead) {
+                  onMarkAsRead(documentId);
+                  onClose();
+                } else {
+                  onClose();
+                }
+              }}
+              className={styles.pdfNextSectionBtn}
+              title="Mark document as read and go to next section"
+            >
+              <span>{isRead ? "Next Section →" : "✓ Mark as Read & Next Section →"}</span>
+            </button>
+
             {/* Open in New Browser Tab */}
             <a
               href={viewInNewTabUrl}

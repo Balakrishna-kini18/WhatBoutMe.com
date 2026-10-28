@@ -326,8 +326,10 @@ export function computeUnifiedJourneyProgress(params: {
   examScore?: number | null;
   coachingCompleted: boolean;
   coachingStatus?: string | null;
+  coachingRequired?: boolean;
   missionApproved: boolean;
   missionStatus?: string | null;
+  missionRequired?: boolean;
   curriculumPercent?: number;
 }): UnifiedJourneyProgress {
   const totalSteps = Math.max(0, params.totalSteps || 0);
@@ -337,8 +339,13 @@ export function computeUnifiedJourneyProgress(params: {
   const examPassed = Boolean(params.examPassed);
   const coachingCompleted = Boolean(params.coachingCompleted);
   const missionApproved = Boolean(params.missionApproved);
+  const coachingRequired = params.coachingRequired !== false;
+  const missionRequired = params.missionRequired !== false;
 
-  const totalMilestones = totalSteps + 3;
+  let totalMilestones = totalSteps + 1; // Curriculum steps + Final Exam
+  if (coachingRequired) totalMilestones += 1;
+  if (missionRequired) totalMilestones += 1;
+
   let completedMilestones = completedSteps;
   if (examPassed) completedMilestones += 1;
   if (coachingCompleted) completedMilestones += 1;
@@ -346,7 +353,7 @@ export function computeUnifiedJourneyProgress(params: {
 
   const overallJourneyPercent =
     totalMilestones > 0
-      ? Math.round((completedMilestones / totalMilestones) * 100)
+      ? Math.min(100, Math.round((completedMilestones / totalMilestones) * 100))
       : 0;
 
   const curriculumPercent =
@@ -355,6 +362,8 @@ export function computeUnifiedJourneyProgress(params: {
       : totalSteps > 0
       ? Math.round((completedSteps / totalSteps) * 100)
       : 0;
+
+  const isCoachingGateSatisfied = coachingCompleted || !coachingRequired;
 
   const milestones: UnifiedJourneyMilestoneItem[] = [
     {
@@ -392,22 +401,34 @@ export function computeUnifiedJourneyProgress(params: {
         ? "Pending Approval"
         : params.coachingStatus === "REJECTED"
         ? "Declined (Reapply Available)"
+        : !coachingRequired
+        ? "Optional (Ready to Book)"
         : "Ready to Book",
-      detail: coachingCompleted ? "1-on-1 session conducted with trainer" : "Dedicated session with Roweena / trainer",
+      detail: coachingCompleted
+        ? "1-on-1 session conducted with trainer"
+        : !coachingRequired
+        ? "Optional coaching session (not required for certificate)"
+        : "Dedicated session with Roweena / trainer",
     },
     {
       id: "mission",
       title: "Mission Statement",
       isCompleted: missionApproved,
-      isUnlocked: coachingCompleted,
+      isUnlocked: examPassed && isCoachingGateSatisfied,
       statusLabel: missionApproved
         ? "Approved"
-        : !coachingCompleted
+        : !examPassed || !isCoachingGateSatisfied
         ? "Locked"
         : params.missionStatus === "SUBMITTED"
         ? "Under Review"
+        : !missionRequired
+        ? "Optional (Ready to Upload)"
         : "Ready to Upload",
-      detail: missionApproved ? "Personal mission statement approved" : "Signed transformation commitment",
+      detail: missionApproved
+        ? "Personal mission statement approved"
+        : !missionRequired
+        ? "Optional commitment (not required for certificate)"
+        : "Signed transformation commitment",
     },
   ];
 

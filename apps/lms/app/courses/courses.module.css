@@ -1,8 +1,425 @@
+/* =========================================================================
+   WhatBoutMe LMS - My Courses Page Styles
+   Clean, Modern SaaS Dashboard matching WhatBoutMe design system
+   ========================================================================= */
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeletonPulse {
+  background: linear-gradient(90deg, #f1ece4 25%, #fcfbf8 50%, #f1ece4 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite ease-in-out;
+  display: block;
+}
+
+/* Page Container */
+.pageWrapper {
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem 3.5rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Top Page Header */
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pageTitle {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+/* 4 Quick Stats Grid */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .statsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.statCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+div.statCard {
+  cursor: default;
+}
+
+.statCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.08);
+  border-color: #fed7aa;
+}
+
+div.statCard:hover {
+  transform: none;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+  border-color: #ece6dd;
+}
+
+.statIconBadge {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #ea580c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.statIconBadge svg {
+  width: 22px;
+  height: 22px;
+}
+
+.statContent {
+  display: flex;
+  flex-direction: column;
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.statLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+/* Enrolled Courses Section */
+.coursesSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sectionTitle {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.015em;
+}
+
+.addCourseBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #fed7aa;
+  color: #ea580c;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(234, 88, 12, 0.05);
+}
+
+.addCourseBtn:hover {
+  background: #fff7ed;
+  border-color: #f97316;
+  color: #c2410c;
+  transform: translateY(-1px);
+}
+
+/* Cards Grid */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 640px) {
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Course Card */
+.courseCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.courseCard:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.07);
+  border-color: #cbd5e1;
+}
+
+/* Image Cover */
+.cardCover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.cardCover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.cardCover:hover img {
+  transform: scale(1.03);
+}
+
+.playCircle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #ea580c;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.cardCover:hover .playCircle {
+  transform: translate(-50%, -50%) scale(1.1);
+  background: #c2410c;
+}
+
+/* Card Body */
+.cardBody {
+  padding: 1.1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.55rem;
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.courseTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+  margin: 0;
+  flex: 1;
+}
+
+/* Status Badges */
+.pillCompleted {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pillActive {
+  background: #fff7ed;
+  color: #ea580c;
+  border: 1px solid #fed7aa;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pillGated {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Progress Row */
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0.2rem 0;
+}
+
+.progressBar {
+  flex: 1;
+  height: 7px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: #ea580c;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.progressFillCompleted {
+  background: #16a34a;
+}
+
+.progressPercent {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #475569;
+  min-width: 36px;
+  text-align: right;
+}
+
+.upNext {
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Card Action Footer */
+.cardFooter {
+  padding: 0.85rem 1.15rem 1rem;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.primaryActionBtn {
+  flex: 1;
+  padding: 0.6rem 0.95rem;
+  border-radius: 8px;
+  background: #ea580c;
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  border: none;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(234, 88, 12, 0.25);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.primaryActionBtn:hover {
+  background: #c2410c;
+  box-shadow: 0 4px 10px rgba(234, 88, 12, 0.35);
+  color: #ffffff;
+}
+
+.secondaryActionBtn {
+  flex: 1;
+  padding: 0.6rem 0.95rem;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.secondaryActionBtn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+/* Pending items drawer list */
 .pending {
   list-style: none;
   margin: 0.75rem 0 0;
   padding: 0;
-  border-top: 1px solid var(--border-light);
+  border-top: 1px solid #f1f5f9;
 }
 
 .pending li {
@@ -10,8 +427,8 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0;
-  border-bottom: 1px solid var(--border-light);
-  font-size: var(--text-sm);
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.82rem;
 }
 
 .pending li:last-child {
@@ -23,9 +440,9 @@
   width: 3.5rem;
   padding: 0.2rem 0;
   border-radius: 999px;
-  background: var(--accent-highlight);
-  color: var(--accent-primary);
-  font-size: var(--text-xs);
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.72rem;
   font-weight: 700;
   text-align: center;
 }
@@ -41,510 +458,130 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #0f172a;
 }
 
 .itemText span {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
+  color: #64748b;
+  font-size: 0.75rem;
 }
 
-.block {
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.block:last-child {
-  border-bottom: none;
-  padding-bottom: 0.25rem;
-}
-
-.blockHead {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.more {
-  margin: 0.5rem 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-/* attendance rows */
-.session {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 0;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.session:last-child {
-  border-bottom: none;
-  padding-bottom: 0.25rem;
-}
-
-.date {
-  flex-shrink: 0;
-  width: 3.25rem;
-  padding: 0.4rem 0;
-  border-radius: var(--radius-md);
-  background: var(--accent-highlight);
-  color: var(--accent-primary);
-  text-align: center;
-  line-height: 1.15;
-}
-
-.date strong {
-  display: block;
-  font-size: var(--text-lg);
-  font-variant-numeric: tabular-nums;
-}
-
-.date span {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.present,
-.absent,
-.upcoming {
-  flex-shrink: 0;
-  padding: 0.3rem 0.7rem;
-  border-radius: 999px;
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-
-.present {
-  background: var(--status-success-bg);
-  color: var(--status-success);
-}
-
-.absent {
-  background: var(--status-error-bg);
-  color: var(--status-error);
-}
-
-.upcoming {
-  background: var(--bg-soft);
-  color: var(--text-secondary);
-}
-
-.tiles {
-  margin-bottom: 0;
-}
-
-/* course picture; the whole picture continues the course */
-.cover {
-  position: relative;
-  flex-shrink: 0;
-  display: block;
-  width: 220px;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: var(--radius-md);
-  background: var(--bg-soft);
-}
-
-.cover img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--accent-primary);
-  color: white;
-  transform: translate(-50%, -50%);
-  box-shadow: var(--shadow-md);
-}
-
-.upNext {
-  margin: 0.5rem 0 0;
-  overflow: hidden;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.upNext span {
-  color: var(--text-secondary);
-  font-weight: 400;
-}
-
-.actions {
-  display: flex;
-  gap: 0.6rem;
-  margin-top: 0.85rem;
-}
-
-/* course name on the left, its status pill on the right, on one line */
-.titleRow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.titleRow > span:first-child {
-  min-width: 0;
-}
-
-/* Wider than a phone: picture, details, then the actions in their own column
-   on the right, centred on the row. The status pill sits beside the course
-   name, not at the far edge. */
-@media (min-width: 641px) {
-  .blockHead > div {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 1.5rem;
-    align-items: center;
-  }
-
-  .blockHead > div > * {
-    grid-column: 1;
-  }
-
-  .blockHead .actions {
-    grid-column: 2;
-    grid-row: 1 / span 4;
-    margin-top: 0;
-  }
-
-  .titleRow {
-    justify-content: flex-start;
-    align-items: center;
-  }
-}
-
-/* overall progress card: phones only */
-.overall {
-  display: none;
-}
-
-@media (max-width: 640px) {
-  .overall {
-    display: flex;
-    align-items: center;
-    gap: 1.1rem;
-    padding: 1.1rem 1.25rem;
-    border-radius: 16px;
-    /* ink with a gold ring, like the website's dark bar */
-    background: var(--text-primary);
-    color: white;
-  }
-
-  .ring {
-    position: relative;
-    flex-shrink: 0;
-    width: 76px;
-    height: 76px;
-  }
-
-  .ring svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-    transform: rotate(-90deg);
-  }
-
-  .ring circle {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.25);
-    stroke-width: 3;
-  }
-
-  .ring circle + circle {
-    stroke: var(--accent-secondary);
-    stroke-linecap: round;
-  }
-
-  .ring strong {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: var(--text-lg);
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .overallText {
-    min-width: 0;
-  }
-
-  .overallText h2 {
-    margin: 0 0 0.25rem;
-    color: white;
-    font-size: var(--text-base);
-    font-weight: 700;
-  }
-
-  .overallText p {
-    margin: 0;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: var(--text-sm);
-  }
-
-  /* one column: details first, then the action as a full-width button */
-  .blockHead {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.85rem;
-  }
-
-  .cover {
-    width: 100%;
-  }
-
-  /* two by two with the icons kept, unlike the dashboard's four-across row */
-  div.tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-  }
-
-  .tiles > a,
-  .tiles > div {
-    flex-direction: row;
-    justify-content: flex-start;
-    gap: 0.7rem;
-    padding: 0.85rem 0.9rem;
-    text-align: left;
-  }
-
-  .tiles > * > span:first-child {
-    display: flex;
-    width: 38px;
-    height: 38px;
-  }
-
-  .tiles > * > span:last-child {
-    align-items: flex-start;
-  }
-
-  .upNext {
-    white-space: normal;
-  }
-
-  .actions > a {
-    flex: 1;
-    text-align: center;
-  }
-
-  .pending li {
-    padding: 0.75rem 0;
-  }
-
-  .itemText span {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-/* shown when the learner has no course: what is empty, and the way forward */
+/* Empty State */
 .emptyState {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
-  padding: 2.5rem 1rem 2rem;
-  color: var(--text-secondary);
+  padding: 3rem 1rem;
+  color: #64748b;
   text-align: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
 }
 
 .emptyState svg {
-  color: var(--accent-primary);
+  color: #ea580c;
 }
 
 .emptyState h3 {
   margin: 0.5rem 0 0;
-  font-size: var(--text-lg);
+  font-size: 1.15rem;
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .emptyState p {
   max-width: 26rem;
-  margin: 0 0 0.75rem;
-  font-size: var(--text-sm);
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
   line-height: 1.5;
 }
 
-/* ---- Enrolled courses as cards (same look as the dashboard's) ----
-   Picture on top, then the name, cohort, progress and what is next, and the
-   buttons in their own footer. Side by side on wide screens, stacked on phones. */
-.cardGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 1rem;
-  margin-top: 0.25rem;
-}
-
-.cardGrid .block,
-.cardGrid .block:last-child {
-  display: flex;
-  flex-direction: column;
-  padding: 0 0 1rem;
-  overflow: hidden;
-  border: 1px solid #cbb797;
-  border-radius: 16px;
-  background: var(--bg-card);
-  box-shadow: 0 1px 2px rgba(20, 17, 15, 0.05), 0 10px 24px -18px rgba(110, 63, 18, 0.35);
-}
-
-.cardGrid .blockHead {
-  flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.85rem;
-}
-
-.cardGrid .cover {
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  border-radius: 0;
-  border-bottom: 1px solid var(--border-light);
-}
-
-/* the details: one column, padded inside the card */
-.cardGrid .blockHead > div {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 0 1rem;
-}
-
-/* the progress count reads as plain text, not a pill */
-.cardGrid .titleRow > span:last-child {
-  flex-shrink: 0;
-  padding: 0;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-  font-weight: 500;
-}
-
-.cardGrid .progressLine,
-.cardGrid [role="progressbar"] {
-  margin-top: 0.6rem;
-}
-
-.cardGrid .upNext {
-  white-space: normal;
-}
-
-.cardGrid .actions {
-  margin-top: auto;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--border-light);
-}
-
-.cardGrid .blockHead > div > p:last-of-type {
-  margin-bottom: 0.85rem;
-}
-
-.cardGrid .actions > a,
-.cardGrid .actions > span {
-  flex: 1;
-  text-align: center;
-}
-
-/* the main action: warm, inviting, a small lift on hover */
-.cardGrid .actions > a:first-child {
+.exploreBtn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding-top: 0.65rem;
-  padding-bottom: 0.65rem;
+  padding: 0.65rem 1.4rem;
+  border-radius: 10px;
+  background: #ea580c;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.exploreBtn:hover {
+  background: #c2410c;
+  color: #ffffff;
+}
+
+.emptySearch {
+  padding: 2rem;
+  text-align: center;
+  color: #64748b;
+  background: #ffffff;
   border-radius: 12px;
-  background: linear-gradient(180deg, #d98a2b 0%, var(--accent-primary) 100%);
-  box-shadow: 0 6px 16px -8px rgba(201, 122, 30, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  border: 1px solid #e2e8f0;
 }
 
-.cardGrid .actions > a:first-child:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px -10px rgba(201, 122, 30, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.cardGrid .actions > a + a {
-  padding-top: 0.65rem;
-  padding-bottom: 0.65rem;
-  border-radius: 12px;
-}
-
-.cardGrid .pending,
-.cardGrid .more {
-  margin-right: 1rem;
-  margin-left: 1rem;
-}
-
-@media (min-width: 641px) {
-  /* undo the wide-row layout (actions in a right-hand column) inside cards */
-  .cardGrid .blockHead > div {
-    display: flex;
-  }
-
-  .cardGrid .blockHead .actions {
-    margin-top: auto;
-  }
-
-  .cardGrid .titleRow {
-    justify-content: space-between;
-    align-items: flex-start;
-  }
-}
-
-@media (max-width: 640px) {
-  .cardGrid .cover {
-    aspect-ratio: 2 / 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cardGrid .actions > a:first-child {
-    transition: none;
-  }
-}
-
-/* Course Card Progress Bar */
-.cardGrid .progressLine {
+/* Overall Progress Card */
+.overall {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  margin: 0.65rem 0 0.85rem;
-  width: 100%;
+  gap: 1.1rem;
+  padding: 1.1rem 1.25rem;
+  border-radius: 16px;
+  background: #0f172a;
+  color: white;
+  margin-bottom: 0.5rem;
 }
 
-.cardGrid .progress {
-  flex: 1;
-  height: 8px;
-  background: #efece6;
-  border-radius: 999px;
-  overflow: hidden;
+.ring {
   position: relative;
+  flex-shrink: 0;
+  width: 76px;
+  height: 76px;
 }
 
-.cardGrid .progress span {
+.ring svg {
   display: block;
+  width: 100%;
   height: 100%;
-  background: #d36b00;
-  border-radius: 999px;
-  transition: width 0.3s ease;
+  transform: rotate(-90deg);
 }
 
+.ring circle {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 3;
+}
+
+.ring circle + circle {
+  stroke: #f59e0b;
+  stroke-linecap: round;
+}
+
+.ring strong {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.overallText h2 {
+  margin: 0 0 0.25rem;
+  color: white;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.overallText p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.84rem;
+}

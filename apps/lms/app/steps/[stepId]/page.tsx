@@ -14,14 +14,22 @@ import {
   QuizQuestion,
   fetchLessonNotes,
   createStudentNote,
+  updateStudentNote,
   deleteStudentNote,
   StudentNote,
   getLockMessage,
 } from "../../lib/api";
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
 import PdfViewerModal from "./components/PdfViewerModal";
+import RichNoteEditorModal from "../../components/notes/RichNoteEditorModal";
 import StepLoading from "./loading";
-import { normalizeStudentNote } from "../../lib/notesAdapter";
+import {
+  normalizeStudentNote,
+  serializeCreateNotePayload,
+  serializeUpdateNotePayload,
+  extractPlainTextPreview,
+} from "../../lib/notesAdapter";
+import { ContextualNote, formatSecondsToTimestamp } from "../../types/learner-flow";
 import { markdownToHtml, sanitizeNoteHtml } from "../../lib/richTextHelper";
 import {
   getLocalVideoResume,
@@ -96,9 +104,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Notes state
   const [notes, setNotes] = useState<StudentNote[]>([]);
+  const [noteTitle, setNoteTitle] = useState("");
   const [noteInput, setNoteInput] = useState("");
+  const [noteIsFavorite, setNoteIsFavorite] = useState(false);
+  const [capturedTimestamp, setCapturedTimestamp] = useState<number | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
+  const [videoSeekTarget, setVideoSeekTarget] = useState<number | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [notesSearch, setNotesSearch] = useState("");
+  const [editingModalNote, setEditingModalNote] = useState<Partial<ContextualNote> | null>(null);
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
 
   // Materials state
   const [materialsSearch, setMaterialsSearch] = useState("");
@@ -762,37 +777,113 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     }
   }, [activeTab, isQuizUnlocked, step?.quiz?.id, activeAttemptId, lastQuizResult]);
 
-  // Handle Save Note
+  // Handle Save Note with Full Structured Envelope (Exact parity with My Notes page)
   const handleSaveNote = async () => {
-    if (!noteInput.trim() || !currentMedia?.id) return;
+    if ((!noteInput.trim() && !noteTitle.trim()) || !currentMedia?.id) return;
     setIsSavingNote(true);
     try {
-      const saved = await createStudentNote({
+      const titleToSave = noteTitle.trim() || extractPlainTextPreview(noteInput, 50) || "Untitled Note";
+      const tsToSave = capturedTimestamp !== null ? capturedTimestamp : (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null);
+      
+      const payload = serializeCreateNotePayload({
+        courseId: step?.programId,
+        moduleId: stepId,
         lessonId: currentMedia.id,
-        stepId,
-        programId: step?.programId,
-        noteText: noteInput.trim(),
+        noteTitle: titleToSave,
+        noteContent: noteInput.trim(),
+        isFavorite: noteIsFavorite,
+        videoTimestampSec: tsToSave,
+        sourcePage: "lesson_player",
       });
+
+      const saved = await createStudentNote(payload);
       setNotes((prev) => [saved, ...prev]);
+      setNoteTitle("");
       setNoteInput("");
+      setNoteIsFavorite(false);
+      setCapturedTimestamp(null);
     } catch (err: any) {
-      // Fallback local note
+      console.warn("Failed to save note to API, falling back to local note:", err);
+      const titleToSave = noteTitle.trim() || extractPlainTextPreview(noteInput, 50) || "Untitled Note";
+      const tsToSave = capturedTimestamp !== null ? capturedTimestamp : (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null);
+      const fallbackEnvelope = serializeCreateNotePayload({
+        courseId: step?.programId,
+        moduleId: stepId,
+        lessonId: currentMedia.id,
+        noteTitle: titleToSave,
+        noteContent: noteInput.trim(),
+        isFavorite: noteIsFavorite,
+        videoTimestampSec: tsToSave,
+        sourcePage: "lesson_player",
+      });
       const fallbackNote: StudentNote = {
         id: `local-${Date.now()}`,
         userId: "local-user",
         programId: step?.programId || null,
         stepId,
         lessonId: currentMedia.id,
-        noteText: noteInput.trim(),
-        highlightSnippet: null,
-        videoTimestampSeconds: null,
+        noteText: fallbackEnvelope.noteText,
+        highlightSnippet: fallbackEnvelope.highlightSnippet || null,
+        videoTimestampSeconds: tsToSave,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       setNotes((prev) => [fallbackNote, ...prev]);
+      setNoteTitle("");
       setNoteInput("");
+      setNoteIsFavorite(false);
+      setCapturedTimestamp(null);
     } finally {
       setIsSavingNote(false);
+    }
+  };
+
+  // Toggle Favorite on a saved note in the companion list
+  const handleToggleNoteFavorite = async (noteItem: StudentNote) => {
+    const norm = normalizeStudentNote(noteItem);
+    const newFavorite = !norm.isFavorite;
+
+    // 1. Optimistic update in local notes list
+    setNotes((prev) =>
+      prev.map((n) => {
+        if (n.id !== noteItem.id) return n;
+        const currentNorm = normalizeStudentNote(n);
+        const payload = serializeUpdateNotePayload({
+          noteTitle: currentNorm.noteTitle,
+          noteContent: currentNorm.noteContent,
+          tags: currentNorm.tags,
+          isFavorite: newFavorite,
+          videoTimestampSec: currentNorm.videoTimestampSec,
+        });
+        return {
+          ...n,
+          noteText: payload.noteText ?? n.noteText,
+        };
+      })
+    );
+
+    // 2. Sync with backend
+    try {
+      const payload = serializeUpdateNotePayload({
+        noteTitle: norm.noteTitle,
+        noteContent: norm.noteContent,
+        tags: norm.tags,
+        isFavorite: newFavorite,
+        videoTimestampSec: norm.videoTimestampSec,
+      });
+      await updateStudentNote(noteItem.id, payload);
+    } catch (e) {
+      console.error("Failed to update favorite status:", e);
+      if (currentMedia?.id) {
+        void loadNotesForLesson(currentMedia.id);
+      }
+    }
+  };
+
+  const handleSeekToTimestamp = (sec: number | null) => {
+    if (sec != null && Number.isFinite(sec)) {
+      setVideoSeekTarget(sec);
+      setTimeout(() => setVideoSeekTarget(null), 500);
     }
   };
 
@@ -1427,6 +1518,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to)
                         }
                         onComplete={() => handleLessonComplete(currentMedia.id)}
+                        onTimeUpdate={(sec) => setCurrentVideoTime(sec)}
+                        seekToTime={videoSeekTarget}
                       />
                     </div>
                   ) : (
@@ -1542,104 +1635,286 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
               {/* Right Column: Personal Notes Widget & About Step Card */}
               <div className={styles.notesRightCol}>
-                {/* Notes & Highlights Card */}
+                {/* Notes & Highlights Card with Rich Parity Format */}
                 <div className={styles.notesCompanionCard}>
                   <div className={styles.notesCompanionHeader}>
-                    <h4 className={styles.notesCompanionTitle}>My Notes &amp; Highlights</h4>
-                    <span className={styles.notesCompanionMeta}>
-                      Personal • Private to you • {notes.length} saved
-                    </span>
+                    <div>
+                      <h4 className={styles.notesCompanionTitle}>My Notes &amp; Highlights</h4>
+                      <span className={styles.notesCompanionMeta}>
+                        Personal • Private to you • {notes.length} saved
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingModalNote({
+                          courseId: step?.programId,
+                          courseName: step?.program?.title,
+                          moduleId: stepId,
+                          moduleName: step?.title,
+                          lessonId: currentMedia?.id,
+                          lessonName: currentMedia?.title,
+                          noteTitle: noteTitle,
+                          noteContent: noteInput,
+                          isFavorite: noteIsFavorite,
+                          videoTimestampSec: capturedTimestamp ?? (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null),
+                        });
+                        setIsNoteModalOpen(true);
+                      }}
+                      style={{
+                        background: "none",
+                        border: "1px solid #fed7aa",
+                        borderRadius: 6,
+                        padding: "2px 7px",
+                        color: "#ea580c",
+                        fontSize: "0.74rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                      }}
+                      title="Open Full Note Editor"
+                    >
+                      <span>⤢</span> Full Editor
+                    </button>
                   </div>
 
-                  <textarea
-                    value={noteInput}
-                    onChange={(e) => setNoteInput(e.target.value.slice(0, 5000))}
-                    placeholder="Write your notes, key takeaways, or action items from this lesson..."
-                    className={styles.noteTextarea}
-                  />
-
-                  <div className={styles.noteToolbarRow}>
-                    <div className={styles.noteToolsGroup}>
+                  {/* Rich Note Writing Form (Screenshot 3 style) */}
+                  <div className={styles.noteFormContainer}>
+                    {/* Note Title + Star Favorite + Timestamp Row */}
+                    <div className={styles.noteTitleRow}>
+                      <input
+                        type="text"
+                        value={noteTitle}
+                        onChange={(e) => setNoteTitle(e.target.value.slice(0, 100))}
+                        placeholder="Note title (e.g., Installation Steps)..."
+                        className={styles.noteTitleInput}
+                      />
                       <button
                         type="button"
-                        onClick={() => setNoteInput((prev) => prev ? `**${prev}**` : "**Key takeaway:** ")}
-                        className={styles.noteToolBtn}
-                        title="Bold"
+                        onClick={() => setNoteIsFavorite(!noteIsFavorite)}
+                        className={`${styles.noteStarToggleBtn} ${noteIsFavorite ? styles.noteStarToggleBtnActive : ""}`}
+                        title={noteIsFavorite ? "Remove favorite" : "Mark as favorite"}
+                        aria-label="Toggle favorite"
                       >
-                        B
+                        ★
                       </button>
                       <button
                         type="button"
-                        onClick={() => setNoteInput((prev) => prev ? `*${prev}*` : "*Important note:* ")}
-                        className={styles.noteToolBtn}
-                        title="Italic"
+                        onClick={() => setCapturedTimestamp(capturedTimestamp !== null ? null : Math.floor(currentVideoTime))}
+                        className={styles.noteTimestampCaptureBtn}
+                        title="Click to capture or clear current video timestamp"
                       >
-                        I
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNoteInput((prev) => `${prev}\n• `)}
-                        className={styles.noteToolBtn}
-                        title="List bullet"
-                      >
-                        • List
+                        ⏱ {formatSecondsToTimestamp(capturedTimestamp !== null ? capturedTimestamp : Math.floor(currentVideoTime))}
                       </button>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {/* Rich Formatting Toolbar */}
+                    <div className={styles.noteFormattingToolbar}>
+                      <div className={styles.noteToolbarLeftGroup}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => prev ? `**${prev}**` : "**Text** ");
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Bold"
+                        >
+                          <strong>B</strong>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => prev ? `*${prev}*` : "*Text* ");
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Italic"
+                        >
+                          <em>I</em>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => prev ? `<u>${prev}</u>` : "<u>Text</u> ");
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Underline"
+                        >
+                          <u>U</u>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => prev ? `<mark>${prev}</mark>` : "<mark>Highlight</mark> ");
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Highlight"
+                        >
+                          ✏️ Highlight
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => `${prev}\n• `);
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Bullet List"
+                        >
+                          • List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => `${prev}\n1. `);
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Numbered List"
+                        >
+                          1. List
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteInput((prev) => prev.replace(/[*#_~<>`]/g, ''));
+                          }}
+                          className={styles.noteFormatBtn}
+                          title="Clear formatting"
+                        >
+                          ✕ Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Note Content Area */}
+                    <textarea
+                      value={noteInput}
+                      onChange={(e) => setNoteInput(e.target.value.slice(0, 5000))}
+                      placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
+                      className={styles.noteEditorTextarea}
+                    />
+
+                    {/* Action Bar */}
+                    <div className={styles.noteToolbarRow} style={{ marginTop: 6 }}>
                       <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>
                         {noteInput.length}/5000
                       </span>
-                      <button
-                        type="button"
-                        onClick={handleSaveNote}
-                        disabled={!noteInput.trim() || isSavingNote}
-                        className={styles.btnPrimaryOrange}
-                        style={{ padding: "0.4rem 0.85rem", fontSize: "0.8rem" }}
-                      >
-                        {isSavingNote ? "Saving..." : "Save Note"}
-                      </button>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {(noteTitle || noteInput || noteIsFavorite || capturedTimestamp !== null) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNoteTitle("");
+                              setNoteInput("");
+                              setNoteIsFavorite(false);
+                              setCapturedTimestamp(null);
+                            }}
+                            className={styles.btnSecondaryOutline}
+                            style={{ padding: "0.35rem 0.65rem", fontSize: "0.76rem" }}
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleSaveNote}
+                          disabled={(!noteInput.trim() && !noteTitle.trim()) || isSavingNote}
+                          className={styles.btnPrimaryOrange}
+                          style={{ padding: "0.4rem 0.95rem", fontSize: "0.8rem", fontWeight: 700 }}
+                        >
+                          {isSavingNote ? "Saving..." : "Save Note"}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Saved Notes Feed */}
+                  {/* Saved Notes Feed (Screenshot 2 format) */}
                   {notes.length > 0 && (
-                    <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
-                      {notes.map((n) => (
-                        <div
-                          key={n.id}
-                          style={{
-                            background: "#faf7f2",
-                            border: "1px solid #ece6dd",
-                            borderRadius: 8,
-                            padding: "0.6rem 0.75rem",
-                            fontSize: "0.82rem",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                            <strong style={{ fontSize: "0.82rem", color: "#1c1917" }}>
-                              {n.step?.title || `${step?.title || "Lesson"} Note`}
-                            </strong>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteNote(n.id)}
-                              style={{ background: "transparent", border: "none", color: "#dc2626", cursor: "pointer", fontSize: "0.8rem" }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          {(() => {
-                            const norm = normalizeStudentNote(n);
-                            const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
-                            return (
-                              <div
-                                style={{ margin: 0, color: "#57534e", lineHeight: 1.4 }}
-                                dangerouslySetInnerHTML={{ __html: cleanHtml }}
-                              />
-                            );
-                          })()}
-                        </div>
-                      ))}
+                    <div className={styles.savedNotesFeed}>
+                      {notes.map((n) => {
+                        const norm = normalizeStudentNote(n);
+                        const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
+                        return (
+                          <article key={n.id} className={styles.savedNoteCard}>
+                            <div className={styles.savedNoteTopRow}>
+                              <div className={styles.savedNoteTopLeft}>
+                                <span className={styles.savedNoteDocIcon} role="img" aria-label="note">📄</span>
+                                <h5 className={styles.savedNoteTitle} title={norm.noteTitle}>
+                                  {norm.noteTitle}
+                                </h5>
+                              </div>
+
+                              <div className={styles.savedNoteTopRight}>
+                                {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
+                                    className={styles.savedNoteTimestampBtn}
+                                    title="Jump video to this timestamp"
+                                  >
+                                    ⏱ {norm.formattedTimestamp}
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleNoteFavorite(n)}
+                                  className={styles.savedNoteStarBtn}
+                                  style={{ color: norm.isFavorite ? "#f59e0b" : "#cbd5e1" }}
+                                  title={norm.isFavorite ? "Remove favorite" : "Mark as favorite"}
+                                  aria-label="Toggle favorite"
+                                >
+                                  ★
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingModalNote(norm);
+                                    setIsNoteModalOpen(true);
+                                  }}
+                                  className={styles.savedNoteEditBtn}
+                                  title="Edit this note in full editor"
+                                >
+                                  ✏️
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteNote(n.id)}
+                                  className={styles.savedNoteDeleteBtn}
+                                  title="Delete note"
+                                  aria-label="Delete note"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+
+                            <div
+                              className={styles.savedNoteBody}
+                              dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                            />
+
+                            <div className={styles.savedNoteFooter}>
+                              <span>
+                                {n.updatedAt ? `Updated ${new Date(n.updatedAt).toLocaleDateString()}` : "Saved"}
+                              </span>
+                              {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
+                                  style={{ background: "none", border: "none", color: "#ea580c", fontSize: "0.72rem", fontWeight: 600, cursor: "pointer", padding: 0 }}
+                                >
+                                  Go to Video Player &rarr;
+                                </button>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2567,6 +2842,54 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           </aside>
         </>
       )}
+      <RichNoteEditorModal
+        isOpen={isNoteModalOpen}
+        initialNote={editingModalNote}
+        onClose={() => {
+          setIsNoteModalOpen(false);
+          setEditingModalNote(null);
+        }}
+        onSave={async (updated) => {
+          if (updated.noteId) {
+            const payload = serializeUpdateNotePayload({
+              noteTitle: updated.noteTitle,
+              noteContent: updated.noteContent,
+              tags: updated.tags,
+              isFavorite: updated.isFavorite,
+              videoTimestampSec: updated.videoTimestampSec,
+            });
+            const updatedRaw = await updateStudentNote(updated.noteId, payload);
+            setNotes((prev) =>
+              prev.map((n) => (n.id === updated.noteId ? updatedRaw : n))
+            );
+          } else if (currentMedia?.id) {
+            const payload = serializeCreateNotePayload({
+              courseId: step?.programId,
+              moduleId: stepId,
+              lessonId: currentMedia.id,
+              noteTitle: updated.noteTitle || "Untitled Note",
+              noteContent: updated.noteContent || "",
+              tags: updated.tags,
+              isFavorite: updated.isFavorite,
+              videoTimestampSec: updated.videoTimestampSec,
+              sourcePage: "lesson_player",
+            });
+            const saved = await createStudentNote(payload);
+            setNotes((prev) => [saved, ...prev]);
+          }
+          setIsNoteModalOpen(false);
+          setEditingModalNote(null);
+        }}
+        onDelete={async (noteId) => {
+          await handleDeleteNote(noteId);
+          setIsNoteModalOpen(false);
+          setEditingModalNote(null);
+        }}
+        onJumpToLesson={(_cId, _lId, ts) => {
+          handleSeekToTimestamp(ts);
+          setIsNoteModalOpen(false);
+        }}
+      />
       <PdfViewerModal
         isOpen={viewerPdf.isOpen}
         onClose={() => setViewerPdf((prev) => ({ ...prev, isOpen: false }))}

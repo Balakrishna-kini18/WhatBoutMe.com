@@ -91,7 +91,16 @@ export function useNotesStore(initialCourseId?: string) {
     const normalized = normalizeStudentNote(updatedRaw);
 
     setNotes((prev) =>
-      prev.map((n) => (n.noteId === noteId ? { ...n, ...normalized } : n))
+      prev.map((n) => {
+        if (n.noteId !== noteId) return n;
+        return {
+          ...n,
+          ...normalized,
+          courseName: normalized.courseName && normalized.courseName !== 'Course' ? normalized.courseName : n.courseName,
+          moduleName: normalized.moduleName && normalized.moduleName !== 'Module' ? normalized.moduleName : n.moduleName,
+          lessonName: normalized.lessonName && normalized.lessonName !== 'Lesson' ? normalized.lessonName : n.lessonName,
+        };
+      })
     );
     return normalized;
   }, []);

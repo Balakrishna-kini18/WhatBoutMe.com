@@ -7,6 +7,7 @@ import { extractPlainTextPreview } from '../../lib/notesAdapter';
 import { ConfirmModal } from '../ui/ConfirmModal';
 import { VisualRichTextEditor } from './VisualRichTextEditor';
 import { isEditorEmpty } from '../../lib/richTextHelper';
+import styles from './richNoteEditor.module.css';
 
 interface RichNoteEditorViewProps {
   note: ContextualNote;
@@ -89,37 +90,14 @@ export function RichNoteEditorView({
   const timestampDisplay = formatSecondsToTimestamp(note.videoTimestampSec);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#faf9f6', padding: '2rem 1rem' }}>
-      <div
-        style={{
-          maxWidth: 900,
-          margin: '0 auto',
-          background: '#ffffff',
-          borderRadius: 20,
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-          padding: '2rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.75rem',
-        }}
-      >
+    <div className={styles.editorPageWrapper}>
+      <div className={styles.editorPageCard}>
         {/* Top Navigation & Delete Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className={styles.editorPageTopBar}>
           <button
             type="button"
             onClick={onBackToNotes}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '0.88rem',
-              fontWeight: 600,
-              color: '#64748b',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
+            className={styles.editorPageBackBtn}
           >
             <span>&larr;</span> Back to Notes
           </button>
@@ -128,48 +106,16 @@ export function RichNoteEditorView({
             type="button"
             onClick={handleDeleteClick}
             disabled={isDeleting}
-            style={{
-              padding: '0.45rem 0.9rem',
-              borderRadius: 8,
-              background: '#fef2f2',
-              border: '1px solid #fecaca',
-              color: '#dc2626',
-              fontSize: '0.82rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            className={styles.editorPageDeleteBtn}
           >
             {isDeleting ? 'Deleting...' : '🗑 Delete Note'}
           </button>
         </div>
 
         {/* Context Provenance Header Card */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            gap: 16,
-            paddingBottom: '1.5rem',
-            borderBottom: '1px solid #f1f5f9',
-          }}
-        >
+        <div className={styles.editorPageHeader}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flex: 1 }}>
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 14,
-                background: '#ffedd5',
-                color: '#ea580c',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '1.4rem',
-                fontWeight: 'bold',
-                flexShrink: 0,
-              }}
-            >
+            <div className={styles.docIconBadge}>
               📄
             </div>
 
@@ -179,14 +125,7 @@ export function RichNoteEditorView({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Note title (e.g. Installation Steps)..."
-                style={{
-                  fontSize: '1.4rem',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  border: 'none',
-                  outline: 'none',
-                  width: '100%',
-                }}
+                className={styles.editorPageTitleInput}
               />
 
               {/* Interactive Course > Module > Lesson Breadcrumb */}
@@ -216,20 +155,7 @@ export function RichNoteEditorView({
                   <button
                     type="button"
                     onClick={() => onJumpToLesson(note.courseId, note.lessonId, note.videoTimestampSec, note.moduleId)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      padding: '3px 10px',
-                      borderRadius: 6,
-                      background: '#ffedd5',
-                      color: '#c2410c',
-                      border: '1px solid #fed7aa',
-                      fontFamily: 'monospace',
-                      fontSize: '0.8rem',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
+                    className={styles.timestampPill}
                   >
                     ⏱ {timestampDisplay}
                   </button>
@@ -243,20 +169,9 @@ export function RichNoteEditorView({
           <button
             type="button"
             onClick={() => setIsFavorite(!isFavorite)}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              border: `1px solid ${isFavorite ? '#fde68a' : '#e2e8f0'}`,
-              background: isFavorite ? '#fffbeb' : '#f8fafc',
-              color: isFavorite ? '#f59e0b' : '#94a3b8',
-              fontSize: '1.25rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            className={`${styles.starBtn} ${isFavorite ? styles.starBtnActive : ''}`}
             aria-label="Toggle favorite"
+            title={isFavorite ? 'Remove from favorites' : 'Mark as favorite'}
           >
             ★
           </button>
@@ -320,29 +235,12 @@ export function RichNoteEditorView({
         </div>
 
         {/* Sticky Footer Bar */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: 12,
-            paddingTop: '1.25rem',
-            borderTop: '1px solid #f1f5f9',
-          }}
-        >
+        {/* Sticky Footer Bar */}
+        <div className={styles.editorPageFooter}>
           <button
             type="button"
             onClick={onBackToNotes}
-            style={{
-              padding: '0.65rem 1.25rem',
-              borderRadius: 10,
-              border: '1px solid #cbd5e1',
-              background: '#ffffff',
-              color: '#475569',
-              fontSize: '0.88rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            className={styles.cancelBtn}
           >
             Cancel
           </button>
@@ -350,18 +248,7 @@ export function RichNoteEditorView({
             type="button"
             disabled={isSaving || (isEditorEmpty(content) && !title.trim())}
             onClick={handleSave}
-            style={{
-              padding: '0.65rem 1.5rem',
-              borderRadius: 10,
-              border: 'none',
-              background: '#f97316',
-              color: '#ffffff',
-              fontSize: '0.88rem',
-              fontWeight: 700,
-              cursor: isSaving || (isEditorEmpty(content) && !title.trim()) ? 'not-allowed' : 'pointer',
-              opacity: isSaving || (isEditorEmpty(content) && !title.trim()) ? 0.6 : 1,
-              boxShadow: '0 2px 4px rgba(249, 115, 22, 0.3)',
-            }}
+            className={styles.saveBtn}
           >
             {isSaving ? 'Saving...' : 'Save Note'}
           </button>

@@ -81,39 +81,40 @@
   object-fit: contain;
 }
 
-/* centred: compact avatar with verified mark, name and cohort below */
+/* Compact horizontal user profile card per reference design */
 .userProfile {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 0.2rem;
-  padding: 0.5rem 0.6rem;
-  margin-bottom: 0.5rem;
-  border: 1.5px solid #ece6dd;
-  border-radius: 12px;
+  gap: 12px;
+  padding: 8px 10px;
+  margin-bottom: 0.65rem;
+  border: 1px solid #ece6dd;
+  border-radius: 14px;
   background: #ffffff;
   color: inherit;
-  text-align: center;
+  text-align: left;
   text-decoration: none;
   flex-shrink: 0;
   cursor: pointer;
   position: relative;
   transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
 }
 
 .userProfile:hover {
   background: #fdfbf7;
-  border-color: #d97706;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.08);
+  border-color: #fdba74;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.08);
 }
 
 .userProfileActive {
-  background: #fef3c7;
-  border-color: #d97706;
+  background: #fff7ed;
+  border-color: #ea580c;
 }
 
 .userProfileSubtext {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   color: #78716c;
   font-weight: 500;
   margin-top: 1px;
@@ -121,32 +122,32 @@
 }
 
 .userProfile:hover .userProfileSubtext {
-  color: #d97706;
+  color: #ea580c;
 }
 
 .userProfileActive .userProfileSubtext {
-  color: #b45309;
+  color: #c2410c;
   font-weight: 600;
 }
 
 .avatarWrap {
   position: relative;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .avatar {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: #fde8d0;
-  color: #d36b00;
+  background: #ffedd5;
+  color: #ea580c;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 1.15rem;
+  font-weight: 700;
+  font-size: 1.05rem;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(211, 107, 0, 0.12);
 }
 
 .avatarMark {
@@ -156,36 +157,50 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   border: 2px solid #ffffff;
   border-radius: 50%;
-  background: #d36b00;
+  background: #ea580c;
   color: #ffffff;
 }
 
 .avatarMark svg {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 .userInfo {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  width: 100%;
+  align-items: flex-start;
+  text-align: left;
+  flex: 1;
   min-width: 0;
 }
 
 .userNameRow {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  color: #18181b;
-  display: inline-flex;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+
+.profileChevronRight {
+  color: #94a3b8;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.userProfile:hover .profileChevronRight {
+  color: #ea580c;
+  transform: translateX(2px);
 }
 
 .userInfo h4 {
@@ -302,6 +317,17 @@
   flex-shrink: 0;
   width: 17px;
   height: 17px;
+}
+
+.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3.5px;
+  background: #ea580c;
+  border-radius: 0 4px 4px 0;
 }
 
 .active {
@@ -1059,4 +1085,33 @@
     opacity: 1;
     transform: scale(1);
   }
+}
+
+
+.searchKbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  pointer-events: none;
+}
+
+.searchKbd kbd {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+  background: #ffffff;
+  border: 1px solid #e2d9cd;
+  border-radius: 5px;
+  padding: 1px 5px;
+  line-height: 1.2;
+}
+
+.topProfileName {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #18181b;
+  margin-left: 8px;
+  margin-right: 4px;
 }

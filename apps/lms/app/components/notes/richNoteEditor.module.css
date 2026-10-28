@@ -498,3 +498,109 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* =========================================================================
+   DEDICATED FULL-PAGE EDITOR VIEW (/notes/[noteId])
+   Responsive layout matching WhatBoutMe LMS container grid
+   ========================================================================= */
+.editorPageWrapper {
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 3rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.editorPageCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  padding: 1.75rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.editorPageTopBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.editorPageBackBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.editorPageBackBtn:hover {
+  color: #ea580c;
+  background: #fff7ed;
+}
+
+.editorPageDeleteBtn {
+  padding: 0.45rem 0.95rem;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.editorPageDeleteBtn:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.editorPageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.editorPageTitleInput {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #0f172a;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  width: 100%;
+  padding: 0 0 4px;
+  transition: border-color 0.15s ease;
+}
+
+.editorPageTitleInput:focus {
+  border-bottom-color: #f97316;
+}
+
+.editorPageFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 1.25rem;
+  border-top: 1px solid #f1f5f9;
+}
+

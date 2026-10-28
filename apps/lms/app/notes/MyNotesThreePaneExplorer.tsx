@@ -55,8 +55,8 @@ function ProgressiveCourseThumbnail({ src, alt }: { src: string; alt: string }) 
       <Image
         src={src}
         alt={alt}
-        width={68}
-        height={68}
+        width={52}
+        height={52}
         loading="lazy"
         decoding="async"
         className={`${styles.thumbImg} ${isLoaded ? styles.thumbLoaded : styles.thumbLoading}`}
@@ -73,14 +73,14 @@ function CourseCardsSkeletonList() {
       {[1, 2, 3, 4].map((i) => (
         <div key={i} className={styles.courseCardSkeleton}>
           <div className={styles.courseCardTop}>
-            <div className={styles.skeletonPulse} style={{ width: 68, height: 68, borderRadius: 14, flexShrink: 0 }} />
+            <div className={styles.skeletonPulse} style={{ width: 52, height: 52, borderRadius: 10, flexShrink: 0 }} />
             <div className={styles.courseCardContent}>
               <div className={styles.skeletonPulse} style={{ width: '60%', height: 18, marginBottom: 8, borderRadius: 6 }} />
               <div className={styles.skeletonPulse} style={{ width: '35%', height: 14, borderRadius: 4 }} />
             </div>
             <div className={styles.skeletonPulse} style={{ width: 78, height: 26, borderRadius: 999, flexShrink: 0 }} />
           </div>
-          <div className={styles.courseCardFooter} style={{ borderTop: '1px solid #f1f5f9', marginTop: 18, paddingTop: 14 }}>
+          <div className={styles.courseCardFooter} style={{ borderTop: '1px solid #f1f5f9', marginTop: 10, paddingTop: 10 }}>
             <div className={styles.skeletonPulse} style={{ width: 150, height: 14, borderRadius: 4 }} />
             <div className={styles.skeletonPulse} style={{ width: 85, height: 14, borderRadius: 4 }} />
           </div>

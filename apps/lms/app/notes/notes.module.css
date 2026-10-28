@@ -4,7 +4,7 @@
   width: 100%;
   max-width: 1360px;
   margin: 0 auto;
-  padding: 1.5rem 2rem 4rem;
+  padding: 0.75rem 1.25rem 2rem;
   box-sizing: border-box;
 }
 
@@ -13,7 +13,7 @@
   width: 100%;
   max-width: 1360px;
   margin: 0 auto;
-  padding: 1.5rem 2rem 4rem;
+  padding: 0.75rem 1.25rem 2rem;
   box-sizing: border-box;
 }
 
@@ -24,14 +24,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
-  padding: 22px 28px;
+  margin-bottom: 0.75rem;
+  padding: 12px 18px;
   background: linear-gradient(135deg, #fffaf5 0%, #fff1e5 55%, #fed7aa 100%);
   border: 1px solid #fed7aa;
-  border-radius: 18px;
+  border-radius: 14px;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
   flex-wrap: wrap;
-  gap: 1.25rem;
+  gap: 0.75rem;
 }
 
 .titleArea {
@@ -48,19 +48,19 @@
 }
 
 .pageTitle {
-  font-size: 1.75rem;
+  font-size: 1.35rem;
   font-weight: 800;
   color: #0f172a;
   margin: 0;
   letter-spacing: -0.02em;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
   line-height: 1.2;
 }
 
 .titleIcon {
-  font-size: 1.6rem;
+  font-size: 1.3rem;
   display: inline-flex;
   align-items: center;
   line-height: 1;
@@ -68,21 +68,21 @@
 
 .subtitle {
   color: #64748b;
-  font-size: 0.925rem;
+  font-size: 0.84rem;
   margin: 0;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 .badgeTotal {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.45rem 1.05rem;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
   background: #ffffff;
   border: 1px solid #fed7aa;
-  border-radius: 12px;
+  border-radius: 10px;
   color: #ea580c;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(28, 25, 23, 0.04);
@@ -95,12 +95,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.65rem;
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 16px;
-  padding: 0.55rem 0.85rem;
-  margin-bottom: 1.75rem;
+  border-radius: 12px;
+  padding: 0.35rem 0.65rem;
+  margin-bottom: 0.75rem;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
 }
 
@@ -119,13 +119,13 @@
 .tabBtn {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  height: 38px;
+  gap: 0.4rem;
+  height: 34px;
   background: none;
   border: 1px solid transparent;
-  padding: 0 0.85rem;
-  border-radius: 10px;
-  font-size: 0.86rem;
+  padding: 0 0.75rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
   font-weight: 600;
   color: #475569;
   cursor: pointer;
@@ -178,12 +178,12 @@
 
 .searchInput {
   width: 100%;
-  height: 38px;
+  height: 34px;
   padding: 0 0.75rem 0 2.25rem;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid #e2d9cd;
   background: #faf6f0;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: #14110f;
   outline: none;
   transition: all 0.15s ease;
@@ -206,12 +206,12 @@
 }
 
 .selectInput {
-  height: 38px;
-  padding: 0 1.25rem 0 0.85rem;
-  border-radius: 10px;
+  height: 34px;
+  padding: 0 1.15rem 0 0.75rem;
+  border-radius: 8px;
   border: 1px solid #e2d9cd;
   background: #ffffff;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: #334155;
   outline: none;
@@ -232,9 +232,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1.35rem;
+  margin-bottom: 0.55rem;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
 }
 
 .navGroup {
@@ -247,13 +247,13 @@
 .backButton {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 9px;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #ffffff;
   color: #334155;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -342,31 +342,31 @@
    SECTION HEADERS
    ───────────────────────────────────────────────────────────────────────────── */
 .contentSection {
-  margin-top: 14px;
+  margin-top: 4px;
 }
 
 .sectionHeaderRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.65rem;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .sectionTitle {
-  font-size: 1.35rem;
+  font-size: 1.18rem;
   font-weight: 800;
   color: #0f172a;
-  margin: 0 0 4px;
+  margin: 0 0 2px;
   letter-spacing: -0.015em;
 }
 
 .sectionSubtitle {
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   color: #64748b;
   margin: 0;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .sectionHeaderRight {
@@ -381,19 +381,19 @@
 .courseCardsGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 22px;
-  margin-top: 14px;
+  gap: 12px;
+  margin-top: 6px;
 }
 
 .courseCardItem {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 16px;
-  padding: 22px 24px;
+  border-radius: 12px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 165px;
+  min-height: auto;
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
@@ -414,9 +414,9 @@
 /* Progressive Thumbnail Wrap */
 .thumbWrap {
   position: relative;
-  width: 68px;
-  height: 68px;
-  border-radius: 14px;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
   overflow: hidden;
   background: #f1f5f9;
   flex-shrink: 0;
@@ -439,9 +439,9 @@
 }
 
 .courseCardThumb {
-  width: 68px;
-  height: 68px;
-  border-radius: 14px;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
   object-fit: cover;
   background: #f1f5f9;
   flex-shrink: 0;
@@ -458,10 +458,10 @@
 }
 
 .courseCardTitle {
-  font-size: 1.15rem;
+  font-size: 1.02rem;
   font-weight: 700;
   color: #0f172a;
-  margin: 0 0 5px;
+  margin: 0 0 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -469,7 +469,7 @@
 }
 
 .courseCardMeta {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #64748b;
   margin: 0;
   font-weight: 500;
@@ -521,11 +521,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid #f1f5f9;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #64748b;
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
 .courseCardCta {
@@ -548,14 +548,14 @@
 .modulesContainer {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 16px;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .moduleSection {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 16px;
+  border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -570,7 +570,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 15px 22px;
+  padding: 10px 16px;
   background: #faf9f6;
   border: none;
   cursor: pointer;
@@ -638,7 +638,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 22px;
+  padding: 9px 16px;
   background: none;
   border: none;
   border-bottom: 1px solid #f1f5f9;
@@ -744,20 +744,20 @@
 .lessonNotesContainer {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 16px;
-  padding: 26px 28px;
+  border-radius: 12px;
+  padding: 14px 18px;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
-  margin-top: 16px;
+  margin-top: 8px;
 }
 
 .lessonNotesTopHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 20px;
+  padding-bottom: 12px;
   border-bottom: 1px solid #f1f5f9;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 10px;
 }
 
 .lessonNotesTitle {
@@ -957,14 +957,14 @@
 .lessonNotesStack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
 .singleNoteCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 14px;
-  padding: 18px 20px;
+  border-radius: 10px;
+  padding: 12px 16px;
   cursor: pointer;
   transition: all 0.15s ease;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);

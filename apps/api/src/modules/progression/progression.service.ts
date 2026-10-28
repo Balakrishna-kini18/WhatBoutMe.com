@@ -5,6 +5,8 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import {
   AttemptStatus,
@@ -18,6 +20,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { StageGateService } from './stage-gate.service.js';
 import { randomBytes } from 'node:crypto';
 import { CreateProgressShareDto } from './dto/index.js';
 import { WatchIntervalTracker, TimeRange } from './utils/watch-interval-tracker.js';
@@ -146,6 +149,11 @@ export interface EnrolmentProgressionResponse {
     pdfUrl?: string | null;
   } | null;
   steps: StepProgressionItem[];
+  stages?: any;
+  examConfig?: any;
+  examAttempt?: any;
+  coachingRequests?: any[];
+  missionSubmissions?: any[];
 }
 
 @Injectable()
@@ -158,7 +166,18 @@ export class ProgressionService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly cacheHelper?: CacheHelperService,
+    @Optional()
+    @Inject(forwardRef(() => StageGateService))
+    private readonly stageGateService?: StageGateService,
   ) {}
+
+  public invalidateCache(enrolmentId: string): void {
+    this.memoryProgressionCache.delete(enrolmentId);
+    this.inflightProgression.delete(enrolmentId);
+    if (this.stageGateService) {
+      this.stageGateService.invalidateCache(enrolmentId);
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1a. PUBLIC PROGRESS SHARING (CLIENT PDF P.10 SECTION 9)
@@ -367,10 +386,114 @@ export class ProgressionService {
         );
       }
 
-      return this.evaluateProgression(fallback, { persist: false });
+      const prog = await this.evaluateProgression(fallback, { persist: false });
+      return this.enrichMyProgression(fallback, prog, userId);
     }
 
-    return this.evaluateProgression(enrolment, { persist: true });
+    const prog = await this.evaluateProgression(enrolment, { persist: true });
+    return this.enrichMyProgression(enrolment, prog, userId);
+  }
+
+  private async enrichMyProgression(
+    enrolment: any,
+    progression: EnrolmentProgressionResponse,
+    userId: string,
+  ): Promise<EnrolmentProgressionResponse> {
+    try {
+      const [stagesEval, examConfig, latestAttempt, coachingRequests, missionSubmissions] =
+        await Promise.all([
+          this.stageGateService
+            ? this.stageGateService
+                .evaluateStages(enrolment.id, { id: userId, role: 'USER' })
+                .catch(() => null)
+            : Promise.resolve(null),
+          this.prisma.exam
+            ? this.prisma.exam
+                .findFirst({
+                  where: { programId: enrolment.programId, status: ContentStatus.PUBLISHED },
+                  select: {
+                    id: true,
+                    programId: true,
+                    title: true,
+                    description: true,
+                    questionCount: true,
+                    passMark: true,
+                    timeLimitMin: true,
+                    maxAttempts: true,
+                    cooldownHours: true,
+                    status: true,
+                  },
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
+          this.prisma.examAttempt
+            ? this.prisma.examAttempt
+                .findFirst({
+                  where: { enrolmentId: enrolment.id },
+                  orderBy: { startedAt: 'desc' },
+                  select: {
+                    id: true,
+                    attemptNumber: true,
+                    status: true,
+                    score: true,
+                    passed: true,
+                    completedAt: true,
+                  },
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
+          this.prisma.oneOnOneRequest
+            ? this.prisma.oneOnOneRequest
+                .findMany({
+                  where: { enrolmentId: enrolment.id },
+                  orderBy: { createdAt: 'desc' },
+                  include: {
+                    session: {
+                      select: {
+                        id: true,
+                        title: true,
+                        startTime: true,
+                        endTime: true,
+                        joinUrl: true,
+                        status: true,
+                        hostTrainer: { select: { id: true, name: true, email: true } },
+                      },
+                    },
+                  },
+                })
+                .catch(() => [])
+            : Promise.resolve([]),
+          this.prisma.missionStatementSubmission
+            ? this.prisma.missionStatementSubmission
+                .findMany({
+                  where: { enrolmentId: enrolment.id },
+                  orderBy: { version: 'desc' },
+                })
+                .catch(() => [])
+            : Promise.resolve([]),
+        ]);
+
+      return {
+        ...progression,
+        stages: stagesEval,
+        examConfig,
+        examAttempt: latestAttempt
+          ? {
+              attemptId: latestAttempt.id,
+              attemptNumber: latestAttempt.attemptNumber,
+              status: latestAttempt.status,
+              score: latestAttempt.score,
+              passed: latestAttempt.passed,
+              completedAt: latestAttempt.completedAt,
+            }
+          : null,
+        coachingRequests: Array.isArray(coachingRequests) ? coachingRequests : [],
+        missionSubmissions: Array.isArray(missionSubmissions) ? missionSubmissions : [],
+      };
+    } catch (err: any) {
+      this.logger.warn(`Failed to enrich getMyProgression with milestone data: ${err.message}`);
+      return progression;
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

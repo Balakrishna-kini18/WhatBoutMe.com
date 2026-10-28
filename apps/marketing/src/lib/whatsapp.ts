@@ -27,10 +27,16 @@ export function buildWhatsAppEnquiryUrl({
   const rawTargetPhone =
     phone?.trim() ||
     process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ||
-    "971501234567"; // Fallback to Dubai support line
+    "917899447024"; // Support WhatsApp line (7899447024 / +91 7899447024)
 
   // Strip all non-numeric characters (+, -, spaces, brackets, etc.)
-  const cleanPhone = rawTargetPhone.replace(/\D/g, "");
+  let cleanPhone = rawTargetPhone.replace(/\D/g, "");
+
+  // If a 10-digit Indian mobile number is provided without country code (e.g. 7899447024),
+  // prepend India country code 91 so WhatsApp wa.me link resolves correctly.
+  if (cleanPhone.length === 10 && /^[6-9]/.test(cleanPhone)) {
+    cleanPhone = `91${cleanPhone}`;
+  }
 
   // Compose clean, human-readable pre-filled text
   const textPayload = [

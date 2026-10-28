@@ -334,99 +334,116 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         const data: EnrolmentProgressionResponse = await res.json();
         const enrolmentId = data.enrolmentId;
 
-        // 3. Immediately trigger stages evaluation with known enrolmentId
-        const stagesPromise = enrolmentId
-          ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
+        // Extract unified milestone data provided directly by the server
+        let resolvedStages: any = data.stages || null;
+        let resolvedExamConfig: ExamConfigSummary | null = (data.examConfig as any) || null;
+        let resolvedAttempt: ExamAttemptSummary | null = (data.examAttempt as any) || null;
+        let resolvedCoaching: CoachingRequestItem[] = Array.isArray(data.coachingRequests)
+          ? data.coachingRequests
+          : [];
+        let resolvedMissions: MissionSubmissionItem[] = Array.isArray(data.missionSubmissions)
+          ? data.missionSubmissions
+          : [];
+
+        // Secondary fallback queries only for fields not yet included in the response
+        const fallbackTasks: Promise<any>[] = [];
+
+        if (!resolvedStages && enrolmentId) {
+          fallbackTasks.push(
+            cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
               headers,
               ttlMs: 15_000,
               skipCache: isRetry,
-            }).catch(() => null)
-          : Promise.resolve(null);
-
-        // 4. Resolve exam config and trigger attempt query if configured
-        let resolvedExamConfig: ExamConfigSummary | null = null;
-        let attemptPromise: Promise<Response | null> = Promise.resolve(null);
-
-        const examRes = await examPromise;
-        if (examRes && examRes.ok) {
-          try {
-            resolvedExamConfig = await examRes.json();
-            if (resolvedExamConfig?.id) {
-              attemptPromise = cachedFetch(`${API_URL}/exams/${resolvedExamConfig.id}/attempt`, {
-                headers,
-                ttlMs: 15_000,
-                skipCache: isRetry,
-              }).catch(() => null);
-            }
-          } catch {
-            resolvedExamConfig = null;
-          }
+            })
+              .then((r) => (r && r.ok ? r.json() : null))
+              .then((s) => {
+                if (s) resolvedStages = s;
+              })
+              .catch(() => null)
+          );
         }
 
-        // 5. Concurrently resolve secondary milestone checks with a 3.5s timeout safety boundary
-        const [stagesRes, attRes, coachingRes, missionRes] = await Promise.race([
-          Promise.all([stagesPromise, attemptPromise, coachingPromise, missionPromise]),
-          new Promise<[null, null, null, null]>((resolve) =>
-            setTimeout(() => resolve([null, null, null, null]), 3500)
-          ),
-        ]);
-
-        let resolvedStages: any = null;
-        if (stagesRes && stagesRes.ok) {
-          try {
-            resolvedStages = await stagesRes.json();
-          } catch {
-            resolvedStages = null;
-          }
+        if (!resolvedExamConfig) {
+          fallbackTasks.push(
+            examPromise
+              .then(async (er) => {
+                if (er && er.ok) {
+                  const conf = await er.json().catch(() => null);
+                  if (conf) {
+                    resolvedExamConfig = conf;
+                    if (conf.id && !resolvedAttempt) {
+                      return cachedFetch(`${API_URL}/exams/${conf.id}/attempt`, {
+                        headers,
+                        ttlMs: 15_000,
+                        skipCache: isRetry,
+                      })
+                        .then((ar) => (ar && ar.ok ? ar.json() : null))
+                        .then((att) => {
+                          if (att) resolvedAttempt = att;
+                        })
+                        .catch(() => null);
+                    }
+                  }
+                }
+              })
+              .catch(() => null)
+          );
+        } else if (resolvedExamConfig?.id && !resolvedAttempt) {
+          fallbackTasks.push(
+            cachedFetch(`${API_URL}/exams/${resolvedExamConfig.id}/attempt`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
+              .then((ar) => (ar && ar.ok ? ar.json() : null))
+              .then((att) => {
+                if (att) resolvedAttempt = att;
+              })
+              .catch(() => null)
+          );
         }
 
-        let resolvedAttempt: ExamAttemptSummary | null = null;
-        if (attRes && attRes.ok) {
-          try {
-            const attText = await attRes.text();
-            if (attText && attText.trim()) {
-              resolvedAttempt = JSON.parse(attText);
-            }
-          } catch {
-            resolvedAttempt = null;
-          }
+        if (resolvedCoaching.length === 0) {
+          fallbackTasks.push(
+            coachingPromise
+              .then((cr) => (cr && cr.ok ? cr.json() : []))
+              .then((cList) => {
+                if (Array.isArray(cList) && cList.length > 0) {
+                  resolvedCoaching = enrolmentId
+                    ? cList.filter(
+                        (r: any) =>
+                          r.enrolmentId === enrolmentId ||
+                          r.enrolment?.id === enrolmentId ||
+                          r.enrolment?.programId === id ||
+                          r.enrolment?.program?.id === id
+                      )
+                    : cList;
+                }
+              })
+              .catch(() => null)
+          );
         }
 
-        let resolvedCoaching: CoachingRequestItem[] = [];
-        if (coachingRes && coachingRes.ok) {
-          try {
-            const cList = await coachingRes.json();
-            if (Array.isArray(cList)) {
-              resolvedCoaching = enrolmentId
-                ? cList.filter(
-                    (r: any) =>
-                      r.enrolmentId === enrolmentId ||
-                      r.enrolment?.id === enrolmentId ||
-                      r.enrolment?.programId === id ||
-                      r.enrolment?.program?.id === id
-                  )
-                : cList;
-            }
-          } catch {
-            resolvedCoaching = [];
-          }
+        if (resolvedMissions.length === 0) {
+          fallbackTasks.push(
+            missionPromise
+              .then((mr) => (mr && mr.ok ? mr.json() : []))
+              .then((mList) => {
+                if (Array.isArray(mList) && mList.length > 0) {
+                  resolvedMissions = enrolmentId
+                    ? mList.filter((m: any) => m.enrolmentId === enrolmentId)
+                    : mList;
+                }
+              })
+              .catch(() => null)
+          );
         }
 
-        let resolvedMissions: MissionSubmissionItem[] = [];
-        if (missionRes && missionRes.ok) {
-          try {
-            const mList = await missionRes.json();
-            if (Array.isArray(mList)) {
-              resolvedMissions = enrolmentId
-                ? mList.filter((m: any) => m.enrolmentId === enrolmentId)
-                : mList;
-            }
-          } catch {
-            resolvedMissions = [];
-          }
+        if (fallbackTasks.length > 0) {
+          await Promise.all(fallbackTasks);
         }
 
-        // 6. Atomically commit all unified learning journey states together before lifting loading
+        // Atomically commit all unified learning journey states together before lifting loading
         setProgression(data);
         if (resolvedStages) setStagesEval(resolvedStages);
         if (resolvedExamConfig) setExamConfig(resolvedExamConfig);

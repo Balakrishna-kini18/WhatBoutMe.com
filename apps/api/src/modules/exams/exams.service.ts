@@ -706,6 +706,8 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
+    this.progressionService?.invalidateCache?.(attempt.enrolmentId);
+
     const maxAttempts = exam.maxAttempts || 3;
     const attemptsUsed = attempt.attemptNumber;
     const attemptsRemaining = Math.max(0, maxAttempts - attemptsUsed);
@@ -1762,13 +1764,15 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         );
         count++;
       } catch (err: any) {
-        await this.prisma.examAttempt.update({
-          where: { id: attempt.id },
-          data: {
-            status: AttemptStatus.FAILED,
-            completedAt: now,
-          },
-        }).catch(() => {});
+        await Promise.resolve(
+          this.prisma.examAttempt.update({
+            where: { id: attempt.id },
+            data: {
+              status: AttemptStatus.FAILED,
+              completedAt: now,
+            },
+          })
+        ).catch(() => {});
       }
     }
     return count;

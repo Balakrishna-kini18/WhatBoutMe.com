@@ -400,7 +400,7 @@ export class ProgressionService {
     userId: string,
   ): Promise<EnrolmentProgressionResponse> {
     try {
-      const [stagesEval, examConfig, latestAttempt, coachingRequests, missionSubmissions] =
+      const [stagesEval, examConfig, latestAttempt, coachingRequests, missionSubmissions, enrolmentCert] =
         await Promise.all([
           this.stageGateService
             ? this.stageGateService
@@ -471,10 +471,34 @@ export class ProgressionService {
                 })
                 .catch(() => [])
             : Promise.resolve([]),
+          this.prisma.certificate
+            ? this.prisma.certificate
+                .findFirst({
+                  where: { enrolmentId: enrolment.id },
+                  select: {
+                    id: true,
+                    status: true,
+                    certificateCode: true,
+                    issuedAt: true,
+                    createdAt: true,
+                    pdfUrl: true,
+                  },
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
         ]);
 
       return {
         ...progression,
+        certificate: enrolmentCert
+          ? {
+              id: enrolmentCert.id,
+              status: enrolmentCert.status,
+              certificateCode: enrolmentCert.certificateCode,
+              issuedAt: enrolmentCert.issuedAt || enrolmentCert.createdAt,
+              pdfUrl: enrolmentCert.pdfUrl,
+            }
+          : progression.certificate ?? null,
         stages: stagesEval,
         examConfig,
         examAttempt: latestAttempt

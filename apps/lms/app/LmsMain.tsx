@@ -480,6 +480,13 @@ function Search() {
   const pathname = usePathname();
   const params = useSearchParams();
   const [query, setQuery] = useState(pathname === "/courses" ? params.get("q") ?? "" : "");
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
 
   const target = (q: string) => (q.trim() ? `/courses?q=${encodeURIComponent(q.trim())}` : "/courses");
 
@@ -497,8 +504,14 @@ function Search() {
         type="search"
         value={query}
         onChange={(e) => {
-          setQuery(e.target.value);
-          if (pathname === "/courses") router.replace(target(e.target.value));
+          const val = e.target.value;
+          setQuery(val);
+          if (pathname === "/courses") {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = setTimeout(() => {
+              router.replace(target(val));
+            }, 300);
+          }
         }}
         placeholder="Search your courses..."
         aria-label="Search your courses..."

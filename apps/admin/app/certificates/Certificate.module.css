@@ -709,7 +709,7 @@
 
   .footerRow,
   footer.footerRow,
-  [class*="footerRow"] {
+  :global([class*="footerRow"]) {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;

@@ -2019,7 +2019,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                               { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" },
                               { bg: "#f0fdf4", color: "#16a34a", border: "#bbf7d0" },
                               { bg: "#faf5ff", color: "#9333ea", border: "#e9d5ff" },
-                            ][nIdx % 4];
+                            ][nIdx % 4] ?? { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" };
 
                             return (
                               <article key={n.id} className={styles.savedNoteCard}>

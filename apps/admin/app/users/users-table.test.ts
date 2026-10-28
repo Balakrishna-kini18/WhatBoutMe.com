@@ -332,7 +332,7 @@ describe('Users & Enrolments Table Specification', () => {
 
     function formatAgreementColumn(user: { role: string; isAgreementSigned?: boolean }): string {
       if (user.role === "USER") {
-        return user.isAgreementSigned ? "✓ Signed" : "Pending";
+        return user.isAgreementSigned ? "Signed" : "Pending";
       }
       return "—";
     }
@@ -811,6 +811,76 @@ describe('Users & Enrolments Table Specification', () => {
       const itemsForAdmin = computeActionMenuItems(superAdmin, 'ADMIN');
       expect(itemsForAdmin).not.toContain('Edit Role / Profile');
       expect(itemsForAdmin).not.toContain('Revoke Access');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 9. 5-STAGE DYNAMIC MILESTONE BADGE RESOLUTION
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('5-Stage Dynamic Milestone Badge Resolution', () => {
+    function computeStageBadge(user: any): string {
+      if (user.role !== 'USER' || !user.enrolments || user.enrolments.length === 0) {
+        return '—';
+      }
+      if (user.isStepLocked) {
+        return 'Locked';
+      }
+      if (user.stageLabel) {
+        return user.stageLabel;
+      }
+      return user.currentStepNumber ? `Step ${user.currentStepNumber} / ${user.totalSteps || 11}` : 'Step 1 / 11';
+    }
+
+    it('renders current curriculum step sequence for students in Stage 1', () => {
+      const learner = {
+        role: 'USER',
+        enrolments: [{ id: 'e1' }],
+        isStepLocked: false,
+        currentStepNumber: 4,
+        totalSteps: 11,
+      };
+      expect(computeStageBadge(learner)).toBe('Step 4 / 11');
+    });
+
+    it('renders dynamic milestone badges when past curriculum', () => {
+      expect(computeStageBadge({
+        role: 'USER',
+        enrolments: [{ id: 'e1' }],
+        isStepLocked: false,
+        stageLabel: 'Final Exam',
+      })).toBe('Final Exam');
+
+      expect(computeStageBadge({
+        role: 'USER',
+        enrolments: [{ id: 'e1' }],
+        isStepLocked: false,
+        stageLabel: '1:1 Ro Call',
+      })).toBe('1:1 Ro Call');
+
+      expect(computeStageBadge({
+        role: 'USER',
+        enrolments: [{ id: 'e1' }],
+        isStepLocked: false,
+        stageLabel: 'Mission',
+      })).toBe('Mission');
+
+      expect(computeStageBadge({
+        role: 'USER',
+        enrolments: [{ id: 'e1' }],
+        isStepLocked: false,
+        stageLabel: 'Certified',
+      })).toBe('Certified');
+    });
+
+    it('renders locked indicator when step is locked', () => {
+      const lockedLearner = {
+        role: 'USER',
+        enrolments: [{ id: 'e1' }],
+        isStepLocked: true,
+        currentStepNumber: 1,
+        totalSteps: 11,
+      };
+      expect(computeStageBadge(lockedLearner)).toBe('Locked');
     });
   });
 });

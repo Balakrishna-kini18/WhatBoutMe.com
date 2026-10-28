@@ -179,7 +179,7 @@ export class ProgramsService {
     return program;
   }
 
-  async update(id: string, data: UpdateProgramDto) {
+  async update(id: string, data: UpdateProgramDto, actorId?: string) {
     const program = await this.prisma.program.findUnique({ where: { id } });
     if (!program) {
       throw new NotFoundException(`Program not found`);
@@ -213,10 +213,68 @@ export class ProgramsService {
     if (data.attendanceThreshold !== undefined) updateData.attendanceThreshold = Number(data.attendanceThreshold);
     if (data.faqs !== undefined) updateData.faqs = data.faqs as any;
 
+    const pricingChanged =
+      (data.price !== undefined && Number(data.price) !== Number(program.price)) ||
+      (data.currency !== undefined && data.currency !== program.currency) ||
+      (data.priceUSD !== undefined && Number(data.priceUSD) !== Number(program.priceUSD)) ||
+      (data.priceAED !== undefined && Number(data.priceAED) !== Number(program.priceAED)) ||
+      (data.priceINR !== undefined && Number(data.priceINR) !== Number(program.priceINR)) ||
+      (data.earlyBirdPrice !== undefined && Number(data.earlyBirdPrice) !== Number(program.earlyBirdPrice));
+
     const updated = await this.prisma.program.update({
       where: { id },
       data: updateData,
     });
+
+    if (pricingChanged) {
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: actorId || null,
+          action: 'PROGRAM_PRICING_UPDATED',
+          entity: 'Program',
+          entityId: id,
+          meta: {
+            programTitle: updated.title,
+            slug: updated.slug,
+            previousPricing: {
+              price: program.price,
+              currency: program.currency,
+              priceUSD: program.priceUSD,
+              priceAED: program.priceAED,
+              priceINR: program.priceINR,
+            },
+            newPricing: {
+              price: updated.price,
+              currency: updated.currency,
+              priceUSD: updated.priceUSD,
+              priceAED: updated.priceAED,
+              priceINR: updated.priceINR,
+            },
+          },
+        },
+      }).catch((err) => {
+        this.logger.error(`Failed to write PROGRAM_PRICING_UPDATED audit log: ${err.message}`);
+      });
+    }
+
+    if (data.status !== undefined && data.status !== program.status) {
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: actorId || null,
+          action: data.status === ContentStatus.PUBLISHED ? 'PROGRAM_PUBLISHED' : 'PROGRAM_ARCHIVED',
+          entity: 'Program',
+          entityId: id,
+          meta: {
+            programTitle: updated.title,
+            slug: updated.slug,
+            previousStatus: program.status,
+            newStatus: data.status,
+          },
+        },
+      }).catch((err) => {
+        this.logger.error(`Failed to write PROGRAM_PUBLISHED audit log: ${err.message}`);
+      });
+    }
 
     await this.safeInvalidateTags(['programs', `program:${id}`]);
     return updated;
@@ -306,7 +364,7 @@ export class ProgramsService {
     return created;
   }
 
-  async publishProgram(id: string, dto: PublishProgramDto) {
+  async publishProgram(id: string, dto: PublishProgramDto, actorId?: string) {
     const program = await this.prisma.program.findUnique({ where: { id } });
     if (!program) {
       throw new NotFoundException(`Program not found`);
@@ -318,6 +376,23 @@ export class ProgramsService {
         status: dto.status,
         isActive: dto.status === ContentStatus.PUBLISHED,
       },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: actorId || null,
+        action: dto.status === ContentStatus.PUBLISHED ? 'PROGRAM_PUBLISHED' : 'PROGRAM_ARCHIVED',
+        entity: 'Program',
+        entityId: id,
+        meta: {
+          programTitle: program.title,
+          slug: program.slug,
+          previousStatus: program.status,
+          newStatus: dto.status,
+        },
+      },
+    }).catch((err) => {
+      this.logger.error(`Failed to write PROGRAM_PUBLISHED audit log: ${err.message}`);
     });
 
     await this.safeInvalidateTags(['programs', `program:${id}`]);

@@ -61,7 +61,7 @@ export class AttendanceController {
    */
   @UseGuards(PermissionsGuard)
   @RequirePermission(Permission.ATTENDANCE_READ)
-  @Get('compliance/:enrolmentId')
+  @Get(['compliance/:enrolmentId', 'compliance/enrolment/:enrolmentId'])
   async getCompliance(@Param('enrolmentId') enrolmentId: string, @Request() req: any) {
     if (req.user?.role === 'USER') {
       const enrolment = await this.prisma.enrolment.findUnique({

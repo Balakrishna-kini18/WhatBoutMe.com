@@ -352,8 +352,13 @@ export default function CoachingApprovalsTab({
                           {startFormatted}
                         </div>
                         {isPending && new Date(req.requestedStart).getTime() < Date.now() && (
-                          <div style={{ color: "#dc2626", fontSize: "0.74rem", fontWeight: 700, marginTop: 2 }}>
-                            ⚠️ Slot Elapsed
+                          <div style={{ color: "#dc2626", fontSize: "0.74rem", fontWeight: 700, marginTop: 2, display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            <span>Slot Elapsed</span>
                           </div>
                         )}
                         <div style={{ fontSize: "0.75rem", color: "#78716a" }}>
@@ -527,7 +532,7 @@ export default function CoachingApprovalsTab({
                                 fontWeight: 700,
                               }}
                             >
-                              ✓ Stage 5 Unlocked
+                              Stage 5 Unlocked
                             </span>
                           )}
                         </div>
@@ -602,10 +607,20 @@ export default function CoachingApprovalsTab({
                       color: "#991b1b",
                       fontSize: "0.82rem",
                       fontWeight: 600,
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "0.45rem",
                     }}
                   >
-                    ⚠️ The learner&apos;s requested slot has already passed! You cannot accept a past time.
-                    Please select an upcoming date and time below to schedule this session.
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "2px" }} aria-hidden="true">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    <div>
+                      The learner&apos;s requested slot has already passed! You cannot accept a past time.
+                      Please select an upcoming date and time below to schedule this session.
+                    </div>
                   </div>
                 )}
               </div>

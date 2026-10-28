@@ -425,7 +425,19 @@ typeof this.prisma.auditLog?.findMany === 'function'
       certificateIds.length > 0 && typeof this.prisma.certificate?.findMany === 'function'
         ? this.prisma.certificate.findMany({
             where: { id: { in: certificateIds } },
-            select: { id: true, certificateNumber: true, recipientName: true, programTitle: true },
+            select: {
+              id: true,
+              certificateNumber: true,
+              certificateCode: true,
+              user: { select: { name: true } },
+              program: { select: { title: true } },
+              enrolment: {
+                select: {
+                  user: { select: { name: true } },
+                  program: { select: { title: true } },
+                },
+              },
+            },
           })
         : [],
       leadIds.length > 0
@@ -490,9 +502,11 @@ typeof this.prisma.auditLog?.findMany === 'function'
         targetLabel = item?.user?.name ? `Enrolment: ${item.user.name}` : 'Course Enrolment';
         targetSubLabel = item?.program?.title || null;
       } else if (log.entity === 'Certificate') {
-        const item = certMap.get(log.entityId);
-        targetLabel = item?.recipientName ? `Certificate: ${item.recipientName}` : 'Certificate';
-        targetSubLabel = item?.certificateNumber || item?.programTitle || null;
+        const item = certMap.get(log.entityId) as any;
+        const recipientName = item?.user?.name || item?.enrolment?.user?.name;
+        const programTitle = item?.program?.title || item?.enrolment?.program?.title;
+        targetLabel = recipientName ? `Certificate: ${recipientName}` : 'Certificate';
+        targetSubLabel = item?.certificateNumber || item?.certificateCode || programTitle || null;
       } else if (log.entity === 'Lead') {
         const item = leadMap.get(log.entityId);
         targetLabel = item?.name ? `Lead: ${item.name}` : 'Lead';

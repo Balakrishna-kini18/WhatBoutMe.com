@@ -2,6 +2,7 @@
 
 import styles from "./layout.module.css";
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { SITE_URL, signOutEverywhere, toSite } from "./lib/site";
@@ -240,12 +241,18 @@ export default function LmsSidebar() {
 
       {/* Desktop Left Sidebar (240px Fixed) */}
       <aside className={styles.sidebar}>
-        {/* 1. Top Brand Logo: whatboutme with warm orange heart */}
+        {/* 1. Top Brand Logo: whatboutme */}
         <div className={styles.logo}>
           <Link href="/" className={styles.brandLink} aria-label="WhatBoutMe Learner Portal">
             <div className={styles.brandLogoWrap}>
-              <span className={styles.brandWordmark}>whatboutme</span>
-              <span className={styles.brandHeart}>🧡</span>
+              <Image
+                src="/brand/logo-dark.png"
+                alt="whatboutme"
+                width={168}
+                height={22.5}
+                priority
+                className={styles.brandLogoImg}
+              />
             </div>
           </Link>
         </div>

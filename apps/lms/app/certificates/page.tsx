@@ -525,18 +525,18 @@ export default function CertificatesPage() {
                   <li key={i} className={styles.courseItem} style={{ pointerEvents: "none" }}>
                     <div
                       className="skeleton"
-                      style={{ width: 104, height: 68, borderRadius: 10, flexShrink: 0 }}
+                      style={{ width: 92, height: 60, borderRadius: 8, flexShrink: 0 }}
                     />
                     <div className={styles.courseMain}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <div className="skeleton" style={{ width: "42%", height: 18, borderRadius: 4 }} />
-                        <div className="skeleton" style={{ width: 80, height: 22, borderRadius: 999 }} />
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                        <div className="skeleton" style={{ width: "42%", height: 16, borderRadius: 4 }} />
+                        <div className="skeleton" style={{ width: 72, height: 20, borderRadius: 999 }} />
                       </div>
-                      <div className="skeleton" style={{ width: "35%", height: 12, borderRadius: 4, marginBottom: 8 }} />
-                      <div className="skeleton" style={{ width: "100%", height: 8, borderRadius: 999 }} />
+                      <div className="skeleton" style={{ width: "35%", height: 11, borderRadius: 4, marginBottom: 6 }} />
+                      <div className="skeleton" style={{ width: "100%", height: 7, borderRadius: 999 }} />
                     </div>
                     <div className={styles.courseAction}>
-                      <div className="skeleton" style={{ width: 140, height: 38, borderRadius: 12 }} />
+                      <div className="skeleton" style={{ width: 124, height: 34, borderRadius: 10 }} />
                     </div>
                   </li>
                 ))}

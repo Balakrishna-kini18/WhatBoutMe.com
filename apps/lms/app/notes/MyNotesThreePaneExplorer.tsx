@@ -256,9 +256,11 @@ export function MyNotesThreePaneExplorer({
           ───────────────────────────────────────────────────────────── */}
       <header className={styles.header}>
         <div className={styles.titleArea}>
-          <h1>
-            <span style={{ marginRight: 8 }}>📝</span>My Notes
-          </h1>
+          <div className={styles.titleRow}>
+            <h1 className={styles.pageTitle}>
+              <span className={styles.titleIcon}>📝</span>My Notes
+            </h1>
+          </div>
           <p className={styles.subtitle}>
             All your notes organized by course &rarr; module &rarr; lesson. Access and revise anytime.
           </p>
@@ -275,7 +277,7 @@ export function MyNotesThreePaneExplorer({
           ───────────────────────────────────────────────────────────── */}
       <div className={styles.toolbar}>
         {/* Left View Mode Tabs */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className={styles.toolbarLeft}>
           {[
             { id: 'by_course', label: 'By Course' },
             { id: 'favorites', label: '★ Favorites' },
@@ -291,60 +293,52 @@ export function MyNotesThreePaneExplorer({
                   setSearchQuery('');
                 }
               }}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: '6px 2px',
-                fontSize: '0.88rem',
-                fontWeight: 600,
-                color: viewMode === tab.id ? '#ea580c' : '#64748b',
-                borderBottom: viewMode === tab.id ? '2px solid #f97316' : '2px solid transparent',
-                cursor: 'pointer',
-              }}
+              className={`${styles.tabBtn} ${viewMode === tab.id ? styles.tabBtnActive : ''}`}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        {/* Center Search Input */}
-        <div className={styles.searchWrap} style={{ maxWidth: 360 }}>
-          <svg
-            className={styles.searchIcon}
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search notes, tags, or concepts..."
-            className={styles.searchInput}
-          />
-        </div>
+        {/* Right Search Input & Sort Dropdown */}
+        <div className={styles.toolbarRight}>
+          <div className={styles.searchWrap}>
+            <svg
+              className={styles.searchIcon}
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search notes, tags, or concepts..."
+              className={styles.searchInput}
+            />
+          </div>
 
-        {/* Right Sort Dropdown */}
-        <div className={styles.filterControls}>
-          <select
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
-            className={styles.selectInput}
-            aria-label="Sort order"
-          >
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="timestamp">Video Timestamp</option>
-          </select>
+          <div className={styles.filterControls}>
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
+              className={styles.selectInput}
+              aria-label="Sort order"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="timestamp">Video Timestamp</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -352,45 +346,49 @@ export function MyNotesThreePaneExplorer({
           GLOBAL SEARCH / FAVORITES / RECENT VIEW
           ───────────────────────────────────────────────────────────── */}
       {isGlobalMode && (
-        <section style={{ marginTop: 12 }}>
+        <section className={styles.contentSection}>
           <div className={styles.navRow}>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('by_course');
-                setSearchQuery('');
-              }}
-              className={styles.backButton}
-            >
-              &larr; Back to Course Browsing
-            </button>
-            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+            <div className={styles.navGroup}>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode('by_course');
+                  setSearchQuery('');
+                }}
+                className={styles.backButton}
+              >
+                <span className={styles.backArrow}>&larr;</span> Back to Course Browsing
+              </button>
+            </div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
               {globalModeNotes.length} {globalModeNotes.length === 1 ? 'note found' : 'notes found'}
             </span>
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>
-              {searchQuery.trim()
-                ? `Search results for "${searchQuery}"`
-                : viewMode === 'favorites'
-                ? '★ Favorite Notes'
-                : viewMode === 'recent'
-                ? '🕒 Recently Updated Notes'
-                : 'All Notes'}
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
-              Click any note card to edit, or jump to its lesson video timestamp.
-            </p>
+          <div className={styles.sectionHeaderRow}>
+            <div>
+              <h2 className={styles.sectionTitle}>
+                {searchQuery.trim()
+                  ? `Search results for "${searchQuery}"`
+                  : viewMode === 'favorites'
+                  ? '★ Favorite Notes'
+                  : viewMode === 'recent'
+                  ? '🕒 Recently Updated Notes'
+                  : 'All Notes'}
+              </h2>
+              <p className={styles.sectionSubtitle}>
+                Click any note card to edit, or jump to its lesson video timestamp.
+              </p>
+            </div>
           </div>
 
           {globalModeNotes.length === 0 ? (
             <div className={styles.emptyLessonNotesBox}>
-              <div style={{ fontSize: '2rem', marginBottom: 8 }}>🔍</div>
-              <p style={{ fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>
+              <div className={styles.emptyIconCircle}>🔍</div>
+              <h3 className={styles.emptyTitle}>
                 No matching notes found
-              </p>
-              <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
+              </h3>
+              <p className={styles.emptyDesc}>
                 Try adjusting your search query or browse by course.
               </p>
             </div>
@@ -402,19 +400,19 @@ export function MyNotesThreePaneExplorer({
                   onClick={() => onSelectNoteForEdit(note)}
                   className={styles.singleNoteCard}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                  <div className={styles.noteCardHeader}>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: '#ea580c', fontWeight: 600, marginBottom: 4 }}>
-                        <span>{note.courseName}</span>
-                        <span>&rsaquo;</span>
-                        <span style={{ color: '#64748b' }}>{note.lessonName}</span>
+                      <div className={styles.globalNoteMeta}>
+                        <span className={styles.globalNoteMetaCourse}>{note.courseName}</span>
+                        <span className={styles.globalNoteMetaDivider}>&rsaquo;</span>
+                        <span className={styles.globalNoteMetaLesson}>{note.lessonName}</span>
                       </div>
-                      <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                      <h3 className={styles.noteCardTitle}>
                         {note.noteTitle}
                       </h3>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className={styles.noteCardHeaderRight}>
                       {note.videoTimestampSec !== null && (
                         <button
                           type="button"
@@ -439,14 +437,8 @@ export function MyNotesThreePaneExplorer({
                           e.stopPropagation();
                           await onToggleFavorite(note.noteId);
                         }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: note.isFavorite ? '#f59e0b' : '#cbd5e1',
-                          cursor: 'pointer',
-                          fontSize: '1.2rem',
-                          padding: '0 4px',
-                        }}
+                        className={styles.starBtn}
+                        style={{ color: note.isFavorite ? '#f59e0b' : '#cbd5e1' }}
                         title={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
                       >
                         ★
@@ -454,11 +446,11 @@ export function MyNotesThreePaneExplorer({
                     </div>
                   </div>
 
-                  <p style={{ fontSize: '0.86rem', color: '#64748b', lineHeight: 1.5, margin: '8px 0' }}>
+                  <p className={styles.notePreviewText}>
                     {note.plainTextPreview}
                   </p>
 
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8', marginTop: 10 }}>
+                  <div className={styles.noteCardFooter}>
                     <span>Updated {new Date(note.updatedAt).toLocaleDateString()}</span>
                     <button
                       type="button"
@@ -466,7 +458,7 @@ export function MyNotesThreePaneExplorer({
                         e.stopPropagation();
                         handleSelectLesson(note.courseId, note.moduleId, note.lessonId);
                       }}
-                      style={{ background: 'none', border: 'none', color: '#ea580c', fontWeight: 600, cursor: 'pointer' }}
+                      className={styles.noteJumpBtn}
                     >
                       View in Lesson Notes &rarr;
                     </button>
@@ -483,23 +475,25 @@ export function MyNotesThreePaneExplorer({
           Shows courses with title, thumbnail, note count badge, and CTA
           ───────────────────────────────────────────────────────────── */}
       {!isGlobalMode && !selectedCourseId && (
-        <section style={{ marginTop: 12 }}>
-          <div style={{ marginBottom: 18 }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>
-              Select a Course
-            </h2>
-            <p style={{ fontSize: '0.88rem', color: '#64748b', margin: 0 }}>
-              Choose an enrolled course below to open its modules, lessons, and recorded notes.
-            </p>
+        <section className={styles.contentSection}>
+          <div className={styles.sectionHeaderRow}>
+            <div>
+              <h2 className={styles.sectionTitle}>
+                Select a Course
+              </h2>
+              <p className={styles.sectionSubtitle}>
+                Choose an enrolled course below to open its modules, lessons, and recorded notes.
+              </p>
+            </div>
           </div>
 
           {courses.length === 0 ? (
             <div className={styles.emptyLessonNotesBox}>
-              <div style={{ fontSize: '2rem', marginBottom: 8 }}>📚</div>
-              <p style={{ fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>
+              <div className={styles.emptyIconCircle}>📚</div>
+              <h3 className={styles.emptyTitle}>
                 No enrolled courses found
-              </p>
-              <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
+              </h3>
+              <p className={styles.emptyDesc}>
                 Enroll in a program to start creating notes and bookmarks.
               </p>
             </div>
@@ -568,44 +562,48 @@ export function MyNotesThreePaneExplorer({
           Opens when a specific course is pressed
           ───────────────────────────────────────────────────────────── */}
       {!isGlobalMode && selectedCourseId && !selectedLessonId && activeCourse && (
-        <section style={{ marginTop: 12 }}>
+        <section className={styles.contentSection}>
           {/* Back Navigation & Breadcrumb */}
           <div className={styles.navRow}>
-            <button
-              type="button"
-              onClick={handleBackToCourses}
-              className={styles.backButton}
-            >
-              &larr; Back to Courses
-            </button>
-
-            <nav aria-label="Breadcrumb" className={styles.breadcrumbTrail}>
+            <div className={styles.navGroup}>
               <button
                 type="button"
                 onClick={handleBackToCourses}
-                className={styles.breadcrumbLink}
+                className={styles.backButton}
               >
-                My Notes
+                <span className={styles.backArrow}>&larr;</span> Back to Courses
               </button>
-              <span>&rsaquo;</span>
-              <span style={{ fontWeight: 700, color: '#0f172a' }}>
-                {activeCourse.title}
-              </span>
-            </nav>
+
+              <span className={styles.navDivider} aria-hidden="true">|</span>
+
+              <nav aria-label="Breadcrumb" className={styles.breadcrumbTrail}>
+                <button
+                  type="button"
+                  onClick={handleBackToCourses}
+                  className={styles.breadcrumbLink}
+                >
+                  My Notes
+                </button>
+                <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
+                <span className={styles.breadcrumbCurrent}>
+                  {activeCourse.title}
+                </span>
+              </nav>
+            </div>
           </div>
 
           {/* Heading */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div className={styles.sectionHeaderRow}>
             <div>
-              <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>
+              <h2 className={styles.sectionTitle}>
                 {activeCourse.title} &ndash; Notes
               </h2>
-              <p style={{ fontSize: '0.88rem', color: '#64748b', margin: 0 }}>
+              <p className={styles.sectionSubtitle}>
                 Select a module or lesson below to view its notes and timestamps.
               </p>
             </div>
 
-            <div>
+            <div className={styles.sectionHeaderRight}>
               <span className={styles.notePillOrange} style={{ fontSize: '0.85rem', padding: '5px 12px' }}>
                 📄 {noteCounts.byCourse[activeCourse.courseId] ?? 0} total notes
               </span>
@@ -630,23 +628,23 @@ export function MyNotesThreePaneExplorer({
                     }
                     className={styles.moduleSectionHeader}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      <span style={{ fontSize: '1.05rem' }}>
+                    <div className={styles.moduleHeaderLeft}>
+                      <span className={styles.moduleIcon}>
                         {mod.isLocked ? '🔒' : isExpanded ? '📂' : '📁'}
                       </span>
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span className={styles.moduleTitleText}>
                         {mod.title}
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div className={styles.moduleHeaderRight}>
                       <span
                         className={modNotesCount > 0 ? styles.notePillOrange : styles.notePillMuted}
                         style={{ fontSize: '0.75rem' }}
                       >
                         {modNotesCount} {modNotesCount === 1 ? 'note' : 'notes'}
                       </span>
-                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                      <span className={styles.chevronSlot}>
                         {isExpanded ? '▴' : '▾'}
                       </span>
                     </div>
@@ -656,6 +654,7 @@ export function MyNotesThreePaneExplorer({
                     <div className={styles.lessonRowsList}>
                       {mod.lessons.map((lesson) => {
                         const lessonCount = noteCounts.byLesson[lesson.lessonId] ?? 0;
+                        const isDone = lesson.status === 'completed';
                         return (
                           <button
                             key={lesson.lessonId}
@@ -669,34 +668,32 @@ export function MyNotesThreePaneExplorer({
                             }
                             className={styles.lessonRowItem}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <div className={styles.lessonRowLeft}>
                               <span
-                                style={{
-                                  color: lesson.status === 'completed' ? '#16a34a' : '#ea580c',
-                                  fontSize: '0.9rem',
-                                  fontWeight: 'bold',
-                                }}
+                                className={`${styles.lessonStatusIcon} ${
+                                  isDone ? styles.lessonStatusDone : styles.lessonStatusPending
+                                }`}
                               >
-                                {lesson.status === 'completed' ? '✓' : '○'}
+                                {isDone ? '✓' : '○'}
                               </span>
-                              <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>
+                              <span className={styles.lessonTitleText}>
                                 {lesson.lessonOrder}. {lesson.title}
                               </span>
                               {lesson.durationFormatted && (
-                                <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 4 }}>
+                                <span className={styles.lessonDurationText}>
                                   ({lesson.durationFormatted})
                                 </span>
                               )}
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div className={styles.lessonRowRight}>
                               <span
                                 className={lessonCount > 0 ? styles.notePillOrange : styles.notePillMuted}
                                 style={{ fontSize: '0.72rem' }}
                               >
                                 📄 {lessonCount} {lessonCount === 1 ? 'note' : 'notes'}
                               </span>
-                              <span style={{ color: '#ea580c', fontWeight: 700, fontSize: '0.9rem' }}>
+                              <span className={styles.arrowSlot}>
                                 &rarr;
                               </span>
                             </div>
@@ -717,40 +714,44 @@ export function MyNotesThreePaneExplorer({
           e.g. "Notes for: Introduction" / "Sigma 1 › Module 1: Module 1"
           ───────────────────────────────────────────────────────────── */}
       {!isGlobalMode && selectedCourseId && selectedLessonId && activeCourse && activeModuleAndLesson && (
-        <section style={{ marginTop: 12 }}>
+        <section className={styles.contentSection}>
           {/* Back Navigation & Breadcrumb */}
           <div className={styles.navRow}>
-            <button
-              type="button"
-              onClick={handleBackToCourseModules}
-              className={styles.backButton}
-            >
-              &larr; Back to {activeCourse.title} Notes
-            </button>
-
-            <nav aria-label="Breadcrumb" className={styles.breadcrumbTrail}>
-              <button
-                type="button"
-                onClick={handleBackToCourses}
-                className={styles.breadcrumbLink}
-              >
-                My Notes
-              </button>
-              <span>&rsaquo;</span>
+            <div className={styles.navGroup}>
               <button
                 type="button"
                 onClick={handleBackToCourseModules}
-                className={styles.breadcrumbLink}
+                className={styles.backButton}
               >
-                {activeCourse.title}
+                <span className={styles.backArrow}>&larr;</span> Back to {activeCourse.title} Notes
               </button>
-              <span>&rsaquo;</span>
-              <span>{activeModuleAndLesson.module.title}</span>
-              <span>&rsaquo;</span>
-              <span style={{ fontWeight: 700, color: '#0f172a' }}>
-                {activeModuleAndLesson.lesson.title}
-              </span>
-            </nav>
+
+              <span className={styles.navDivider} aria-hidden="true">|</span>
+
+              <nav aria-label="Breadcrumb" className={styles.breadcrumbTrail}>
+                <button
+                  type="button"
+                  onClick={handleBackToCourses}
+                  className={styles.breadcrumbLink}
+                >
+                  My Notes
+                </button>
+                <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
+                <button
+                  type="button"
+                  onClick={handleBackToCourseModules}
+                  className={styles.breadcrumbLink}
+                >
+                  {activeCourse.title}
+                </button>
+                <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
+                <span className={styles.breadcrumbMuted}>{activeModuleAndLesson.module.title}</span>
+                <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
+                <span className={styles.breadcrumbCurrent}>
+                  {activeModuleAndLesson.lesson.title}
+                </span>
+              </nav>
+            </div>
           </div>
 
           {/* Card Container for Lesson Notes */}
@@ -776,14 +777,22 @@ export function MyNotesThreePaneExplorer({
 
             {currentLessonNotes.length === 0 ? (
               <div className={styles.emptyLessonNotesBox}>
-                <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>📄</div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '0 0 6px' }}>
+                <div className={styles.emptyIconCircle}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                </div>
+                <h3 className={styles.emptyTitle}>
                   No notes found for this lesson
                 </h3>
-                <p style={{ fontSize: '0.86rem', color: '#64748b', maxWidth: 420, margin: '0 auto 18px', lineHeight: 1.5 }}>
+                <p className={styles.emptyDesc}>
                   Click &ldquo;+ Add Note&rdquo; above to capture key insights, or open the lesson video player to study and bookmark moments.
                 </p>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <div className={styles.emptyActionsRow}>
                   <button
                     type="button"
                     onClick={handleCreateNoteInActiveLesson}
@@ -801,16 +810,7 @@ export function MyNotesThreePaneExplorer({
                         activeModuleAndLesson.module.moduleId
                       )
                     }
-                    style={{
-                      padding: '9px 18px',
-                      borderRadius: 10,
-                      background: '#ffffff',
-                      border: '1px solid #cbd5e1',
-                      fontSize: '0.88rem',
-                      fontWeight: 600,
-                      color: '#334155',
-                      cursor: 'pointer',
-                    }}
+                    className={styles.openVideoBtn}
                   >
                     Open Lesson Video &rarr;
                   </button>
@@ -824,40 +824,17 @@ export function MyNotesThreePaneExplorer({
                     onClick={() => onSelectNoteForEdit(note)}
                     className={styles.singleNoteCard}
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                        <span
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 8,
-                            background: '#ffedd5',
-                            color: '#ea580c',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '0.85rem',
-                            flexShrink: 0,
-                          }}
-                        >
+                    <div className={styles.noteCardHeader}>
+                      <div className={styles.noteCardHeaderLeft}>
+                        <span className={styles.noteIconSquare}>
                           📄
                         </span>
-                        <h3
-                          style={{
-                            fontSize: '1.05rem',
-                            fontWeight: 700,
-                            color: '#0f172a',
-                            margin: 0,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
+                        <h3 className={styles.noteCardTitle}>
                           {note.noteTitle}
                         </h3>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <div className={styles.noteCardHeaderRight}>
                         {note.videoTimestampSec !== null && (
                           <button
                             type="button"
@@ -883,13 +860,9 @@ export function MyNotesThreePaneExplorer({
                             e.stopPropagation();
                             await onToggleFavorite(note.noteId);
                           }}
+                          className={styles.starBtn}
                           style={{
-                            background: 'none',
-                            border: 'none',
                             color: note.isFavorite ? '#f59e0b' : '#cbd5e1',
-                            cursor: 'pointer',
-                            fontSize: '1.25rem',
-                            padding: '0 4px',
                           }}
                           title={note.isFavorite ? 'Remove favorite' : 'Mark favorite'}
                         >
@@ -969,35 +942,17 @@ export function MyNotesThreePaneExplorer({
                       </div>
                     </div>
 
-                    <p
-                      style={{
-                        fontSize: '0.88rem',
-                        color: '#64748b',
-                        lineHeight: 1.55,
-                        margin: '10px 0',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}
-                    >
+                    <p className={styles.notePreviewText}>
                       {note.plainTextPreview}
                     </p>
 
                     {/* Tag Pills */}
                     {note.tags && note.tags.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                      <div className={styles.noteTagsRow}>
                         {note.tags.map((tag) => (
                           <span
                             key={tag}
-                            style={{
-                              fontSize: '0.72rem',
-                              padding: '2px 8px',
-                              borderRadius: 6,
-                              background: '#f1f5f9',
-                              color: '#475569',
-                              fontWeight: 600,
-                            }}
+                            className={styles.noteTagPill}
                           >
                             #{tag}
                           </span>
@@ -1005,17 +960,7 @@ export function MyNotesThreePaneExplorer({
                       </div>
                     )}
 
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        fontSize: '0.75rem',
-                        color: '#94a3b8',
-                        paddingTop: 10,
-                        borderTop: '1px solid #f8fafc',
-                      }}
-                    >
+                    <div className={styles.noteCardFooter}>
                       <span>Last updated {new Date(note.updatedAt).toLocaleDateString()}</span>
                       <button
                         type="button"
@@ -1028,13 +973,7 @@ export function MyNotesThreePaneExplorer({
                             note.moduleId
                           );
                         }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#ea580c',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
+                        className={styles.noteJumpBtn}
                       >
                         Go to Video Player &rarr;
                       </button>

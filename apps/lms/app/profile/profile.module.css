@@ -4,23 +4,35 @@
 
 .profileContainer {
   width: 100%;
-  max-width: 1240px;
+  max-width: 1360px;
   margin: 0 auto;
-  padding: 1.75rem 2rem 4rem;
+  padding: 1rem 1.5rem 2.5rem;
   box-sizing: border-box;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .profileContentStack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
 .errorCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 20px;
-  padding: 48px 24px;
+  border-radius: 16px;
+  padding: 36px 20px;
   text-align: center;
   box-shadow: 0 1px 4px rgba(28, 25, 23, 0.02);
 }
@@ -44,12 +56,12 @@
 .heroCard {
   background: linear-gradient(135deg, #ffffff 0%, #fffdfa 55%, #fff7ed 100%);
   border: 1px solid #ece6dd;
-  border-radius: 22px;
-  padding: 28px 34px;
+  border-radius: 16px;
+  padding: 18px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
   box-shadow: 0 4px 16px -2px rgba(28, 25, 23, 0.04), 0 2px 6px rgba(28, 25, 23, 0.02);
   position: relative;
   overflow: hidden;
@@ -58,7 +70,7 @@
 .heroLeft {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 18px;
 }
 
 .heroAvatarWrap {
@@ -67,18 +79,18 @@
 }
 
 .heroAvatar {
-  width: 90px;
-  height: 90px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
   color: #ea580c;
-  font-size: 2.25rem;
+  font-size: 1.85rem;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.15);
-  border: 3.5px solid #ffffff;
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15);
+  border: 3px solid #ffffff;
   user-select: none;
 }
 
@@ -86,11 +98,11 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #ea580c;
-  border: 2.5px solid #ffffff;
+  border: 2px solid #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -114,7 +126,7 @@
 
 .heroName {
   margin: 0;
-  font-size: 1.85rem;
+  font-size: 1.55rem;
   font-weight: 800;
   color: #0f172a;
   letter-spacing: -0.025em;
@@ -122,8 +134,8 @@
 }
 
 .heroEmail {
-  margin: 5px 0 0;
-  font-size: 0.95rem;
+  margin: 3px 0 0;
+  font-size: 0.9rem;
   color: #64748b;
   font-weight: 500;
   overflow-wrap: anywhere;
@@ -133,16 +145,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .heroRoleBadge {
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #c2410c;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  padding: 4px 14px;
+  padding: 3px 12px;
   border-radius: 9999px;
   display: inline-flex;
   align-items: center;
@@ -152,7 +164,7 @@
 .heroActions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -160,9 +172,9 @@
   background: #18181b;
   color: #ffffff;
   border: 1px solid #18181b;
-  border-radius: 10px;
-  padding: 10px 18px;
-  font-size: 0.86rem;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -182,9 +194,9 @@
   background: #ffffff;
   color: #18181b;
   border: 1px solid #e2dcd4;
-  border-radius: 10px;
-  padding: 10px 18px;
-  font-size: 0.86rem;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -211,18 +223,18 @@
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 16px;
 }
 
 .statCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 18px;
-  padding: 22px 24px;
+  border-radius: 16px;
+  padding: 16px 18px;
   box-shadow: 0 1px 4px rgba(28, 25, 23, 0.02);
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -232,9 +244,9 @@
 }
 
 .statIconWrap {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -265,21 +277,21 @@
 }
 
 .statValue {
-  font-size: 1.65rem;
+  font-size: 1.45rem;
   font-weight: 800;
   color: #0f172a;
   line-height: 1;
 }
 
 .statLabel {
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #18181b;
-  margin-top: 5px;
+  margin-top: 3px;
 }
 
 .statSublabel {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: #64748b;
   font-weight: 500;
   margin-top: 2px;
@@ -291,15 +303,15 @@
 .twoColumnGrid {
   display: grid;
   grid-template-columns: 1fr 1.15fr;
-  gap: 20px;
+  gap: 16px;
   align-items: stretch;
 }
 
 .sectionCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 20px;
-  padding: 26px 28px;
+  border-radius: 16px;
+  padding: 18px 20px;
   box-shadow: 0 1px 4px rgba(28, 25, 23, 0.02);
   display: flex;
   flex-direction: column;
@@ -310,20 +322,20 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .sectionTitleGroup {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .sectionHeaderIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -331,7 +343,7 @@
 }
 
 .sectionCardTitle {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 800;
   color: #0f172a;
   margin: 0;
@@ -339,7 +351,7 @@
 }
 
 .sectionCardSubtitle {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: #64748b;
   margin: 2px 0 0;
   font-weight: 500;
@@ -349,13 +361,13 @@
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #c2410c;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 5px 12px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -369,14 +381,14 @@
   background: #fffbeb;
   border: 1px solid #fde68a;
   color: #92400e;
-  font-size: 0.82rem;
-  padding: 10px 14px;
-  border-radius: 10px;
-  margin-bottom: 16px;
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   line-height: 1.45;
 }
 
@@ -395,27 +407,27 @@
 .detailsList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
 .detailRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
   background: #faf8f5;
   border: 1px solid #f2ede5;
-  gap: 12px;
+  gap: 10px;
 }
 
 .detailLabelWrap {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: #64748b;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   font-weight: 500;
 }
 
@@ -429,13 +441,13 @@
 }
 
 .detailValue {
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: #0f172a;
 }
 
 .detailValueEmail {
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   font-weight: 600;
   color: #0f172a;
   overflow: hidden;
@@ -445,7 +457,7 @@
 }
 
 .detailValueMuted {
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   font-weight: 500;
   color: #94a3b8;
 }
@@ -453,24 +465,24 @@
 .accountTypePill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #ea580c;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
 }
 
 .programManagerNotice {
   background: #f0f9ff;
   border: 1px solid #bae6fd;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 8px;
+  padding: 9px 12px;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   margin-top: auto;
 }
 
@@ -482,10 +494,10 @@
 
 .programManagerNoticeText {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 500;
   color: #0369a1;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 /* My Courses List */
@@ -495,38 +507,38 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .profileCourseItem {
   background: #ffffff;
   border: 1px solid #ede8e1;
-  border-radius: 14px;
-  padding: 12px 16px;
+  border-radius: 10px;
+  padding: 9px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .profileCourseItem:hover {
   border-color: #fed7aa;
-  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
+  box-shadow: 0 2px 6px rgba(28, 25, 23, 0.03);
 }
 
 .profileCourseMain {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
 }
 
 .courseCapWrap {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -563,8 +575,8 @@
 }
 
 .profileCourseTitle {
-  margin: 0 0 6px;
-  font-size: 0.92rem;
+  margin: 0 0 3px;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
@@ -575,12 +587,12 @@
 .progressBarWrap {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .progressTrack {
   flex: 1;
-  height: 6px;
+  height: 5px;
   background: #f3efe9;
   border-radius: 999px;
   overflow: hidden;
@@ -594,19 +606,19 @@
 }
 
 .progressPercentText {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: #475569;
-  min-width: 36px;
+  min-width: 32px;
   text-align: right;
 }
 
 .openCourseBtn {
   background: #faf8f5;
   border: 1px solid #e7e1d8;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 0.82rem;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #1e293b;
   text-decoration: none;
@@ -624,7 +636,7 @@
 }
 
 .coursesEmptyState {
-  padding: 36px 16px;
+  padding: 28px 16px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -633,19 +645,19 @@
 }
 
 .coursesEmptyText {
-  margin: 10px 0 16px;
+  margin: 8px 0 14px;
   color: #64748b;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
 }
 
 .browseCoursesBtn {
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #c2410c;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  padding: 6px 16px;
-  border-radius: 8px;
+  padding: 5px 14px;
+  border-radius: 6px;
   text-decoration: none;
   transition: all 0.15s ease;
 }
@@ -662,15 +674,15 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 14px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 
 .sigTitleGroup {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
   min-width: 280px;
 }
@@ -679,27 +691,27 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .sigMetaBadge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #ea580c;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 800;
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: 9999px;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .sigBadgeDot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #ea580c;
 }
@@ -714,10 +726,10 @@
   background: #ffffff;
   border: 1px solid #e2dcd4;
   color: #18181b;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 5px 12px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -731,10 +743,10 @@
   background: #fff1f2;
   border: 1px solid #fecdd3;
   color: #e11d48;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 5px 12px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -747,11 +759,11 @@
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
   color: #15803d;
-  font-size: 0.84rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  padding: 10px 14px;
-  border-radius: 10px;
-  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
   line-height: 1.45;
 }
 
@@ -759,19 +771,19 @@
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #b91c1c;
-  font-size: 0.84rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  padding: 10px 14px;
-  border-radius: 10px;
-  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
   line-height: 1.45;
 }
 
 .sigEmptyDashedCard {
   border: 1.5px dashed #fcd34d;
   background: #fffdf9;
-  border-radius: 16px;
-  padding: 42px 24px;
+  border-radius: 12px;
+  padding: 24px 16px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -780,27 +792,27 @@
 }
 
 .sigEmptyIconBox {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   background: #ffedd5;
   border: 1px solid #fed7aa;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .sigEmptyHeading {
-  margin: 0 0 6px;
-  font-size: 1.1rem;
+  margin: 0 0 4px;
+  font-size: 1rem;
   font-weight: 800;
   color: #0f172a;
 }
 
 .sigEmptySubtext {
-  margin: 0 auto 20px;
-  font-size: 0.86rem;
+  margin: 0 auto 16px;
+  font-size: 0.82rem;
   color: #64748b;
   max-width: 480px;
   line-height: 1.5;
@@ -810,31 +822,31 @@
 .sigSavedCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 14px;
-  padding: 16px 20px;
+  border-radius: 10px;
+  padding: 12px 14px;
 }
 
 .sigPreviewRow {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
 .sigImgContainer {
   background: #faf8f5;
   border: 1px solid #e7e1d8;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-radius: 8px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  max-width: 240px;
-  max-height: 90px;
+  max-width: 220px;
+  max-height: 72px;
 }
 
 .sigImg {
-  max-height: 70px;
+  max-height: 56px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -848,12 +860,12 @@
 .sigMetaTitleRow {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 3px;
 }
 
 .sigMetaActiveTitle {
-  font-size: 0.94rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: #0f172a;
 }
@@ -862,67 +874,67 @@
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #ea580c;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 5px;
 }
 
 .sigMetaDate {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: #64748b;
-  margin: 0 0 4px;
+  margin: 0 0 3px;
 }
 
 .sigMetaNote {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: #94a3b8;
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 /* Signature Pad Editor Box */
 .sigEditorBox {
   background: #faf8f5;
   border: 1px solid #ece6dd;
-  border-radius: 16px;
-  padding: 20px;
+  border-radius: 12px;
+  padding: 14px 16px;
 }
 
 .sigEditorHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .sigEditorTitle {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: #0f172a;
 }
 
 .sigEditorTag {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   color: #64748b;
   background: #ffffff;
   border: 1px solid #e2dcd4;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 2px 7px;
+  border-radius: 5px;
 }
 
 .sigEditorNotice {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: #64748b;
-  margin: 10px 0 16px;
-  line-height: 1.45;
+  margin: 8px 0 12px;
+  line-height: 1.4;
 }
 
 .sigEditorActions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 /* -------------------------------------------------------------------------
@@ -932,7 +944,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
@@ -944,32 +956,32 @@
 .deviceHeaderTitleRow {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
 }
 
 .deviceTitleWithBadge {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .singleDeviceBadge {
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
   color: #475569;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  padding: 3px 10px;
+  padding: 2px 8px;
   border-radius: 9999px;
 }
 
 .deviceExplanationText {
   margin: 0;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   color: #64748b;
-  line-height: 1.55;
+  line-height: 1.45;
   max-width: 650px;
 }
 
@@ -985,8 +997,8 @@
 }
 
 .deviceSessionsContainer {
-  margin-top: 20px;
-  padding-top: 18px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid #f1ece4;
 }
 
@@ -994,12 +1006,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .deviceSessionsTitle {
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   font-weight: 700;
   color: #0f172a;
 }
@@ -1008,10 +1020,10 @@
   background: #fff7ed;
   border: 1px solid #fed7aa;
   color: #c2410c;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 6px;
+  padding: 3px 10px;
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -1022,18 +1034,18 @@
 
 .deviceGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
 }
 
 .deviceCard {
   background: #faf8f5;
   border: 1px solid #ece6dd;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 8px;
+  padding: 9px 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   transition: all 0.15s ease;
 }
 
@@ -1044,9 +1056,9 @@
 }
 
 .deviceIconWrap {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
   background: #ffffff;
   border: 1px solid #e7e1d8;
   display: flex;
@@ -1069,7 +1081,7 @@
 }
 
 .deviceName {
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   font-weight: 700;
   color: #0f172a;
   overflow: hidden;
@@ -1081,7 +1093,7 @@
   background: #ecfdf5;
   border: 1px solid #a7f3d0;
   color: #059669;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
@@ -1092,7 +1104,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   color: #64748b;
 }
 
@@ -1100,10 +1112,10 @@
   background: #ffffff;
   border: 1px solid #fecdd3;
   color: #e11d48;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
@@ -1125,41 +1137,45 @@
 @media (max-width: 860px) {
   .statsGrid {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 10px;
   }
 
   .heroCard {
     flex-direction: column;
     align-items: flex-start;
-    padding: 22px 20px;
+    padding: 18px 16px;
   }
 
   .heroActions {
     width: 100%;
     justify-content: flex-start;
-    margin-top: 6px;
+    margin-top: 4px;
   }
 }
 
 @media (max-width: 640px) {
   .profileContainer {
-    padding: 1.25rem 1rem 3rem;
+    padding: 0.5rem 0.75rem 1.75rem;
+  }
+
+  .profileContentStack {
+    gap: 12px;
   }
 
   .heroLeft {
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
+    gap: 14px;
   }
 
   .heroAvatar {
-    width: 76px;
-    height: 76px;
-    font-size: 1.85rem;
+    width: 64px;
+    height: 64px;
+    font-size: 1.6rem;
   }
 
   .heroName {
-    font-size: 1.55rem;
+    font-size: 1.35rem;
   }
 
   .heroActions {
@@ -1175,13 +1191,13 @@
   }
 
   .sectionCard {
-    padding: 20px 16px;
+    padding: 14px 12px;
   }
 
   .detailRow {
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: 3px;
   }
 
   .detailValueEmail {
@@ -1191,7 +1207,7 @@
   .profileCourseItem {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 10px;
   }
 
   .openCourseBtn {

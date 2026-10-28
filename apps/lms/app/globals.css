@@ -294,7 +294,7 @@ body.auth-page-active main {
   aside,
   header:not(article header),
   nav,
-  footer,
+  footer:not(article footer):not([class*="footerRow"]),
   [class*="sidebar"],
   [class*="topbar"],
   [class*="LmsSidebar"],
@@ -312,7 +312,6 @@ body.auth-page-active main {
     color-adjust: exact !important;
   }
 
-  main,
   div[class*="mainContent"],
   main[class*="mainContent"],
   div[class*="appContainer"] {

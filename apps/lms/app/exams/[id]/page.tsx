@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useRef, useCallback } from "react";
 import Link from "next/link";
-import { API_URL, getAuthHeaders, parseApiError } from "../../lib/api";
+import { API_URL, getAuthHeaders, parseApiError, invalidateCache } from "../../lib/api";
 import {
   safeParseResponseJson as safeJson,
   buildExamAnswersPayload,
@@ -429,6 +429,10 @@ export default function ExamPage({
       clearLocalExamProgress(attemptId, targetExamId);
       setActiveAttempt(null);
       setSecondsRemaining(null);
+      invalidateCache("/exams");
+      invalidateCache("/progression");
+      invalidateCache("/stages");
+      invalidateCache("/certificates");
     } catch (err: any) {
       setSubmitWarning(err.message || "Failed to submit exam attempt. Please retry.");
     } finally {

@@ -232,16 +232,23 @@ export function autoInvalidateOnMutation(url: string): void {
       }
       if (r === "one-on-one" || r === "coaching") {
         invalidateCache("/one-on-one");
+        invalidateCache("/coaching");
         invalidateCache("/progression");
+        invalidateCache("/stages");
+        invalidateCache("/certificates");
       }
       if (r === "mission-statements") {
         invalidateCache("/mission-statements");
         invalidateCache("/progression");
+        invalidateCache("/stages");
+        invalidateCache("/certificates");
       }
-      if (r === "progression" || r === "progress" || r === "quizzes") {
+      if (r === "progression" || r === "progress" || r === "quizzes" || r === "exams") {
         invalidateCache("/progression");
+        invalidateCache("/stages");
         invalidateCache("/progress");
         invalidateCache("/quizzes");
+        invalidateCache("/exams");
         invalidateCache("/certificates");
         invalidateCache("/auth");
       }
@@ -251,6 +258,7 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "agreements") {
         invalidateCache("/agreements");
         invalidateCache("/progression");
+        invalidateCache("/stages");
         invalidateCache("/auth");
       }
       break;
@@ -259,8 +267,10 @@ export function autoInvalidateOnMutation(url: string): void {
 
   if (url.includes("/complete") || url.includes("/submit")) {
     invalidateCache("/progression");
+    invalidateCache("/stages");
     invalidateCache("/progress");
     invalidateCache("/quizzes");
+    invalidateCache("/exams");
     invalidateCache("/certificates");
     invalidateCache("/auth");
   }

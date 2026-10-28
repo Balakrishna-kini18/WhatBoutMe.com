@@ -280,20 +280,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [missionFeedbackMsg, setMissionFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showWelcomeBackBanner, setShowWelcomeBackBanner] = useState(false);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const url = new URL(window.location.href);
-      if (url.searchParams.get("welcomeBack") === "1" || url.searchParams.get("welcomeBack") === "true") {
-        setShowWelcomeBackBanner(true);
-        url.searchParams.delete("welcomeBack");
-        window.history.replaceState({}, "", url.pathname + url.search);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
   const loadProgression = useCallback(
     async (isRetry = false) => {
       const token = getAuthToken();
@@ -306,11 +292,34 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
       try {
         const headers = getAuthHeaders();
-        const res = await cachedFetch(`${API_URL}/progression/me/${id}`, {
+
+        // 1. Concurrently initiate all primary endpoints: progression, exam config, coaching requests, and mission submissions
+        const progPromise = cachedFetch(`${API_URL}/progression/me/${id}`, {
           headers,
-          ttlMs: 20_000,
+          ttlMs: 15_000,
           skipCache: isRetry,
         });
+
+        const examPromise = cachedFetch(`${API_URL}/programs/${id}/exam`, {
+          headers,
+          ttlMs: 30_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        const coachingPromise = cachedFetch(`${API_URL}/one-on-one/my-requests`, {
+          headers,
+          ttlMs: 15_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        const missionPromise = cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
+          headers,
+          ttlMs: 15_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        // 2. Await progression response to obtain verified enrolmentId & step completion status
+        const res = await progPromise;
 
         if (res.status === 401) {
           router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
@@ -323,102 +332,108 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         }
 
         const data: EnrolmentProgressionResponse = await res.json();
-        setProgression(data);
-
-        // Immediate UI unblock: display steps timeline, progress circle, and continue button instantly!
-        setLoading(false);
-
-        // Secondary milestone statuses: fetch in the background without blocking the primary view
         const enrolmentId = data.enrolmentId;
-        const allStepsCompleted = (data.steps || []).every((s) => s.isCompleted);
 
-        void (async () => {
+        // 3. Immediately trigger stages evaluation with known enrolmentId
+        const stagesPromise = enrolmentId
+          ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            }).catch(() => null)
+          : Promise.resolve(null);
+
+        // 4. Resolve exam config and trigger attempt query if configured
+        let resolvedExamConfig: ExamConfigSummary | null = null;
+        let attemptPromise: Promise<Response | null> = Promise.resolve(null);
+
+        const examRes = await examPromise;
+        if (examRes && examRes.ok) {
           try {
-            const [stagesRes, examRes, coachingRes, missionRes] = await Promise.all([
-              enrolmentId
-                ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
-                    headers,
-                    ttlMs: 30_000,
-                    skipCache: isRetry,
-                  }).catch(() => null)
-                : Promise.resolve(null),
-              cachedFetch(`${API_URL}/programs/${id}/exam`, {
+            resolvedExamConfig = await examRes.json();
+            if (resolvedExamConfig?.id) {
+              attemptPromise = cachedFetch(`${API_URL}/exams/${resolvedExamConfig.id}/attempt`, {
                 headers,
-                ttlMs: 60_000,
+                ttlMs: 15_000,
                 skipCache: isRetry,
-              }).catch(() => null),
-              cachedFetch(
-                `${API_URL}/one-on-one/my-requests${enrolmentId ? `?enrolmentId=${enrolmentId}` : ""}`,
-                { headers, ttlMs: 30_000, skipCache: isRetry }
-              ).catch(() => null),
-              cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
-                headers,
-                ttlMs: 30_000,
-                skipCache: isRetry,
-              }).catch(() => null),
-            ]);
-
-            let stage2Unlocked = false;
-            if (stagesRes && stagesRes.ok) {
-              const sData = await stagesRes.json();
-              setStagesEval(sData);
-              stage2Unlocked = Boolean(sData?.stages?.STAGE_2_EXAM?.isUnlocked);
-            }
-
-            if (examRes && examRes.ok) {
-              const eConfig: ExamConfigSummary = await examRes.json();
-              setExamConfig(eConfig);
-
-              // Only query attempt if the learner is actually eligible/unlocked for the Final Exam
-              // Completely avoids running the heavy 10-second attempt query when on early steps
-              if (eConfig?.id && (allStepsCompleted || stage2Unlocked)) {
-                try {
-                  const attRes = await cachedFetch(`${API_URL}/exams/${eConfig.id}/attempt`, {
-                    headers,
-                    ttlMs: 15_000,
-                    skipCache: isRetry,
-                  });
-                  if (attRes && attRes.ok) {
-                    const attText = await attRes.text();
-                    if (attText) {
-                      setExamAttempt(JSON.parse(attText));
-                    }
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-            }
-
-            if (coachingRes && coachingRes.ok) {
-              const cList = await coachingRes.json();
-              if (Array.isArray(cList)) {
-                setCoachingRequests(
-                  enrolmentId
-                    ? cList.filter(
-                        (r: any) =>
-                          r.enrolmentId === enrolmentId ||
-                          r.enrolment?.id === enrolmentId ||
-                          r.enrolment?.programId === id ||
-                          r.enrolment?.program?.id === id
-                      )
-                    : cList
-                );
-              }
-            }
-
-            if (missionRes && missionRes.ok) {
-              const mList = await missionRes.json();
-              if (Array.isArray(mList)) {
-                setMissionSubmissions(
-                  enrolmentId ? mList.filter((m: any) => m.enrolmentId === enrolmentId) : mList
-                );
-              }
+              }).catch(() => null);
             }
           } catch {
-            // Milestone background fetch failure does not affect primary curriculum view
+            resolvedExamConfig = null;
           }
-        })();
+        }
+
+        // 5. Concurrently resolve secondary milestone checks with a 3.5s timeout safety boundary
+        const [stagesRes, attRes, coachingRes, missionRes] = await Promise.race([
+          Promise.all([stagesPromise, attemptPromise, coachingPromise, missionPromise]),
+          new Promise<[null, null, null, null]>((resolve) =>
+            setTimeout(() => resolve([null, null, null, null]), 3500)
+          ),
+        ]);
+
+        let resolvedStages: any = null;
+        if (stagesRes && stagesRes.ok) {
+          try {
+            resolvedStages = await stagesRes.json();
+          } catch {
+            resolvedStages = null;
+          }
+        }
+
+        let resolvedAttempt: ExamAttemptSummary | null = null;
+        if (attRes && attRes.ok) {
+          try {
+            const attText = await attRes.text();
+            if (attText && attText.trim()) {
+              resolvedAttempt = JSON.parse(attText);
+            }
+          } catch {
+            resolvedAttempt = null;
+          }
+        }
+
+        let resolvedCoaching: CoachingRequestItem[] = [];
+        if (coachingRes && coachingRes.ok) {
+          try {
+            const cList = await coachingRes.json();
+            if (Array.isArray(cList)) {
+              resolvedCoaching = enrolmentId
+                ? cList.filter(
+                    (r: any) =>
+                      r.enrolmentId === enrolmentId ||
+                      r.enrolment?.id === enrolmentId ||
+                      r.enrolment?.programId === id ||
+                      r.enrolment?.program?.id === id
+                  )
+                : cList;
+            }
+          } catch {
+            resolvedCoaching = [];
+          }
+        }
+
+        let resolvedMissions: MissionSubmissionItem[] = [];
+        if (missionRes && missionRes.ok) {
+          try {
+            const mList = await missionRes.json();
+            if (Array.isArray(mList)) {
+              resolvedMissions = enrolmentId
+                ? mList.filter((m: any) => m.enrolmentId === enrolmentId)
+                : mList;
+            }
+          } catch {
+            resolvedMissions = [];
+          }
+        }
+
+        // 6. Atomically commit all unified learning journey states together before lifting loading
+        setProgression(data);
+        if (resolvedStages) setStagesEval(resolvedStages);
+        if (resolvedExamConfig) setExamConfig(resolvedExamConfig);
+        if (resolvedAttempt) setExamAttempt(resolvedAttempt);
+        setCoachingRequests(resolvedCoaching);
+        setMissionSubmissions(resolvedMissions);
+        setLoading(false);
       } catch (err: any) {
         if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch"))) {
           setTimeout(() => {
@@ -435,7 +450,25 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
 
   useEffect(() => {
-    loadProgression();
+    let isWelcomeBack = false;
+    if (typeof window !== "undefined") {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get("welcomeBack") === "1" || url.searchParams.get("welcomeBack") === "true") {
+          isWelcomeBack = true;
+          setShowWelcomeBackBanner(true);
+          invalidateCache("/progression");
+          invalidateCache("/exams");
+          invalidateCache("/stages");
+          invalidateCache("/certificates");
+          url.searchParams.delete("welcomeBack");
+          window.history.replaceState({}, "", url.pathname + url.search);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadProgression(isWelcomeBack);
   }, [loadProgression]);
 
   const handleBookCoaching = async (e: React.FormEvent) => {
@@ -637,7 +670,39 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const steps = progression?.steps || [];
   const total = steps.length;
   const done = steps.filter((s) => s.isCompleted).length;
-  const percent = progression ? Math.round(progression.overallProgressPercent) : 0;
+
+  // Robust calculation of curriculum progress with fallbacks for partial-step items & edge cases
+  const calculatedItemsTotal = steps.reduce(
+    (sum, s) => sum + (s.totalItems ?? (s.lessons?.length || 0) + (s.quiz ? 1 : 0)),
+    0
+  );
+  const calculatedItemsDone = steps.reduce(
+    (sum, s) =>
+      sum +
+      (s.completedItems ??
+        (s.lessons?.filter((l) => l.isCompleted).length || 0) + (s.quiz?.isPassed ? 1 : 0)),
+    0
+  );
+
+  const rawPercent =
+    typeof progression?.overallProgressPercent === "number" && progression.overallProgressPercent > 0
+      ? progression.overallProgressPercent
+      : typeof (progression as any)?.overallPercent === "number" && (progression as any).overallPercent > 0
+      ? (progression as any).overallPercent
+      : typeof progression?.totalItems === "number" &&
+        progression.totalItems > 0 &&
+        typeof progression.completedItems === "number" &&
+        progression.completedItems > 0
+      ? Math.floor((progression.completedItems / progression.totalItems) * 100)
+      : calculatedItemsTotal > 0 && calculatedItemsDone > 0
+      ? Math.floor((calculatedItemsDone / calculatedItemsTotal) * 100)
+      : typeof progression?.overallProgressPercent === "number"
+      ? progression.overallProgressPercent
+      : total > 0
+      ? Math.round((done / total) * 100)
+      : 0;
+
+  const percent = Math.max(0, Math.min(100, Math.round(rawPercent || 0)));
   const current = steps.find((s) => s.isUnlocked && !s.isCompleted) || steps.find((s) => s.isUnlocked);
 
   // Post-Curriculum Milestones Evaluation (Strictly Sequential unless Staff Overridden)
@@ -703,7 +768,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     curriculumPercent: percent,
   });
 
-  const displayPercent = journeyProgress.overallJourneyPercent;
+  const displayPercent = percent;
 
   // SVG Ring calculation: Radius = 50, Circumference = 2 * pi * 50 = ~314.16
   const RING_RADIUS = 50;

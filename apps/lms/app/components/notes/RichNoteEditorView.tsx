@@ -5,6 +5,8 @@ import React, { useState } from 'react';
 import { ContextualNote, formatSecondsToTimestamp } from '../../types/learner-flow';
 import { extractPlainTextPreview } from '../../lib/notesAdapter';
 import { ConfirmModal } from '../ui/ConfirmModal';
+import { VisualRichTextEditor } from './VisualRichTextEditor';
+import { isEditorEmpty } from '../../lib/richTextHelper';
 
 interface RichNoteEditorViewProps {
   note: ContextualNote;
@@ -23,6 +25,7 @@ export function RichNoteEditorView({
 }: RichNoteEditorViewProps) {
   const [title, setTitle] = useState(note.noteTitle);
   const [content, setContent] = useState(note.noteContent);
+  const [plainText, setPlainText] = useState('');
   const [tags, setTags] = useState<string[]>(note.tags || []);
   const [newTagInput, setNewTagInput] = useState('');
   const [isFavorite, setIsFavorite] = useState(note.isFavorite);
@@ -45,14 +48,15 @@ export function RichNoteEditorView({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
-  const handleApplyFormatting = (prefix: string, suffix = '') => {
-    setContent((prev) => `${prev}${prefix} ${suffix}`);
+  const handleEditorChange = (html: string, text: string) => {
+    setContent(html);
+    setPlainText(text);
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const strippedPreview = extractPlainTextPreview(content);
+      const strippedPreview = extractPlainTextPreview(plainText || content);
       await onSaveNote({
         ...note,
         noteTitle: title.trim() || 'Untitled Note',
@@ -258,85 +262,13 @@ export function RichNoteEditorView({
           </button>
         </div>
 
-        {/* Formatting Toolbar + Editor Canvas */}
-        <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden' }}>
-          <div
-            style={{
-              background: '#f8fafc',
-              borderBottom: '1px solid #e2e8f0',
-              padding: '8px 14px',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: '0.85rem',
-            }}
-          >
-            <select
-              onChange={(e) => handleApplyFormatting(e.target.value)}
-              style={{ background: 'transparent', border: 'none', fontWeight: 600, color: '#334155', cursor: 'pointer', outline: 'none' }}
-              defaultValue="Normal"
-            >
-              <option value="">Normal</option>
-              <option value="## ">Heading 2</option>
-              <option value="### ">Heading 3</option>
-            </select>
-            <span style={{ color: '#cbd5e1' }}>|</span>
-            <button
-              type="button"
-              onClick={() => handleApplyFormatting('**', '**')}
-              style={{ background: 'none', border: 'none', fontWeight: 800, padding: '2px 8px', cursor: 'pointer' }}
-            >
-              B
-            </button>
-            <button
-              type="button"
-              onClick={() => handleApplyFormatting('*', '*')}
-              style={{ background: 'none', border: 'none', fontStyle: 'italic', padding: '2px 8px', cursor: 'pointer' }}
-            >
-              I
-            </button>
-            <button
-              type="button"
-              onClick={() => handleApplyFormatting('- ')}
-              style={{ background: 'none', border: 'none', padding: '2px 8px', cursor: 'pointer' }}
-            >
-              • List
-            </button>
-            <button
-              type="button"
-              onClick={() => handleApplyFormatting('1. ')}
-              style={{ background: 'none', border: 'none', padding: '2px 8px', cursor: 'pointer' }}
-            >
-              1. Ordered
-            </button>
-            <button
-              type="button"
-              onClick={() => handleApplyFormatting('```\n', '\n```')}
-              style={{ background: 'none', border: 'none', padding: '2px 8px', cursor: 'pointer' }}
-            >
-              &lt;/&gt; Code
-            </button>
-          </div>
-
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={12}
-            placeholder="Write your structured lesson notes here..."
-            style={{
-              width: '100%',
-              padding: '1.25rem',
-              border: 'none',
-              outline: 'none',
-              fontSize: '0.95rem',
-              color: '#1e293b',
-              lineHeight: 1.7,
-              resize: 'vertical',
-              fontFamily: 'inherit',
-            }}
-          />
-        </div>
+        {/* Visual Rich Text Canvas */}
+        <VisualRichTextEditor
+          initialContent={content}
+          onChange={handleEditorChange}
+          placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
+          minHeight={260}
+        />
 
         {/* Tags Section */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -416,7 +348,7 @@ export function RichNoteEditorView({
           </button>
           <button
             type="button"
-            disabled={isSaving}
+            disabled={isSaving || (isEditorEmpty(content) && !title.trim())}
             onClick={handleSave}
             style={{
               padding: '0.65rem 1.5rem',
@@ -426,7 +358,8 @@ export function RichNoteEditorView({
               color: '#ffffff',
               fontSize: '0.88rem',
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: isSaving || (isEditorEmpty(content) && !title.trim()) ? 'not-allowed' : 'pointer',
+              opacity: isSaving || (isEditorEmpty(content) && !title.trim()) ? 0.6 : 1,
               boxShadow: '0 2px 4px rgba(249, 115, 22, 0.3)',
             }}
           >

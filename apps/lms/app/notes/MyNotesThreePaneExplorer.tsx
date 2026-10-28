@@ -16,6 +16,8 @@ import { saveLastNotesContext } from '../lib/notesStorageEngine';
 export interface MyNotesThreePaneExplorerProps {
   courses: EnrolledCourse[];
   notes: ContextualNote[];
+  coursesLoading?: boolean;
+  notesLoading?: boolean;
   initialCourseId?: string;
   initialModuleId?: string;
   initialLessonId?: string;
@@ -37,9 +39,126 @@ export interface MyNotesThreePaneExplorerProps {
   }) => void;
 }
 
+/** Progressive image with skeleton placeholder and smooth fade-in */
+function ProgressiveCourseThumbnail({ src, alt }: { src: string; alt: string }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  return (
+    <div className={styles.thumbWrap}>
+      {!isLoaded && (
+        <div
+          className={styles.skeletonPulse}
+          style={{ position: 'absolute', inset: 0, borderRadius: 14 }}
+          aria-hidden="true"
+        />
+      )}
+      <Image
+        src={src}
+        alt={alt}
+        width={68}
+        height={68}
+        loading="lazy"
+        decoding="async"
+        className={`${styles.thumbImg} ${isLoaded ? styles.thumbLoaded : styles.thumbLoading}`}
+        onLoad={() => setIsLoaded(true)}
+      />
+    </div>
+  );
+}
+
+/** Progressive skeleton grid for course cards */
+function CourseCardsSkeletonList() {
+  return (
+    <div className={styles.courseCardsGrid} aria-label="Loading courses" aria-busy="true">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className={styles.courseCardSkeleton}>
+          <div className={styles.courseCardTop}>
+            <div className={styles.skeletonPulse} style={{ width: 68, height: 68, borderRadius: 14, flexShrink: 0 }} />
+            <div className={styles.courseCardContent}>
+              <div className={styles.skeletonPulse} style={{ width: '60%', height: 18, marginBottom: 8, borderRadius: 6 }} />
+              <div className={styles.skeletonPulse} style={{ width: '35%', height: 14, borderRadius: 4 }} />
+            </div>
+            <div className={styles.skeletonPulse} style={{ width: 78, height: 26, borderRadius: 999, flexShrink: 0 }} />
+          </div>
+          <div className={styles.courseCardFooter} style={{ borderTop: '1px solid #f1f5f9', marginTop: 18, paddingTop: 14 }}>
+            <div className={styles.skeletonPulse} style={{ width: 150, height: 14, borderRadius: 4 }} />
+            <div className={styles.skeletonPulse} style={{ width: 85, height: 14, borderRadius: 4 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Progressive skeleton list for course modules and lessons */
+function ModulesSkeletonList() {
+  return (
+    <div className={styles.modulesContainer} aria-label="Loading modules and lessons" aria-busy="true">
+      {[1, 2].map((m) => (
+        <div key={m} className={styles.moduleSectionSkeleton}>
+          <div className={styles.moduleHeaderSkeleton}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '50%' }}>
+              <div className={styles.skeletonPulse} style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0 }} />
+              <div className={styles.skeletonPulse} style={{ width: '65%', height: 16, borderRadius: 4 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className={styles.skeletonPulse} style={{ width: 65, height: 22, borderRadius: 999 }} />
+              <div className={styles.skeletonPulse} style={{ width: 14, height: 14, borderRadius: 4 }} />
+            </div>
+          </div>
+          <div className={styles.lessonRowsList}>
+            {[1, 2, 3].map((l) => (
+              <div key={l} className={styles.lessonRowSkeleton}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '60%' }}>
+                  <div className={styles.skeletonPulse} style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0 }} />
+                  <div className={styles.skeletonPulse} style={{ width: '70%', height: 14, borderRadius: 4 }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className={styles.skeletonPulse} style={{ width: 60, height: 20, borderRadius: 999 }} />
+                  <div className={styles.skeletonPulse} style={{ width: 14, height: 14, borderRadius: 4 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Progressive skeleton list for note cards */
+function NotesSkeletonList() {
+  return (
+    <div className={styles.lessonNotesStack} aria-label="Loading notes" aria-busy="true">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className={styles.noteCardSkeleton}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '65%' }}>
+              <div className={styles.skeletonPulse} style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0 }} />
+              <div className={styles.skeletonPulse} style={{ width: '70%', height: 18, borderRadius: 4 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className={styles.skeletonPulse} style={{ width: 60, height: 24, borderRadius: 6 }} />
+              <div className={styles.skeletonPulse} style={{ width: 20, height: 20, borderRadius: 4 }} />
+            </div>
+          </div>
+          <div className={styles.skeletonPulse} style={{ width: '95%', height: 14, borderRadius: 4 }} />
+          <div className={styles.skeletonPulse} style={{ width: '75%', height: 14, borderRadius: 4 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #f8fafc', paddingTop: 10, marginTop: 4 }}>
+            <div className={styles.skeletonPulse} style={{ width: 110, height: 12, borderRadius: 4 }} />
+            <div className={styles.skeletonPulse} style={{ width: 120, height: 12, borderRadius: 4 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MyNotesThreePaneExplorer({
   courses,
   notes,
+  coursesLoading = false,
+  notesLoading = false,
   initialCourseId,
   initialModuleId,
   initialLessonId,
@@ -252,7 +371,7 @@ export function MyNotesThreePaneExplorer({
   return (
     <div className={styles.pageNavContainer}>
       {/* ─────────────────────────────────────────────────────────────
-          PAGE HEADER
+          PAGE HEADER (HERO)
           ───────────────────────────────────────────────────────────── */}
       <header className={styles.header}>
         <div className={styles.titleArea}>
@@ -266,9 +385,20 @@ export function MyNotesThreePaneExplorer({
           </p>
         </div>
         <div className={styles.badgeTotal}>
-          <span>
-            {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
-          </span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
+          </svg>
+          {notesLoading ? (
+            <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
+          ) : (
+            <span>
+              {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
+            </span>
+          )}
         </div>
       </header>
 
@@ -278,35 +408,80 @@ export function MyNotesThreePaneExplorer({
       <div className={styles.toolbar}>
         {/* Left View Mode Tabs */}
         <div className={styles.toolbarLeft}>
-          {[
-            { id: 'by_course', label: 'By Course' },
-            { id: 'favorites', label: '★ Favorites' },
-            { id: 'recent', label: '🕒 Recent' },
-            { id: 'all', label: 'All Notes' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => {
-                setViewMode(tab.id as typeof viewMode);
-                if (tab.id === 'by_course') {
-                  setSearchQuery('');
-                }
-              }}
-              className={`${styles.tabBtn} ${viewMode === tab.id ? styles.tabBtnActive : ''}`}
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('by_course');
+              setSearchQuery('');
+            }}
+            className={`${styles.tabBtn} ${viewMode === 'by_course' ? styles.tabBtnActive : ''}`}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              {tab.label}
-            </button>
-          ))}
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+            By Course
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('favorites')}
+            className={`${styles.tabBtn} ${viewMode === 'favorites' ? styles.tabBtnActive : ''}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={viewMode === 'favorites' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            Favorites
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('recent')}
+            className={`${styles.tabBtn} ${viewMode === 'recent' ? styles.tabBtnActive : ''}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            Recent
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('all')}
+            className={`${styles.tabBtn} ${viewMode === 'all' ? styles.tabBtnActive : ''}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            All Notes
+          </button>
         </div>
+
+        {/* Center Vertical Divider */}
+        <div className={styles.toolbarDivider} aria-hidden="true" />
 
         {/* Right Search Input & Sort Dropdown */}
         <div className={styles.toolbarRight}>
           <div className={styles.searchWrap}>
             <svg
               className={styles.searchIcon}
-              width="16"
-              height="16"
+              width="15"
+              height="15"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -361,7 +536,9 @@ export function MyNotesThreePaneExplorer({
               </button>
             </div>
             <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
-              {globalModeNotes.length} {globalModeNotes.length === 1 ? 'note found' : 'notes found'}
+              {notesLoading
+                ? 'Loading notes…'
+                : `${globalModeNotes.length} ${globalModeNotes.length === 1 ? 'note found' : 'notes found'}`}
             </span>
           </div>
 
@@ -382,7 +559,9 @@ export function MyNotesThreePaneExplorer({
             </div>
           </div>
 
-          {globalModeNotes.length === 0 ? (
+          {notesLoading ? (
+            <NotesSkeletonList />
+          ) : globalModeNotes.length === 0 ? (
             <div className={styles.emptyLessonNotesBox}>
               <div className={styles.emptyIconCircle}>🔍</div>
               <h3 className={styles.emptyTitle}>
@@ -472,7 +651,7 @@ export function MyNotesThreePaneExplorer({
 
       {/* ─────────────────────────────────────────────────────────────
           LEVEL 1: COURSE LIST ONLY (Default View)
-          Shows courses with title, thumbnail, note count badge, and CTA
+          Shows courses in a clean 2x2 grid with progressive skeleton loading
           ───────────────────────────────────────────────────────────── */}
       {!isGlobalMode && !selectedCourseId && (
         <section className={styles.contentSection}>
@@ -487,7 +666,9 @@ export function MyNotesThreePaneExplorer({
             </div>
           </div>
 
-          {courses.length === 0 ? (
+          {coursesLoading ? (
+            <CourseCardsSkeletonList />
+          ) : courses.length === 0 ? (
             <div className={styles.emptyLessonNotesBox}>
               <div className={styles.emptyIconCircle}>📚</div>
               <h3 className={styles.emptyTitle}>
@@ -515,12 +696,9 @@ export function MyNotesThreePaneExplorer({
                     }}
                   >
                     <div className={styles.courseCardTop}>
-                      <Image
+                      <ProgressiveCourseThumbnail
                         src={course.thumbnailUrl || '/images/course-placeholder.jpg'}
                         alt={course.title}
-                        width={56}
-                        height={56}
-                        className={styles.courseCardThumb}
                       />
                       <div className={styles.courseCardContent}>
                         <h3 className={styles.courseCardTitle} title={course.title}>
@@ -530,14 +708,22 @@ export function MyNotesThreePaneExplorer({
                           {course.modules.length} {course.modules.length === 1 ? 'module' : 'modules'}
                         </p>
                       </div>
-                      <div>
+                      <div className={styles.courseCardBadgeSlot}>
                         {count > 0 ? (
                           <span className={styles.notePillOrange}>
-                            📄 {count} {count === 1 ? 'note' : 'notes'}
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                              <polyline points="14 2 14 8 20 8" />
+                              <line x1="16" y1="13" x2="8" y2="13" />
+                              <line x1="16" y1="17" x2="8" y2="17" />
+                              <polyline points="10 9 9 9 8 9" />
+                            </svg>
+                            <span>{count} {count === 1 ? 'note' : 'notes'}</span>
                           </span>
                         ) : (
                           <span className={styles.notePillMuted}>
-                            0 notes
+                            <span className={styles.emptyDotCircle} aria-hidden="true" />
+                            <span>0 notes</span>
                           </span>
                         )}
                       </div>
@@ -561,7 +747,7 @@ export function MyNotesThreePaneExplorer({
           LEVEL 2: COURSE MODULES & LESSONS (e.g. "Sigma 1 – Notes")
           Opens when a specific course is pressed
           ───────────────────────────────────────────────────────────── */}
-      {!isGlobalMode && selectedCourseId && !selectedLessonId && activeCourse && (
+      {!isGlobalMode && selectedCourseId && !selectedLessonId && (
         <section className={styles.contentSection}>
           {/* Back Navigation & Breadcrumb */}
           <div className={styles.navRow}>
@@ -586,7 +772,7 @@ export function MyNotesThreePaneExplorer({
                 </button>
                 <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
                 <span className={styles.breadcrumbCurrent}>
-                  {activeCourse.title}
+                  {activeCourse ? activeCourse.title : 'Loading…'}
                 </span>
               </nav>
             </div>
@@ -596,7 +782,7 @@ export function MyNotesThreePaneExplorer({
           <div className={styles.sectionHeaderRow}>
             <div>
               <h2 className={styles.sectionTitle}>
-                {activeCourse.title} &ndash; Notes
+                {activeCourse ? `${activeCourse.title} – Notes` : 'Course Notes'}
               </h2>
               <p className={styles.sectionSubtitle}>
                 Select a module or lesson below to view its notes and timestamps.
@@ -604,108 +790,154 @@ export function MyNotesThreePaneExplorer({
             </div>
 
             <div className={styles.sectionHeaderRight}>
-              <span className={styles.notePillOrange} style={{ fontSize: '0.85rem', padding: '5px 12px' }}>
-                📄 {noteCounts.byCourse[activeCourse.courseId] ?? 0} total notes
-              </span>
+              {activeCourse && (
+                <div className={styles.badgeTotal}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                  <span>{noteCounts.byCourse[activeCourse.courseId] ?? 0} total notes</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Modules List */}
-          <div className={styles.modulesContainer}>
-            {activeCourse.modules.map((mod) => {
-              const isExpanded = expandedModuleIds[mod.moduleId] ?? true;
-              const modNotesCount = noteCounts.byModule[mod.moduleId] ?? 0;
+          {coursesLoading || !activeCourse ? (
+            <ModulesSkeletonList />
+          ) : (
+            <div className={styles.modulesContainer}>
+              {activeCourse.modules.map((mod) => {
+                const isExpanded = expandedModuleIds[mod.moduleId] ?? true;
+                const modNotesCount = noteCounts.byModule[mod.moduleId] ?? 0;
 
-              return (
-                <div key={mod.moduleId} className={styles.moduleSection}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedModuleIds((prev) => ({
-                        ...prev,
-                        [mod.moduleId]: !isExpanded,
-                      }))
-                    }
-                    className={styles.moduleSectionHeader}
-                  >
-                    <div className={styles.moduleHeaderLeft}>
-                      <span className={styles.moduleIcon}>
-                        {mod.isLocked ? '🔒' : isExpanded ? '📂' : '📁'}
-                      </span>
-                      <span className={styles.moduleTitleText}>
-                        {mod.title}
-                      </span>
-                    </div>
+                return (
+                  <div key={mod.moduleId} className={styles.moduleSection}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedModuleIds((prev) => ({
+                          ...prev,
+                          [mod.moduleId]: !isExpanded,
+                        }))
+                      }
+                      className={styles.moduleSectionHeader}
+                    >
+                      <div className={styles.moduleHeaderLeft}>
+                        <span className={styles.moduleIcon}>
+                          {mod.isLocked ? (
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                          ) : (
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className={styles.moduleTitleText}>
+                          {mod.title}
+                        </span>
+                      </div>
 
-                    <div className={styles.moduleHeaderRight}>
-                      <span
-                        className={modNotesCount > 0 ? styles.notePillOrange : styles.notePillMuted}
-                        style={{ fontSize: '0.75rem' }}
-                      >
-                        {modNotesCount} {modNotesCount === 1 ? 'note' : 'notes'}
-                      </span>
-                      <span className={styles.chevronSlot}>
-                        {isExpanded ? '▴' : '▾'}
-                      </span>
-                    </div>
-                  </button>
+                      <div className={styles.moduleHeaderRight}>
+                        <span className={modNotesCount > 0 ? styles.notePillOrange : styles.notePillMuted}>
+                          {modNotesCount > 0 ? (
+                            <>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                              <span>{modNotesCount} {modNotesCount === 1 ? 'note' : 'notes'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className={styles.emptyDotCircle} aria-hidden="true" />
+                              <span>0 notes</span>
+                            </>
+                          )}
+                        </span>
+                        <span className={styles.chevronSlot} aria-hidden="true">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                            {isExpanded ? (
+                              <polyline points="18 15 12 9 6 15" />
+                            ) : (
+                              <polyline points="6 9 12 15 18 9" />
+                            )}
+                          </svg>
+                        </span>
+                      </div>
+                    </button>
 
-                  {isExpanded && (
-                    <div className={styles.lessonRowsList}>
-                      {mod.lessons.map((lesson) => {
-                        const lessonCount = noteCounts.byLesson[lesson.lessonId] ?? 0;
-                        const isDone = lesson.status === 'completed';
-                        return (
-                          <button
-                            key={lesson.lessonId}
-                            type="button"
-                            onClick={() =>
-                              handleSelectLesson(
-                                activeCourse.courseId,
-                                mod.moduleId,
-                                lesson.lessonId
-                              )
-                            }
-                            className={styles.lessonRowItem}
-                          >
-                            <div className={styles.lessonRowLeft}>
-                              <span
-                                className={`${styles.lessonStatusIcon} ${
-                                  isDone ? styles.lessonStatusDone : styles.lessonStatusPending
-                                }`}
-                              >
-                                {isDone ? '✓' : '○'}
-                              </span>
-                              <span className={styles.lessonTitleText}>
-                                {lesson.lessonOrder}. {lesson.title}
-                              </span>
-                              {lesson.durationFormatted && (
-                                <span className={styles.lessonDurationText}>
-                                  ({lesson.durationFormatted})
+                    {isExpanded && (
+                      <div className={styles.lessonRowsList}>
+                        {mod.lessons.map((lesson) => {
+                          const lessonCount = noteCounts.byLesson[lesson.lessonId] ?? 0;
+                          const isDone = lesson.status === 'completed';
+                          return (
+                            <button
+                              key={lesson.lessonId}
+                              type="button"
+                              onClick={() =>
+                                handleSelectLesson(
+                                  activeCourse.courseId,
+                                  mod.moduleId,
+                                  lesson.lessonId
+                                )
+                              }
+                              className={styles.lessonRowItem}
+                            >
+                              <div className={styles.lessonRowLeft}>
+                                {isDone ? (
+                                  <span className={styles.greenCheckCircle} aria-label="Completed">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                  </span>
+                                ) : (
+                                  <span className={styles.pendingCircle} aria-label="Incomplete" />
+                                )}
+                                <span className={styles.lessonTitleText}>
+                                  {lesson.lessonOrder}. {lesson.title}
                                 </span>
-                              )}
-                            </div>
+                                {lesson.durationFormatted && (
+                                  <span className={styles.lessonDurationText}>
+                                    ({lesson.durationFormatted})
+                                  </span>
+                                )}
+                              </div>
 
-                            <div className={styles.lessonRowRight}>
-                              <span
-                                className={lessonCount > 0 ? styles.notePillOrange : styles.notePillMuted}
-                                style={{ fontSize: '0.72rem' }}
-                              >
-                                📄 {lessonCount} {lessonCount === 1 ? 'note' : 'notes'}
-                              </span>
-                              <span className={styles.arrowSlot}>
-                                &rarr;
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                              <div className={styles.lessonRowRight}>
+                                <span className={lessonCount > 0 ? styles.notePillOrange : styles.notePillMuted}>
+                                  {lessonCount > 0 ? (
+                                    <>
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                      <span>{lessonCount} {lessonCount === 1 ? 'note' : 'notes'}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className={styles.emptyDotCircle} aria-hidden="true" />
+                                      <span>0 notes</span>
+                                    </>
+                                  )}
+                                </span>
+                                <span className={styles.arrowSlot} aria-hidden="true">
+                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                    <polyline points="12 5 19 12 12 19" />
+                                  </svg>
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 
@@ -713,7 +945,7 @@ export function MyNotesThreePaneExplorer({
           LEVEL 3: LESSON NOTES VIEW
           e.g. "Notes for: Introduction" / "Sigma 1 › Module 1: Module 1"
           ───────────────────────────────────────────────────────────── */}
-      {!isGlobalMode && selectedCourseId && selectedLessonId && activeCourse && activeModuleAndLesson && (
+      {!isGlobalMode && selectedCourseId && selectedLessonId && (
         <section className={styles.contentSection}>
           {/* Back Navigation & Breadcrumb */}
           <div className={styles.navRow}>
@@ -723,7 +955,7 @@ export function MyNotesThreePaneExplorer({
                 onClick={handleBackToCourseModules}
                 className={styles.backButton}
               >
-                <span className={styles.backArrow}>&larr;</span> Back to {activeCourse.title} Notes
+                <span className={styles.backArrow}>&larr;</span> Back to {activeCourse ? activeCourse.title : 'Course'} Notes
               </button>
 
               <span className={styles.navDivider} aria-hidden="true">|</span>
@@ -740,16 +972,20 @@ export function MyNotesThreePaneExplorer({
                 <button
                   type="button"
                   onClick={handleBackToCourseModules}
-                  className={styles.breadcrumbLink}
+                  className={styles.breadcrumbLinkMuted}
                 >
-                  {activeCourse.title}
+                  {activeCourse ? activeCourse.title : 'Course'}
                 </button>
-                <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
-                <span className={styles.breadcrumbMuted}>{activeModuleAndLesson.module.title}</span>
-                <span className={styles.breadcrumbSeparator}>&rsaquo;</span>
-                <span className={styles.breadcrumbCurrent}>
-                  {activeModuleAndLesson.lesson.title}
-                </span>
+                {activeModuleAndLesson && (
+                  <>
+                    <span className={styles.breadcrumbSeparatorMuted}>&rsaquo;</span>
+                    <span className={styles.breadcrumbMuted}>{activeModuleAndLesson.module.title}</span>
+                    <span className={styles.breadcrumbSeparatorMuted}>&rsaquo;</span>
+                    <span className={styles.breadcrumbCurrent}>
+                      {activeModuleAndLesson.lesson.title}
+                    </span>
+                  </>
+                )}
               </nav>
             </div>
           </div>
@@ -759,39 +995,69 @@ export function MyNotesThreePaneExplorer({
             <div className={styles.lessonNotesTopHeader}>
               <div>
                 <h2 className={styles.lessonNotesTitle}>
-                  Notes for: {activeModuleAndLesson.lesson.title}
+                  {activeModuleAndLesson ? `Notes for: ${activeModuleAndLesson.lesson.title}` : 'Lesson Notes'}
                 </h2>
                 <p className={styles.lessonNotesSubtitle}>
-                  {activeCourse.title} &rsaquo; {activeModuleAndLesson.module.title}
+                  {activeCourse && activeModuleAndLesson
+                    ? `${activeCourse.title} › ${activeModuleAndLesson.module.title}`
+                    : 'Loading notes context…'}
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={handleCreateNoteInActiveLesson}
+                disabled={!activeCourse || !activeModuleAndLesson}
                 className={styles.addNoteBtnSolid}
+                style={{ opacity: !activeCourse || !activeModuleAndLesson ? 0.6 : 1 }}
               >
                 + Add Note
               </button>
             </div>
 
-            {currentLessonNotes.length === 0 ? (
+            {notesLoading ? (
+              <NotesSkeletonList />
+            ) : currentLessonNotes.length === 0 ? (
               <div className={styles.emptyLessonNotesBox}>
-                <div className={styles.emptyIconCircle}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                    <polyline points="10 9 9 9 8 9" />
-                  </svg>
+                <div className={styles.emptyIllustrationWrap}>
+                  {/* Decorative Sparkle Accents */}
+                  <span className={styles.emptySparkleTopLeft} aria-hidden="true">+</span>
+                  <span className={styles.emptySparkleTopRight} aria-hidden="true">✦</span>
+                  <span className={styles.emptySparkleRight} aria-hidden="true">+</span>
+                  <span className={styles.emptySparkleBottomLeft} aria-hidden="true">✦</span>
+
+                  {/* Document Card Icon */}
+                  <div className={styles.emptyDocumentCard}>
+                    <svg
+                      width="38"
+                      height="38"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#ea580c"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <line x1="10" y1="9" x2="8" y2="9" />
+                    </svg>
+                  </div>
+
+                  {/* Soft Radiant Glow Ellipse Underneath */}
+                  <div className={styles.emptyOvalGlow} aria-hidden="true" />
                 </div>
+
                 <h3 className={styles.emptyTitle}>
                   No notes found for this lesson
                 </h3>
                 <p className={styles.emptyDesc}>
                   Click &ldquo;+ Add Note&rdquo; above to capture key insights, or open the lesson video player to study and bookmark moments.
                 </p>
+
                 <div className={styles.emptyActionsRow}>
                   <button
                     type="button"
@@ -800,20 +1066,36 @@ export function MyNotesThreePaneExplorer({
                   >
                     + Add Note
                   </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onJumpToLessonPlayer(
-                        activeCourse.courseId,
-                        activeModuleAndLesson.lesson.lessonId,
-                        null,
-                        activeModuleAndLesson.module.moduleId
-                      )
-                    }
-                    className={styles.openVideoBtn}
-                  >
-                    Open Lesson Video &rarr;
-                  </button>
+                  {activeCourse && activeModuleAndLesson && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onJumpToLessonPlayer(
+                          activeCourse.courseId,
+                          activeModuleAndLesson.lesson.lessonId,
+                          null,
+                          activeModuleAndLesson.module.moduleId
+                        )
+                      }
+                      className={styles.openVideoBtn}
+                    >
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <polygon points="10 8 16 12 10 16 10 8" />
+                      </svg>
+                      <span>Open Lesson Video &rarr;</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (

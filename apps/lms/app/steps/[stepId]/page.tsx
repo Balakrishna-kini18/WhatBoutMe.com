@@ -21,6 +21,8 @@ import {
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
 import PdfViewerModal from "./components/PdfViewerModal";
 import StepLoading from "./loading";
+import { normalizeStudentNote } from "../../lib/notesAdapter";
+import { markdownToHtml, sanitizeNoteHtml } from "../../lib/richTextHelper";
 import {
   getLocalVideoResume,
   isLocalLessonCompleted,
@@ -411,21 +413,39 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     fetchStepAndProgression();
   }, [fetchStepAndProgression]);
 
+  // Helper to identify if a lesson is a PDF/document rather than a video
+  const isLessonPdf = useCallback((l: any) => {
+    if (!l) return false;
+    const t = (l.type || "").toUpperCase();
+    if (t === "PDF" || t === "DOCUMENT" || t === "TEXT") return true;
+    if (typeof l.mediaUrl === "string" && l.mediaUrl.toLowerCase().split("?")[0].endsWith(".pdf")) return true;
+    return false;
+  }, []);
+
   // Lessons list calculation
   const allLessons = useMemo(() => {
     return Array.isArray(step?.lessons) ? step.lessons : [];
   }, [step]);
 
+  // Video-only lessons for the Video Lesson tab & playlist
+  const videoLessons = useMemo(() => {
+    return allLessons.filter((l: any) => !isLessonPdf(l));
+  }, [allLessons, isLessonPdf]);
+
+  const pdfLessons = useMemo(() => {
+    return allLessons.filter((l: any) => isLessonPdf(l));
+  }, [allLessons, isLessonPdf]);
+
   const currentMedia = useMemo(() => {
-    if (!allLessons.length) return null;
-    return allLessons.find((l: any) => l.id === selectedMediaId) || allLessons[0];
-  }, [allLessons, selectedMediaId]);
+    if (!videoLessons.length) return null;
+    return videoLessons.find((l: any) => l.id === selectedMediaId) || videoLessons[0];
+  }, [videoLessons, selectedMediaId]);
 
   const activeLessonIndex = useMemo(() => {
-    if (!currentMedia || !allLessons.length) return 0;
-    const idx = allLessons.findIndex((l: any) => l.id === currentMedia.id);
+    if (!currentMedia || !videoLessons.length) return 0;
+    const idx = videoLessons.findIndex((l: any) => l.id === currentMedia.id);
     return idx >= 0 ? idx : 0;
-  }, [allLessons, currentMedia]);
+  }, [videoLessons, currentMedia]);
 
   const formatLessonDuration = (sec?: number) => {
     if (!sec || sec <= 0) return null;
@@ -479,19 +499,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
   const isQuizAlreadyPassed = Boolean(lastQuizResult?.passed || (currentStepProg as any)?.quiz?.isPassed);
-  const mediaLessons = allLessons.filter((l: any) => l.type === "VIDEO" || l.type === "AUDIO" || !l.type);
-  const areAllVideosDone =
-    mediaLessons.length === 0 ||
-    mediaLessons.every((l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
-
-  const isQuizUnlocked = Boolean(
-    isManuallyUnlocked ||
-    isQuizAlreadyPassed ||
-    effectiveQuizPlacement === "BEFORE_VIDEO" ||
-    areAllVideosDone
-  );
-
-  const hasQuiz = Boolean(step?.quiz && step.quiz.id);
+  
   const stepMaterials = useMemo(() => {
     const list: Array<{
       id: string;
@@ -500,19 +508,20 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       mediaUrl?: string | null;
       size?: string | null;
       durationSec?: number | null;
+      isLesson?: boolean;
     }> = [];
 
-    // 1. Non-video/audio lessons (PDF, TEXT, LINK, etc.)
+    // 1. All PDF/document lessons (from step.lessons)
     for (const l of allLessons) {
-      const t = (l.type || "").toUpperCase();
-      if (t && t !== "VIDEO" && t !== "AUDIO") {
+      if (isLessonPdf(l)) {
         list.push({
           id: l.id,
           title: l.title,
-          type: t || "PDF",
+          type: "PDF",
           mediaUrl: l.mediaUrl || null,
           size: null,
           durationSec: l.durationSec || null,
+          isLesson: true,
         });
       }
     }
@@ -535,6 +544,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             mediaUrl: r.mediaUrl,
             size: sizeStr,
             durationSec: null,
+            isLesson: false,
           });
         }
       }
@@ -558,21 +568,157 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             mediaUrl: ri.fileUrl || ri.mediaUrl,
             size: sizeStr,
             durationSec: null,
+            isLesson: false,
           });
         }
       }
     }
 
     return list;
-  }, [allLessons, step?.resources, (step as any)?.resourceItems]);
+  }, [allLessons, isLessonPdf, step?.resources, (step as any)?.resourceItems]);
+
+  const areAllVideosDone = useMemo(() => {
+    if (!videoLessons.length) return true;
+    return videoLessons.every((l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
+  }, [videoLessons, lessonProgress]);
+
+  const areAllMaterialsDone = useMemo(() => {
+    if (!stepMaterials.length) return true;
+    return stepMaterials.every((m: any) => {
+      return Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
+    });
+  }, [stepMaterials, lessonProgress]);
+
+  const isQuizUnlocked = Boolean(
+    isManuallyUnlocked ||
+    isQuizAlreadyPassed ||
+    effectiveQuizPlacement === "BEFORE_VIDEO" ||
+    (areAllVideosDone && areAllMaterialsDone)
+  );
+
+  const hasQuiz = Boolean(step?.quiz && step.quiz.id);
+
+  // Next / Prev step links
+  const stepsList: any[] = useMemo(() => {
+    if (progression?.steps && progression.steps.length > 0) {
+      return progression.steps;
+    }
+    if (step?.program?.steps && step.program.steps.length > 0) {
+      return step.program.steps.map((s: any) => ({
+        stepId: s.id,
+        id: s.id,
+        sequence: s.sequence,
+        title: s.title,
+      }));
+    }
+    return [];
+  }, [progression?.steps, step?.program?.steps]);
+
+  const currentStepIndex = stepsList.findIndex(
+    (s: any) => (s.stepId && s.stepId === stepId) || (s.id && s.id === stepId)
+  );
+  const prevStep = currentStepIndex > 0 ? stepsList[currentStepIndex - 1] : null;
+  const nextStep =
+    currentStepIndex >= 0 && currentStepIndex < stepsList.length - 1
+      ? stepsList[currentStepIndex + 1]
+      : null;
+  const nextStepId = nextStep?.stepId || nextStep?.id || null;
+
+  // Mark material/PDF as completed/read
+  const handleMaterialComplete = useCallback(
+    async (materialId: string) => {
+      if (!materialId) return;
+
+      // 1. Immediately persist locally (0ms lag)
+      saveLocalLessonCompletion(materialId);
+
+      // 2. Immediately update local progress state
+      setLessonProgress((prev) => ({
+        ...prev,
+        [materialId]: {
+          ...prev[materialId],
+          isCompleted: true,
+          viewed: true,
+          progressPercent: 100,
+          completedAt: new Date().toISOString(),
+        },
+      }));
+
+      // 3. If it's a lesson entity on the backend, sync with API
+      const lesson = allLessons.find((l: any) => l.id === materialId);
+      if (lesson) {
+        try {
+          await fetch(`${API_URL}/progress/lessons/${materialId}/complete`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+          });
+          invalidateCache();
+          void fetchStepAndProgression(false, true);
+        } catch (e) {
+          console.warn("Background material completion sync failed:", e);
+        }
+      }
+    },
+    [allLessons, fetchStepAndProgression]
+  );
+
+  // Advance from currently viewed material to next section
+  const handleAdvanceFromMaterial = useCallback(
+    (currentMaterialId?: string) => {
+      // 1. If viewing a material, ensure it is marked as read
+      if (currentMaterialId) {
+        handleMaterialComplete(currentMaterialId);
+      }
+
+      // 2. Close PDF viewer if open
+      setViewerPdf((prev) => ({ ...prev, isOpen: false }));
+
+      // 3. Check if there are other unread materials
+      const nextUnreadMaterial = stepMaterials.find(
+        (m) => m.id !== currentMaterialId && !lessonProgress[m.id]?.isCompleted && !lessonProgress[m.id]?.viewed
+      );
+
+      if (nextUnreadMaterial) {
+        handleViewPdf(nextUnreadMaterial);
+        return;
+      }
+
+      // 4. All materials read: check if there's a quiz to take
+      if (hasQuiz && !isQuizAlreadyPassed) {
+        setActiveTab("quiz");
+        return;
+      }
+
+      // 5. If all materials and videos are completed, advance to next module/step
+      if (nextStepId) {
+        router.push(`/steps/${nextStepId}`);
+        return;
+      }
+
+      // 6. Otherwise navigate back to dashboard
+      router.push("/dashboard");
+    },
+    [
+      handleMaterialComplete,
+      stepMaterials,
+      lessonProgress,
+      handleViewPdf,
+      hasQuiz,
+      isQuizAlreadyPassed,
+      nextStepId,
+      router,
+    ]
+  );
 
   useEffect(() => {
     if (activeTab === "quiz" && !hasQuiz) {
+      setActiveTab(videoLessons.length > 0 ? "video" : "materials");
+    } else if (activeTab === "materials" && stepMaterials.length === 0 && videoLessons.length > 0) {
       setActiveTab("video");
-    } else if (activeTab === "materials" && stepMaterials.length === 0) {
-      setActiveTab("video");
+    } else if (activeTab === "video" && videoLessons.length === 0 && stepMaterials.length > 0) {
+      setActiveTab("materials");
     }
-  }, [activeTab, hasQuiz, stepMaterials.length]);
+  }, [activeTab, hasQuiz, stepMaterials.length, videoLessons.length]);
 
   // Proactively pre-warm quiz attempt in background when user views quiz tab AND quiz is unlocked
   useEffect(() => {
@@ -720,34 +866,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     [fetchStepAndProgression]
   );
 
-  // Next / Prev step links
-  const stepsList: any[] = useMemo(() => {
-    if (progression?.steps && progression.steps.length > 0) {
-      return progression.steps;
-    }
-    if (step?.program?.steps && step.program.steps.length > 0) {
-      return step.program.steps.map((s: any) => ({
-        stepId: s.id,
-        id: s.id,
-        sequence: s.sequence,
-        title: s.title,
-      }));
-    }
-    return [];
-  }, [progression?.steps, step?.program?.steps]);
-
-  const currentStepIndex = stepsList.findIndex(
-    (s: any) => (s.stepId && s.stepId === stepId) || (s.id && s.id === stepId)
-  );
-  const prevStep = currentStepIndex > 0 ? stepsList[currentStepIndex - 1] : null;
-  const nextStep =
-    currentStepIndex >= 0 && currentStepIndex < stepsList.length - 1
-      ? stepsList[currentStepIndex + 1]
-      : null;
-  const nextStepId = nextStep?.stepId || nextStep?.id || null;
 
   // Next lesson helper
-  const nextLesson = activeLessonIndex < allLessons.length - 1 ? allLessons[activeLessonIndex + 1] : null;
+  const nextLesson = activeLessonIndex < videoLessons.length - 1 ? videoLessons[activeLessonIndex + 1] : null;
 
   // Countdown timer for automatic module progression
   useEffect(() => {
@@ -786,7 +907,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         };
 
         // 3. Immediately evaluate if all videos in this step are done
-        const areAllVideosDone = allLessons.every(
+        const areAllVideosDone = videoLessons.every(
           (l: any) => updated[l.id]?.isCompleted || updated[l.id]?.viewed
         );
 
@@ -1088,10 +1209,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       {activeLessonIndex > 0 ? (
         <button
           type="button"
-          onClick={() => setSelectedMediaId(allLessons[activeLessonIndex - 1].id)}
+          onClick={() => setSelectedMediaId(videoLessons[activeLessonIndex - 1]?.id)}
           className={styles.btnSecondaryOutline}
         >
-          &larr; Previous Part ({allLessons[activeLessonIndex - 1].title})
+          &larr; Previous Part ({videoLessons[activeLessonIndex - 1]?.title})
         </button>
       ) : (
         <span />
@@ -1109,6 +1230,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           }}
         >
           Next Part ({nextLesson.title}) &rarr;
+        </button>
+      ) : stepMaterials.length > 0 && !areAllMaterialsDone ? (
+        <button
+          type="button"
+          onClick={() => setActiveTab("materials")}
+          className={styles.btnPrimaryOrange}
+        >
+          Next: Learning Materials ({stepMaterials.length}) &rarr;
         </button>
       ) : step?.quiz && !isQuizAlreadyPassed ? (
         isQuizUnlocked ? (
@@ -1202,8 +1331,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             >
               <span>▶</span>
               <span>Video Lesson</span>
-              {allLessons.length > 1 && (
-                <span className={styles.learningTabCount}>{allLessons.length} Parts</span>
+              {videoLessons.length > 1 && (
+                <span className={styles.learningTabCount}>{videoLessons.length} Parts</span>
               )}
             </button>
 
@@ -1266,7 +1395,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   <div className={styles.videoPlayerHeader}>
                     <div className={styles.videoHeaderLeft}>
                       <span className={styles.videoPartBadge}>
-                        Part {activeLessonIndex + 1} of {allLessons.length}
+                        Part {activeLessonIndex + 1} of {videoLessons.length}
                       </span>
                       <h2 className={styles.videoLessonTitle}>
                         {currentMedia?.title || "Video Lesson"}
@@ -1284,46 +1413,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     </div>
                   </div>
 
-                  {/* 16:9 Video Viewport */}
-                  {currentMedia?.type === "PDF" || (currentMedia?.mediaUrl && currentMedia.mediaUrl.toLowerCase().includes(".pdf")) ? (
-                    <div className={styles.pdfLessonViewport}>
-                      <div className={styles.pdfLessonHeader}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span className={styles.badgePdf} style={{ padding: "4px 8px", borderRadius: 4, fontWeight: 700, fontSize: "0.78rem" }}>
-                            PDF
-                          </span>
-                          <strong style={{ fontSize: "1.05rem", color: "#1c1917" }}>{currentMedia.title}</strong>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <button
-                            type="button"
-                            onClick={() => handleViewPdf(currentMedia)}
-                            className={styles.btnPrimaryView}
-                            title="Open full in-browser reader modal"
-                          >
-                            <span style={{ fontSize: "1rem" }}>👁</span> View Fullscreen
-                          </button>
-                          <a
-                            href={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
-                            download={`${currentMedia.title}.pdf`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.btnSecondaryOutline}
-                            style={{ textDecoration: "none" }}
-                          >
-                            &darr; Download
-                          </a>
-                        </div>
-                      </div>
-                      <div className={styles.pdfLessonEmbedContainer}>
-                        <iframe
-                          src={`${API_URL}/media/document/${encodeURIComponent(currentMedia.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`}
-                          title={currentMedia.title}
-                          className={styles.pdfFrame}
-                        />
-                      </div>
-                    </div>
-                  ) : currentMedia?.mediaUrl ? (
+                  {/* 16:9 Video Viewport (Strictly for Video Lessons) */}
+                  {currentMedia?.mediaUrl ? (
                     <div className={styles.videoPlayerViewport}>
                       <CompulsoryVideoPlayer
                         lessonId={currentMedia.id}
@@ -1375,27 +1466,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
 
                 {/* Multi-video parts selector (Playlist) placed BELOW the video & details card */}
-                {allLessons.length > 1 && (
+                {videoLessons.length > 1 && (
                   <div className={styles.multiVideoPlaylistCard}>
                     <div className={styles.multiVideoPlaylistHeader}>
                       <div className={styles.multiVideoPlaylistHeaderLeft}>
                         <span className={styles.multiVideoPlaylistBadge}>
-                          Module Playlist ({allLessons.length} Parts)
+                          Module Playlist ({videoLessons.length} Parts)
                         </span>
                         <span className={styles.multiVideoCurrentPart}>
-                          Part {activeLessonIndex + 1} of {allLessons.length}: {currentMedia?.title}
+                          Part {activeLessonIndex + 1} of {videoLessons.length}: {currentMedia?.title}
                         </span>
                       </div>
                       <span className={styles.multiVideoCounter}>
-                        {completedLessonsCount}/{totalLessonsCount} Completed
+                        {videoLessons.filter((v: any) => lessonProgress[v.id]?.isCompleted || lessonProgress[v.id]?.viewed).length}/{videoLessons.length} Completed
                       </span>
                     </div>
 
                     <div className={styles.multiVideoTrackList} role="tablist">
-                      {allLessons.map((l: any, idx: number) => {
+                      {videoLessons.map((l: any, idx: number) => {
                         const isSelected = currentMedia?.id === l.id;
                         const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
-                        const isLocked = idx > 0 && !lessonProgress[allLessons[idx - 1]?.id]?.isCompleted && !isDone;
+                        const isLocked = idx > 0 && !lessonProgress[videoLessons[idx - 1]?.id]?.isCompleted && !isDone;
 
                         return (
                           <button
@@ -1537,7 +1628,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                               ✕
                             </button>
                           </div>
-                          <p style={{ margin: 0, color: "#57534e", lineHeight: 1.4 }}>{n.noteText}</p>
+                          {(() => {
+                            const norm = normalizeStudentNote(n);
+                            const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
+                            return (
+                              <div
+                                style={{ margin: 0, color: "#57534e", lineHeight: 1.4 }}
+                                dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                              />
+                            );
+                          })()}
                         </div>
                       ))}
                     </div>
@@ -2002,6 +2102,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
                   .map((m) => {
                     const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
+                    const isDone = Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
                     const downloadUrl = isPdf
                       ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
                       : resolveMediaDownloadUrl(m.mediaUrl);
@@ -2027,7 +2128,38 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             {m.type}
                           </div>
                           <div>
-                            <h4 className={styles.materialTitle}>{m.title}</h4>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <h4 className={styles.materialTitle}>{m.title}</h4>
+                              {isDone ? (
+                                <span
+                                  className={styles.watchedPill}
+                                  style={{
+                                    background: "#dcfce7",
+                                    color: "#15803d",
+                                    border: "1px solid #bbf7d0",
+                                    padding: "2px 8px",
+                                    borderRadius: 6,
+                                    fontSize: "0.74rem",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  ✓ Read
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    fontSize: "0.72rem",
+                                    background: "#fef3c7",
+                                    color: "#b45309",
+                                    padding: "2px 8px",
+                                    borderRadius: 6,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  Ready to Read
+                                </span>
+                              )}
+                            </div>
                             <span className={styles.materialMeta}>
                               {m.type}
                               {m.size ? ` • ${m.size}` : m.durationSec ? ` • ${Math.ceil(m.durationSec / 60)} min read` : ""}
@@ -2041,10 +2173,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                               type="button"
                               onClick={() => handleViewPdf(m)}
                               className={styles.btnPrimaryView}
-                              title="View this PDF directly in the browser"
+                              title="Read this PDF directly in the browser"
                             >
-                              <span style={{ fontSize: "1rem" }}>👁</span>
-                              <span>View in Browser</span>
+                              <span style={{ fontSize: "1rem" }}>📖</span>
+                              <span>{isDone ? "Read Again" : "Read PDF"}</span>
+                            </button>
+                          )}
+
+                          {!isDone && (
+                            <button
+                              type="button"
+                              onClick={() => handleMaterialComplete(m.id)}
+                              className={styles.btnSecondaryOutline}
+                              style={{
+                                color: "#15803d",
+                                borderColor: "#86efac",
+                                background: "#f0fdf4",
+                                fontWeight: 600,
+                              }}
+                              title="Mark this document as read"
+                            >
+                              ✓ Mark as Read
                             </button>
                           )}
 
@@ -2074,6 +2223,50 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       </div>
                     );
                   })}
+
+                {/* All Materials Completed Next Section Banner */}
+                {areAllMaterialsDone && (
+                  <div
+                    style={{
+                      marginTop: "1.5rem",
+                      padding: "1.25rem 1.5rem",
+                      background: "#f0fdf4",
+                      border: "1px solid #bbf7d0",
+                      borderRadius: 14,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <strong style={{ display: "block", color: "#166534", fontSize: "1rem", marginBottom: 2 }}>
+                        🎉 All materials in this module are completed!
+                      </strong>
+                      <span style={{ fontSize: "0.84rem", color: "#15803d" }}>
+                        {hasQuiz && !isQuizAlreadyPassed
+                          ? "You are ready to take the module comprehension quiz."
+                          : nextStepId
+                          ? "You are ready to advance to the next module."
+                          : "You have completed this module."}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleAdvanceFromMaterial(stepMaterials[stepMaterials.length - 1]?.id)}
+                      className={styles.btnPrimaryOrange}
+                      style={{ padding: "0.6rem 1.4rem", fontSize: "0.88rem", fontWeight: 700 }}
+                    >
+                      {hasQuiz && !isQuizAlreadyPassed
+                        ? "Take Module Quiz →"
+                        : nextStepId
+                        ? "Next Module →"
+                        : "Course Roadmap →"}
+                    </button>
+                  </div>
+                )}
 
                 {stepMaterials.filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase())).length === 0 && (
                   <div className={styles.emptyStateCard} style={{ padding: "2rem", textAlign: "center" }}>
@@ -2322,8 +2515,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     key={l.id}
                     onClick={() => {
                       if (!isLocked) {
-                        setSelectedMediaId(l.id);
-                        setActiveTab("video");
+                        if (isLessonPdf(l)) {
+                          setActiveTab("materials");
+                          handleViewPdf(l);
+                        } else {
+                          setSelectedMediaId(l.id);
+                          setActiveTab("video");
+                        }
                         setIsDrawerOpen(false);
                       }
                     }}
@@ -2376,6 +2574,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         title={viewerPdf.title}
         mediaUrl={viewerPdf.mediaUrl}
         downloadUrl={viewerPdf.downloadUrl}
+        isRead={Boolean(lessonProgress[viewerPdf.id]?.isCompleted || lessonProgress[viewerPdf.id]?.viewed)}
+        onMarkAsRead={handleMaterialComplete}
+        onNextSection={handleAdvanceFromMaterial}
       />
     </div>
   );

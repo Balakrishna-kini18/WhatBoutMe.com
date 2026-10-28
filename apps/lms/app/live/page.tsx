@@ -65,6 +65,16 @@ const ArrowLeft = (
 );
 
 const Icons = {
+  chevronLeft: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  ),
+  chevronRight: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  ),
   video: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="m22 8-6 4 6 4V8Z" /><rect width="14" height="12" x="2" y="6" rx="2" />
@@ -465,7 +475,8 @@ export default function LiveSessionsPage() {
     const year = calDate.getFullYear();
     const month = calDate.getMonth();
     const firstDay = new Date(year, month, 1);
-    const startDayOfWeek = firstDay.getDay();
+    let firstDayIndex = firstDay.getDay() - 1;
+    if (firstDayIndex === -1) firstDayIndex = 6;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
     const today = new Date();
@@ -480,8 +491,8 @@ export default function LiveSessionsPage() {
       events: Session[];
     }> = [];
 
-    for (let i = startDayOfWeek - 1; i >= 0; i--) {
-      const dayNum = daysInPrevMonth - i;
+    for (let i = firstDayIndex; i > 0; i--) {
+      const dayNum = daysInPrevMonth - i + 1;
       const d = new Date(year, month - 1, dayNum);
       const dateStr = d.toISOString().split("T")[0] ?? "";
       days.push({
@@ -522,26 +533,27 @@ export default function LiveSessionsPage() {
       });
     }
 
-    const totalCells = days.length <= 35 ? 35 : 42;
-    const remaining = totalCells - days.length;
-    for (let dayNum = 1; dayNum <= remaining; dayNum++) {
-      const d = new Date(year, month + 1, dayNum);
-      const dateStr = d.toISOString().split("T")[0] ?? "";
-      days.push({
-        date: d,
-        dateStr,
-        dayNum,
-        isCurrentMonth: false,
-        isToday: false,
-        events: sessions.filter((s) => {
-          const mDate = new Date(s.startTime);
-          return (
-            mDate.getFullYear() === d.getFullYear() &&
-            mDate.getMonth() === d.getMonth() &&
-            mDate.getDate() === d.getDate()
-          );
-        }),
-      });
+    const remaining = 7 - (days.length % 7);
+    if (remaining < 7) {
+      for (let dayNum = 1; dayNum <= remaining; dayNum++) {
+        const d = new Date(year, month + 1, dayNum);
+        const dateStr = d.toISOString().split("T")[0] ?? "";
+        days.push({
+          date: d,
+          dateStr,
+          dayNum,
+          isCurrentMonth: false,
+          isToday: false,
+          events: sessions.filter((s) => {
+            const mDate = new Date(s.startTime);
+            return (
+              mDate.getFullYear() === d.getFullYear() &&
+              mDate.getMonth() === d.getMonth() &&
+              mDate.getDate() === d.getDate()
+            );
+          }),
+        });
+      }
     }
 
     return days;
@@ -600,55 +612,76 @@ export default function LiveSessionsPage() {
         </div>
       ) : tab === "calendar" ? (
         <div className={styles.calendarWrap}>
+          {/* Calendar Top Navigation Bar */}
           <div className={styles.calendarToolbar}>
-            <div className={styles.calendarNav}>
-              <button type="button" className={styles.calNavBtn} onClick={prevMonth} aria-label="Previous Month">
-                &larr; Prev
+            <div className={styles.monthSelector}>
+              <button
+                type="button"
+                className={styles.calNavArrowBtn}
+                onClick={prevMonth}
+                aria-label="Previous Month"
+              >
+                {Icons.chevronLeft}
               </button>
-              <button type="button" className={styles.calNavBtn} onClick={goToToday}>
+              <h2 className={styles.calMonthTitle}>{calMonthTitle}</h2>
+              <button
+                type="button"
+                className={styles.calNavArrowBtn}
+                onClick={nextMonth}
+                aria-label="Next Month"
+              >
+                {Icons.chevronRight}
+              </button>
+              <button type="button" className={styles.calTodayBtn} onClick={goToToday}>
                 Today
               </button>
-              <button type="button" className={styles.calNavBtn} onClick={nextMonth} aria-label="Next Month">
-                Next &rarr;
-              </button>
             </div>
-            <div className={styles.calMonthTitle}>{calMonthTitle}</div>
-            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-              Timezone: <strong>{getUserTimeZone() || "UTC"}</strong>
+
+            <div className={styles.timezoneBadge}>
+              <span className={styles.timezoneDot} aria-hidden="true" />
+              <span>
+                Timezone: <strong>{getUserTimeZone() || "UTC"}</strong>
+              </span>
             </div>
           </div>
 
-          <div className={styles.weekdayRow}>
-            <div>Sun</div>
-            <div>Mon</div>
-            <div>Tue</div>
-            <div>Wed</div>
-            <div>Thu</div>
-            <div>Fri</div>
-            <div>Sat</div>
+          {/* Weekday Names (Mon - Sun) */}
+          <div className={styles.weekHeader} role="row">
+            {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map((wd) => (
+              <div key={wd} className={styles.weekDayName} role="columnheader">
+                {wd}
+              </div>
+            ))}
           </div>
 
-          <div className={styles.calDaysGrid}>
+          {/* 7-column Calendar Grid */}
+          <div className={styles.calDaysGrid} role="grid" aria-label="Monthly Live Sessions Calendar">
             {calendarDays.map((cell: { date: Date; dateStr: string; dayNum: number; isCurrentMonth: boolean; isToday: boolean; events: Session[] }, idx: number) => (
               <div
                 key={`${cell.dateStr}-${idx}`}
                 className={`${styles.calDayCell} ${!cell.isCurrentMonth ? styles.calDayCellOutside : ""} ${cell.isToday ? styles.calDayCellToday : ""}`}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className={`${styles.calDayNum} ${cell.isToday ? styles.calDayNumToday : ""}`}>
+                <div className={styles.calDayHeader}>
+                  <span className={cell.isToday ? styles.calDayBadgeToday : styles.calDayNum}>
                     {cell.dayNum}
                   </span>
                 </div>
+
                 <div className={styles.calEventsStack}>
                   {cell.events.map((evt: Session) => {
                     const isBooked =
                       evt.bookingStatus === "BOOKED" ||
                       evt.bookingStatus === "CONFIRMED" ||
                       evt.bookingStatus === "ATTENDED";
+                    const isOneOnOne =
+                      evt.sessionType === "ONE_ON_ONE" ||
+                      evt.title?.toLowerCase().includes("1-on-1") ||
+                      evt.title?.toLowerCase().includes("coaching");
+
                     return (
                       <div
                         key={evt.id}
-                        className={`${styles.calPill} ${isBooked ? styles.calPillBooked : styles.calPillAvailable}`}
+                        className={`${styles.calPill} ${isOneOnOne ? styles.calPillCoaching : styles.calPillCohort} ${isBooked ? styles.calPillBooked : ""}`}
                         title={`${evt.title} (${formatTime(new Date(evt.startTime))})`}
                         onClick={() => {
                           if (evt.joinUrl) {
@@ -656,9 +689,14 @@ export default function LiveSessionsPage() {
                           }
                         }}
                       >
-                        <span className={styles.calPillTitle}>
-                          {isBooked ? "✓ " : ""}{evt.title}
-                        </span>
+                        <div className={styles.calPillTop}>
+                          {isBooked ? (
+                            <span className={styles.calPillCheck}>{Icons.badgeCheck}</span>
+                          ) : !isOneOnOne ? (
+                            <span className={styles.calPillVideoIcon}>{Icons.video}</span>
+                          ) : null}
+                          <span className={styles.calPillTitle}>{evt.title}</span>
+                        </div>
                         <span className={styles.calPillTime}>
                           {formatTime(new Date(evt.startTime))}
                         </span>
@@ -669,6 +707,33 @@ export default function LiveSessionsPage() {
               </div>
             ))}
           </div>
+
+          {/* Calendar Legend */}
+          <div className={styles.calLegend}>
+            <div className={styles.legendItem}>
+              <span className={styles.legendDotCohort} />
+              <span>Cohort Live Class</span>
+            </div>
+            <div className={styles.legendItem}>
+              <span className={styles.legendDotCoaching} />
+              <span>1-on-1 Coaching</span>
+            </div>
+            <div className={styles.legendItem}>
+              <span className={styles.legendDotBooked} />
+              <span>Booked / Attended</span>
+            </div>
+            <div className={styles.legendItem}>
+              <span className={styles.legendDotToday} />
+              <span>Current Day</span>
+            </div>
+          </div>
+
+          {/* Policy Notes */}
+          <ul className={styles.calendarNotes}>
+            <li>Book your seat at least 12 hours before the session starts.</li>
+            <li>Check-in opens 5 minutes before a meeting starts.</li>
+            <li>Attendance is recorded when you check-in and join.</li>
+          </ul>
         </div>
       ) : visible.length === 0 ? (
         <div

@@ -1834,6 +1834,28 @@
   color: #dc2626;
 }
 
+.pdfNextSectionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: #ea580c;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(234, 88, 12, 0.3);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.pdfNextSectionBtn:hover {
+  background: #c2410c;
+  transform: translateY(-1px);
+}
+
 .pdfModalBody {
   flex: 1;
   position: relative;

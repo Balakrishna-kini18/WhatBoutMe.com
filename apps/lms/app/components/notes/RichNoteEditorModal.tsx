@@ -7,6 +7,8 @@ import { ContextualNote, formatSecondsToTimestamp } from '../../types/learner-fl
 import { extractPlainTextPreview } from '../../lib/notesAdapter';
 import { saveNoteDraft, getNoteDraft, clearNoteDraft } from '../../lib/notesStorageEngine';
 import { ConfirmModal } from '../ui/ConfirmModal';
+import { VisualRichTextEditor } from './VisualRichTextEditor';
+import { isEditorEmpty } from '../../lib/richTextHelper';
 
 interface RichNoteEditorModalProps {
   isOpen: boolean;
@@ -27,6 +29,7 @@ export default function RichNoteEditorModal({
 }: RichNoteEditorModalProps) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [plainText, setPlainText] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
   const [isFavorite, setIsFavorite] = useState(false);
@@ -53,6 +56,7 @@ export default function RichNoteEditorModal({
     } else {
       setTitle('');
       setContent('');
+      setPlainText('');
       setTags([]);
       setIsFavorite(false);
     }
@@ -93,19 +97,21 @@ export default function RichNoteEditorModal({
     setTags(tags.filter((t) => t !== tagToRemove));
   };
 
-  const handleApplyFormatting = (prefix: string, suffix = '') => {
-    setContent((prev) => `${prev}${prefix} ${suffix}`);
+  const handleEditorChange = (html: string, text: string) => {
+    setContent(html);
+    setPlainText(text);
   };
 
   const handleSave = async () => {
-    if (!content.trim() && !title.trim()) return;
+    if (isEditorEmpty(content) && !title.trim()) return;
     setIsSaving(true);
     try {
-      const derivedTitle = title.trim() ||
-        content.split('\n')[0]?.replace(/^[#*\-•\d.]+\s*/, '').trim().slice(0, 60) ||
+      const derivedTitle =
+        title.trim() ||
+        plainText.split('\n')[0]?.replace(/^[#*\-•\d.]+\s*/, '').trim().slice(0, 60) ||
         'Untitled Note';
 
-      const preview = extractPlainTextPreview(content);
+      const preview = extractPlainTextPreview(plainText || content);
 
       await onSave({
         ...initialNote,
@@ -258,69 +264,13 @@ export default function RichNoteEditorModal({
             </button>
           </div>
 
-          {/* FORMATTING TOOLBAR & CANVAS */}
-          <div className={styles.toolbarBox}>
-            <div className={styles.toolbar}>
-              <select
-                onChange={(e) => handleApplyFormatting(e.target.value)}
-                className={styles.toolSelect}
-                defaultValue="Normal"
-              >
-                <option value="">Normal</option>
-                <option value="## ">Heading 2</option>
-                <option value="### ">Heading 3</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={() => handleApplyFormatting('**', '**')}
-                className={styles.toolBtn}
-                title="Bold"
-              >
-                B
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyFormatting('*', '*')}
-                className={styles.toolBtn}
-                title="Italic"
-              >
-                I
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyFormatting('- ')}
-                className={styles.toolBtn}
-                title="Bullet List"
-              >
-                • List
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyFormatting('1. ')}
-                className={styles.toolBtn}
-                title="Numbered List"
-              >
-                1. List
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApplyFormatting('```\n', '\n```')}
-                className={styles.toolBtn}
-                title="Code Block"
-              >
-                &lt;/&gt; Code
-              </button>
-            </div>
-
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={8}
-              placeholder="Write your personal notes, insights, code snippets, or takeaways here..."
-              className={styles.editorTextarea}
-            />
-          </div>
+          {/* VISUAL RICH TEXT CANVAS */}
+          <VisualRichTextEditor
+            initialContent={content}
+            onChange={handleEditorChange}
+            placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
+            minHeight={190}
+          />
 
           {/* TAGS SECTION */}
           <div className={styles.tagsSection}>
@@ -359,7 +309,7 @@ export default function RichNoteEditorModal({
           </button>
           <button
             type="button"
-            disabled={isSaving || (!content.trim() && !title.trim())}
+            disabled={isSaving || (isEditorEmpty(content) && !title.trim())}
             onClick={handleSave}
             className={styles.saveBtn}
           >

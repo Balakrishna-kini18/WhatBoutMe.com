@@ -1420,7 +1420,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               onClick={() => setActiveTab("video")}
               className={`${styles.learningTabBtn} ${activeTab === "video" ? styles.learningTabBtnActive : ""}`}
             >
-              <span>▶</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
               <span>Video Lesson</span>
               {videoLessons.length > 1 && (
                 <span className={styles.learningTabCount}>{videoLessons.length} Parts</span>
@@ -1442,7 +1444,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     : "Take Module Quiz"
                 }
               >
-                <span>{isQuizUnlocked ? "📝" : "🔒"}</span>
+                {isQuizUnlocked ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                )}
                 <span>Quiz</span>
                 {quizQuestions.length > 0 && isQuizUnlocked && (
                   <span className={styles.learningTabCount}>{quizQuestions.length}</span>
@@ -1450,17 +1464,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </button>
             )}
 
-            {/* Notes Tab Button - hidden per user request
-            <button
-              type="button"
-              onClick={() => setActiveTab("notes")}
-              className={`${styles.learningTabBtn} ${activeTab === "notes" ? styles.learningTabBtnActive : ""}`}
-            >
-              <span>✍️</span>
-              <span>Notes</span>
-              {notes.length > 0 && <span className={styles.learningTabCount}>{notes.length}</span>}
-            </button>
-            */}
+            {/* Notes Tab Button - hidden per user request */}
 
             {stepMaterials.length > 0 && (
               <button
@@ -1468,7 +1472,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 onClick={() => setActiveTab("materials")}
                 className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
               >
-                <span>📁</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
                 <span>Materials</span>
                 <span className={styles.learningTabCount}>{stepMaterials.length}</span>
               </button>
@@ -1699,7 +1705,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         title={noteIsFavorite ? "Remove favorite" : "Mark as favorite"}
                         aria-label="Toggle favorite"
                       >
-                        ★
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill={noteIsFavorite ? "#f59e0b" : "none"} stroke={noteIsFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                        </svg>
                       </button>
                       <button
                         type="button"
@@ -1707,7 +1715,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         className={styles.noteTimestampCaptureBtn}
                         title="Click to capture or clear current video timestamp"
                       >
-                        ⏱ {formatSecondsToTimestamp(capturedTimestamp !== null ? capturedTimestamp : Math.floor(currentVideoTime))}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        <span>{formatSecondsToTimestamp(capturedTimestamp !== null ? capturedTimestamp : Math.floor(currentVideoTime))}</span>
                       </button>
                     </div>
 
@@ -1752,7 +1764,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           className={styles.noteFormatBtn}
                           title="Highlight"
                         >
-                          ✏️ Highlight
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 4 }}>
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                          </svg>
+                          Highlight
                         </button>
                         <button
                           type="button"
@@ -1782,7 +1798,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           className={styles.noteFormatBtn}
                           title="Clear formatting"
                         >
-                          ✕ Clear
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 4 }}>
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                          Clear
                         </button>
                       </div>
                     </div>
@@ -1840,7 +1860,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           <article key={n.id} className={styles.savedNoteCard}>
                             <div className={styles.savedNoteTopRow}>
                               <div className={styles.savedNoteTopLeft}>
-                                <span className={styles.savedNoteDocIcon} role="img" aria-label="note">📄</span>
+                                <span className={styles.savedNoteDocIcon} aria-label="note">
+                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                    <polyline points="14 2 14 8 20 8" />
+                                    <line x1="16" y1="13" x2="8" y2="13" />
+                                    <line x1="16" y1="17" x2="8" y2="17" />
+                                    <polyline points="10 9 9 9 8 9" />
+                                  </svg>
+                                </span>
                                 <h5 className={styles.savedNoteTitle} title={norm.noteTitle}>
                                   {norm.noteTitle}
                                 </h5>
@@ -1854,7 +1882,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                     className={styles.savedNoteTimestampBtn}
                                     title="Jump video to this timestamp"
                                   >
-                                    ⏱ {norm.formattedTimestamp}
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <circle cx="12" cy="12" r="10" />
+                                      <polyline points="12 6 12 12 16 14" />
+                                    </svg>
+                                    <span>{norm.formattedTimestamp}</span>
                                   </button>
                                 )}
 
@@ -1866,7 +1898,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                   title={norm.isFavorite ? "Remove favorite" : "Mark as favorite"}
                                   aria-label="Toggle favorite"
                                 >
-                                  ★
+                                  <svg width="15" height="15" viewBox="0 0 24 24" fill={norm.isFavorite ? "#f59e0b" : "none"} stroke={norm.isFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                  </svg>
                                 </button>
 
                                 <button
@@ -1877,8 +1911,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                   }}
                                   className={styles.savedNoteEditBtn}
                                   title="Edit this note in full editor"
+                                  aria-label="Edit note"
                                 >
-                                  ✏️
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
                                 </button>
 
                                 <button
@@ -1888,7 +1926,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                   title="Delete note"
                                   aria-label="Delete note"
                                 >
-                                  ✕
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <line x1="18" y1="6" x2="6" y2="18" />
+                                    <line x1="6" y1="6" x2="18" y2="18" />
+                                  </svg>
                                 </button>
                               </div>
                             </div>
@@ -2315,7 +2356,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     .map((n) => (
                       <div key={n.id} className={styles.savedNoteCard}>
                         <div className={styles.savedNoteLeft}>
-                          <div className={styles.noteIconSquare}>📝</div>
+                          <div className={styles.noteIconSquare}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                              <polyline points="14 2 14 8 20 8" />
+                              <line x1="16" y1="13" x2="8" y2="13" />
+                              <line x1="16" y1="17" x2="8" y2="17" />
+                              <polyline points="10 9 9 9 8 9" />
+                            </svg>
+                          </div>
                           <div className={styles.savedNoteContent}>
                             <h4 className={styles.savedNoteTitle}>{n.step?.title || `${step?.title || "Lesson"} Note`}</h4>
                             <p className={styles.savedNoteBody}>{n.noteText}</p>
@@ -2335,8 +2384,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             onClick={() => handleDeleteNote(n.id)}
                             className={`${styles.actionIconBtn} ${styles.actionIconBtnDelete}`}
                             title="Delete note"
+                            aria-label="Delete note"
                           >
-                            🗑
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
                           </button>
                         </div>
                       </div>
@@ -2361,7 +2416,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             <div className={styles.materialsTabStack}>
               <div className={styles.materialsSearchCard}>
                 <div className={styles.searchBarContainer}>
-                  <span>🔍</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
                   <input
                     type="text"
                     placeholder="Search materials..."
@@ -2450,7 +2508,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                               className={styles.btnPrimaryView}
                               title="Read this PDF directly in the browser"
                             >
-                              <span style={{ fontSize: "1rem" }}>📖</span>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                              </svg>
                               <span>{isDone ? "Read Again" : "Read PDF"}</span>
                             </button>
                           )}

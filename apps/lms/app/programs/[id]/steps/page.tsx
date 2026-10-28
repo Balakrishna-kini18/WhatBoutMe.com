@@ -719,6 +719,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const examBestScore = examAttempt?.score ?? stage2State?.details?.examScore ?? null;
 
   const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
+  const stage4Details = stage4State?.details as any;
+  const isCoachingRequired = stage4Details?.isRequired !== false;
   const isCoachingUnlocked = Boolean(
     (isExamUnlocked && isExamPassed) || stage4State?.isOverridden === true
   );
@@ -730,30 +732,45 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
   const latestCoachingReq = coachingRequestsSorted[0] || null;
   const isLatestRejected = !activeCoachingReq && latestCoachingReq?.status === "REJECTED";
+
+  // Ground-truth session attendance or explicit staff audit override
+  const hasRealCompletedCoaching = Boolean(
+    (stage4Details?.completedSessionId && stage4Details?.isAttended) ||
+    stage4Details?.isGenuinelyCompleted === true ||
+    coachingRequests.some((r) => r.session?.status === "COMPLETED" || (r as any).status === "COMPLETED")
+  );
   const isCoachingCompleted = Boolean(
     stage4State?.isOverridden === true ||
-      (isCoachingUnlocked && (
-        stage4State?.isCompleted === true ||
-        Boolean(stage4State?.details?.completedSessionId) ||
-        coachingRequests.some((r) => r.session?.status === "COMPLETED")
-      ))
+    (isCoachingUnlocked && hasRealCompletedCoaching)
   );
+  const isCoachingRequirementMet =
+    !isCoachingRequired || isCoachingCompleted || stage4State?.isOverridden === true;
 
   const stage5State = stagesEval?.stages?.STAGE_5_MISSION_STATEMENT;
+  const stage5Details = stage5State?.details as any;
+  const isMissionRequired = stage5Details?.isRequired !== false;
   const isMissionUnlocked = Boolean(
-    (isCoachingUnlocked && isCoachingCompleted) || stage5State?.isOverridden === true
+    (isCoachingUnlocked && isCoachingRequirementMet) || stage5State?.isOverridden === true
   );
   const latestMission = missionSubmissions[0] || null;
+
+  // Ground-truth approved submission or explicit staff audit override
+  const hasRealApprovedMission = Boolean(
+    stage5Details?.isGenuinelyCompleted === true ||
+    missionSubmissions.some((m) => m.status === "APPROVED")
+  );
   const isMissionApproved = Boolean(
     stage5State?.isOverridden === true ||
-      (isMissionUnlocked && (
-        stage5State?.isCompleted === true ||
-        missionSubmissions.some((m) => m.status === "APPROVED")
-      ))
+    (isMissionUnlocked && hasRealApprovedMission)
   );
+  const isMissionRequirementMet =
+    !isMissionRequired || isMissionApproved || stage5State?.isOverridden === true;
 
   const isCertificateUnlocked = Boolean(
-    allStepsCompleted && isExamPassed && isCoachingCompleted && isMissionApproved
+    allStepsCompleted &&
+    isExamPassed &&
+    isCoachingRequirementMet &&
+    isMissionRequirementMet
   );
 
   const journeyProgress = computeUnifiedJourneyProgress({
@@ -763,8 +780,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     examScore: examBestScore,
     coachingCompleted: isCoachingCompleted,
     coachingStatus: activeCoachingReq?.status ?? latestCoachingReq?.status ?? null,
+    coachingRequired: isCoachingRequired,
     missionApproved: isMissionApproved,
     missionStatus: latestMission?.status ?? null,
+    missionRequired: isMissionRequired,
     curriculumPercent: percent,
   });
 
@@ -1196,6 +1215,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             style={{ background: "#fee2e2", color: "#991b1b", borderColor: "#fca5a5" }}
                           >
                             Declined · Reapply Available
+                          </span>
+                        ) : !isCoachingRequired ? (
+                          <span
+                            className={styles.quizRequiredBadge}
+                            style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
+                          >
+                            Optional Milestone
                           </span>
                         ) : null}
                       </p>
@@ -2066,6 +2092,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             ? "View Details"
                             : activeCoachingReq
                             ? "Manage Session"
+                            : !isCoachingRequired
+                            ? "Book Session (Optional)"
                             : "Book Session"}
                         </button>
                       ) : (
@@ -2112,6 +2140,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           <span className={styles.quizRequiredBadge}>Pending Review</span>
                         ) : latestMission?.status === "REJECTED" ? (
                           <span className={styles.quizRequiredBadge}>Revision Requested</span>
+                        ) : !isMissionRequired ? (
+                          <span
+                            className={styles.quizRequiredBadge}
+                            style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
+                          >
+                            Optional Milestone
+                          </span>
                         ) : null}
                       </p>
 
@@ -2274,6 +2309,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             ? "View Approved"
                             : latestMission?.status === "SUBMITTED"
                             ? "View Submission"
+                            : !isMissionRequired
+                            ? "Submit Statement (Optional)"
                             : "Submit Statement"}
                         </button>
                       ) : (

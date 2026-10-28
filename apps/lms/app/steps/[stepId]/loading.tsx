@@ -39,22 +39,38 @@ export default function StepLoading() {
           TABS STRIP SKELETON
           ===================================================================== */}
       <div>
-        <nav className={styles.learningToolsStrip} aria-label="Lesson Workspace Tabs">
-          <div
-            className={`${styles.learningTabBtn} ${styles.learningTabBtnActive}`}
-            style={{ cursor: "default" }}
-          >
-            <span>▶</span>
-            <span>Video Lesson</span>
-            <span className={styles.learningTabCount} style={{ opacity: 0.7 }}>...</span>
+        <nav className={styles.lessonFlowStrip} aria-label="Lesson Workspace Tabs">
+          <div className={`${styles.flowStepItem} ${styles.flowStepItemActive}`}>
+            <span className={styles.flowStepBadge}>1</span>
+            <div className={styles.flowStepText}>
+              <span className={styles.flowStepLabel}>Part 1</span>
+              <span className={styles.flowStepTitle}>Loading...</span>
+            </div>
+            <span className={styles.flowStepActiveIndicator} />
           </div>
 
-          <div
-            className={styles.learningTabBtn}
-            style={{ cursor: "default", opacity: 0.6 }}
-          >
-            <span>📁</span>
-            <span>Materials</span>
+          <div className={styles.flowStepItem} style={{ opacity: 0.7 }}>
+            <span className={styles.flowStepBadge}>2</span>
+            <div className={styles.flowStepText}>
+              <span className={styles.flowStepLabel}>Part 2</span>
+              <span className={styles.flowStepTitle}>...</span>
+            </div>
+          </div>
+
+          <div className={styles.flowStepItem} style={{ opacity: 0.6 }}>
+            <span className={styles.flowStepBadge}>📁</span>
+            <div className={styles.flowStepText}>
+              <span className={styles.flowStepLabel}>Materials</span>
+              <span className={styles.flowStepTitle}>...</span>
+            </div>
+          </div>
+
+          <div className={styles.flowStepItem} style={{ opacity: 0.6 }}>
+            <span className={styles.flowStepBadge}>📝</span>
+            <div className={styles.flowStepText}>
+              <span className={styles.flowStepLabel}>Quiz</span>
+              <span className={styles.flowStepTitle}>...</span>
+            </div>
           </div>
         </nav>
 

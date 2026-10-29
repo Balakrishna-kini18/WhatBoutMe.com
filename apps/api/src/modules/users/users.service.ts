@@ -36,6 +36,7 @@ export class UsersService {
           },
           enrolments: {
             include: {
+              program: true,
               batch: {
                 include: {
                   program: true,
@@ -90,7 +91,15 @@ export class UsersService {
     }
 
     const { passwordHash, ...safeUser } = user;
-    return safeUser;
+    const isSuspended = user.permissions?.includes('ACCOUNT_SUSPENDED');
+    const isInactive = user.deletedAt !== null;
+    const accountStatus = isInactive ? 'INACTIVE' : isSuspended ? 'SUSPENDED' : 'ACTIVE';
+
+    return {
+      ...safeUser,
+      status: accountStatus,
+      accountStatus,
+    };
   }
 
   async findAll(params: { page: number; limit: number; search?: string; role?: Role; reqUser?: any }) {
@@ -132,7 +141,23 @@ export class UsersService {
       };
     }
 
-    const [total, users] = await Promise.all([
+    const roleWhere: any = {};
+    if (reqUser && ((reqUser.role === Role.MANAGER || reqUser.role === 'MANAGER' || reqUser.role === 'TEACHER'))) {
+      const userId = reqUser.sub || reqUser.id;
+      roleWhere.enrolments = {
+        some: {
+          status: { not: EnrolmentStatus.REVOKED },
+          batch: {
+            OR: [
+              { managerId: userId },
+              { trainers: { some: { trainerId: userId } } },
+            ],
+          },
+        },
+      };
+    }
+
+    const [total, users, roleGroups] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
@@ -147,6 +172,7 @@ export class UsersService {
           permissions: true,
           twoFactorEnabled: true,
           createdAt: true,
+          deletedAt: true,
           signedAgreements: {
             select: { id: true, status: true, signedAt: true },
             take: 1,
@@ -179,6 +205,11 @@ export class UsersService {
             },
           },
         },
+      }),
+      this.prisma.user.groupBy({
+        by: ['role'],
+        where: roleWhere,
+        _count: { id: true },
       }),
     ]);
 
@@ -304,22 +335,32 @@ export class UsersService {
         }
       }
 
-      // Pure Curriculum Progression Computation (eliminating Attendance category error from step column)
+      // Pure Curriculum Progression Computation (Option A: Completed/Total Steps (%))
       const rawCurrentStage = (primaryEnrolment as any)?.currentStage || 'STAGE_1_CURRICULUM';
       const certStatus = (primaryEnrolment as any)?.certificate?.status;
+      const primaryStepProgs = (primaryEnrolment as any)?.stepProgress || [];
+      const primaryCompletedSteps = primaryStepProgs.filter((sp: any) => sp.isCompleted).length;
+      const primaryProgressPercent = totalSteps > 0 ? Math.round((primaryCompletedSteps / totalSteps) * 100) : 0;
       let stageLabel: string | null = null;
 
       if (isLearner && primaryEnrolment) {
         if (isStepLocked) {
-          stageLabel = 'Locked';
+          stageLabel = stepLockReason === 'PAYMENT_REQUIRED'
+            ? 'Payment Pending'
+            : stepLockReason === 'AGREEMENT_REQUIRED'
+            ? 'Agreement Required'
+            : 'Locked';
         } else if (certStatus === 'ISSUED') {
           stageLabel = 'Certified';
-        } else if (currentStepNumber) {
-          stageLabel = `Step ${currentStepNumber}/${totalSteps}`;
         } else {
-          stageLabel = `Step 1/${totalSteps}`;
+          stageLabel = `${primaryCompletedSteps}/${totalSteps} Steps (${primaryProgressPercent}%)`;
         }
       }
+
+      // Pure Account Status Calculation (Active / Suspended / Inactive)
+      const isSuspended = user.permissions?.includes('ACCOUNT_SUSPENDED');
+      const isInactive = (user as any).deletedAt !== null;
+      const accountStatus = isInactive ? 'INACTIVE' : isSuspended ? 'SUSPENDED' : 'ACTIVE';
 
       return {
         id: user.id,
@@ -327,10 +368,14 @@ export class UsersService {
         email: user.email,
         role: user.role,
         permissions: user.permissions || [],
-        status: primaryEnrolment?.status || (isLearner ? 'Unenrolled' : 'Active'),
-        progress: `${progressPct}%`,
+        status: accountStatus,
+        accountStatus,
+        enrolmentStatus: primaryEnrolment?.status || (isLearner ? 'Unenrolled' : 'Active'),
+        progress: `${primaryProgressPercent}%`,
         currentStepNumber,
+        completedSteps: primaryCompletedSteps,
         totalSteps: isLearner && primaryEnrolment ? totalSteps : null,
+        progressPercent: primaryProgressPercent,
         currentStage: isLearner ? rawCurrentStage : null,
         stageLabel: isLearner ? stageLabel : null,
         isStepLocked,
@@ -349,17 +394,25 @@ export class UsersService {
           const eUnlocked = eStepProgs.filter((sp: any) => sp.isUnlocked);
           const eIncompleteUnlocked = eUnlocked.filter((sp: any) => !sp.isCompleted);
           const eCompletedCount = eStepProgs.filter((sp: any) => sp.isCompleted).length;
+          const eProgressPct = eTotalSteps > 0 ? Math.round((eCompletedCount / eTotalSteps) * 100) : 0;
 
           const isEnrAgreementSigned = (e as any).signedAgreement?.status === 'SIGNED' || isAgreementSigned;
 
           let eStepNum: number | null = null;
           let eLocked = false;
+          let eLockReason: string | null = null;
           let eLabel = '';
 
-          if (e.status === EnrolmentStatus.PENDING_PAYMENT || !isEnrAgreementSigned) {
+          if (e.status === EnrolmentStatus.PENDING_PAYMENT) {
             eStepNum = null;
             eLocked = true;
-            eLabel = 'Locked';
+            eLockReason = 'PAYMENT_REQUIRED';
+            eLabel = 'Payment Pending';
+          } else if (!isEnrAgreementSigned) {
+            eStepNum = null;
+            eLocked = true;
+            eLockReason = 'AGREEMENT_REQUIRED';
+            eLabel = 'Agreement Required';
           } else {
             if (eIncompleteUnlocked.length > 0) {
               eStepNum = Math.min(...eIncompleteUnlocked.map((sp: any) => sp.step?.sequence || 1));
@@ -373,7 +426,7 @@ export class UsersService {
             if (eCertStatus === 'ISSUED') {
               eLabel = 'Certified';
             } else {
-              eLabel = `Step ${eStepNum || 1}/${eTotalSteps}`;
+              eLabel = `${eCompletedCount}/${eTotalSteps} Steps (${eProgressPct}%)`;
             }
           }
 
@@ -385,8 +438,11 @@ export class UsersService {
             programTitle: e.program?.title || 'Unknown',
             status: e.status,
             currentStepNumber: eStepNum,
+            completedSteps: eCompletedCount,
             totalSteps: eTotalSteps,
+            progressPercent: eProgressPct,
             isStepLocked: eLocked,
+            stepLockReason: eLockReason,
             stepLabel: eLabel,
             isAgreementSigned: isEnrAgreementSigned,
             createdAt: e.createdAt,
@@ -405,12 +461,20 @@ export class UsersService {
       };
     });
 
+    const roleCounts: Record<string, number> = { ALL: 0, USER: 0, MANAGER: 0, ADMIN: 0, SUPER_ADMIN: 0 };
+    for (const rg of roleGroups) {
+      const r = rg.role === ('TEACHER' as any) ? 'MANAGER' : rg.role;
+      roleCounts[r] = (roleCounts[r] || 0) + rg._count.id;
+      roleCounts.ALL += rg._count.id;
+    }
+
     return {
       data,
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
+      roleCounts,
     };
     });
   }
@@ -544,9 +608,35 @@ export class UsersService {
       userData.passwordHash = await bcrypt.hash(data.password, 12);
     }
     
-    // Determine if we need to revoke sessions
+    // Determine if we need to revoke sessions and handle Account Status transitions
     let shouldRevoke = false;
     let revokeReason = '';
+
+    let nextPermissions: string[] = Array.isArray(userData.permissions)
+      ? [...userData.permissions]
+      : Array.isArray(currentUser.permissions)
+      ? [...currentUser.permissions]
+      : [];
+
+    if (data.status === 'SUSPENDED') {
+      shouldRevoke = true;
+      revokeReason = 'SUSPENDED';
+      if (!nextPermissions.includes('ACCOUNT_SUSPENDED')) {
+        nextPermissions.push('ACCOUNT_SUSPENDED');
+      }
+      userData.permissions = nextPermissions;
+      userData.deletedAt = null;
+    } else if (data.status === 'INACTIVE') {
+      shouldRevoke = true;
+      revokeReason = 'ACCOUNT_DISABLED';
+      nextPermissions = nextPermissions.filter((p: string) => p !== 'ACCOUNT_SUSPENDED');
+      userData.permissions = nextPermissions;
+      userData.deletedAt = new Date();
+    } else if (data.status === 'ACTIVE') {
+      nextPermissions = nextPermissions.filter((p: string) => p !== 'ACCOUNT_SUSPENDED');
+      userData.permissions = nextPermissions;
+      userData.deletedAt = null;
+    }
     
     if (data.role && data.role !== currentUser.role) {
       shouldRevoke = true;
@@ -556,10 +646,6 @@ export class UsersService {
       shouldRevoke = true;
       revokeReason = 'PASSWORD_CHANGED';
     }
-    if (data.status === 'SUSPENDED') {
-      shouldRevoke = true;
-      revokeReason = 'SUSPENDED';
-    }
 
     if (shouldRevoke) {
       await this.prisma.userSession.updateMany({
@@ -567,6 +653,7 @@ export class UsersService {
         data: { revokedAt: new Date(), revokedReason: revokeReason }
       });
       forgetSessions();
+      await this.cacheHelper.invalidateNamespace(`auth_user:${id}`);
     }
 
     try {
@@ -582,6 +669,16 @@ export class UsersService {
           entity: 'User',
           entityId: id,
           meta: { oldRole: currentUser.role, newRole: data.role, changedBy: reqUser?.sub || reqUser?.id }
+        });
+      }
+
+      if (data.status) {
+        await this.prisma.logAction({
+          actorId: reqUser?.sub || reqUser?.id,
+          action: 'USER_STATUS_CHANGED',
+          entity: 'User',
+          entityId: id,
+          meta: { status: data.status, changedBy: reqUser?.sub || reqUser?.id }
         });
       }
 

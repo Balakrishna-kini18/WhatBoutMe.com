@@ -314,7 +314,28 @@ typeof this.prisma.auditLog?.findMany === 'function'
     const where: any = {};
 
     if (action && action.trim() && action !== 'ALL') {
-      where.action = action.trim();
+      const act = action.trim();
+      if (act === 'STEP_UNLOCK_OVERRIDE' || act === 'STEP_MANUAL_UNLOCKED') {
+        where.action = { in: ['STEP_MANUAL_UNLOCKED', 'STEP_UNLOCK_OVERRIDE'] };
+      } else if (act === 'STEP_LOCK_OVERRIDE' || act === 'STEP_MANUAL_LOCKED') {
+        where.action = { in: ['STEP_MANUAL_LOCKED', 'STEP_LOCK_OVERRIDE'] };
+      } else if (act === 'CERTIFICATE_REVOCATION' || act === 'CERTIFICATE_REVOKED') {
+        where.action = { in: ['CERTIFICATE_REVOCATION', 'CERTIFICATE_REVOKED'] };
+      } else if (act === 'LOGOUT') {
+        where.action = { in: ['LOGOUT', 'LOGOUT_ALL_SESSIONS', 'LOGOUT_ALL', 'REVOKE_SESSION', 'SESSIONS_REVOKED'] };
+      } else if (act === 'QUIZ_OVERRIDE') {
+        where.action = { in: ['QUIZ_OVERRIDE', 'QUIZ_ATTEMPTS_RESET'] };
+      } else if (act === 'REFUND_ISSUED' || act === 'CREATE_CREDIT_NOTE') {
+        where.action = { in: ['CREATE_CREDIT_NOTE', 'REFUND_ISSUED'] };
+      } else if (act === 'ONE_ON_ONE_SCHEDULED' || act === 'ONE_ON_ONE_APPROVED') {
+        where.action = { in: ['ONE_ON_ONE_APPROVED', 'ONE_ON_ONE_SCHEDULED'] };
+      } else if (act === 'ONE_ON_ONE_COMPLETED') {
+        where.action = { in: ['ONE_ON_ONE_COMPLETED', 'SESSION_COMPLETED'] };
+      } else if (act === 'PROGRAM_PUBLISHED') {
+        where.action = { in: ['PROGRAM_PUBLISHED', 'PROGRAM_ARCHIVED'] };
+      } else {
+        where.action = act;
+      }
     }
 
     if (entity && entity.trim() && entity !== 'ALL') {
@@ -330,7 +351,7 @@ typeof this.prisma.auditLog?.findMany === 'function'
       if (endDate) {
         const end = new Date(endDate);
         if (!isNaN(end.getTime())) {
-          end.setHours(23, 59, 59, 999);
+          end.setUTCHours(23, 59, 59, 999);
           where.createdAt.lte = end;
         }
       }
@@ -388,8 +409,9 @@ typeof this.prisma.auditLog?.findMany === 'function'
     const leadIds = rawLogs.filter((l) => l.entity === 'Lead').map((l) => l.entityId);
     const couponIds = rawLogs.filter((l) => l.entity === 'Coupon').map((l) => l.entityId);
     const eventIds = rawLogs.filter((l) => l.entity === 'Event').map((l) => l.entityId);
+    const batchIds = rawLogs.filter((l) => l.entity === 'Batch').map((l) => l.entityId);
 
-    const [oneOnOnes, sessions, users, enrolments, certificates, leads, coupons, events] = await Promise.all([
+    const [oneOnOnes, sessions, users, enrolments, certificates, leads, coupons, events, batches] = await Promise.all([
       oneOnOneIds.length > 0
         ? this.prisma.oneOnOneRequest.findMany({
             where: { id: { in: oneOnOneIds } },
@@ -458,7 +480,15 @@ typeof this.prisma.auditLog?.findMany === 'function'
             select: { id: true, title: true },
           })
         : [],
+      batchIds.length > 0 && typeof this.prisma.batch?.findMany === 'function'
+        ? this.prisma.batch.findMany({
+            where: { id: { in: batchIds } },
+            select: { id: true, name: true, program: { select: { title: true } } },
+          })
+        : [],
     ]);
+
+    const batchMap = new Map((batches || []).map((b: any) => [b.id, b]));
 
     const oneOnOneMap = new Map(oneOnOnes.map((o) => [o.id, o]));
     const sessionMap = new Map(sessions.map((s) => [s.id, s]));
@@ -517,12 +547,44 @@ typeof this.prisma.auditLog?.findMany === 'function'
       } else if (log.entity === 'Event') {
         const item = eventMap.get(log.entityId);
         targetLabel = item?.title ? item.title : 'Event';
+      } else if (log.entity === 'Batch') {
+        const item = batchMap.get(log.entityId);
+        targetLabel = item?.name ? `Batch: ${item.name}` : (sanitizedMeta?.batchName ? `Batch: ${sanitizedMeta.batchName}` : 'Batch');
+        targetSubLabel = item?.program?.title || sanitizedMeta?.programTitle || null;
       }
 
       // Synthesize clean summary notes
       let summaryNote = sanitizedMeta?.reason || sanitizedMeta?.title || null;
       if (!summaryNote) {
-        if (log.action === 'ONE_ON_ONE_APPROVED' && sanitizedMeta?.startTime) {
+        if (log.action === 'SESSION_UPDATED') {
+          summaryNote = targetLabel && targetLabel !== 'Session' ? `Updated: ${targetLabel}` : 'Session schedule or details updated';
+        } else if (log.action === 'SESSION_CREATED') {
+          summaryNote = targetLabel && targetLabel !== 'Session' ? `Created session: ${targetLabel}` : 'Live session created';
+        } else if (log.action === 'SESSION_CANCELLED') {
+          summaryNote = sanitizedMeta?.cancelReason || 'Session cancelled';
+        } else if (log.action === 'SESSION_DELETED') {
+          summaryNote = sanitizedMeta?.title ? `Deleted session: "${sanitizedMeta.title}"` : 'Session deleted';
+        } else if (log.action === 'ORAL_ASSESSMENT_GRADED') {
+          const pass = sanitizedMeta?.passed ? 'Passed' : 'Needs Retake';
+          const score = sanitizedMeta?.overallScore !== undefined ? ` (${sanitizedMeta.overallScore}%)` : '';
+          summaryNote = `Assessment graded: ${pass}${score}`;
+        } else if (log.action === 'CERTIFICATE_ISSUED') {
+          summaryNote = sanitizedMeta?.certificateCode ? `Certificate #${sanitizedMeta.certificateCode} issued` : 'Certificate officially issued';
+        } else if (log.action === 'AGREEMENT_SIGNED') {
+          summaryNote = targetSubLabel ? `Workshop agreement signed for ${targetSubLabel}` : 'Workshop agreement signed';
+        } else if (log.action === 'COUPON_CREATED') {
+          summaryNote = sanitizedMeta?.code ? `Created coupon: ${sanitizedMeta.code}` : 'Marketing coupon created';
+        } else if (log.action === 'COUPON_UPDATED') {
+          summaryNote = sanitizedMeta?.code ? `Updated coupon: ${sanitizedMeta.code}` : 'Coupon updated';
+        } else if (log.action === 'COUPON_ARCHIVED') {
+          summaryNote = sanitizedMeta?.code ? `Archived coupon: ${sanitizedMeta.code}` : 'Coupon archived';
+        } else if (log.action === 'ENROLMENT_CREATED') {
+          summaryNote = 'Learner enrolled into program';
+        } else if (log.action === 'ENROLMENT_STATUS_TRANSITIONED') {
+          summaryNote = sanitizedMeta?.newStatus ? `Enrolment transitioned to ${sanitizedMeta.newStatus}` : 'Enrolment status updated';
+        } else if (log.action === 'ENROLMENT_CANCELLED') {
+          summaryNote = 'Enrolment cancelled / access revoked';
+        } else if (log.action === 'ONE_ON_ONE_APPROVED' && sanitizedMeta?.startTime) {
           summaryNote = `Approved & scheduled for ${new Date(sanitizedMeta.startTime).toLocaleString('en-US', {
             month: 'short',
             day: 'numeric',

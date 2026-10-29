@@ -607,6 +607,115 @@
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* =========================================================================
+   Custom WhatBoutMe Theme Help Tooltip
+   ========================================================================= */
+.helpTooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.helpIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: help;
+  border: 1px solid #fde68a;
+  transition: all 0.15s ease;
+  user-select: none;
+  outline: none;
+}
+
+.helpIcon:hover,
+.helpIcon:focus-visible {
+  background: #fde68a;
+  color: #92400e;
+  border-color: #f59e0b;
+  transform: scale(1.08);
+}
+
+.helpTooltipContent {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 270px;
+  max-width: calc(100vw - 32px);
+  padding: 0.65rem 0.85rem;
+  background: #1c1917; /* Deep warm ink */
+  color: #faf6f0;      /* Warm ivory text */
+  border: 1px solid rgba(201, 122, 30, 0.4); /* Subtle warm amber glow */
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -4px rgba(20, 17, 15, 0.28), 0 4px 10px rgba(20, 17, 15, 0.15);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  font-weight: 500;
+  z-index: 120;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+  text-align: left;
+  white-space: normal;
+}
+
+/* Arrow indicator on top of tooltip */
+.helpTooltipContent::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  right: 5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent transparent #1c1917 transparent;
+}
+
+/* Show on hover and focus */
+.helpTooltip:hover .helpTooltipContent,
+.helpTooltip:focus-within .helpTooltipContent {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Left-aligned variant for badges on the left side of cards */
+.helpTooltipLeft .helpTooltipContent {
+  right: auto;
+  left: 0;
+}
+
+.helpTooltipLeft .helpTooltipContent::before {
+  right: auto;
+  left: 8px;
+}
+
+/* Responsive Rules:
+   1. On tablets/mobile (<= 768px) and touch devices, hide the hover tooltip popover
+      so it never stays stuck, overflows, or blocks touch interactions.
+   2. On small screens (<= 640px), hide the question mark help icon next to override buttons
+      to preserve compact action button layout. */
+@media (max-width: 768px), (hover: none) {
+  .helpTooltipContent {
+    display: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .stageHeaderActions .helpTooltip {
+    display: none !important;
+  }
 }
 
 .complianceMeterCard {
@@ -908,12 +1017,14 @@
   gap: 0.35rem;
   transition: all 0.15s ease;
   line-height: 1;
+  text-decoration: none;
 }
 
 .tableActionBtn:hover {
   background: var(--bg-soft, #f5ece1);
   color: var(--accent-primary, #c97a1e);
   border-color: #d8cdbe;
+  text-decoration: none;
 }
 
 .tableActionBtnReset {

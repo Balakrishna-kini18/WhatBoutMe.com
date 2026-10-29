@@ -2040,6 +2040,7 @@ export interface CreateBatchInput {
   managerId?: string | null;
   startDate: string;
   endDate?: string | null;
+  registrationDeadline?: string | null;
   capacity: number;
   status?: string;
   price?: number | null;
@@ -2074,6 +2075,14 @@ export async function createBatch(data: CreateBatchInput): Promise<any> {
 
 export async function updateBatch(id: string, data: UpdateBatchInput): Promise<any> {
   return apiPatch<any>(`/batches/${id}`, data);
+}
+
+export async function cancelEnrolment(enrolmentId: string): Promise<any> {
+  return apiPost<any>(`/admin/enrolments/${enrolmentId}/cancel`, {});
+}
+
+export async function resendEnrolmentPaymentLink(enrolmentId: string): Promise<any> {
+  return apiPost<any>(`/admin/enrolments/${enrolmentId}/resend-payment-link`, {});
 }
 
 export interface CreateSessionInput {

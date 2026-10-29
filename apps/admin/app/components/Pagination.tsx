@@ -52,7 +52,7 @@ export function Pagination({
   pageSize,
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = [10, 30, 50],
+  pageSizeOptions = [10, 20, 50],
   itemLabel = "records",
   className = "",
 }: PaginationProps) {

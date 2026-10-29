@@ -406,6 +406,7 @@ export function DatePicker({
             {calendarDays.map((item) => {
               const isSelected = item.isoString === value;
               const isToday = item.isoString === todayStr;
+              const isPast = item.isoString < todayStr && item.isCurrentMonth;
 
               return (
                 <button
@@ -416,8 +417,10 @@ export function DatePicker({
                   className={`${styles.dayButton} ${
                     !item.isCurrentMonth ? styles.dayOutside : ""
                   } ${isToday ? styles.dayToday : ""} ${
-                    isSelected ? styles.daySelected : ""
-                  } ${item.isDisabled ? styles.dayDisabled : ""}`}
+                    isPast ? styles.dayPast : ""
+                  } ${isSelected ? styles.daySelected : ""} ${
+                    item.isDisabled ? styles.dayDisabled : ""
+                  }`}
                   aria-label={item.isoString}
                 >
                   {item.day}

@@ -224,3 +224,71 @@ export function determineResumePosition({
 
   return { resumeSec: 0, shouldResume: false };
 }
+
+export type VideoQuality = "Auto" | "1080p" | "720p" | "540p" | "360p" | "224p";
+
+export const VIDEO_QUALITY_OPTIONS: VideoQuality[] = [
+  "Auto",
+  "1080p",
+  "720p",
+  "540p",
+  "360p",
+  "224p",
+];
+
+const QUALITY_HEIGHT_MAP: Record<Exclude<VideoQuality, "Auto">, number> = {
+  "1080p": 1080,
+  "720p": 720,
+  "540p": 540,
+  "360p": 360,
+  "224p": 224,
+};
+
+/**
+ * Transforms a video stream URL to request the specified quality level:
+ * - Supports Cloudinary on-the-fly resolution transformations (/upload/c_limit,h_X,q_auto/...)
+ * - Supports /media/stream proxy query parameters (?quality=...&h=...)
+ * - Gracefully preserves token parameters and query strings
+ */
+export function getQualityTransformedUrl(originalUrl: string, quality: VideoQuality): string {
+  if (!originalUrl) return "";
+  if (quality === "Auto") return originalUrl;
+
+  const targetHeight = QUALITY_HEIGHT_MAP[quality as Exclude<VideoQuality, "Auto">];
+  if (!targetHeight) return originalUrl;
+
+  // 1. Cloudinary URLs
+  if (originalUrl.includes("res.cloudinary.com") && originalUrl.includes("/video/upload/")) {
+    const uploadMarker = "/video/upload/";
+    const uploadIndex = originalUrl.indexOf(uploadMarker);
+    const prefix = originalUrl.substring(0, uploadIndex + uploadMarker.length);
+    const rest = originalUrl.substring(uploadIndex + uploadMarker.length);
+
+    // If already has transformation segment before version (e.g. /upload/q_auto/v1234... or /upload/c_limit,h_720/v1234...)
+    const versionMatch = rest.match(/^(?:([a-zA-Z0-9_,]+)\/)?(v\d+\/.*)$/);
+    if (versionMatch) {
+      const pathAfterVersion = versionMatch[2];
+      return `${prefix}c_limit,h_${targetHeight},q_auto/${pathAfterVersion}`;
+    }
+
+    // Direct path without version tag
+    return `${prefix}c_limit,h_${targetHeight},q_auto/${rest}`;
+  }
+
+  // 2. Query parameter transformation for /media/stream, CDN or direct URLs
+  try {
+    const hasProtocol = originalUrl.startsWith("http://") || originalUrl.startsWith("https://");
+    const dummyOrigin = "https://whatboutme.internal";
+    const urlObj = new URL(hasProtocol ? originalUrl : `${dummyOrigin}${originalUrl.startsWith("/") ? "" : "/"}${originalUrl}`);
+    urlObj.searchParams.set("quality", quality);
+    urlObj.searchParams.set("h", String(targetHeight));
+
+    if (hasProtocol) {
+      return urlObj.toString();
+    }
+    return `${urlObj.pathname}${urlObj.search}`;
+  } catch {
+    const sep = originalUrl.includes("?") ? "&" : "?";
+    return `${originalUrl}${sep}quality=${encodeURIComponent(quality)}&h=${targetHeight}`;
+  }
+}

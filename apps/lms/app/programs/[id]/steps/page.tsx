@@ -2444,14 +2444,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     <div className={styles.stepActionCol}>
                       {isCertificateClaimed ? (
                         <Link
-                          href={`/programs/${id}/certificate`}
+                          href="/certificates"
                           className={styles.reviewBtn}
                         >
                           View Certificate
                         </Link>
                       ) : isCertificateUnlocked ? (
                         <Link
-                          href={`/programs/${id}/certificate`}
+                          href="/certificates"
                           className={styles.startBtn}
                           style={{
                             background: "linear-gradient(135deg, #eab308, #ca8a04)",
@@ -2462,12 +2462,17 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           Claim Certificate
                         </Link>
                       ) : (
-                        <Link
-                          href={`/programs/${id}/certificate`}
-                          className={styles.reviewBtn}
+                        <span
+                          className={styles.lockedPill}
+                          title={`Complete all ${total} steps, Final Exam, 1-on-1 Coaching, and Mission Statement to unlock your certificate`}
+                          aria-disabled="true"
                         >
-                          Check Status
-                        </Link>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
+                            <rect x="4" y="11" width="16" height="10" rx="2" />
+                            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                          </svg>
+                          Locked
+                        </span>
                       )}
                     </div>
                   </li>

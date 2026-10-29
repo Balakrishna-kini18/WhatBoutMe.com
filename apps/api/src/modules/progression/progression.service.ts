@@ -1718,6 +1718,47 @@ export class ProgressionService {
       clampedPosition = Math.min(positionSec, effectiveDuration);
     }
 
+    // Fast-path No-Op short-circuit:
+    // 1. If lesson is already 100% completed and position has not moved significantly, skip DB upsert and respond in <1ms
+    if (
+      existingProgress &&
+      isAlreadyCompleted &&
+      existingProgress.progressPercent === 100 &&
+      Math.abs(clampedPosition - (existingProgress.lastPositionSec ?? 0)) < 3
+    ) {
+      return {
+        lessonId: lesson.id,
+        enrolmentId: enrolment.id,
+        viewed: true,
+        progressPercent: 100,
+        lastPositionSec: existingProgress.lastPositionSec,
+        completedAt: existingProgress.completedAt,
+        durationSec: lesson.durationSec,
+        watchedRanges: existingProgress.watchedRanges,
+        accepted: true,
+      };
+    }
+
+    // 2. If no new watch time was credited and position has barely moved, short-circuit
+    if (
+      existingProgress &&
+      trackerResult.creditedDeltaSec === 0 &&
+      !isFinished &&
+      Math.abs(clampedPosition - (existingProgress.lastPositionSec ?? 0)) < 2
+    ) {
+      return {
+        lessonId: lesson.id,
+        enrolmentId: enrolment.id,
+        viewed: existingProgress.viewed,
+        progressPercent: existingProgress.progressPercent,
+        lastPositionSec: existingProgress.lastPositionSec,
+        completedAt: existingProgress.completedAt,
+        durationSec: lesson.durationSec,
+        watchedRanges: existingProgress.watchedRanges,
+        accepted: true,
+      };
+    }
+
     // completedAt is immutable after first completion
     const completedAt =
       existingProgress?.completedAt ??

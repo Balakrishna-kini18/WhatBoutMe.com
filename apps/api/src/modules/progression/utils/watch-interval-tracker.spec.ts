@@ -237,5 +237,147 @@ describe('WatchIntervalTracker', () => {
       expect(result.coveredSec).toBe(100);
       expect(result.furthestWatchedSec).toBe(100);
     });
+    it('handles 5-to-6 hour marathon video (21,600s) and awards completion at 90% (19,440s)', () => {
+      const sixHoursSec = 21600;
+      let ranges: TimeRange[] = [];
+      let furthest = 0;
+      let lastHeartbeat = new Date('2026-10-23T00:00:00Z');
+
+      // Simulate 162 batches of 120 seconds (19,440s = exactly 90%)
+      for (let step = 0; step < 162; step++) {
+        const fromSec = step * 120;
+        const toSec = (step + 1) * 120;
+        const serverNow = new Date(lastHeartbeat.getTime() + 120000); // exactly 120s elapsed
+
+        const result = WatchIntervalTracker.validateAndCreditHeartbeat({
+          existingRanges: ranges,
+          lastHeartbeatAt: lastHeartbeat,
+          serverNow,
+          fromSec,
+          toSec,
+          positionSec: toSec,
+          furthestWatchedSec: furthest,
+          durationSec: sixHoursSec,
+          minWatchPercent: 90,
+          maxRate: 2.0,
+          toleranceSec: 3.0,
+        });
+
+        expect(result.accepted).toBe(true);
+        ranges = result.updatedRanges;
+        furthest = result.furthestWatchedSec;
+        lastHeartbeat = serverNow;
+
+        if (step === 161) {
+          expect(result.earnedCompletion).toBe(true);
+          expect(result.progressPercent).toBe(90.0);
+          expect(result.coveredSec).toBe(19440);
+        }
+      }
+
+      // Compacted range should be contiguous [[0, 19440]]
+      expect(ranges).toEqual([[0, 19440]]);
+    });
+
+    it('clamps spoofed 6-hour jump (claims 21,600s in 5 wall-clock seconds) to max plausible delta', () => {
+      const sixHoursSec = 21600;
+      const lastHeartbeatAt = new Date('2026-10-23T12:00:00Z');
+      const serverNow = new Date('2026-10-23T12:00:05Z'); // only 5 seconds elapsed
+
+      const result = WatchIntervalTracker.validateAndCreditHeartbeat({
+        existingRanges: [[0, 10]],
+        lastHeartbeatAt,
+        serverNow,
+        fromSec: 10,
+        toSec: 21600, // malicious jump
+        positionSec: 21600,
+        furthestWatchedSec: 10,
+        durationSec: sixHoursSec,
+        minWatchPercent: 90,
+        maxRate: 2.0,
+        toleranceSec: 3.0,
+      });
+
+      // Wall-clock rate limiter clamps credited delta to: 5s * 2.0 + 3.0 = 13.0s
+      expect(result.accepted).toBe(true);
+      expect(result.creditedDeltaSec).toBe(13);
+      expect(result.coveredSec).toBe(23); // 10 + 13 = 23s
+      expect(result.earnedCompletion).toBe(false);
+      expect(result.progressPercent).toBeLessThan(1.0);
+    });
+
+    it('rejects forward seek into unwatched territory (fromSec > knownFurthest + tolerance)', () => {
+      const sixHoursSec = 21600;
+      const result = WatchIntervalTracker.validateAndCreditHeartbeat({
+        existingRanges: [[0, 10]],
+        fromSec: 5000, // skipped forward by 5000s
+        toSec: 5015,
+        positionSec: 5015,
+        furthestWatchedSec: 10,
+        durationSec: sixHoursSec,
+        minWatchPercent: 90,
+      });
+
+      expect(result.accepted).toBe(false);
+      expect(result.rejectReason).toBe('FORWARD_SEEK_UNWATCHED');
+      expect(result.earnedCompletion).toBe(false);
+      expect(result.creditedDeltaSec).toBe(0);
+    });
+
+    it('prevents replay loops: watching [0, 120] 50 times never inflates coverage beyond 120s', () => {
+      const fiveHoursSec = 18000;
+      let ranges: TimeRange[] = [[0, 120]];
+
+      for (let i = 0; i < 50; i++) {
+        const result = WatchIntervalTracker.validateAndCreditHeartbeat({
+          existingRanges: ranges,
+          fromSec: 0,
+          toSec: 120,
+          positionSec: 120,
+          furthestWatchedSec: 120,
+          durationSec: fiveHoursSec,
+          minWatchPercent: 90,
+        });
+
+        expect(result.accepted).toBe(true);
+        expect(result.coveredSec).toBe(120);
+        ranges = result.updatedRanges;
+      }
+
+      expect(ranges).toEqual([[0, 120]]);
+      expect(WatchIntervalTracker.calculateTotalCoverage(ranges)).toBe(120);
+    });
+
+    it('maintains sticky completion invariance when rewinding a completed lesson to start', () => {
+      const duration = 18000;
+      const result = WatchIntervalTracker.validateAndCreditHeartbeat({
+        existingRanges: [[0, 18000]],
+        furthestWatchedSec: 18000,
+        fromSec: 0,
+        toSec: 30, // user rewinds to 0:30
+        positionSec: 30,
+        durationSec: duration,
+        isAlreadyCompleted: true,
+      });
+
+      expect(result.accepted).toBe(true);
+      expect(result.earnedCompletion).toBe(true);
+      expect(result.progressPercent).toBe(100);
+      expect(result.coveredSec).toBe(18000);
+    });
+
+    it('sanitizes inverted ranges (fromSec > toSec)', () => {
+      const result = WatchIntervalTracker.validateAndCreditHeartbeat({
+        existingRanges: [],
+        fromSec: 50,
+        toSec: 20, // inverted
+        positionSec: 20,
+        durationSec: 300,
+      });
+
+      expect(result.accepted).toBe(false);
+      expect(result.creditedDeltaSec).toBe(0);
+    });
   });
 });
+

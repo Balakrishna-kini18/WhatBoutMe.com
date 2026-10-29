@@ -102,31 +102,8 @@ export default function Step2ModuleList({
     <section className={styles.cardSurface}>
       {/* Step Header */}
       <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polygon points="12 2 2 7 12 12 22 7 12 2" />
-            <polyline points="2 17 12 22 22 17" />
-            <polyline points="2 12 12 17 22 12" />
-          </svg>
-          <span>STEP 2: CURRICULUM BUILDER</span>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
-          <div>
-            <h2 className={styles.stepTitle}>Curriculum Builder</h2>
-            <p className={styles.stepSubtitle}>
-              Organize modules, upload videos and study PDFs, and configure knowledge check quizzes.
-            </p>
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+          <h2 className={styles.stepTitle}>Modules &amp; Lessons</h2>
           <span className={styles.moduleCountBadge}>
             {steps.length} {steps.length === 1 ? "Module" : "Modules"}
           </span>
@@ -158,23 +135,23 @@ export default function Step2ModuleList({
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            <span>+ Add Module</span>
+            <span>Add Module</span>
           </button>
 
           {/* Module Accordion List */}
           {steps.length === 0 ? (
             <div
               style={{
-                padding: "2rem 1rem",
+                padding: "1.75rem 1rem",
                 textAlign: "center",
                 background: "#faf7f2",
                 borderRadius: 12,
                 border: "1px dashed #ece6dd",
                 color: "#78716a",
-                fontSize: "0.88rem",
+                fontSize: "0.85rem",
               }}
             >
-              No modules yet. Click &ldquo;+ Add Module&rdquo; to start your curriculum.
+              No modules added yet.
             </div>
           ) : (
             <div className={styles.moduleAccordionList}>
@@ -248,55 +225,7 @@ export default function Step2ModuleList({
             </div>
           )}
 
-          {/* Post-Curriculum Final Exam (50 Marks · 70-Question Pool) Section */}
-          {onOpenFinalExam && (
-            <div
-              onClick={onOpenFinalExam}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onOpenFinalExam();
-              }}
-              style={{
-                marginTop: "0.85rem",
-                padding: "0.95rem 1rem",
-                borderRadius: 12,
-                border: "1.5px solid #d97706",
-                background: "#fffbeb",
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.35rem",
-                boxShadow: "0 2px 6px rgba(217, 119, 6, 0.08)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span
-                  style={{
-                    fontSize: "0.7rem",
-                    fontWeight: 800,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    color: "#b45309",
-                    background: "#fde68a",
-                    padding: "2px 7px",
-                    borderRadius: 999,
-                  }}
-                >
-                  Separate Exam Section
-                </span>
-                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#b45309" }}>
-                  Configure &rarr;
-                </span>
-              </div>
-              <div style={{ fontWeight: 800, fontSize: "0.92rem", color: "#14110f" }}>
-                Final Examination (50 Marks)
-              </div>
-              <div style={{ fontSize: "0.78rem", color: "#6b655e", lineHeight: 1.35 }}>
-                50 questions randomly shuffled from a 70-question pool after all modules.
-              </div>
-            </div>
-          )}
+
         </div>
 
         {/* =========================================================
@@ -308,10 +237,7 @@ export default function Step2ModuleList({
               {/* Header: Module Title & Delete Module */}
               <div className={styles.moduleEditorHeader}>
                 <div>
-                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#d97706", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Active Module Editor
-                  </span>
-                  <h3 style={{ fontSize: "1.35rem", fontWeight: 700, margin: "2px 0 0", color: "#14110f" }}>
+                  <h3 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0, color: "#14110f" }}>
                     Module {currentStep.sequence}: {currentStep.title}
                   </h3>
                 </div>
@@ -410,11 +336,8 @@ export default function Step2ModuleList({
               >
                 <div>
                   <h4 style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: "#14110f" }}>
-                    Lessons in this Module ({(currentStep.lessons?.length || 0) + (currentStep.quiz ? 1 : 0)})
+                    Lessons ({(currentStep.lessons?.length || 0) + (currentStep.quiz ? 1 : 0)})
                   </h4>
-                  <span style={{ fontSize: "0.78rem", color: "#78716a" }}>
-                    Videos, study documents, and interactive quizzes
-                  </span>
                 </div>
 
                 <button

@@ -36,6 +36,7 @@ import {
   getLocalVideoResume,
   clearLocalVideoResume,
   saveLocalLessonCompletion,
+  isLocalLessonCompleted,
   determineResumePosition,
 } from "./videoPlayerLogic";
 
@@ -141,6 +142,7 @@ export default function CompulsoryVideoPlayer({
   const hasAppliedInitialSeekRef = useRef<boolean>(false);
   const lastSavedLocalTimeRef = useRef<number>(0);
   const lastExitSyncTimeRef = useRef<number>(0);
+  const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-dismiss resumed playback notice after 3.8s
   useEffect(() => {
@@ -152,18 +154,28 @@ export default function CompulsoryVideoPlayer({
     }
   }, [resumedNotice]);
 
-  // Comprehensive state reset whenever lessonId changes
+  // Clean up any pending pause debounce timers on unmount
   useEffect(() => {
+    return () => {
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Comprehensive state reset ONLY when lessonId changes (never on background heartbeat updates)
+  useEffect(() => {
+    const resumePos = Math.max(initialPositionSec || 0, getLocalVideoResume(lessonId)?.positionSec || 0);
     hasAppliedInitialSeekRef.current = false;
-    hasCompletedRef.current = false;
-    maxWatchedSecRef.current = initialTargetSec;
-    lastValidTimeRef.current = initialTargetSec;
-    lastHeartbeatPositionRef.current = initialTargetSec;
+    hasCompletedRef.current = isLocalLessonCompleted(lessonId);
+    maxWatchedSecRef.current = resumePos;
+    lastValidTimeRef.current = resumePos;
+    lastHeartbeatPositionRef.current = resumePos;
     lastHeartbeatTimeRef.current = Date.now();
     setHasEnded(false);
-    setCurrentTime(initialTargetSec);
+    setCurrentTime(resumePos);
     setIsPlaying(false);
-  }, [lessonId, initialTargetSec]);
+  }, [lessonId]);
 
 
   // Watermark text
@@ -480,6 +492,10 @@ export default function CompulsoryVideoPlayer({
 
   // onEnded event: triggers completion and enables full rewatch capability
   const handleEnded = () => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
     setIsPlaying(false);
     setHasEnded(true);
     setShowControls(true);
@@ -550,8 +566,12 @@ export default function CompulsoryVideoPlayer({
     togglePlay();
   };
 
-  // Flush unsynced progress immediately when video pauses
+  // Flush unsynced progress when video pauses
   const flushPauseHeartbeat = useCallback(() => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
     const video = videoRef.current;
     if (!video) return;
     const cur = video.currentTime;
@@ -576,12 +596,27 @@ export default function CompulsoryVideoPlayer({
     }
   }, []);
 
+  // 3-second trailing debounced pause handler (anti-spam / flapper clicks)
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
+    setShowControls(true);
+    if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+    pauseTimeoutRef.current = setTimeout(() => {
+      flushPauseHeartbeat();
+    }, 3000);
+  }, [flushPauseHeartbeat]);
+
   // Guaranteed keepalive sync on tab hide, browser close, navigation, or component unmount (Back button)
   useEffect(() => {
     const flushExitSync = () => {
       const now = Date.now();
       if (now - lastExitSyncTimeRef.current < 2000) return; // Prevent duplicate event storm across multiple exit listeners
       lastExitSyncTimeRef.current = now;
+
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+        pauseTimeoutRef.current = null;
+      }
 
       const video = videoRef.current;
       const cur = Math.floor(video?.currentTime ?? lastValidTimeRef.current ?? 0);
@@ -651,12 +686,15 @@ export default function CompulsoryVideoPlayer({
       video.play().catch(() => { });
     } else {
       video.pause();
-      flushPauseHeartbeat();
     }
   };
 
   // Restart / Rewatch video from beginning (preserves maxWatched progress)
   const handleRestart = () => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
     const video = videoRef.current;
     if (video) {
       video.currentTime = 0;
@@ -756,13 +794,13 @@ export default function CompulsoryVideoPlayer({
           onContextMenu={(e) => e.preventDefault()}
           onPlay={() => {
             setIsPlaying(true);
+            if (pauseTimeoutRef.current) {
+              clearTimeout(pauseTimeoutRef.current);
+              pauseTimeoutRef.current = null;
+            }
             scheduleControlsHide();
           }}
-          onPause={() => {
-            setIsPlaying(false);
-            setShowControls(true);
-            flushPauseHeartbeat();
-          }}
+          onPause={handlePause}
           onWaiting={() => setIsBuffering(true)}
           onPlaying={() => {
             setIsBuffering(false);

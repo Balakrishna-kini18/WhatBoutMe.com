@@ -184,6 +184,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isHeartbeatInFlightRef = useRef<boolean>(false);
   const reconciledLessonsRef = useRef<Set<string>>(new Set());
   const lastEndedSentTimeRef = useRef<Record<string, number>>({});
+  const lastHeartbeatSentTimeRef = useRef<Record<string, number>>({});
   const hasTriggeredCompletionRef = useRef<Record<string, boolean>>({});
   const [recheckCount, setRecheckCount] = useState<number>(0);
   const [isRecheckingUnlock, setIsRecheckingUnlock] = useState<boolean>(false);
@@ -1046,12 +1047,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         const lastSent = lastEndedSentTimeRef.current[lessonId] || 0;
         if (now - lastSent < 4000) return;
         lastEndedSentTimeRef.current[lessonId] = now;
-      } else if (isHeartbeatInFlightRef.current && !options?.keepalive) {
-        return;
+      } else {
+        const lastSent = lastHeartbeatSentTimeRef.current[lessonId] || 0;
+        // Routine heartbeats must never be sent more frequently than every 10 seconds
+        if (!options?.keepalive && now - lastSent < 10000) return;
+        if (isHeartbeatInFlightRef.current && !options?.keepalive) {
+          return;
+        }
       }
       if (!options?.keepalive) {
         isHeartbeatInFlightRef.current = true;
       }
+      lastHeartbeatSentTimeRef.current[lessonId] = now;
 
       const sendHeartbeatAttempt = async (attempt = 0): Promise<void> => {
         try {
@@ -1211,17 +1218,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       void (async () => {
         try {
           const lesson = allLessons.find((l: any) => l.id === lessonId);
-          const dur = lesson?.durationSec || 0;
-          if (lesson && (lesson.type === "VIDEO" || lesson.type === "AUDIO")) {
-            await sendMediaHeartbeat(lessonId, dur, true, dur, dur, 0, dur);
-          } else if (lesson) {
+          // For non-video lessons (e.g. PDF/reading), complete via endpoint.
+          // Video/audio lessons already dispatch authoritative completion via onHeartbeat in the player.
+          if (lesson && lesson.type !== "VIDEO" && lesson.type !== "AUDIO") {
             await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
               method: "POST",
               headers: getAuthHeaders(),
             });
+            invalidateCache();
+            void fetchStepAndProgression(false, true);
           }
-          invalidateCache();
-          void fetchStepAndProgression(false, true);
         } catch (e) {
           console.warn("Background lesson completion sync failed:", e);
         }
@@ -1596,6 +1602,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           >
             &larr; Previous Part ({prevLesson?.title})
           </button>
+        ) : prevStep ? (
+          <Link
+            href={`/steps/${prevStep.stepId || prevStep.id}`}
+            className={styles.btnSecondaryOutline}
+          >
+            &larr; Previous Module
+          </Link>
         ) : (
           <span />
         )}
@@ -1630,13 +1643,25 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         </button>
       );
     } else if (nextStep && nextStepId) {
+      const canAdvanceToNextStep = areAllVideosDone && areAllMaterialsDone;
       nextBtnNode = (
         <button
           type="button"
-          onClick={() => router.push(`/steps/${nextStepId}`)}
+          disabled={!canAdvanceToNextStep}
+          onClick={() => {
+            if (canAdvanceToNextStep) {
+              router.push(`/steps/${nextStepId}`);
+            }
+          }}
           className={styles.btnPrimaryOrange}
+          style={{
+            opacity: !canAdvanceToNextStep ? 0.6 : 1,
+            cursor: !canAdvanceToNextStep ? "not-allowed" : "pointer",
+          }}
         >
-          Next Module (${nextStep.title}) &rarr;
+          {!canAdvanceToNextStep
+            ? "🔒 Complete all materials to unlock Next Module"
+            : `Next Module (${nextStep.title}) →`}
         </button>
       );
     } else {
@@ -1663,6 +1688,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           >
             &larr; Previous Part ({lastVideo.title})
           </button>
+        ) : prevStep ? (
+          <Link
+            href={`/steps/${prevStep.stepId || prevStep.id}`}
+            className={styles.btnSecondaryOutline}
+          >
+            &larr; Previous Module
+          </Link>
         ) : (
           <span />
         )}
@@ -2835,25 +2867,41 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     );
                   })}
 
-                {/* All Materials Completed Next Section Banner */}
+                {/* All Materials Completed Confirmation Banner */}
                 {areAllMaterialsDone && (
                   <div
                     style={{
                       marginTop: "1.5rem",
-                      padding: "1.25rem 1.5rem",
+                      padding: "1rem 1.25rem",
                       background: "#f0fdf4",
                       border: "1px solid #bbf7d0",
-                      borderRadius: 14,
+                      borderRadius: 12,
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "space-between",
-                      flexWrap: "wrap",
                       gap: 12,
                     }}
                   >
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: "50%",
+                        background: "#dcfce7",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#16a34a",
+                        fontSize: "1rem",
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                      aria-hidden="true"
+                    >
+                      ✓
+                    </div>
                     <div>
-                      <strong style={{ display: "block", color: "#166534", fontSize: "1rem", marginBottom: 2 }}>
-                        🎉 All materials in this module are completed!
+                      <strong style={{ display: "block", color: "#166534", fontSize: "0.95rem", marginBottom: 2 }}>
+                        All materials in this module are completed!
                       </strong>
                       <span style={{ fontSize: "0.84rem", color: "#15803d" }}>
                         {hasQuiz && !isQuizAlreadyPassed
@@ -2863,19 +2911,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           : "You have completed this module."}
                       </span>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleAdvanceFromMaterial(stepMaterials[stepMaterials.length - 1]?.id)}
-                      className={styles.btnPrimaryOrange}
-                      style={{ padding: "0.6rem 1.4rem", fontSize: "0.88rem", fontWeight: 700 }}
-                    >
-                      {hasQuiz && !isQuizAlreadyPassed
-                        ? "Take Module Quiz →"
-                        : nextStepId
-                        ? "Next Module →"
-                        : "Course Roadmap →"}
-                    </button>
                   </div>
                 )}
 
@@ -2892,65 +2927,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               </div>
             </div>
           )}
-
-
-          {/* Persistent Workspace Footer Navigation */}
-          <div className={styles.moduleFooterNav} style={{ marginTop: "2rem" }}>
-            {prevStep ? (
-              <Link href={`/steps/${prevStep.stepId || prevStep.id}`} className={styles.btnSecondaryOutline}>
-                &larr; Previous Module
-              </Link>
-            ) : (
-              <span />
-            )}
-            {step?.quiz && !isQuizAlreadyPassed && !isStepCompleted ? (
-              isQuizUnlocked ? (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("quiz")}
-                  className={styles.btnPrimaryOrange}
-                >
-                  Take Module Quiz &rarr;
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className={styles.btnSecondaryOutline}
-                  style={{ opacity: 0.6, cursor: "not-allowed" }}
-                  title="Complete all video lessons in this module to unlock the quiz"
-                >
-                  🔒 Complete all parts to unlock Quiz
-                </button>
-              )
-            ) : nextStep && nextStepId ? (
-              <button
-                type="button"
-                disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
-                onClick={() => {
-                  if (isStepCompleted || completedLessonsCount >= totalLessonsCount) {
-                    router.push(`/steps/${nextStepId}`);
-                  }
-                }}
-                className={styles.btnPrimaryOrange}
-                style={{
-                  background: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#d97706" : "#fef3c7",
-                  color: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#ffffff" : "#b45309",
-                  borderColor: isStepCompleted || completedLessonsCount >= totalLessonsCount ? "#d97706" : "#fde68a",
-                  opacity: !isStepCompleted && completedLessonsCount < totalLessonsCount ? 0.6 : 1,
-                  cursor: !isStepCompleted && completedLessonsCount < totalLessonsCount ? "not-allowed" : "pointer",
-                }}
-              >
-                {!isStepCompleted && completedLessonsCount < totalLessonsCount
-                  ? `🔒 Complete all parts to unlock Next Module`
-                  : `Next Module (${nextStep.title}) →`}
-              </button>
-            ) : (
-              <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
-                Course Roadmap &rarr;
-              </Link>
-            )}
-          </div>
         </div>
 
       {/* =====================================================================

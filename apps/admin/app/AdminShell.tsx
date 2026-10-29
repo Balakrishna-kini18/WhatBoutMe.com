@@ -740,11 +740,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       permission: hasPermission("manage_curriculum"),
       items: [
         { label: "Programs", href: "/programs", icon: <Icons.Programs />, perm: "manage_curriculum" },
-        { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
         { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
-        { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
         { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Approvals />, perm: "manage_operations" },
-        { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
       ],
     },
     {

@@ -9,6 +9,10 @@ export interface EmptyStateProps {
   actionLabel?: string;
   onAction?: () => void;
   actionHref?: string;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
+  secondaryActionHref?: string;
+  children?: React.ReactNode;
   className?: string;
 }
 
@@ -19,8 +23,14 @@ export function EmptyState({
   actionLabel,
   onAction,
   actionHref,
+  secondaryActionLabel,
+  onSecondaryAction,
+  secondaryActionHref,
+  children,
   className,
 }: EmptyStateProps) {
+  const hasActions = Boolean(actionLabel || secondaryActionLabel || children);
+
   return (
     <div
       className={className}
@@ -77,50 +87,109 @@ export function EmptyState({
         {description}
       </p>
 
-      {actionLabel && actionHref && (
-        <Link
-          href={actionHref}
+      {hasActions && (
+        <div
           style={{
-            background: "var(--accent-primary, #c97a1e)",
-            color: "#ffffff",
-            padding: "0.6rem 1.25rem",
-            borderRadius: "8px",
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            textDecoration: "none",
             display: "inline-flex",
             alignItems: "center",
-            gap: "6px",
-            boxShadow: "0 1px 3px rgba(201, 122, 30, 0.25)",
-            transition: "opacity 0.15s ease",
+            justifyContent: "center",
+            gap: "0.65rem",
+            flexWrap: "wrap",
           }}
         >
-          {actionLabel}
-        </Link>
-      )}
+          {actionLabel && actionHref && (
+            <Link
+              href={actionHref}
+              style={{
+                background: "var(--accent-primary, #c97a1e)",
+                color: "#ffffff",
+                padding: "0.6rem 1.25rem",
+                borderRadius: "8px",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 1px 3px rgba(201, 122, 30, 0.25)",
+                transition: "opacity 0.15s ease",
+              }}
+            >
+              {actionLabel}
+            </Link>
+          )}
 
-      {actionLabel && onAction && !actionHref && (
-        <button
-          type="button"
-          onClick={onAction}
-          style={{
-            background: "var(--accent-primary, #c97a1e)",
-            color: "#ffffff",
-            border: "none",
-            padding: "0.6rem 1.25rem",
-            borderRadius: "8px",
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            boxShadow: "0 1px 3px rgba(201, 122, 30, 0.25)",
-            transition: "opacity 0.15s ease",
-          }}
-        >
-          {actionLabel}
-        </button>
+          {actionLabel && onAction && !actionHref && (
+            <button
+              type="button"
+              onClick={onAction}
+              style={{
+                background: "var(--accent-primary, #c97a1e)",
+                color: "#ffffff",
+                border: "none",
+                padding: "0.6rem 1.25rem",
+                borderRadius: "8px",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 1px 3px rgba(201, 122, 30, 0.25)",
+                transition: "opacity 0.15s ease",
+              }}
+            >
+              {actionLabel}
+            </button>
+          )}
+
+          {secondaryActionLabel && secondaryActionHref && (
+            <Link
+              href={secondaryActionHref}
+              style={{
+                background: "#ffffff",
+                color: "var(--text-primary, #14110f)",
+                border: "1px solid var(--border-light, #e7decb)",
+                padding: "0.6rem 1.15rem",
+                borderRadius: "8px",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {secondaryActionLabel}
+            </Link>
+          )}
+
+          {secondaryActionLabel && onSecondaryAction && !secondaryActionHref && (
+            <button
+              type="button"
+              onClick={onSecondaryAction}
+              style={{
+                background: "#ffffff",
+                color: "var(--text-primary, #14110f)",
+                border: "1px solid var(--border-light, #e7decb)",
+                padding: "0.6rem 1.15rem",
+                borderRadius: "8px",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {secondaryActionLabel}
+            </button>
+          )}
+
+          {children}
+        </div>
       )}
     </div>
   );

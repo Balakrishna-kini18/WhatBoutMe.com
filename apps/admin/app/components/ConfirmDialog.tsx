@@ -21,7 +21,7 @@ export interface ConfirmDialogProps {
   onConfirm: () => Promise<void> | void;
   title: string;
   subtitle?: string;
-  description: React.ReactNode;
+  description?: React.ReactNode;
   tone?: "danger" | "warning" | "info";
   confirmText?: string;
   cancelText?: string;
@@ -153,7 +153,7 @@ export function ConfirmDialog({
           </div>
         )}
 
-        <div className={styles.description}>{description}</div>
+        {description && <div className={styles.description}>{description}</div>}
 
         {itemDetails && itemDetails.length > 0 && (
           <div className={styles.detailsCard}>

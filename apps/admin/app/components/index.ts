@@ -42,3 +42,7 @@ export type { DatePickerProps } from "./DatePicker";
 export { SortIndicator } from "./SortIndicator";
 export type { SortIndicatorProps, SortOrder } from "./SortIndicator";
 
+export { default as HelpTooltip } from "./HelpTooltip";
+export { default as MediaPreviewModal } from "./MediaPreviewModal";
+export type { MediaPreviewConfig } from "./MediaPreviewModal";
+

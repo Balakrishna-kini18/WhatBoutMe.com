@@ -55,6 +55,7 @@ baton/
 apple-design-skill-main/
 
 # files the API stores on disk (uploads, website content)
+storage/
 apps/api/storage/
 .email-debug/
 apps/api/.email-debug/

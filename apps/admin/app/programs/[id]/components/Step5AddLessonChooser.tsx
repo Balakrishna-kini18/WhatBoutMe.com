@@ -92,7 +92,7 @@ export default function Step5AddLessonChooser({
     {
       type: "LIVE",
       title: "Live Session",
-      desc: "Schedule interactive live Zoom or cohort webinar",
+      desc: "Schedule interactive live Zoom or batch webinar",
       badgeBg: "#ffedd5",
       iconColor: "#ea580c",
       renderIcon: () => (
@@ -136,7 +136,7 @@ export default function Step5AddLessonChooser({
     },
     LIVE: {
       title: "About Live Session",
-      desc: "Schedule interactive live Zoom or cohort webinars with custom calendar invites, agendas, and join links.",
+      desc: "Schedule interactive live Zoom or batch webinars with custom calendar invites, agendas, and join links.",
     },
     LINK: {
       title: "About External Link",
@@ -151,11 +151,7 @@ export default function Step5AddLessonChooser({
     <section className={styles.cardSurface}>
       {/* Header */}
       <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>ADD CONTENT TO MODULE {moduleSequence}</div>
         <h2 className={styles.stepTitle}>Select Lesson Type</h2>
-        <p className={styles.stepSubtitle}>
-          Choose the format of learning material you would like to introduce to learners in this step.
-        </p>
       </div>
 
       {/* 6-Card Grid Selector */}

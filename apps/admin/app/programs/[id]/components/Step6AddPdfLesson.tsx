@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import styles from "../curriculum.module.css";
 import { API_URL, uploadFile, errorMessage, cachedFetch } from "../../../lib/api";
+import { MediaPreviewModal, type MediaPreviewConfig } from "../../../components";
 
 interface Step6AddPdfLessonProps {
   moduleTitle: string;
@@ -19,16 +20,20 @@ export default function Step6AddPdfLesson({
 }: Step6AddPdfLessonProps) {
   const [title, setTitle] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [previewConfig, setPreviewConfig] = useState<MediaPreviewConfig | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setSelectedFile(file);
+    const localUrl = URL.createObjectURL(file);
+    setPreviewUrl(localUrl);
     if (!title.trim()) {
       setTitle(file.name.replace(/\.pdf$/i, ""));
     }
@@ -85,11 +90,7 @@ export default function Step6AddPdfLesson({
     <section className={styles.cardSurface}>
       {/* Header */}
       <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>STEP 6: ADD STUDY MATERIAL</div>
-        <h2 className={styles.stepTitle}>PDF Document Details</h2>
-        <p className={styles.stepSubtitle}>
-          Attach downloadable slide decks, cheat sheets, or reference guides to <strong>{moduleTitle}</strong>.
-        </p>
+        <h2 className={styles.stepTitle}>Add PDF Document</h2>
       </div>
 
       {errorMsg && (
@@ -164,6 +165,41 @@ export default function Step6AddPdfLesson({
                 {selectedFile ? "Change PDF" : "Choose PDF File"}
               </span>
             </label>
+
+            {previewUrl && (
+              <div style={{ marginTop: "0.85rem", display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPreviewConfig({
+                      isOpen: true,
+                      type: "PDF",
+                      title: title || selectedFile?.name || "PDF Document",
+                      src: previewUrl,
+                    })
+                  }
+                  style={{
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    color: "#b91c1c",
+                    padding: "0.45rem 0.95rem",
+                    borderRadius: 8,
+                    fontSize: "0.82rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <span>Preview Selected PDF</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Right Column: Metadata */}
@@ -215,6 +251,12 @@ export default function Step6AddPdfLesson({
           </button>
         </div>
       </form>
+
+      {/* PDF Document Preview Modal */}
+      <MediaPreviewModal
+        config={previewConfig}
+        onClose={() => setPreviewConfig(null)}
+      />
     </section>
   );
 }

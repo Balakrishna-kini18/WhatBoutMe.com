@@ -505,11 +505,7 @@ export default function Step7QuizBuilder({
         }}
       >
         <div>
-          <div className={styles.stepEyebrow}>STEP 7: VISUAL QUESTION BANK &amp; QUIZ BUILDER</div>
-          <h2 className={styles.stepTitle}>Create Quiz for {moduleTitle}</h2>
-          <p className={styles.stepSubtitle}>
-            Configure pass criteria and build Google-Forms-style visual assessments with image choices, dynamic options, and written reflections.
-          </p>
+          <h2 className={styles.stepTitle}>Quiz Builder</h2>
         </div>
         <button
           type="button"
@@ -525,7 +521,7 @@ export default function Step7QuizBuilder({
             cursor: "pointer",
           }}
         >
-          📤 Upload .md Questions
+           Upload .md Questions
         </button>
       </div>
 

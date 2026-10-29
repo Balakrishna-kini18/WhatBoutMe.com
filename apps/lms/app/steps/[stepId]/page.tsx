@@ -113,6 +113,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [noteIsFavorite, setNoteIsFavorite] = useState(false);
   const [capturedTimestamp, setCapturedTimestamp] = useState<number | null>(null);
   const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
+  const [liveVideoDuration, setLiveVideoDuration] = useState<number>(0);
   const [videoSeekTarget, setVideoSeekTarget] = useState<number | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [notesSearch, setNotesSearch] = useState("");
@@ -538,14 +539,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return `${m}:${String(s).padStart(2, "0")}`;
   };
 
+  // Reset live duration measurement when media changes
+  useEffect(() => {
+    setLiveVideoDuration(0);
+  }, [currentMedia?.id]);
+
   // Check if current lesson has 30 seconds or less remaining (unlocking advance to next part)
   const isCurrentLessonLeftUnder30s = useMemo(() => {
     if (!currentMedia) return false;
     if (lessonProgress[currentMedia.id]?.isCompleted) return true;
-    const dur = currentMedia.durationSec || 0;
+    const dur = currentMedia.durationSec || liveVideoDuration || 0;
     if (dur > 0 && dur - currentVideoTime <= 30) return true;
     return false;
-  }, [currentMedia, lessonProgress, currentVideoTime]);
+  }, [currentMedia, lessonProgress, currentVideoTime, liveVideoDuration]);
 
   // Load Notes for current lesson
   const loadNotesForLesson = useCallback(async (lessonId: string) => {
@@ -1894,7 +1900,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         onHeartbeat={handlePlayerHeartbeat}
                         onComplete={() => handleLessonComplete(currentMedia.id, false)}
                         onVideoEnd={() => handleLessonComplete(currentMedia.id, true)}
-                        onTimeUpdate={(sec) => setCurrentVideoTime(sec)}
+                        onTimeUpdate={(sec, dur) => {
+                          setCurrentVideoTime(sec);
+                          if (dur && dur > 0) {
+                            setLiveVideoDuration(dur);
+                          }
+                        }}
                         seekToTime={videoSeekTarget}
                       />
                     </div>

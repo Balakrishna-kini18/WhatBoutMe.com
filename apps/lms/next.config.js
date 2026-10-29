@@ -24,6 +24,20 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["@mux/mux-player-react"],
   },
+  async redirects() {
+    return [
+      {
+        source: "/org/:path*",
+        destination: "/",
+        permanent: false,
+      },
+      {
+        source: "/org",
+        destination: "/",
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {

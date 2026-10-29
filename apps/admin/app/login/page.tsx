@@ -6,21 +6,16 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useAuth } from "../AuthProvider";
+import { API_URL } from "../lib/api";
 
 // demo logins come from the environment or default to canonical seeded development accounts
-const QUICK = [
+const QUICK_STAFF = [
   { label: "Super Admin", email: process.env.NEXT_PUBLIC_DEMO_SUPER_EMAIL || "super@whatboutme.com" },
   { label: "Admin", email: process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || "admin@whatboutme.com" },
   { label: "Manager", email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL || "manager@whatboutme.com" },
 ];
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
-    ? "https://what-bout-me-com.vercel.app"
-    : "http://localhost:4000");
-
-type ViewMode = "login" | "verify_2fa" | "setup_2fa";
+type ViewMode = "login" | "verify_2fa" | "setup_2fa" | "forgot_password";
 
 interface PendingSession {
   access_token: string;
@@ -45,6 +40,7 @@ export default function AdminLogin() {
   const { login } = useAuth();
 
   // Login form state
+  const [loginType, setLoginType] = useState<"staff" | "organization">("staff");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -60,6 +56,12 @@ export default function AdminLogin() {
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
   const [setupData, setSetupData] = useState<SetupData | null>(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
+
+  // Forgot / Reset password state
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   useEffect(() => {
     // Hide sidebar for login page
@@ -120,7 +122,12 @@ export default function AdminLogin() {
             refresh_token: data.refresh_token,
             user: data.user,
           });
-          router.push("/");
+          const orgId = data.user?.organizationId || data.user?.organization?.id;
+          if (data.user?.isOrgUser || orgId) {
+            router.push(`/users/organizations/${orgId}`);
+          } else {
+            router.push("/");
+          }
         } else {
           setError("Authentication response missing access token");
         }
@@ -205,7 +212,12 @@ export default function AdminLogin() {
           refresh_token: data.refresh_token,
           user: data.user,
         });
-        router.push("/");
+        const orgId = data.user?.organizationId || data.user?.organization?.id;
+        if (data.user?.isOrgUser || orgId) {
+          router.push(`/users/organizations/${orgId}`);
+        } else {
+          router.push("/");
+        }
       } else {
         setError(data?.error?.message || data?.message || "Invalid two-factor code");
       }
@@ -276,6 +288,42 @@ export default function AdminLogin() {
     setSetupData(null);
     setCode("");
     setError("");
+    setResetError("");
+    setResetSent(false);
+  };
+
+  const handleOpenForgotPassword = () => {
+    setResetEmail(email.trim());
+    setResetError("");
+    setResetSent(false);
+    setViewMode("forgot_password");
+  };
+
+  const handleRequestReset = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail.trim()) {
+      setResetError("Please enter your email address.");
+      return;
+    }
+    setResetError("");
+    setResetLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/password-reset/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail.trim() }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        setResetSent(true);
+      } else {
+        setResetError(data?.error?.message || data?.message || "Failed to send reset email. Please try again.");
+      }
+    } catch {
+      setResetError("Failed to connect to server. Please try again later.");
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   return (
@@ -299,10 +347,20 @@ export default function AdminLogin() {
           </div>
 
           <div className={styles.panelBody}>
-            <p className={styles.chip}>Admin portal</p>
-            <h2 className={styles.headline}>Run the Programme</h2>
+            <p className={styles.chip}>
+              {loginType === "organization" ? "Partner Portal" : "Admin portal"}
+            </p>
+            <h2 className={styles.headline}>
+              {viewMode === "forgot_password"
+                ? (loginType === "organization" ? "Password Recovery" : "Account Recovery")
+                : (loginType === "organization" ? "Empower Your Learners" : "Run the Programme")}
+            </h2>
             <p className={styles.subtitle}>
-              Sign in to manage courses, batches, learners and revenue.
+              {viewMode === "forgot_password"
+                ? "Request a secure single-use link to configure your password and enter your workspace."
+                : (loginType === "organization"
+                    ? "Manage batch seats, track live 6-gate student progress, and view billing invoices."
+                    : "Sign in to manage courses, batches, learners and revenue.")}
             </p>
           </div>
         </section>
@@ -324,9 +382,64 @@ export default function AdminLogin() {
 
             {/* Mode 1: Initial Email & Password Login */}
             {viewMode === "login" && (
+              <div className={styles.typeSwitcher} role="tablist" aria-label="Sign-in role">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={loginType === "staff"}
+                  className={`${styles.typeTab} ${loginType === "staff" ? styles.typeTabActive : ""}`}
+                  onClick={() => {
+                    setLoginType("staff");
+                    setEmail("");
+                    setPassword("");
+                    setError("");
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                  Staff & Admin
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={loginType === "organization"}
+                  className={`${styles.typeTab} ${loginType === "organization" ? styles.typeTabActive : ""}`}
+                  onClick={() => {
+                    setLoginType("organization");
+                    setEmail("");
+                    setPassword("");
+                    setError("");
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+                    <path d="M6 12H4a2 2 0 0 0-2 2v8h4" />
+                    <path d="M18 9h2a2 2 0 0 1 2 2v11h-4" />
+                    <path d="M10 6h4" />
+                    <path d="M10 10h4" />
+                    <path d="M10 14h4" />
+                    <path d="M10 18h4" />
+                  </svg>
+                  Organization Partner
+                </button>
+              </div>
+            )}
+
+            {/* Mode 1: Initial Email & Password Login */}
+            {viewMode === "login" && (
               <>
-                <h1 className={styles.title}>Admin Sign In</h1>
-                <p className={styles.lead}>Enter your admin credentials to open the dashboard.</p>
+                <h1 className={styles.title}>
+                  {loginType === "organization" ? "Partner Sign In" : "Admin Sign In"}
+                </h1>
+                <p className={styles.lead}>
+                  {loginType === "organization"
+                    ? "Enter your partner credentials to manage your seats & students."
+                    : "Enter your admin credentials to open the dashboard."}
+                </p>
 
                 <form className={styles.form} onSubmit={handleLogin}>
                   <div>
@@ -338,16 +451,34 @@ export default function AdminLogin() {
                       type="email"
                       autoComplete="email"
                       required
-                      placeholder="admin@whatboutme.com"
+                      placeholder={loginType === "organization" ? "partner@organization.com" : "admin@whatboutme.com"}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className={styles.field}
                     />
                   </div>
                   <div>
-                    <label htmlFor="password" className={styles.label}>
-                      Password
-                    </label>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                      <label htmlFor="password" className={styles.label} style={{ marginBottom: 0 }}>
+                        Password
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleOpenForgotPassword}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          color: "var(--accent-primary, #b46b1a)",
+                          fontSize: "0.8125rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          textDecoration: "underline",
+                        }}
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
                     <div className={styles.passwordWrap}>
                       <input
                         id="password"
@@ -387,25 +518,61 @@ export default function AdminLogin() {
                       <path d="m12 5 7 7-7 7" />
                     </svg>
                   </button>
+
+                  {loginType === "organization" && (
+                    <div style={{ marginTop: "1.25rem", textAlign: "center", borderTop: "1px solid #f1ede6", paddingTop: "1rem" }}>
+                      <p style={{ margin: "0 0 0.5rem", fontSize: "0.8125rem", color: "var(--text-secondary)" }}>
+                        Need to set or reset your organization password?
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleOpenForgotPassword}
+                        style={{
+                          background: "transparent",
+                          border: "1px solid #e5dfd5",
+                          borderRadius: "0.5rem",
+                          padding: "0.5rem 0.875rem",
+                          color: "var(--text-primary)",
+                          fontSize: "0.8125rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        Reset Organization Password &rarr;
+                      </button>
+                    </div>
+                  )}
                 </form>
 
-                {/* demo accounts: fills the form with a seeded login */}
-                <div className={styles.divider}>Demo accounts</div>
-                <div className={styles.quick}>
-                  {QUICK.map((q) => (
-                    <button
-                      key={q.label}
-                      type="button"
-                      onClick={() => {
-                        setEmail(q.email);
-                        setPassword(process.env.NEXT_PUBLIC_DEMO_PASSWORD || "Learner@2026");
-                      }}
-                      className={styles.quickBtn}
-                    >
-                      {q.label}
-                    </button>
-                  ))}
-                </div>
+                {/* demo accounts for staff only */}
+                {loginType === "staff" && (
+                  <>
+                    <div className={styles.divider}>Demo accounts</div>
+                    <div className={styles.quick}>
+                      {QUICK_STAFF.map((q) => (
+                        <button
+                          key={q.label}
+                          type="button"
+                          onClick={() => {
+                            setEmail(q.email);
+                            setPassword(process.env.NEXT_PUBLIC_DEMO_PASSWORD || "Learner@2026");
+                          }}
+                          className={styles.quickBtn}
+                        >
+                          {q.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -541,6 +708,107 @@ export default function AdminLogin() {
                     Cancel
                   </button>
                 </form>
+              </>
+            )}
+
+            {/* Mode 4: Forgot / Reset Password */}
+            {viewMode === "forgot_password" && (
+              <>
+                {resetSent ? (
+                  <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+                    <div
+                      style={{
+                        width: "56px",
+                        height: "56px",
+                        borderRadius: "50%",
+                        background: "#ecfdf5",
+                        color: "#059669",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        margin: "0 auto 1.25rem",
+                      }}
+                    >
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                    <h1 className={styles.title} style={{ fontSize: "1.6rem" }}>
+                      Reset Link Dispatched
+                    </h1>
+                    <p className={styles.lead} style={{ marginTop: "0.625rem", fontSize: "0.9rem", lineHeight: 1.5 }}>
+                      We’ve sent password reset instructions to <strong>{resetEmail}</strong>.
+                      Please check your inbox (and spam folder) to choose a new password.
+                    </p>
+
+                    <div style={{ marginTop: "2rem" }}>
+                      <button
+                        type="button"
+                        onClick={handleCancelToLogin}
+                        className={styles.submit}
+                      >
+                        &larr; Back to Sign In
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className={styles.title}>
+                      {loginType === "organization" ? "Reset Partner Password" : "Reset Password"}
+                    </h1>
+                    <p className={styles.lead}>
+                      {loginType === "organization"
+                        ? "Enter your registered organization email address to receive a secure password setup link."
+                        : "Enter your staff email address to receive password reset instructions."}
+                    </p>
+
+                    <form className={styles.form} onSubmit={handleRequestReset}>
+                      <div>
+                        <label htmlFor="resetEmail" className={styles.label}>
+                          Registered Email Address
+                        </label>
+                        <input
+                          id="resetEmail"
+                          type="email"
+                          autoComplete="email"
+                          required
+                          autoFocus
+                          placeholder={loginType === "organization" ? "partner@organization.com" : "admin@whatboutme.com"}
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          className={styles.field}
+                        />
+                      </div>
+
+                      {resetError && (
+                        <p role="alert" className={styles.error}>
+                          {resetError}
+                        </p>
+                      )}
+
+                      <button
+                        type="submit"
+                        className={styles.submit}
+                        disabled={resetLoading || !resetEmail.trim()}
+                      >
+                        {resetLoading ? "Sending Link…" : "Send Reset Link"}
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M5 12h14" />
+                          <path d="m12 5 7 7-7 7" />
+                        </svg>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCancelToLogin}
+                        disabled={resetLoading}
+                        className={styles.secondaryBtn}
+                      >
+                        &larr; Back to Sign In
+                      </button>
+                    </form>
+                  </>
+                )}
               </>
             )}
           </div>

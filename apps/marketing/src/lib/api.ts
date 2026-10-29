@@ -1,32 +1,82 @@
 /**
- * WhatBoutMe Backend API Client
- * Provides typed methods for interacting with the NestJS backend API.
+ * Production-Level Host & API URL Resolution (Marketing Website)
  */
+export function getApiBaseUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
 
-/**
- * The apps are configured with localhost addresses for development. On a
- * phone opening them over Wi-Fi, "localhost" is the phone itself, so in the
- * browser a localhost address is pointed at whichever host served the page.
- * A real (deployed) address is returned unchanged.
- */
+  if (typeof window !== "undefined" && window.location) {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://localhost:4000";
+    }
+    if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname)) {
+      return `http://${hostname}:4000`;
+    }
+    if (hostname.endsWith(".vercel.app")) {
+      return "https://what-bout-me-com.vercel.app";
+    }
+    const parts = hostname.split(".");
+    const rootDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
+    return `https://api.${rootDomain}`;
+  }
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://localhost:4000";
+}
+
+export function getAdminUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined" && window.location) {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") return "http://localhost:3002";
+    if (hostname.endsWith(".vercel.app")) return "https://what-bout-me-admin.vercel.app";
+    const parts = hostname.split(".");
+    const rootDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
+    return `https://admin.${rootDomain}`;
+  }
+  return "http://localhost:3002";
+}
+
+export function getLmsUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_LMS_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined" && window.location) {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") return "http://localhost:3003";
+    if (hostname.endsWith(".vercel.app")) return "https://what-bout-me-lms.vercel.app";
+    const parts = hostname.split(".");
+    const rootDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
+    return `https://learn.${rootDomain}`;
+  }
+  return "http://localhost:3003";
+}
+
 export function onThisHost(url: string) {
   if (typeof window === "undefined") return url;
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1") return url;
-  return url.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)(?=[:/]|$)/, `$1${host}`);
+  if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host)) {
+    return url.replace(/^(https?:\/\/)(localhost|127\.0\.0\.1)(?=[:/]|$)/, `$1${host}`);
+  }
+  return getApiBaseUrl();
 }
 
-export const API_BASE_URL = onThisHost(
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
-);
-
-export const ADMIN_URL = onThisHost(
-  process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3002",
-);
-
-export const LMS_URL = onThisHost(
-  process.env.NEXT_PUBLIC_LMS_URL || "http://localhost:3003",
-);
+export const API_BASE_URL = getApiBaseUrl();
+export const ADMIN_URL = getAdminUrl();
+export const LMS_URL = getLmsUrl();
 
 export interface Program {
   id: string;

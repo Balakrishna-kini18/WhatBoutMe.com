@@ -3,10 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onThisHost } from "./lib/host";
-import { renewOnce, clearApiCache, cachedFetch } from "./lib/api";
-
-// resolved for the device showing the page (see lib/host.ts)
-const API_URL = onThisHost(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
+import { renewOnce, clearApiCache, cachedFetch, API_URL } from "./lib/api";
 
 // Monkey-patch window.fetch synchronously outside React so it catches the very first render's fetches
 // Routes all requests through cachedFetch for in-flight deduplication, short-lived SWR LRU caching,

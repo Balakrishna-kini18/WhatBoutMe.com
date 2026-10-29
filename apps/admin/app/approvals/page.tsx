@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import {
   API_URL,
+  getMarketingUrl,
   errorMessage,
   fetchMissionStatements,
   approveMissionStatement,
@@ -199,7 +200,7 @@ function ApprovalsContent() {
           setPendingCoachingCount(reqs.length);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // Common notification state
@@ -617,14 +618,14 @@ function ApprovalsContent() {
       prev.map((a) =>
         a.id === targetId
           ? {
-              ...a,
-              status: optimisticStatus,
-              overallScore: calculatedPercent,
-              trainerNotes: trainerNotes.trim(),
-              retryGuidance: !passed ? retryGuidance.trim() : null,
-              gradedAt: new Date().toISOString(),
-              scores: rubricScores,
-            }
+            ...a,
+            status: optimisticStatus,
+            overallScore: calculatedPercent,
+            trainerNotes: trainerNotes.trim(),
+            retryGuidance: !passed ? retryGuidance.trim() : null,
+            gradedAt: new Date().toISOString(),
+            scores: rubricScores,
+          }
           : a
       )
     );
@@ -774,7 +775,7 @@ function ApprovalsContent() {
     if (missionFilter === "ALL") return true;
     return m.status === missionFilter;
   });
-  const marketingBase = process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000";
+  const marketingBase = getMarketingUrl();
 
   return (
     <div className={styles.dashboard}>
@@ -1536,10 +1537,10 @@ function ApprovalsContent() {
                   {st === "ALL"
                     ? `All (${missionStatements.length})`
                     : st === "SUBMITTED"
-                    ? `Pending Review (${pendingMissionsCount})`
-                    : st === "APPROVED"
-                    ? `Approved (${missionStatements.filter((m) => m.status === "APPROVED").length})`
-                    : `Revision Requested (${missionStatements.filter((m) => m.status === "REJECTED").length})`}
+                      ? `Pending Review (${pendingMissionsCount})`
+                      : st === "APPROVED"
+                        ? `Approved (${missionStatements.filter((m) => m.status === "APPROVED").length})`
+                        : `Revision Requested (${missionStatements.filter((m) => m.status === "REJECTED").length})`}
                 </button>
               ))}
             </div>

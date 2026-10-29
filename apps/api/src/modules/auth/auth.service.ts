@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   UnauthorizedException,
@@ -496,7 +497,7 @@ export class AuthService {
     });
 
     if (this.emailService) {
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const { lmsUrl } = getAppUrls();
       const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
       // 1. Send Welcome Email
       this.emailService
@@ -689,7 +690,15 @@ export class AuthService {
 
     // Enforce role-based access: only admin roles can use admin login
     const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER];
-    if (!adminRoles.includes(user.role)) {
+    const isPlatformAdmin = adminRoles.includes(user.role);
+
+    const orgMembership = await this.prisma.organizationMember.findFirst({
+      where: { userId: user.id },
+      include: {
+        organization: true,
+      },
+    });
+    if (!isPlatformAdmin && !orgMembership) {
       await this.recordLoginAudit({
         userId: user.id,
         ipAddress: metadata?.ipAddress,
@@ -700,7 +709,7 @@ export class AuthService {
         reason: 'INSUFFICIENT_PERMISSIONS',
         userCountry: user.country,
       });
-      throw new UnauthorizedException('Insufficient permissions for admin access');
+      throw new UnauthorizedException('Insufficient permissions for admin or organization access');
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
@@ -792,6 +801,9 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        isOrgUser: !isPlatformAdmin && Boolean(orgMembership),
+        organizationId: orgMembership?.organizationId || null,
+        organization: orgMembership ? { id: orgMembership.organization.id, name: orgMembership.organization.name, orgCode: orgMembership.organization.orgCode, role: orgMembership.role, isAuthorizedReseller: orgMembership.organization.isAuthorizedReseller } : null,
         permissions: Array.from(new Set([
           ...(user.permissions || []),
           ...getRolePermissions(user.role)
@@ -1506,10 +1518,24 @@ export class AuthService {
       },
     });
 
+    const orgMembership = this.prisma.organizationMember
+      ? await this.prisma.organizationMember.findFirst({
+          where: { userId: user.id },
+        })
+      : null;
+    const isStaffOrOrg = Boolean(
+      orgMembership ||
+      user.role === Role.SUPER_ADMIN ||
+      user.role === Role.ADMIN ||
+      user.role === Role.MANAGER ||
+      user.role === Role.TEACHER,
+    );
+    const { adminUrl, lmsUrl } = getAppUrls();
+    const baseUrl = isStaffOrOrg ? adminUrl : lmsUrl;
+    const resetUrl = `${baseUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
+
     if (this.emailService) {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001';
-      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Learner';
-      const resetUrl = `${siteUrl}/reset-password?token=${rawToken}`;
+      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : (orgMembership ? 'Partner' : 'Learner');
       this.emailService
         .sendTemplateEmail({
           to: user.email,
@@ -1524,6 +1550,63 @@ export class AuthService {
     }
 
     return genericResponse;
+  }
+
+  /**
+   * Password Reset Verify Token: Validates token without consuming it,
+   * returning whether it is valid and the associated user's email and name.
+   */
+  async verifyPasswordResetToken(token: string) {
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      return { valid: false, error: 'Reset token is missing or malformed.' };
+    }
+
+    const tokenHash = createHash('sha256').update(token.trim()).digest('hex');
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { token: tokenHash },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            deletedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!resetToken) {
+      return { valid: false, error: 'Invalid or unknown reset link.' };
+    }
+
+    if (resetToken.usedAt !== null) {
+      return {
+        valid: false,
+        used: true,
+        email: resetToken.user?.email || null,
+        error: 'This password setup link has already been used. Please request a new one.',
+      };
+    }
+
+    if (resetToken.expiresAt <= new Date()) {
+      return {
+        valid: false,
+        expired: true,
+        email: resetToken.user?.email || null,
+        error: 'This password setup link has expired. Please request a new one.',
+      };
+    }
+
+    if (!resetToken.user || resetToken.user.deletedAt !== null) {
+      return { valid: false, error: 'Associated user account could not be found.' };
+    }
+
+    return {
+      valid: true,
+      email: resetToken.user.email,
+      name: resetToken.user.name,
+    };
   }
 
   /**

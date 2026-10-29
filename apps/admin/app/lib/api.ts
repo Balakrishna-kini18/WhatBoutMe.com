@@ -1,11 +1,9 @@
-import { onThisHost } from "./host";
+import { getApiBaseUrl, getMarketingUrl, getLmsUrl, onThisHost } from "./host";
 
-export const API_URL = onThisHost(
-  process.env.NEXT_PUBLIC_API_URL ||
-    (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
-      ? "https://what-bout-me-com.vercel.app"
-      : "http://localhost:4000")
-);
+export const API_URL = getApiBaseUrl();
+export const MARKETING_URL = getMarketingUrl();
+export const LMS_URL = getLmsUrl();
+export { getMarketingUrl, getLmsUrl };
 
 export interface ApiRequestOptions extends RequestInit {
   timeoutMs?: number;

@@ -10,6 +10,7 @@ import { UPLOAD_DIR } from './modules/website/storage.js';
 import { RedisIoAdapter } from './common/adapters/redis-io.adapter.js';
 import { SentryGlobalFilter } from '@sentry/nestjs/setup';
 import { Logger } from 'nestjs-pino';
+import { isAllowedCorsOrigin } from './common/config/cors.config.js';
 
 async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_MODE === 'mock') {
@@ -29,18 +30,7 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-      // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-      if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.includes(origin) ||
-        /^http:\/\/localhost:[0-9]+$/.test(origin) ||
-        /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(origin) ||
-        /\.vercel\.app$/.test(origin) || // <-- Automatically allow ALL Vercel domains
-        // development only: a phone on the same network opening the apps at
-        // this machine's private address (10.x, 172.16-31.x, 192.168.x)
-        (process.env.NODE_ENV !== 'production' &&
-          /^http:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):[0-9]+$/.test(origin))
-      ) {
+      if (isAllowedCorsOrigin(origin, allowedOrigins)) {
         return callback(null, true);
       }
       return callback(new Error('Not allowed by CORS'));

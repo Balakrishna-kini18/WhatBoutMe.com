@@ -6,7 +6,7 @@ import styles from "../../../../../page.module.css";
 import Link from "next/link";
 import { Modal, StatusBadge, CustomSelect, TableSkeleton, EmptyState } from "../../../../../components";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { API_URL } from "../../../../../lib/api";
 
 interface LearnerAttendanceItem {
   userId: string;

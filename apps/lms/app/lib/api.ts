@@ -1,11 +1,6 @@
-import { onThisHost } from "./host";
+import { getApiBaseUrl, onThisHost } from "./host";
 
-export const API_URL = onThisHost(
-  process.env.NEXT_PUBLIC_API_URL ||
-    (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
-      ? "https://what-bout-me-com.vercel.app"
-      : "http://localhost:4000")
-);
+export const API_URL = getApiBaseUrl();
 
 export function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -69,11 +64,11 @@ export const inFlightRequests = new Map<
   Promise<
     | Response
     | {
-        bodyText: string;
-        status: number;
-        statusText: string;
-        headers: [string, string][];
-      }
+      bodyText: string;
+      status: number;
+      statusText: string;
+      headers: [string, string][];
+    }
   >
 >();
 
@@ -556,7 +551,7 @@ export async function cachedFetch(
               retryRes = await rawFetch(url, { ...effectiveInit, signal: abortController.signal });
               succeeded = true;
               break;
-            } catch {}
+            } catch { }
           }
           if (succeeded) {
             res = retryRes;
@@ -602,7 +597,7 @@ export async function cachedFetch(
                 headers: [],
               };
             }
-          } catch {}
+          } catch { }
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
           localStorage.removeItem("user");
@@ -614,7 +609,10 @@ export async function cachedFetch(
       }
 
       // Transparently pass through binary response streams without converting to text
-      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const rawContentType = typeof res.headers?.get === "function"
+        ? res.headers.get("content-type")
+        : (res.headers ? (res.headers as any)["content-type"] : "");
+      const contentType = (rawContentType || "").toLowerCase();
       const isBinaryResponse =
         isBinaryUrl ||
         contentType.includes("application/pdf") ||
@@ -628,10 +626,27 @@ export async function cachedFetch(
         return res;
       }
 
-      const clone = res.clone();
-      const bodyText = await clone.text();
+      let bodyText = "";
+      if (typeof res.clone === "function") {
+        try {
+          bodyText = await res.clone().text();
+        } catch { }
+      }
+      if (!bodyText && typeof res.text === "function") {
+        try {
+          bodyText = await res.text();
+        } catch { }
+      }
+      if (!bodyText && typeof res.json === "function") {
+        try {
+          const parsed = await res.json();
+          bodyText = JSON.stringify(parsed);
+        } catch { }
+      }
       const headersArray: [string, string][] = [];
-      res.headers.forEach((val: string, key: string) => headersArray.push([key, val]));
+      if (typeof res.headers?.forEach === "function") {
+        res.headers.forEach((val: string, key: string) => headersArray.push([key, val]));
+      }
 
       const payload = {
         bodyText,
@@ -935,14 +950,14 @@ export interface EnrolmentProgressionResponse {
   batchName: string;
   batchStartDate: string;
   enrolmentStatus:
-    | "ACTIVE"
-    | "PENDING_PAYMENT"
-    | "PENDING_AGREEMENT"
-    | "WAITLIST"
-    | "REVOKED"
-    | "COMPLETED"
-    | "CANCELLED"
-    | "NOT_ENROLLED";
+  | "ACTIVE"
+  | "PENDING_PAYMENT"
+  | "PENDING_AGREEMENT"
+  | "WAITLIST"
+  | "REVOKED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "NOT_ENROLLED";
   overallProgressPercent: number;
   currentStepSequence: number;
   steps: StepProgressionItem[];

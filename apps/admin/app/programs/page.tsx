@@ -7,14 +7,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
-import { uploadFile, cachedFetch } from "../lib/api";
+import { uploadFile, cachedFetch, API_URL, getLmsUrl } from "../lib/api";
 import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
-    ? "https://what-bout-me-com.vercel.app"
-    : "http://localhost:4000");
 
 interface Program {
   id: string;
@@ -659,7 +653,7 @@ export default function ProgramsPage() {
                         },
                         {
                           label: "Preview on LMS",
-                          href: `http://localhost:3000/programs/${prog.id}/steps`,
+                          href: `${getLmsUrl()}/programs/${prog.id}/steps`,
                           icon: (
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />

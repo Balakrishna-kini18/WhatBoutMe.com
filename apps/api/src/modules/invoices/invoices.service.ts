@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   NotFoundException,
@@ -672,7 +673,7 @@ export class InvoicesService {
     }
 
     if (this.emailService) {
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const { lmsUrl } = getAppUrls();
       await this.emailService.sendTemplateEmail({
         to: email,
         subject: `Invoice Resend: ${invoice.invoiceNumber} - WhatBoutMe FZE`,

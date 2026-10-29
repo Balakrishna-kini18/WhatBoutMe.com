@@ -349,6 +349,11 @@ model User {
   reviewedMissionStatements    MissionStatementSubmission[] @relation("MissionStatementReviewer")
   recordingProgresses          SessionRecordingProgress[]
 
+  // Organization & B2B2C Reseller Relations
+  managedOrganizations        Organization[]               @relation("OrgAccountManager")
+  orgMemberships              OrganizationMember[]
+  allocatedSeats              Seat[]                       @relation("UserAllocatedSeats")
+
   // Soft Delete for GDPR
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -480,6 +485,7 @@ model Program {
   certificates       Certificate[]
   coupons            Coupon[]                   @relation("CouponPrograms")
   studentNotes       StudentNote[]
+  seatPools          SeatPool[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -888,6 +894,12 @@ model Batch {
   conversations Conversation[]
   announcements BatchAnnouncement[]
 
+  // Organization Cohorts & Slot Reservations
+  isPrivateOrgBatch     Boolean       @default(false)
+  sponsorOrganizationId String?
+  sponsorOrganization   Organization? @relation("OrgPrivateBatches", fields: [sponsorOrganizationId], references: [id], onDelete: SetNull)
+  seatPools             SeatPool[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -937,6 +949,21 @@ model Enrolment {
   missionStatementApprovedAt DateTime?
 
   signedAgreement SignedAgreement?
+
+  // Organization Sponsorship & Reseller Allocation
+  fundingSource              FundingSource          @default(SELF_PAID)
+  organizationId             String?
+  organization               Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  seat                       Seat?
+  orgDataSharingConsentedAt  DateTime?
+
+  // 1-on-1 Mentorship Session Tracking (WhatBoutMe Facilitator)
+  oneOnOneStatus             OneOnOneSessionStatus  @default(NOT_BOOKED)
+  oneOnOneScheduledAt        DateTime?
+  oneOnOneFacilitatorId      String?
+  oneOnOneFacilitatorName    String?
+  oneOnOneMeetingUrl         String?
+  oneOnOneAdminNotes         String?
 
   attempts             Attempt[]
   examAttempts         ExamAttempt[]
@@ -1340,6 +1367,8 @@ model Payment {
   enrolmentId String?
   enrolment   Enrolment? @relation(fields: [enrolmentId], references: [id], onDelete: Cascade)
   eventRegistrationId String?
+  seatPoolId  String?
+  seatPool    SeatPool?  @relation(fields: [seatPoolId], references: [id], onDelete: SetNull)
   idempotencyKey String? @unique
   invoice     Invoice?
 
@@ -1450,6 +1479,11 @@ model Invoice {
   payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   enrolmentId String?
   eventRegistrationId String?
+  seatPoolId          String?
+  seatPool            SeatPool?     @relation(fields: [seatPoolId], references: [id], onDelete: SetNull)
+  organizationId      String?
+  organization        Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  poNumber            String?
 
   invoiceNumber String        @unique
   amount        Float
@@ -1684,6 +1718,8 @@ model Lead {
   email   String
   phone   String?
   message String?
+  organizationName String?
+  expectedSeats    Int?
   status  LeadStatus @default(NEW)
 
   createdAt DateTime @default(now())
@@ -1976,3 +2012,261 @@ model MissionStatementSubmission {
   @@index([userId, status])
 }
 
+// =============================================================================
+// ENUMS FOR ORGANIZATIONS, BATCH SLOTS & ACADEMIC GATES
+// =============================================================================
+
+enum OrganizationStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum OrganizationType {
+  SCHOOL
+  UNIVERSITY
+  CLINIC
+  CORPORATE
+  RESELLER_ACADEMY
+  NGO
+  GOVERNMENT
+  OTHER
+}
+
+enum OrgMemberRole {
+  OWNER
+  ADMIN
+  VIEWER
+}
+
+enum SeatPoolStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PENDING_PAYMENT
+  ACTIVE
+  ACTIVE_UNPAID
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
+enum SeatPaymentMethod {
+  ONLINE
+  INVOICE_OFFLINE
+  COMPLIMENTARY
+}
+
+enum SeatStatus {
+  AVAILABLE
+  INVITED
+  ASSIGNED
+  CONSUMED
+  EXPIRED
+}
+
+enum SeatRedemptionMode {
+  EMAIL_INVITE
+  VOUCHER_CODE
+}
+
+enum FundingSource {
+  SELF_PAID
+  ORG_SPONSORED
+  ADMIN_COMP
+}
+
+enum OneOnOneSessionStatus {
+  NOT_BOOKED
+  SCHEDULED
+  COMPLETED
+  NO_SHOW
+  WAIVED_BY_ADMIN
+}
+
+// =============================================================================
+// CORE ORGANIZATION & BATCH SLOT LICENSING MODELS
+// =============================================================================
+
+model Organization {
+  id                       String             @id @default(uuid())
+  orgCode                  String             @unique
+  name                     String
+  slug                     String             @unique
+  legalName                String?
+  orgType                  OrganizationType   @default(CORPORATE)
+  logoUrl                  String?
+  website                  String?
+  country                  String?
+  timezone                 String             @default("UTC")
+  status                   OrganizationStatus @default(ACTIVE)
+
+  contactPersonName        String
+  contactEmail             String
+  contactPhone             String?
+  billingEmail             String
+  billingAddress           Json?
+  taxId                    String?
+  defaultCurrency          CurrencyCode       @default(USD)
+  creditLimit              Float              @default(0)
+  paymentTermsDays         Int                @default(30)
+
+  isAuthorizedReseller     Boolean            @default(false)
+  showSponsorOnCertificate Boolean            @default(true)
+  sponsorDisplayName       String?
+  allowedEmailDomains      String[]           @default([])
+  shareExamNumericScores   Boolean            @default(true)
+
+  sourceLeadId             String?            @unique
+  accountManagerId         String?
+  accountManager           User?              @relation("OrgAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  internalAdminNotes       String?
+
+  members                  OrganizationMember[]
+  seatPools                SeatPool[]
+  seats                    Seat[]
+  invites                  OrganizationInvite[]
+  sponsoredEnrolments      Enrolment[]
+  privateBatches           Batch[]            @relation("OrgPrivateBatches")
+  invoices                 Invoice[]
+
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([orgCode])
+  @@index([slug])
+}
+
+model OrganizationMember {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrgMemberRole @default(VIEWER)
+  title          String?
+  isPrimary      Boolean       @default(false)
+
+  seatPoolsPurchased SeatPool[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId, role])
+}
+
+model SeatPool {
+  id                  String              @id @default(uuid())
+  poolCode            String              @unique
+  organizationId      String
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  programId           String
+  program             Program             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  batchId             String
+  batch               Batch               @relation(fields: [batchId], references: [id], onDelete: Restrict)
+
+  status              SeatPoolStatus      @default(PENDING_PAYMENT)
+  paymentMethod       SeatPaymentMethod   @default(ONLINE)
+
+  totalSeats          Int
+  seatsAssigned       Int                 @default(0)
+  seatsConsumed       Int                 @default(0)
+  seatsAvailable      Int
+
+  currency            CurrencyCode        @default(USD)
+  pricePerSeat        Float
+  totalAmount         Float
+  discountAmount      Float               @default(0)
+  netAmount           Float
+
+  paymentExpiresAt    DateTime?
+  purchasedByMemberId String?
+  purchasedByMember   OrganizationMember? @relation(fields: [purchasedByMemberId], references: [id], onDelete: SetNull)
+  payments            Payment[]
+  invoices            Invoice[]
+
+  seats               Seat[]
+  invites             OrganizationInvite[]
+
+  notes               String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([organizationId, status])
+  @@index([batchId, status])
+  @@index([programId])
+}
+
+model Seat {
+  id                  String              @id @default(uuid())
+  organizationId      String
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  seatPoolId          String
+  seatPool            SeatPool            @relation(fields: [seatPoolId], references: [id], onDelete: Cascade)
+
+  slotNumber          Int
+  slotLabel           String
+  status              SeatStatus          @default(AVAILABLE)
+  redemptionMode      SeatRedemptionMode  @default(EMAIL_INVITE)
+
+  voucherCodeHash     String?             @unique
+  voucherCodeMasked   String?
+
+  inviteId            String?             @unique
+  invite              OrganizationInvite? @relation(fields: [inviteId], references: [id], onDelete: SetNull)
+  userId              String?
+  user                User?               @relation("UserAllocatedSeats", fields: [userId], references: [id], onDelete: SetNull)
+  enrolmentId         String?             @unique
+  enrolment           Enrolment?          @relation(fields: [enrolmentId], references: [id], onDelete: SetNull)
+
+  department          String?
+  externalOrderRef    String?
+  resalePrice         Float?
+  orgInternalNotes    String?
+
+  invitedAt           DateTime?
+  assignedAt          DateTime?
+  consumedAt          DateTime?
+  lastRevokedAt       DateTime?
+  lastRevokedReason   String?
+  reclaimedByAdminId  String?
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([seatPoolId, slotNumber])
+  @@index([seatPoolId, status])
+  @@index([organizationId, status])
+  @@index([userId])
+}
+
+model OrganizationInvite {
+  id               String       @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  seatPoolId       String
+  seatPool         SeatPool     @relation(fields: [seatPoolId], references: [id], onDelete: Cascade)
+  email            String
+  fullName         String?
+  phone            String?
+  department       String?
+  externalOrderRef String?
+  tokenHash        String       @unique
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  cancelledAt      DateTime?
+  resendCount      Int          @default(0)
+  lastSentAt       DateTime     @default(now())
+
+  seat             Seat?
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([organizationId, email])
+  @@index([seatPoolId])
+  @@index([tokenHash])
+}

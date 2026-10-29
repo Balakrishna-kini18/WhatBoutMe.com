@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   BadRequestException,
   Body,
@@ -477,7 +478,7 @@ export class LeadsController {
     const token = this.generateLeadCheckoutToken(payload);
 
     // 6. Generate Checkout URL
-    const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+    const { lmsUrl } = getAppUrls();
     const checkoutUrl = `${lmsUrl}/checkout/lead/${token}`;
 
     // 7. Update Lead status to CONVERTED and log Audit concurrently

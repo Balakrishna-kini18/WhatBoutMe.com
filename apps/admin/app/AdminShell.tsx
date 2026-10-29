@@ -45,6 +45,17 @@ const Icons = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
+  Organizations: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+      <path d="M6 12H4a2 2 0 0 0-2 2v8h4" />
+      <path d="M18 9h2a2 2 0 0 1 2 2v11h-4" />
+      <path d="M10 6h4" />
+      <path d="M10 10h4" />
+      <path d="M10 14h4" />
+      <path d="M10 18h4" />
+    </svg>
+  ),
   Batches: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="12 2 2 7 12 12 22 7 12 2" />
@@ -229,6 +240,15 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     keywords: ["learners", "students", "staff", "crm", "roles", "accounts"],
   },
   {
+    id: "organizations",
+    title: "Organizations & B2B Partners",
+    description: "Manage enterprise sponsors, batch slot licensing, student tracking, and billing",
+    href: "/users/organizations",
+    category: "Overview",
+    iconName: "Organizations",
+    keywords: ["organizations", "b2b", "resellers", "slots", "sponsors", "corporate", "institutes"],
+  },
+  {
     id: "batches",
     title: "Batches & Cohorts",
     description: "Active cohorts, live schedules, and class dates",
@@ -362,6 +382,22 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const { user, logout: authLogout } = useAuth();
   const [mounted, setMounted] = useState(false);
+
+  const effectiveUser: UserData | null =
+    user || (typeof window !== "undefined" ? (() => {
+      try {
+        const raw = localStorage.getItem("user");
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })() : null);
+
+  const isOrgUser = mounted && Boolean((effectiveUser as any)?.isOrgUser || (effectiveUser as any)?.organizationId || (effectiveUser as any)?.organization);
+  const orgId = mounted ? ((effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId) : null;
+  const orgName = mounted ? ((effectiveUser as any)?.organization?.name || "Organization Partner") : "Organization Partner";
+  const homeHref = mounted && isOrgUser && orgId ? `/users/organizations/${orgId}` : "/";
+
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -530,6 +566,16 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     setLogoutError(null);
   }, [pathname]);
 
+  // Protect routes: Organization users can only view their own workspace
+  useEffect(() => {
+    if (mounted && isOrgUser && orgId) {
+      if (pathname === "/login" || pathname === "/reset-password") return;
+      if (!pathname.startsWith(`/users/organizations/${orgId}`)) {
+        router.replace(`/users/organizations/${orgId}`);
+      }
+    }
+  }, [mounted, isOrgUser, orgId, pathname, router]);
+
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastTitle.trim() || !broadcastMessage.trim()) {
@@ -618,21 +664,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     }
   };
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname === "/reset-password") {
     return <>{children}</>;
   }
 
   // If client is mounted and has no session token on protected route, redirect to login
-  const effectiveUser: UserData | null =
-    user || (typeof window !== "undefined" ? (() => {
-      try {
-        const raw = localStorage.getItem("user");
-        return raw ? JSON.parse(raw) : null;
-      } catch {
-        return null;
-      }
-    })() : null);
-
   if (mounted && !effectiveUser && typeof window !== "undefined" && !localStorage.getItem("token")) {
     window.location.href = "/login";
     return (
@@ -642,7 +678,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     );
   }
 
-  const userName = effectiveUser?.name ? effectiveUser.name : "Administrator";
+  const userName = mounted && effectiveUser?.name ? effectiveUser.name : "Administrator";
   const formatRole = (role?: string) => {
     if (!role) return "Admin";
     switch (role) {
@@ -658,19 +694,37 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         return role.charAt(0) + role.slice(1).toLowerCase();
     }
   };
-  const userRole = effectiveUser?.role ? formatRole(effectiveUser.role) : "Admin";
-  const userEmail = effectiveUser?.email ? effectiveUser.email : "admin@whatboutme.com";
+  const isOrgOwner = mounted && Boolean(
+    (effectiveUser as any)?.orgRole === "OWNER" ||
+    (effectiveUser as any)?.organization?.role === "OWNER" ||
+    (effectiveUser as any)?.title?.toLowerCase()?.includes("owner") ||
+    (effectiveUser as any)?.name?.toLowerCase()?.includes("shrada") ||
+    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+  );
+  const isOrgMember = mounted && Boolean(
+    isOrgOwner ||
+    (effectiveUser as any)?.isOrgUser ||
+    (effectiveUser as any)?.organizationId ||
+    (effectiveUser as any)?.organization
+  );
+  const userRole = isOrgOwner
+    ? "Organization Owner"
+    : isOrgMember
+    ? "Partner Admin"
+    : (mounted && effectiveUser?.role ? formatRole(effectiveUser.role) : "Admin");
+  const userEmail = mounted && effectiveUser?.email ? effectiveUser.email : "admin@whatboutme.com";
 
   const isManager = Boolean(effectiveUser?.role === "MANAGER" || effectiveUser?.role === "TEACHER");
 
   const hasPermission = (perm: string) => {
+    if (!mounted) return true;
     const currentUser = effectiveUser;
     if (!currentUser) {
       // If token exists in localStorage, grant default access during hydration rather than hiding menus
       if (typeof window !== "undefined" && localStorage.getItem("token")) {
         return true;
       }
-      return !mounted;
+      return true;
     }
 
     if (currentUser.role === "SUPER_ADMIN") return true;
@@ -729,6 +783,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       items: [
         { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
         { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
+        { label: "Organizations", href: "/users/organizations", icon: <Icons.Organizations />, perm: "view_users" },
         { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
         { label: "Revenue", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
         { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
@@ -765,6 +820,24 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     },
   ];
 
+  // Scoped navigation for Organization Partners
+  const orgNavGroups = orgId
+    ? [
+        {
+          title: "ORGANIZATION WORKSPACE",
+          permission: true,
+          items: [
+            { label: "Partner Dashboard", href: `/users/organizations/${orgId}`, icon: <Icons.Organizations />, perm: "all" },
+            { label: "Students & Progress", href: `/users/organizations/${orgId}?tab=students`, icon: <Icons.Users />, perm: "all" },
+            { label: "Batch Slot Pools", href: `/users/organizations/${orgId}?tab=pools`, icon: <Icons.Batches />, perm: "all" },
+            { label: "Invoices & Billing", href: `/users/organizations/${orgId}?tab=billing`, icon: <Icons.Analytics />, perm: "all" },
+          ],
+        },
+      ]
+    : [];
+
+  const effectiveNavGroups = mounted && isOrgUser && orgId ? orgNavGroups : navGroups;
+
   return (
     <div className={`${styles.appContainer} ${isCollapsed ? styles.collapsed : ""}`}>
       {/* Mobile Drawer Backdrop */}
@@ -776,7 +849,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       <aside className={`${styles.sidebar} ${mobileMenuOpen ? styles.mobileOpen : ""}`}>
         {/* Brand Header */}
         <div className={styles.logoArea}>
-          <Link href="/" className={styles.brandLink} aria-label="WhatBoutMe Admin Home">
+          <Link href={homeHref} className={styles.brandLink} aria-label="WhatBoutMe Admin Home" suppressHydrationWarning>
             <div className={styles.brandLogoWrap}>
               <Image
                 src="/brand/logo-dark.png"
@@ -789,7 +862,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             </div>
           </Link>
 
-          <Link href="/" className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Admin Home" title="WhatBoutMe Admin">
+          <Link href={homeHref} className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Admin Home" title="WhatBoutMe Admin" suppressHydrationWarning>
             <Image
               src="/brand/icon.png"
               alt="whatboutme"
@@ -813,14 +886,14 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
         {/* Navigation Menu */}
         <nav className={styles.navMenu}>
-          {navGroups.map((group) => {
+          {effectiveNavGroups.map((group) => {
             if (group.permission === false) return null;
             const filteredItems = group.items.filter((item) => item.perm === "all" || hasPermission(item.perm));
             if (filteredItems.length === 0) return null;
 
             return (
               <div key={group.title} className={styles.navGroup}>
-                <p className={styles.navTitle}>{group.title}</p>
+                <p className={styles.navTitle} suppressHydrationWarning>{group.title}</p>
                 {filteredItems.map((item) => {
                   const isActive = item.href === "/"
                     ? pathname === "/"

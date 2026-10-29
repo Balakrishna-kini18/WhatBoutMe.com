@@ -23,7 +23,7 @@ export interface CompulsoryVideoPlayerProps {
   onComplete: () => void;
   onVideoEnd?: () => void;
   onRestart?: () => void;
-  onTimeUpdate?: (currentSec: number) => void;
+  onTimeUpdate?: (currentSec: number, durationSec?: number) => void;
   seekToTime?: number | null;
 }
 
@@ -492,7 +492,7 @@ export default function CompulsoryVideoPlayer({
 
     setCurrentTime(current);
     if (onTimeUpdate) {
-      onTimeUpdate(current);
+      onTimeUpdate(current, dur);
     }
 
     // Maintain monotonic maxWatchedSec
@@ -861,9 +861,7 @@ export default function CompulsoryVideoPlayer({
           onWaiting={() => setIsBuffering(true)}
           onPlaying={() => {
             setIsBuffering(false);
-            if (isPlaying) {
-              scheduleControlsHide();
-            }
+            scheduleControlsHide();
           }}
           onSeeking={handleSeeking}
           onRateChange={handleRateChange}

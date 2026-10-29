@@ -109,6 +109,15 @@ export class AuthController {
   }
 
   /**
+   * Password Reset Verify Token: GET /auth/password-reset/verify?token=...
+   */
+  @Public()
+  @Get('password-reset/verify')
+  verifyPasswordResetToken(@Query('token') token: string) {
+    return this.authService.verifyPasswordResetToken(token);
+  }
+
+  /**
    * Password Reset Confirm: POST /auth/password-reset/confirm
    */
   @Public()

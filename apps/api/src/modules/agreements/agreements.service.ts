@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   BadRequestException,
   ConflictException,
@@ -1215,12 +1216,40 @@ export class AgreementsService {
         });
       }
 
-      // Transition enrolment from PENDING_AGREEMENT to ACTIVE
-      if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT) {
+      // Transition enrolment from PENDING_AGREEMENT to ACTIVE & update Org Seat consumption
+      const isOrgSponsored = enrolment.fundingSource === 'ORG_SPONSORED';
+      if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT || isOrgSponsored) {
         await tx.enrolment.update({
           where: { id: enrolment.id },
-          data: { status: EnrolmentStatus.ACTIVE },
+          data: {
+            ...(enrolment.status === EnrolmentStatus.PENDING_AGREEMENT ? { status: EnrolmentStatus.ACTIVE } : {}),
+            ...(isOrgSponsored ? { orgDataSharingConsentedAt: signingTimestamp } : {}),
+          },
         });
+      }
+
+      // Transition linked numbered Organization Seat to CONSUMED (locks slot from revocation)
+      if (tx.seat) {
+        const linkedSeat = await tx.seat.findFirst({
+          where: { enrolmentId: enrolment.id },
+        });
+        if (linkedSeat && linkedSeat.status !== 'CONSUMED') {
+          await tx.seat.update({
+            where: { id: linkedSeat.id },
+            data: {
+              status: 'CONSUMED',
+              consumedAt: signingTimestamp,
+            },
+          });
+          if (tx.seatPool) {
+            await tx.seatPool.update({
+              where: { id: linkedSeat.seatPoolId },
+              data: {
+                seatsConsumed: { increment: 1 },
+              },
+            });
+          }
+        }
       }
 
       // Create immutable audit log (D1-042)
@@ -1276,7 +1305,7 @@ export class AgreementsService {
 
     if (this.emailService && user?.email) {
       const recipientEmail = user.email;
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const { lmsUrl } = getAppUrls();
       this.emailService
         .sendTemplateEmail({
           to: recipientEmail,

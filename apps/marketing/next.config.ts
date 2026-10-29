@@ -48,9 +48,10 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
+    const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
     const backendUrl =
       process.env.NEXT_PUBLIC_API_URL ||
-      (process.env.VERCEL ? "https://what-bout-me-com.vercel.app" : "http://localhost:4000");
+      (isProd ? "https://api.whatboutme.com" : "http://localhost:4000");
     return [
       {
         source: "/api/backend",

@@ -1,3 +1,4 @@
+import { isAllowedCorsOrigin } from './common/config/cors.config.js';
 let cachedServer: any;
 
 // Helper: write a JSON response using raw Node http primitives.
@@ -109,13 +110,7 @@ async function bootstrapServer() {
 
       nestApp.enableCors({
         origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-          if (!origin) return callback(null, true);
-          if (
-            allowedOrigins.includes(origin) ||
-            /^http:\/\/localhost:[0-9]+$/.test(origin) ||
-            /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(origin) ||
-            /\.vercel\.app$/.test(origin) // <-- Automatically allow ALL Vercel domains (preview & production)
-          ) {
+          if (isAllowedCorsOrigin(origin, allowedOrigins)) {
             return callback(null, true);
           }
           return callback(new Error('Not allowed by CORS'));

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import {
   API_URL,
@@ -162,18 +163,28 @@ const DEFAULT_RUBRIC: RubricScoreItem[] = [
 ];
 
 export default function ApprovalsPage() {
-  const [activeTab, setActiveTab] = useState<"certificates" | "coaching" | "missions" | "oral">("certificates");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams?.get("tab");
+  const batchParam = searchParams?.get("batchId");
+
+  const [activeTab, setActiveTab] = useState<"certificates" | "coaching" | "missions" | "oral">(
+    tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral"
+      ? tabParam
+      : "certificates"
+  );
+  const [selectedBatchId, setSelectedBatchId] = useState<string>(batchParam || "");
   const [pendingCoachingCount, setPendingCoachingCount] = useState(0);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const searchParams = new URLSearchParams(window.location.search);
-      const tabParam = searchParams.get("tab");
-      if (tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral") {
-        setActiveTab(tabParam as any);
-      }
+    if (tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral") {
+      setActiveTab(tabParam);
     }
+    if (batchParam) {
+      setSelectedBatchId(batchParam);
+    }
+  }, [tabParam, batchParam]);
 
+  useEffect(() => {
     fetchOneOnOneRequests("PENDING_APPROVAL")
       .then((reqs) => {
         if (Array.isArray(reqs)) {
@@ -207,7 +218,6 @@ export default function ApprovalsPage() {
   // 2. Oral Assessments & Rubrics State
   // ─────────────────────────────────────────────────────────────────────────────
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [selectedBatchId, setSelectedBatchId] = useState<string>("");
   const [assessments, setAssessments] = useState<OralAssessment[]>([]);
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
@@ -475,8 +485,13 @@ export default function ApprovalsPage() {
       if (res.ok) {
         const data: Batch[] = await res.json();
         setBatches(data);
-        if (data.length > 0 && data[0]) {
-          setSelectedBatchId(data[0].id);
+        if (data.length > 0) {
+          const bParam = searchParams?.get("batchId") || selectedBatchId;
+          if (bParam && data.some((b) => b.id === bParam)) {
+            setSelectedBatchId(bParam);
+          } else if (!selectedBatchId && data[0]) {
+            setSelectedBatchId(data[0].id);
+          }
         }
       }
     } catch (err: any) {
@@ -714,15 +729,40 @@ export default function ApprovalsPage() {
 
   // Filtered certificates
   const filteredCertificates = certificates.filter((c) => {
+    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
+    if (selectedBatchId && certBatchId !== selectedBatchId) {
+      return false;
+    }
     if (certFilter === "ALL") return true;
     return c.status === certFilter;
   });
 
-  const pendingCount = certificates.filter((c) => c.status === "PENDING").length;
-  const approvedCount = certificates.filter((c) => c.status === "APPROVED").length;
-  const issuedCount = certificates.filter((c) => c.status === "ISSUED").length;
-  const pendingMissionsCount = missionStatements.filter((m) => m.status === "SUBMITTED").length;
+  const pendingCount = certificates.filter((c) => {
+    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
+    if (selectedBatchId && certBatchId !== selectedBatchId) return false;
+    return c.status === "PENDING";
+  }).length;
+  const approvedCount = certificates.filter((c) => {
+    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
+    if (selectedBatchId && certBatchId !== selectedBatchId) return false;
+    return c.status === "APPROVED";
+  }).length;
+  const issuedCount = certificates.filter((c) => {
+    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
+    if (selectedBatchId && certBatchId !== selectedBatchId) return false;
+    return c.status === "ISSUED";
+  }).length;
+
+  const pendingMissionsCount = missionStatements.filter((m) => {
+    const missionBatchId = m.enrolment?.batch?.id || (m.enrolment as any)?.batchId;
+    if (selectedBatchId && missionBatchId !== selectedBatchId) return false;
+    return m.status === "SUBMITTED";
+  }).length;
   const filteredMissions = missionStatements.filter((m) => {
+    const missionBatchId = m.enrolment?.batch?.id || (m.enrolment as any)?.batchId;
+    if (selectedBatchId && missionBatchId !== selectedBatchId) {
+      return false;
+    }
     if (missionFilter === "ALL") return true;
     return m.status === missionFilter;
   });
@@ -1009,11 +1049,54 @@ export default function ApprovalsPage() {
         </button>
       </div>
 
-            {activeTab === "coaching" && (
+      {/* Batch Pre-Filter Banner (when arrived from a learner profile or batch link) */}
+      {selectedBatchId && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0.65rem 1rem",
+          background: "#fef3c7",
+          border: "1px solid #fde68a",
+          borderRadius: "8px",
+          marginBottom: "1rem",
+          fontSize: "0.8125rem",
+          color: "#92400e",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+            <span>
+              Showing learners from batch: <strong>{batches.find((b) => b.id === selectedBatchId)?.name || "Selected Batch"}</strong>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedBatchId("")}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#b45309",
+              fontWeight: 700,
+              cursor: "pointer",
+              textDecoration: "none",
+              fontSize: "0.78rem",
+            }}
+          >
+            Show All Batches ✕
+          </button>
+        </div>
+      )}
+
+      {activeTab === "coaching" && (
         <CoachingApprovalsTab
           onError={(msg) => setPageError(msg)}
           onSuccess={(msg) => setPageSuccess(msg)}
           onPendingCountChange={(cnt) => setPendingCoachingCount(cnt)}
+          batchId={selectedBatchId}
         />
       )}
 

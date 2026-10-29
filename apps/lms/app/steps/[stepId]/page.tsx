@@ -182,7 +182,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isFetchingRef = useRef<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isHeartbeatInFlightRef = useRef<boolean>(false);
+  const reconciledLessonsRef = useRef<Set<string>>(new Set());
   const lastEndedSentTimeRef = useRef<Record<string, number>>({});
+  const hasTriggeredCompletionRef = useRef<Record<string, boolean>>({});
   const [recheckCount, setRecheckCount] = useState<number>(0);
   const [isRecheckingUnlock, setIsRecheckingUnlock] = useState<boolean>(false);
 
@@ -331,6 +333,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           const isDone = Boolean(l.isCompleted || isLocallyDone);
           const effectivePos = Math.max(l.lastPositionSec || 0, localResume?.positionSec || 0);
 
+          if (isDone) {
+            hasTriggeredCompletionRef.current[l.lessonId] = true;
+          }
           lpMap[l.lessonId] = {
             viewed: isDone,
             progressPercent: isDone ? 100 : (l.progressPercent || 0),
@@ -346,9 +351,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         // If a lesson was finished locally but server missed it (e.g. dropped connection during reload),
         // reconcile completion with server so database records and next step unlocks stay 100% in sync
         const missingOnServer = stepProgItem.lessons.filter(
-          (l: any) => !l.isCompleted && isLocalLessonCompleted(l.lessonId)
+          (l: any) => !l.isCompleted && isLocalLessonCompleted(l.lessonId) && !reconciledLessonsRef.current.has(l.lessonId)
         );
         if (missingOnServer.length > 0) {
+          missingOnServer.forEach((l: any) => reconciledLessonsRef.current.add(l.lessonId));
           void (async () => {
             try {
               for (const ml of missingOnServer) {
@@ -1003,8 +1009,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (res.ok) {
             const data = await res.json();
             setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
-            if (data.isCompleted || data.viewed || isEnded) {
-              invalidateCache();
+            // Only invalidate cache and trigger re-fetch when transitioning to completed for the first time
+            const isTransitionToCompleted = Boolean((data.isCompleted || data.viewed || isEnded) && !hasTriggeredCompletionRef.current[lessonId]);
+            if (isTransitionToCompleted) {
+              hasTriggeredCompletionRef.current[lessonId] = true;
+              invalidateCache("/progression");
+              invalidateCache("/progress");
               void fetchStepAndProgression(false, true);
             }
           } else if (isEnded && attempt < 2) {

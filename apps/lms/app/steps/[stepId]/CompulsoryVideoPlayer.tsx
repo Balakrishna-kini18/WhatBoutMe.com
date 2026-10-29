@@ -421,7 +421,7 @@ export default function CompulsoryVideoPlayer({
 
     // Send dynamic periodic heartbeat with exact interval segments (faster for short clips)
     const now = Date.now();
-    const intervalMs = dur > 0 && dur < 60 ? Math.max(2500, Math.floor((dur * 1000) / 4)) : 10000;
+    const intervalMs = dur > 0 && dur < 60 ? Math.max(3000, Math.floor((dur * 1000) / 4)) : 15000;
     if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;

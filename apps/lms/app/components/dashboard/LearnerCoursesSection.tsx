@@ -39,7 +39,7 @@ export default function LearnerCoursesSection({
           </div>
         </div>
 
-        <Link href="/courses" className={styles.viewAllLink}>
+        <Link href="/courses" prefetch={false} className={styles.viewAllLink}>
           <span>View All</span>
           <span aria-hidden="true">&rarr;</span>
         </Link>

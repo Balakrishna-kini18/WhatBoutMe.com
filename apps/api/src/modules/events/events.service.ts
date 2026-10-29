@@ -846,6 +846,18 @@ export class EventsService {
     return { success: true, registrationId, status: EventPaymentStatus.REFUNDED };
   }
 
+  async listMyRegistrations(userId: string) {
+    if (!userId) return [];
+    const registrations = await this.prisma.eventRegistration.findMany({
+      where: { userId },
+      include: {
+        event: true,
+      },
+      orderBy: { registeredAt: 'desc' },
+    });
+    return registrations.map((r) => mapRegistration(r as any));
+  }
+
   private async sendEventConfirmationEmail(event: Event, reg: EventRegistration) {
     try {
       const isOnline = event.locationType === EventLocationType.ONLINE;

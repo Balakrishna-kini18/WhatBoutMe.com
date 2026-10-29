@@ -207,6 +207,8 @@ export function autoInvalidateOnMutation(url: string): void {
   }
 
   const resources = [
+    "notes",
+    "events",
     "sessions",
     "bookings",
     "attendance",

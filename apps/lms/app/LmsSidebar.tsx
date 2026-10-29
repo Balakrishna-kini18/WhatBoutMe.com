@@ -266,6 +266,7 @@ export default function LmsSidebar() {
           <Link
             key={tab.href}
             href={tab.href}
+            prefetch={false}
             aria-current={tab.active ? "page" : undefined}
             className={`${styles.tab} ${tab.active ? styles.tabActive : ""}`}
           >
@@ -283,11 +284,11 @@ export default function LmsSidebar() {
         {/* Zone 1: Centered Top Brand Logo Header */}
         <div className={styles.sidebarHeader}>
           {collapsed ? (
-            <Link href="/" className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Home" title="WhatBoutMe">
+            <Link href="/" prefetch={false} className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Home" title="WhatBoutMe">
               <span className={styles.brandHeartOnly} aria-hidden="true">🧡</span>
             </Link>
           ) : (
-            <Link href="/" className={styles.brandLink} aria-label="WhatBoutMe Learner Portal">
+            <Link href="/" prefetch={false} className={styles.brandLink} aria-label="WhatBoutMe Learner Portal">
               <Image
                 src="/brand/logo-dark.png"
                 alt="whatboutme"
@@ -314,6 +315,7 @@ export default function LmsSidebar() {
         <div className={styles.profileSection}>
           <Link
             href="/profile"
+            prefetch={false}
             className={`${styles.userProfile} ${pathname === "/profile" ? styles.userProfileActive : ""}`}
             title={`Signed in as ${displayName} (Learner) — Click to view profile settings`}
           >
@@ -353,6 +355,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/" ? styles.active : ""}`}
               title={collapsed ? "Dashboard" : undefined}
             >
@@ -362,6 +365,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/courses"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/courses" || pathname.startsWith("/programs") || pathname.startsWith("/steps") ? styles.active : ""}`}
               title={collapsed ? "My Courses" : undefined}
             >
@@ -371,6 +375,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/notes"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/notes" || pathname.startsWith("/notes/") ? styles.active : ""}`}
               title={collapsed ? "My Notes" : undefined}
             >
@@ -380,6 +385,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/live"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/live" || pathname.startsWith("/live/") ? styles.active : ""}`}
               title={collapsed ? "Live Sessions" : undefined}
             >
@@ -389,6 +395,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/attendance"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/attendance" ? styles.active : ""}`}
               title={collapsed ? "Attendance" : undefined}
             >
@@ -398,6 +405,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/certificates"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/certificates" || pathname.startsWith("/certificates/") ? styles.active : ""}`}
               title={collapsed ? "Certificates" : undefined}
             >
@@ -412,6 +420,7 @@ export default function LmsSidebar() {
 
             <Link
               href="/events"
+              prefetch={false}
               className={`${styles.navItem} ${pathname === "/events" || pathname.startsWith("/events/") ? styles.active : ""}`}
               title={collapsed ? "Events" : undefined}
             >

@@ -194,7 +194,15 @@ export function MyNotesThreePaneExplorer({
   // View Mode & Global Search Filters
   const [viewMode, setViewMode] = useState<'by_course' | 'all' | 'favorites' | 'recent'>('by_course');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'timestamp'>('newest');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Accordion state for modules on Level 2
   const [expandedModuleIds, setExpandedModuleIds] = useState<Record<string, boolean>>({});
@@ -267,7 +275,8 @@ export function MyNotesThreePaneExplorer({
   }, [initialNoteId, notes]);
 
   // Determine current display mode
-  const isGlobalMode = searchQuery.trim().length > 0 || viewMode === 'favorites' || viewMode === 'recent' || viewMode === 'all';
+  const effectiveQuery = debouncedSearchQuery.trim();
+  const isGlobalMode = effectiveQuery.length > 0 || viewMode === 'favorites' || viewMode === 'recent' || viewMode === 'all';
 
   // Notes for Level 3 (Lesson Notes)
   const currentLessonNotes = useMemo(() => {
@@ -286,8 +295,8 @@ export function MyNotesThreePaneExplorer({
     return notes
       .filter((n) => {
         if (viewMode === 'favorites' && !n.isFavorite) return false;
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
+        if (effectiveQuery) {
+          const q = effectiveQuery.toLowerCase();
           return (
             n.noteTitle.toLowerCase().includes(q) ||
             n.plainTextPreview.toLowerCase().includes(q) ||
@@ -308,7 +317,7 @@ export function MyNotesThreePaneExplorer({
         }
         return (a.videoTimestampSec ?? 0) - (b.videoTimestampSec ?? 0);
       });
-  }, [notes, viewMode, searchQuery, sortOrder]);
+  }, [notes, viewMode, effectiveQuery, sortOrder]);
 
   // Navigation Handlers
   const handleSelectCourse = (courseId: string) => {

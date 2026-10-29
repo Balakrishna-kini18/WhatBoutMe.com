@@ -295,39 +295,12 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       try {
         const headers = getAuthHeaders();
 
-        // 1. Concurrently initiate all primary endpoints: progression, exam config, coaching requests, and mission submissions
-        const progPromise = cachedFetch(`${API_URL}/progression/me/${id}`, {
+        // 1. Fetch unified progression endpoint first to avoid firing multiple redundant queries
+        const res = await cachedFetch(`${API_URL}/progression/me/${id}`, {
           headers,
           ttlMs: 15_000,
           skipCache: isRetry,
         });
-
-        const examPromise = cachedFetch(`${API_URL}/programs/${id}/exam`, {
-          headers,
-          ttlMs: 30_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        const coachingPromise = cachedFetch(`${API_URL}/one-on-one/my-requests`, {
-          headers,
-          ttlMs: 15_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        const missionPromise = cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
-          headers,
-          ttlMs: 15_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        const certsPromise = cachedFetch(`${API_URL}/certificates/mine`, {
-          headers,
-          ttlMs: 15_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        // 2. Await progression response to obtain verified enrolmentId & step completion status
-        const res = await progPromise;
 
         if (res.status === 401) {
           router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
@@ -374,7 +347,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (!resolvedExamConfig) {
           fallbackTasks.push(
-            examPromise
+            cachedFetch(`${API_URL}/programs/${id}/exam`, {
+              headers,
+              ttlMs: 30_000,
+              skipCache: isRetry,
+            })
               .then(async (er) => {
                 if (er && er.ok) {
                   const conf = await er.json().catch(() => null);
@@ -414,7 +391,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (resolvedCoaching.length === 0) {
           fallbackTasks.push(
-            coachingPromise
+            cachedFetch(`${API_URL}/one-on-one/my-requests`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
               .then((cr) => (cr && cr.ok ? cr.json() : []))
               .then((cList) => {
                 if (Array.isArray(cList) && cList.length > 0) {
@@ -435,7 +416,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (resolvedMissions.length === 0) {
           fallbackTasks.push(
-            missionPromise
+            cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
               .then((mr) => (mr && mr.ok ? mr.json() : []))
               .then((mList) => {
                 if (Array.isArray(mList) && mList.length > 0) {
@@ -450,7 +435,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (!resolvedCertificate) {
           fallbackTasks.push(
-            certsPromise
+            cachedFetch(`${API_URL}/certificates/mine`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
               .then((cr) => (cr && cr.ok ? cr.json() : []))
               .then((cList) => {
                 if (Array.isArray(cList) && cList.length > 0) {

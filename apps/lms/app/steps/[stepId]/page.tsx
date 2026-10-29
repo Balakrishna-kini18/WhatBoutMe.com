@@ -1875,11 +1875,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       </h2>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      {currentMedia?.durationSec ? (
-                        <span style={{ fontSize: "0.82rem", color: "#78716c", fontWeight: 500 }}>
-                          Duration: {formatLessonDuration(currentMedia.durationSec)}
-                        </span>
-                      ) : null}
                       {lessonProgress[currentMedia?.id]?.isCompleted && (
                         <span className={styles.watchedPill}>✓ Watched</span>
                       )}

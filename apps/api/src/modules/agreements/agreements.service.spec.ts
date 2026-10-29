@@ -898,16 +898,15 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects signing when enrolment status is WAITLIST with BadRequestException', async () => {
+    it('allows signing when enrolment status is WAITLIST so learner completes onboarding', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
         ...mockEnrolment,
         status: EnrolmentStatus.WAITLIST,
       });
 
-      await expect(
-        service.signAgreement(validSignDto, learnerUser),
-      ).rejects.toThrow(BadRequestException);
-    });
+      const result = await service.signAgreement(validSignDto, learnerUser);
+      expect(result).toBeDefined();
+    });
 
     it('immutability & conflict: rejects repeated signing when agreement is already SIGNED with ConflictException', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
@@ -1519,4 +1518,5 @@ describe('D1-039: Agreement Template Versioning & Immutability Engine', () => {
       expect(res).toHaveLength(2);
     });
   });
+});
 });

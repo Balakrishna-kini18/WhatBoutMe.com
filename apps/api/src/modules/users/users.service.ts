@@ -522,12 +522,20 @@ export class UsersService {
           if (batch.status === BatchStatus.COMPLETED || batch.status === BatchStatus.ARCHIVED) {
             throw new BadRequestException(`Cannot enroll into a ${batch.status} batch`);
           }
+          const occupiedCount = await this.prisma.enrolment.count({
+            where: {
+              batchId: batch.id,
+              status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+            },
+          });
+          const isFull = occupiedCount >= batch.capacity;
+
           await this.prisma.enrolment.create({
             data: {
               userId: created.id,
               programId: batch.programId,
               batchId: batch.id,
-              status: EnrolmentStatus.ACTIVE,
+              status: isFull ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE,
             },
           });
         } else if ((created.role as any) === 'MANAGER' || (created.role as any) === Role.TEACHER) {
@@ -696,6 +704,14 @@ export class UsersService {
             throw new BadRequestException(`Cannot assign learner to a ${batch.status} batch`);
           }
 
+          const occupiedCount = await this.prisma.enrolment.count({
+            where: {
+              batchId: targetBatchId,
+              status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+            },
+          });
+          const isFull = occupiedCount >= batch.capacity;
+
           if (targetEnrolmentId) {
             const enrolmentToUpdate = await this.prisma.enrolment.findUnique({
               where: { id: targetEnrolmentId },
@@ -709,7 +725,11 @@ export class UsersService {
                 data: {
                   batchId: targetBatchId,
                   programId: batch.programId,
-                  status: enrolmentToUpdate.status === EnrolmentStatus.REVOKED ? EnrolmentStatus.ACTIVE : enrolmentToUpdate.status,
+                  status: isFull
+                    ? EnrolmentStatus.WAITLIST
+                    : enrolmentToUpdate.status === EnrolmentStatus.REVOKED
+                    ? EnrolmentStatus.ACTIVE
+                    : enrolmentToUpdate.status,
                 },
               });
               await this.prisma.logAction({
@@ -731,7 +751,11 @@ export class UsersService {
                   where: { id: existingProgEnrolment.id },
                   data: {
                     batchId: targetBatchId,
-                    status: existingProgEnrolment.status === EnrolmentStatus.REVOKED ? EnrolmentStatus.ACTIVE : existingProgEnrolment.status,
+                    status: isFull
+                      ? EnrolmentStatus.WAITLIST
+                      : existingProgEnrolment.status === EnrolmentStatus.REVOKED
+                      ? EnrolmentStatus.ACTIVE
+                      : existingProgEnrolment.status,
                   },
                 });
                 await this.prisma.logAction({
@@ -748,7 +772,7 @@ export class UsersService {
                   userId: id,
                   programId: batch.programId,
                   batchId: targetBatchId,
-                  status: EnrolmentStatus.ACTIVE,
+                  status: isFull ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE,
                 },
               });
               await this.prisma.logAction({

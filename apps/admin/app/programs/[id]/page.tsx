@@ -4,13 +4,13 @@ import { useEffect, useState, use, useCallback } from "react";
 import styles from "./curriculum.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage, uploadFile, cachedFetch } from "../../lib/api";
-import { parseCourseInfo, formatCourseInfo } from "../courseInfo";
-import { ConfirmDialog, useToast } from "../../components";
+import { parseCourseInfo, formatCourseInfo, sanitizeCleanSummary } from "../courseInfo";
+import { ConfirmDialog, useToast, StatusBadge } from "../../components";
 
 import dynamic from "next/dynamic";
 
 // 9-Step Wizard Modular Subcomponents
-import CurriculumStepper from "./components/CurriculumStepper";
+
 import Step1CourseSetup from "./components/Step1CourseSetup";
 import Step2ModuleList from "./components/Step2ModuleList";
 import Step3PricingAccess from "./components/Step3PricingAccess";
@@ -28,6 +28,8 @@ const FinalExamPanel = dynamic(() => import("./components/FinalExamPanel"), { ss
 const ProgramSettingsPanel = dynamic(() => import("./components/ProgramSettingsPanel"), { ssr: false });
 const ProgramEnrolmentsPanel = dynamic(() => import("./components/ProgramEnrolmentsPanel"), { ssr: false });
 const ProgramAnalyticsPanel = dynamic(() => import("./components/ProgramAnalyticsPanel"), { ssr: false });
+const ProgramCertificatePanel = dynamic(() => import("./components/ProgramCertificatePanel"), { ssr: false });
+const ProgramResourcesPanel = dynamic(() => import("./components/ProgramResourcesPanel"), { ssr: false });
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -41,7 +43,7 @@ export type WizardStep =
   | "PRICING_ACCESS"
   | "REVIEW_PUBLISH";
 
-export type ProgramTab = "MODULES" | "OVERVIEW" | "FINAL_EXAM" | "ENROLMENTS" | "ANALYTICS" | "SETTINGS";
+export type ProgramTab = "DETAILS" | "MODULES" | "FINAL_EXAM" | "CERTIFICATE" | "RESOURCES" | "SETTINGS" | "ENROLMENTS" | "ANALYTICS";
 
 interface Step {
   id: string;
@@ -63,7 +65,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const [isSaving, setIsSaving] = useState(false);
 
   // Program Studio Navigation Tabs (Overview, Modules & Lessons, Enrolments, Analytics, Settings)
-  const [activeProgramTab, setActiveProgramTab] = useState<ProgramTab>("MODULES");
+  const [activeProgramTab, setActiveProgramTab] = useState<ProgramTab>("DETAILS");
 
   // Active Wizard Progression State
   const [wizardStep, setWizardStep] = useState<WizardStep>("MODULE_LIST");
@@ -86,16 +88,22 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const fetchProgramAndSteps = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Kill Waterfall: Fetch program list and steps list simultaneously
+      // Kill Waterfall: Fetch program details and steps list simultaneously
       const [progRes, stepsRes] = await Promise.all([
-        cachedFetch(`${API_URL}/programs`, { skipCache: true }),
+        cachedFetch(`${API_URL}/programs/${programId}`, { skipCache: true }),
         cachedFetch(`${API_URL}/programs/${programId}/steps`, { skipCache: true }),
       ]);
 
       if (progRes.ok) {
-        const progs = await progRes.json();
-        const found = progs.find((p: any) => p.id === programId);
-        if (found) setProgramData(found);
+        const prog = await progRes.json();
+        setProgramData(prog);
+      } else {
+        const listRes = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
+        if (listRes.ok) {
+          const progs = await listRes.json();
+          const found = progs.find((p: any) => p.id === programId);
+          if (found) setProgramData(found);
+        }
       }
 
       if (stepsRes.ok) {
@@ -117,22 +125,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     fetchProgramAndSteps();
   }, [fetchProgramAndSteps]);
 
-  // Determine top stepper phase (1: Basic Details, 2: Curriculum, 3: Pricing, 4: Review & Publish)
-  const currentPhase: 1 | 2 | 3 | 4 =
-    wizardStep === "COURSE_SETUP"
-      ? 1
-      : wizardStep === "PRICING_ACCESS"
-      ? 3
-      : wizardStep === "REVIEW_PUBLISH"
-      ? 4
-      : 2;
 
-  const handleSelectPhase = (phase: 1 | 2 | 3 | 4) => {
-    if (phase === 1) setWizardStep("COURSE_SETUP");
-    if (phase === 2) setWizardStep("MODULE_LIST");
-    if (phase === 3) setWizardStep("PRICING_ACCESS");
-    if (phase === 4) setWizardStep("REVIEW_PUBLISH");
-  };
 
   const isModuleScope =
     wizardStep === "MODULE_DETAILS" ||
@@ -155,10 +148,13 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       const token = localStorage.getItem("token");
 
       // Format rich course metadata into structured description
-      const parsed = parseCourseInfo(updatedData.description || programData?.description);
+      const parsed = parseCourseInfo(programData?.description);
+      const cleanSummary = sanitizeCleanSummary(updatedData.description || updatedData.shortDescription || parsed.summary || "");
+      const cleanShort = sanitizeCleanSummary(updatedData.shortDescription || parsed.short || "");
       const combinedDescription = formatCourseInfo({
-        summary: updatedData.shortDescription || parsed.summary || updatedData.description || "",
-        type: updatedData.category || parsed.type || "",
+        summary: cleanSummary,
+        short: cleanShort,
+        type: updatedData.category || parsed.type || "Certification",
         duration: parsed.duration || "",
         audience: parsed.audience || "",
         inPerson: parsed.inPerson || "",
@@ -207,10 +203,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       }
 
       const updated = await res.json();
-      setProgramData(updated);
-      setWizardStep("MODULE_LIST");
+      setProgramData((prev: any) => ({ ...prev, ...updated }));
+      toast.success(programData?.isActive ? "Program details updated." : "Program details saved to draft.");
     } catch (err: any) {
-      alert(err.message || "Failed to save course details");
+      toast.error(err.message || "Failed to save course details");
     } finally {
       setIsSaving(false);
     }
@@ -596,6 +592,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     setIsSaving(true);
     try {
       const token = localStorage.getItem("token");
+      const isPublish = settings.status === "PUBLISHED";
       const res = await fetch(`${API_URL}/programs/${programId}`, {
         method: "PATCH",
         headers: {
@@ -604,15 +601,17 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         },
         body: JSON.stringify({
           status: settings.status,
+          isActive: isPublish,
         }),
       });
 
       if (!res.ok) throw new Error("Failed to update course publication status");
 
       const updated = await res.json();
-      setProgramData(updated);
+      setProgramData((prev: any) => ({ ...prev, ...updated, isActive: isPublish, status: settings.status }));
+      toast.success(isPublish ? "Program published successfully!" : "Program moved to drafts.");
     } catch (err: any) {
-      alert(err.message || "Failed to update publication");
+      toast.error(err.message || "Failed to update publication status");
     } finally {
       setIsSaving(false);
     }
@@ -636,86 +635,171 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   return (
     <div className={styles.wizardContainer}>
       {/* ===================================================================
-          1. Wizard Top Navigation & Breadcrumbs
+          1. Top Navigation: Back to All Programs
           =================================================================== */}
-      <header className={styles.wizardTopBar}>
-        <nav className={styles.breadcrumbTrail} aria-label="Breadcrumbs">
-          <Link href="/programs" className={styles.breadcrumbRootLink} title="Back to Programs Catalog">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-            <span>Programs</span>
-          </Link>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: "0.75rem" }}>
+        <Link
+          href="/programs"
+          className={styles.breadcrumbRootLink}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.45rem",
+            color: "var(--text-muted, #78716a)",
+            fontSize: "0.82rem",
+            fontWeight: 600,
+            textDecoration: "none",
+            padding: "0.3rem 0.6rem",
+            borderRadius: "6px",
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          <span>Back to All Programs</span>
+        </Link>
 
-          <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          {programData?.isActive ? (
+            <button
+              type="button"
+              className={styles.secondaryActionBtn}
+              onClick={async () => {
+                await handlePublishCourse({ status: "DRAFT" });
 
-          <span
-            className={styles.breadcrumbCourseLink}
-            onClick={() => setWizardStep("COURSE_SETUP")}
-            role="button"
-            tabIndex={0}
-            title="Edit Course Details"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") setWizardStep("COURSE_SETUP");
-            }}
-          >
-            {programData?.title || "Program Details"}
-          </span>
+              }}
+              style={{
+                fontSize: "0.82rem",
+                padding: "0.42rem 0.85rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                fontWeight: 600,
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
+              title="Move program to Drafts"
+            >
+              <span>Move to Drafts</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={async () => {
+                await handlePublishCourse({ status: "PUBLISHED" });
 
-          <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
-
-          {isModuleScope && activeModule && (
-            <>
-              <span
-                className={styles.breadcrumbModuleLink}
-                onClick={() => setWizardStep("MODULE_DETAILS")}
-                role="button"
-                tabIndex={0}
-                title="View Module Lessons"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") setWizardStep("MODULE_DETAILS");
-                }}
-              >
-                Module {activeModule.sequence}
-              </span>
-              <span className={styles.breadcrumbChevron} aria-hidden="true">&rsaquo;</span>
-            </>
+              }}
+              style={{
+                fontSize: "0.82rem",
+                padding: "0.42rem 0.85rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                fontWeight: 600,
+                borderRadius: "6px",
+                background: "var(--accent-primary, #c97a1e)",
+                color: "#ffffff",
+                border: "none",
+                cursor: "pointer",
+              }}
+              title="Publish program to catalog"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+              <span>Publish Program</span>
+            </button>
           )}
-
-          <span className={styles.breadcrumbActive}>
-            {wizardStep === "COURSE_SETUP"
-              ? "Basic Details"
-              : wizardStep === "MODULE_LIST"
-              ? "Modules"
-              : wizardStep === "MODULE_DETAILS"
-              ? "Lessons"
-              : wizardStep === "ADD_LESSON_CHOOSER"
-              ? "Add Content"
-              : wizardStep === "ADD_VIDEO_LESSON"
-              ? "Upload Video"
-              : wizardStep === "ADD_PDF_LESSON"
-              ? "Upload PDF"
-              : wizardStep === "QUIZ_BUILDER"
-              ? "Quiz Builder"
-              : wizardStep === "MODULE_PREVIEW"
-              ? "Student Preview"
-              : "Review & Publish"}
-          </span>
-        </nav>
-      </header>
+        </div>
+      </div>
 
       {/* ===================================================================
-          Screen 6: Top Horizontal Tab Bar
+          2. Unified Program Header Card
+          =================================================================== */}
+      <div
+        style={{
+          background: "#ffffff",
+          border: "1px solid var(--border-light, #e7decb)",
+          borderRadius: "12px",
+          boxShadow: "0 1px 3px rgba(20, 17, 15, 0.03)",
+          padding: "1rem 1.25rem",
+          marginBottom: "1rem",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem", minWidth: 0 }}>
+            {/* Elegant Program Icon Squircle */}
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 12,
+                background: "linear-gradient(135deg, #fdf8f0 0%, #f5ece1 100%)",
+                border: "1.5px solid #e7decb",
+                color: "var(--accent-primary, #c97a1e)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+              aria-hidden="true"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary, #14110f)", margin: 0, lineHeight: 1.2 }}>
+                  {programData?.title || "Untitled Program"}
+                </h1>
+                <StatusBadge status={programData?.isActive ? "PUBLISHED" : "DRAFT"} />
+              </div>
+
+              {/* Clean Sub-Metadata Row matching Batch detail style */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", fontSize: "0.8125rem", color: "var(--text-secondary, #78716a)", flexWrap: "wrap" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ color: "#78716a", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>Price:</span>
+                  <span style={{ fontWeight: 600, color: "#b45309" }}>{programData?.price ? `$${programData.price.toLocaleString()}` : "Free"}</span>
+                </span>
+                <span style={{ color: "#d1c7b8" }}>•</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ color: "#78716a", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>Modules:</span>
+                  <span style={{ fontWeight: 600, color: "#14110f" }}>{steps.length}</span>
+                </span>
+                <span style={{ color: "#d1c7b8" }}>•</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ color: "#78716a", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>Lessons:</span>
+                  <span style={{ fontWeight: 600, color: "#14110f" }}>{steps.reduce((acc, s) => acc + (s.lessons?.length || 0), 0)}</span>
+                </span>
+                <span style={{ color: "#d1c7b8" }}>•</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ color: "#78716a", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>Certificate:</span>
+                  <span style={{ fontWeight: 600, color: programData?.hasCertificate !== false ? "#15803d" : "#78716a" }}>
+                    {programData?.hasCertificate !== false ? "Enabled" : "None"}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ===================================================================
+          3. Top Horizontal Tab Bar
           =================================================================== */}
       <div className={styles.programTabBar} role="tablist" aria-label="Program Management Tabs">
         <button
           type="button"
           role="tab"
-          aria-selected={activeProgramTab === "OVERVIEW"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "OVERVIEW" ? styles.programTabBtnActive : ""}`}
-          onClick={() => setActiveProgramTab("OVERVIEW")}
+          aria-selected={activeProgramTab === "DETAILS"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "DETAILS" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("DETAILS")}
         >
-          Overview
+          Program Details
         </button>
         <button
           type="button"
@@ -737,6 +821,24 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           onClick={() => setActiveProgramTab("FINAL_EXAM")}
         >
           Final Exam
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeProgramTab === "RESOURCES"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "RESOURCES" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("RESOURCES")}
+        >
+          Resources
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeProgramTab === "CERTIFICATE"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "CERTIFICATE" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("CERTIFICATE")}
+        >
+          Certificate
         </button>
         <button
           type="button"
@@ -786,6 +888,14 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Alternate Tab Views */}
+      {activeProgramTab === "DETAILS" && (
+        <Step1CourseSetup
+          programData={programData}
+          onSaveAndContinue={handleSaveCourseSetup}
+          isSaving={isSaving}
+        />
+      )}
+
       {activeProgramTab === "FINAL_EXAM" && (
         <FinalExamPanel
           programId={programId}
@@ -797,6 +907,22 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         />
       )}
 
+      {activeProgramTab === "RESOURCES" && (
+        <ProgramResourcesPanel
+          programId={programId}
+          programTitle={programData?.title}
+        />
+      )}
+
+      {activeProgramTab === "CERTIFICATE" && (
+        <ProgramCertificatePanel
+          programId={programId}
+          programTitle={programData?.title}
+          hasCertificate={programData?.hasCertificate !== false}
+          onUpdateCertificate={handleUpdateProgramSettings}
+        />
+      )}
+
       {activeProgramTab === "SETTINGS" && (
         <ProgramSettingsPanel
           programId={programId}
@@ -804,46 +930,6 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           onUpdateProgram={handleUpdateProgramSettings}
           onNavigateTab={(tab) => setActiveProgramTab(tab)}
         />
-      )}
-
-      {activeProgramTab === "OVERVIEW" && (
-        <section className={styles.cardSurface}>
-          <div className={styles.cardHeaderArea}>
-            <h2 className={styles.stepTitle}>Program Overview</h2>
-            <p className={styles.stepSubtitle}>
-              Executive snapshot of {programData?.title || "this curriculum track"}.
-            </p>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
-            <div style={{ background: "#fdfbf7", border: "1px solid #ece6dd", borderRadius: 12, padding: "1.25rem" }}>
-              <span style={{ fontSize: "0.8rem", color: "#78716a", fontWeight: 600 }}>Total Curriculum</span>
-              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#14110f", marginTop: "4px" }}>
-                {steps.length} Modules · {steps.reduce((acc, s) => acc + (s.lessons?.length || 0), 0)} Lessons
-              </div>
-            </div>
-            <div style={{ background: "#fdfbf7", border: "1px solid #ece6dd", borderRadius: 12, padding: "1.25rem" }}>
-              <span style={{ fontSize: "0.8rem", color: "#78716a", fontWeight: 600 }}>Tuition / Price</span>
-              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#d97706", marginTop: "4px" }}>
-                {programData?.currency || "USD"} ${programData?.price || 0}
-              </div>
-            </div>
-            <div style={{ background: "#fdfbf7", border: "1px solid #ece6dd", borderRadius: 12, padding: "1.25rem" }}>
-              <span style={{ fontSize: "0.8rem", color: "#78716a", fontWeight: 600 }}>Publication Status</span>
-              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#15803d", marginTop: "4px" }}>
-                {programData?.isActive ? "Live" : "Draft"}
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className={styles.btnPrimary}
-            onClick={() => setActiveProgramTab("MODULES")}
-          >
-            Manage Curriculum Modules -&gt;
-          </button>
-        </section>
       )}
 
       {activeProgramTab === "ENROLMENTS" && (
@@ -869,33 +955,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       {/* Main Modules & Curriculum Tab */}
       {activeProgramTab === "MODULES" && (
         <>
-          {/* ===================================================================
-              2. Four-Phase Stepper Progress Header
-              =================================================================== */}
-          {wizardStep !== "MODULE_PREVIEW" && (
-            <CurriculumStepper
-              currentPhase={currentPhase}
-              onSelectPhase={handleSelectPhase}
-              isPhase1Done={Boolean(programData?.title) || currentPhase > 1}
-              isPhase2Done={steps.length > 0 && currentPhase > 2}
-              isPhase3Done={Boolean(programData?.price !== undefined) && currentPhase > 3}
-            />
-          )}
-
-          {/* ===================================================================
-              3. Guided Step Views (One Focused Screen at a Time)
-              =================================================================== */}
-
-          {/* STEP 1: Course Setup */}
-          {wizardStep === "COURSE_SETUP" && (
-            <Step1CourseSetup
-              programData={programData}
-              onSaveAndContinue={handleSaveCourseSetup}
-              isSaving={isSaving}
-            />
-          )}
-
-          {/* STEP 2: 2-Column Split Curriculum Builder */}
+          {/* 2-Column Split Curriculum Builder */}
           {(wizardStep === "MODULE_LIST" || wizardStep === "MODULE_DETAILS") && (
             <Step2ModuleList
               steps={steps}
@@ -914,7 +974,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
               onDeleteLesson={handleDeleteLesson}
               onDeleteQuiz={handleDeleteQuiz}
               onUpdateModule={handleUpdateModule}
-              onBackToBasicDetails={() => setWizardStep("COURSE_SETUP")}
+              onBackToBasicDetails={() => setActiveProgramTab("DETAILS")}
               onContinueToPricing={() => setWizardStep("PRICING_ACCESS")}
               onOpenFinalExam={() => setActiveProgramTab("FINAL_EXAM")}
             />

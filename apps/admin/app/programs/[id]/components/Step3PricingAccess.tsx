@@ -433,7 +433,7 @@ export default function Step3PricingAccess({
                 ariaLabel="Select Access Duration"
                 options={[
                   { value: "Lifetime Access", label: "Lifetime Access" },
-                  { value: "Cohort Duration", label: "Batch Duration" },
+                  { value: "Batch Duration", label: "Batch Duration" },
                   { value: "Time-Limited (1 Year)", label: "Time-Limited (1 Year)" },
                   { value: "Time-Limited (6 Months)", label: "Time-Limited (6 Months)" },
                 ]}

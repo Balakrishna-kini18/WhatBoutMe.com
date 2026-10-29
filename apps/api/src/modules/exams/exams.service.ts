@@ -32,6 +32,9 @@ import {
 export class ExamsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ExamsService.name);
   private sweepTimer: NodeJS.Timeout | null = null;
+  private examConfigCache = new Map<string, { expiresAt: number; data: any }>();
+  private activeAttemptCache = new Map<string, { expiresAt: number; data: any }>();
+  private inflightActiveAttempt = new Map<string, Promise<any>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,6 +65,11 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
       throw new ForbiddenException('Access denied: Authentication required');
+    }
+
+    const cached = this.examConfigCache.get(programId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
     }
 
     let exam = await this.prisma.exam.findFirst({
@@ -95,7 +103,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Final exam not found for this program');
     }
 
-    return {
+    const result = {
       id: exam.id,
       programId: exam.programId,
       title: exam.title,
@@ -107,6 +115,11 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       cooldownHours: exam.cooldownHours,
       status: exam.status,
     };
+    this.examConfigCache.set(programId, {
+      expiresAt: Date.now() + 60000,
+      data: result,
+    });
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -114,6 +127,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async startExam(examId: string, actor: any, dto?: StartExamDto) {
+    this.activeAttemptCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
       throw new ForbiddenException('Access denied: Authentication required');
@@ -746,6 +760,18 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Access denied: Authentication required');
     }
 
+    const cacheKey = `${actorId}:${examId}`;
+    const cached = this.activeAttemptCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const inflight = this.inflightActiveAttempt.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const computePromise = (async () => {
     let exam = await this.prisma.exam.findUnique({
       where: { id: examId },
     });
@@ -902,6 +928,19 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       stepToRevisit,
       retryGuidance: !latestAttempt.passed ? exam.retryGuidance : null,
     };
+    })();
+
+    this.inflightActiveAttempt.set(cacheKey, computePromise);
+    try {
+      const result = await computePromise;
+      this.activeAttemptCache.set(cacheKey, {
+        expiresAt: Date.now() + 15000,
+        data: result,
+      });
+      return result;
+    } finally {
+      this.inflightActiveAttempt.delete(cacheKey);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -915,6 +954,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     actor: any,
     ip?: string,
   ) {
+    this.activeAttemptCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
       throw new ForbiddenException('Access denied: Authentication required');
@@ -1050,6 +1090,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async createExam(dto: CreateExamDto, actor: any) {
+    this.examConfigCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) throw new ForbiddenException('Authentication required');
 
@@ -1084,6 +1125,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateExam(id: string, dto: UpdateExamDto, actor: any) {
+    this.examConfigCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) throw new ForbiddenException('Authentication required');
 
@@ -1107,6 +1149,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publishExam(id: string, actor: any) {
+    this.examConfigCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) throw new ForbiddenException('Authentication required');
 
@@ -1659,6 +1702,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async saveExamAnswers(examId: string, dto: SaveExamAnswersDto, actor: any) {
+    this.activeAttemptCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) throw new ForbiddenException('Authentication required');
 

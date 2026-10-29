@@ -1,6 +1,6 @@
 // apps/lms/app/lib/curriculumLoader.ts
 
-import { API_URL, getAuthHeaders } from './api';
+import { API_URL, getAuthHeaders, cachedFetch } from './api';
 import { courseImageFor } from './courseImage';
 import {
   EnrolledCourse,
@@ -22,11 +22,13 @@ export async function loadCourseCurriculum(
 
   try {
     const [programRes, progRes] = await Promise.all([
-      fetch(`${API_URL}/programs/${programId}/steps`, {
+      cachedFetch(`${API_URL}/programs/${programId}/steps`, {
         headers: getAuthHeaders(),
+        ttlMs: 60_000,
       }),
-      fetch(`${API_URL}/progression/me/${programId}`, {
+      cachedFetch(`${API_URL}/progression/me/${programId}`, {
         headers: getAuthHeaders(),
+        ttlMs: 20_000,
       }).catch(() => null),
     ]);
 

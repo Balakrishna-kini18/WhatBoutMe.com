@@ -162,6 +162,11 @@ export class ProgressionService {
   private readonly localShareCache = new Map<string, any>();
   private readonly memoryProgressionCache = new Map<string, { expiresAt: number; data: EnrolmentProgressionResponse }>();
   private readonly inflightProgression = new Map<string, Promise<EnrolmentProgressionResponse>>();
+  private readonly myProgressionCache = new Map<string, { expiresAt: number; data: EnrolmentProgressionResponse }>();
+  private readonly inflightMyProgression = new Map<string, Promise<EnrolmentProgressionResponse>>();
+  private readonly lessonMetaCache = new Map<string, { expiresAt: number; data: any }>();
+  private readonly enrolmentMetaCache = new Map<string, { expiresAt: number; data: any }>();
+  private readonly unlockedStepsCache = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -174,6 +179,9 @@ export class ProgressionService {
   public invalidateCache(enrolmentId: string): void {
     this.memoryProgressionCache.delete(enrolmentId);
     this.inflightProgression.delete(enrolmentId);
+    this.myProgressionCache.clear();
+    this.unlockedStepsCache.clear();
+    this.enrolmentMetaCache.clear();
     if (this.stageGateService) {
       this.stageGateService.invalidateCache(enrolmentId);
     }
@@ -339,7 +347,19 @@ export class ProgressionService {
     userId: string,
     programId: string,
   ): Promise<EnrolmentProgressionResponse> {
-    const enrolment = await this.prisma.enrolment.findFirst({
+    const cacheKey = `${userId}:${programId}`;
+    const cached = this.myProgressionCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const inflight = this.inflightMyProgression.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const computePromise = (async () => {
+      const enrolment = await this.prisma.enrolment.findFirst({
       where: {
         userId,
         programId,
@@ -390,8 +410,21 @@ export class ProgressionService {
       return this.enrichMyProgression(fallback, prog, userId);
     }
 
-    const prog = await this.evaluateProgression(enrolment, { persist: true });
-    return this.enrichMyProgression(enrolment, prog, userId);
+      const prog = await this.evaluateProgression(enrolment, { persist: true });
+      return this.enrichMyProgression(enrolment, prog, userId);
+    })();
+
+    this.inflightMyProgression.set(cacheKey, computePromise);
+    try {
+      const result = await computePromise;
+      this.myProgressionCache.set(cacheKey, {
+        expiresAt: Date.now() + 20000,
+        data: result,
+      });
+      return result;
+    } finally {
+      this.inflightMyProgression.delete(cacheKey);
+    }
   }
 
   private async enrichMyProgression(
@@ -1528,26 +1561,32 @@ export class ProgressionService {
       );
     }
 
-    const lesson = await this.prisma.lesson.findUnique({
-      where: { id: lessonId },
-      include: {
-        step: {
-          select: {
-            id: true,
-            programId: true,
-            sequence: true,
-            status: true,
-            quizPlacement: true,
-            quiz: {
-              select: {
-                id: true,
-                quizPlacement: true,
+    let lesson = this.lessonMetaCache.get(lessonId)?.data;
+    if (!lesson || Date.now() > (this.lessonMetaCache.get(lessonId)?.expiresAt || 0)) {
+      lesson = await this.prisma.lesson.findUnique({
+        where: { id: lessonId },
+        include: {
+          step: {
+            select: {
+              id: true,
+              programId: true,
+              sequence: true,
+              status: true,
+              quizPlacement: true,
+              quiz: {
+                select: {
+                  id: true,
+                  quizPlacement: true,
+                },
               },
             },
           },
         },
-      },
-    });
+      });
+      if (lesson) {
+        this.lessonMetaCache.set(lessonId, { expiresAt: Date.now() + 300000, data: lesson });
+      }
+    }
 
     if (!lesson) {
       throw new NotFoundException('Lesson not found');
@@ -1562,23 +1601,30 @@ export class ProgressionService {
       );
     }
 
-    const enrolment = await this.prisma.enrolment.findFirst({
-      where: {
-        userId: actorId,
-        programId: lesson.step.programId,
-      },
-      include: {
-        batch: {
-          include: {
-            trainers: { select: { trainerId: true } },
-            overrides: true,
+    const enrKey = `${actorId}:${lesson.step.programId}`;
+    let enrolment = this.enrolmentMetaCache.get(enrKey)?.data;
+    if (!enrolment || Date.now() > (this.enrolmentMetaCache.get(enrKey)?.expiresAt || 0)) {
+      enrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          userId: actorId,
+          programId: lesson.step.programId,
+        },
+        include: {
+          batch: {
+            include: {
+              trainers: { select: { trainerId: true } },
+              overrides: true,
+            },
+          },
+          program: {
+            select: { id: true, title: true, status: true },
           },
         },
-        program: {
-          select: { id: true, title: true, status: true },
-        },
-      },
-    });
+      });
+      if (enrolment) {
+        this.enrolmentMetaCache.set(enrKey, { expiresAt: Date.now() + 60000, data: enrolment });
+      }
+    }
 
     if (!enrolment) {
       throw new ForbiddenException(
@@ -1591,7 +1637,11 @@ export class ProgressionService {
     }
 
     // Call D1-033/D1-034 step access gate with fast-path if already confirmed unlocked
-    await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor, { skipEvaluateTreeIfUnlocked: true });
+    const unlockedKey = `${enrolment.id}:${lesson.stepId}`;
+    if (!this.unlockedStepsCache.has(unlockedKey)) {
+      await this.assertStepUnlocked(enrolment.id, lesson.stepId, actor, { skipEvaluateTreeIfUnlocked: true });
+      this.unlockedStepsCache.add(unlockedKey);
+    }
 
     // Configurable Quiz Placement Gate: When BEFORE_VIDEO, pre-video assessment must be passed
     const stepQuiz = lesson.step.quiz;
@@ -1668,6 +1718,47 @@ export class ProgressionService {
       clampedPosition = Math.min(positionSec, effectiveDuration);
     }
 
+    // Fast-path No-Op short-circuit:
+    // 1. If lesson is already 100% completed and position has not moved significantly, skip DB upsert and respond in <1ms
+    if (
+      existingProgress &&
+      isAlreadyCompleted &&
+      existingProgress.progressPercent === 100 &&
+      Math.abs(clampedPosition - (existingProgress.lastPositionSec ?? 0)) < 3
+    ) {
+      return {
+        lessonId: lesson.id,
+        enrolmentId: enrolment.id,
+        viewed: true,
+        progressPercent: 100,
+        lastPositionSec: existingProgress.lastPositionSec,
+        completedAt: existingProgress.completedAt,
+        durationSec: lesson.durationSec,
+        watchedRanges: existingProgress.watchedRanges,
+        accepted: true,
+      };
+    }
+
+    // 2. If no new watch time was credited and position has barely moved, short-circuit
+    if (
+      existingProgress &&
+      trackerResult.creditedDeltaSec === 0 &&
+      !isFinished &&
+      Math.abs(clampedPosition - (existingProgress.lastPositionSec ?? 0)) < 2
+    ) {
+      return {
+        lessonId: lesson.id,
+        enrolmentId: enrolment.id,
+        viewed: existingProgress.viewed,
+        progressPercent: existingProgress.progressPercent,
+        lastPositionSec: existingProgress.lastPositionSec,
+        completedAt: existingProgress.completedAt,
+        durationSec: lesson.durationSec,
+        watchedRanges: existingProgress.watchedRanges,
+        accepted: true,
+      };
+    }
+
     // completedAt is immutable after first completion
     const completedAt =
       existingProgress?.completedAt ??
@@ -1713,6 +1804,9 @@ export class ProgressionService {
     }
 
     if (transitionToCompleted) {
+      this.myProgressionCache.delete(`${actorId}:${lesson.step.programId}`);
+      this.memoryProgressionCache.delete(enrolment.id);
+      this.unlockedStepsCache.clear();
       // Fire-and-forget progression evaluation in background so heartbeat responds in <100ms
       this.evaluateProgression(enrolment, { persist: true, forceRecalculate: true }).catch((err) => {
         this.logger.error(`Background progression evaluation failed: ${err.message}`);

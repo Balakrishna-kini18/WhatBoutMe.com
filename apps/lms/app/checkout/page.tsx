@@ -9,6 +9,7 @@ import { SITE_URL } from "../lib/site";
 import { parseCourseInfo } from "../lib/courseInfo";
 import EnrollmentStepper from "../components/EnrollmentStepper";
 import { API_URL } from "../lib/api";
+import { sanitizeExternalUrl } from "../lib/auth-redirect";
 
 function CheckoutContent() {
   const router = useRouter();
@@ -755,7 +756,13 @@ function CheckoutContent() {
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
               {simulatedResult.invoiceUrl && (
                 <a
-                  href={`${API_URL}${simulatedResult.invoiceUrl}`}
+                  href={
+                    sanitizeExternalUrl(
+                      simulatedResult.invoiceUrl.startsWith("http")
+                        ? simulatedResult.invoiceUrl
+                        : `${API_URL}${simulatedResult.invoiceUrl.startsWith("/") ? "" : "/"}${simulatedResult.invoiceUrl}`
+                    ) || "#"
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{

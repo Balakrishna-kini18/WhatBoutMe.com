@@ -67,7 +67,7 @@ export default function SessionRecordingPage({ params }: { params: Promise<{ id:
       }
 
       // 2. Fetch session details
-      const sessionRes = await fetch(`${API_URL}/sessions/${sessionId}`, { headers });
+      const sessionRes = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}`, { headers });
       if (!sessionRes.ok) {
         const err = await parseApiError(sessionRes);
         throw new Error(err.message || `Session not found (${sessionRes.status})`);
@@ -123,13 +123,15 @@ export default function SessionRecordingPage({ params }: { params: Promise<{ id:
     videoDurationSec?: number,
     _deltaSec?: number,
     fromSec?: number,
-    toSec?: number
+    toSec?: number,
+    options?: { keepalive?: boolean }
   ) => {
     try {
       const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-      const res = await fetch(`${API_URL}/sessions/${sessionId}/recording-progress`, {
+      const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/recording-progress`, {
         method: "POST",
         headers,
+        keepalive: Boolean(options?.keepalive),
         body: JSON.stringify({
           positionSec,
           fromSec,

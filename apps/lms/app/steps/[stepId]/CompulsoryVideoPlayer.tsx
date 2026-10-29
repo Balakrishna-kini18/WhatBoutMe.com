@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Lock, AlertCircle, RotateCcw } from "lucide-react";
+import { API_URL } from "../../lib/api";
 
 export interface CompulsoryVideoPlayerProps {
   lessonId: string;
@@ -17,8 +18,10 @@ export interface CompulsoryVideoPlayerProps {
     deltaSec?: number,
     fromSec?: number,
     toSec?: number,
+    options?: { keepalive?: boolean }
   ) => void;
   onComplete: () => void;
+  onVideoEnd?: () => void;
   onRestart?: () => void;
   onTimeUpdate?: (currentSec: number) => void;
   seekToTime?: number | null;
@@ -33,7 +36,11 @@ import {
   getLocalVideoResume,
   clearLocalVideoResume,
   saveLocalLessonCompletion,
+  isLocalLessonCompleted,
   determineResumePosition,
+  getQualityTransformedUrl,
+  VIDEO_QUALITY_OPTIONS,
+  type VideoQuality,
 } from "./videoPlayerLogic";
 
 export default function CompulsoryVideoPlayer({
@@ -45,6 +52,7 @@ export default function CompulsoryVideoPlayer({
   durationSec: initialDurationSec,
   onHeartbeat,
   onComplete,
+  onVideoEnd,
   onRestart,
   onTimeUpdate,
   seekToTime,
@@ -52,8 +60,8 @@ export default function CompulsoryVideoPlayer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Resolve upload streaming key or direct Cloudinary/S3 URL with auth token
-  const resolvedVideoSrc = React.useMemo(() => {
+  // Base raw streaming key or direct Cloudinary/S3 URL with auth token
+  const baseVideoSrc = React.useMemo(() => {
     if (!videoSrc) return "";
     if (videoSrc.startsWith("http://") || videoSrc.startsWith("https://") || videoSrc.startsWith("/")) {
       return videoSrc;
@@ -62,9 +70,20 @@ export default function CompulsoryVideoPlayer({
     const isUpload = videoSrc.startsWith("upload:");
     const rawKey = isUpload ? videoSrc.replace("upload:", "") : videoSrc;
     const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-    return `${apiUrl}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   }, [videoSrc]);
+
+  // Video Quality adjustment state
+  const [selectedQuality, setSelectedQuality] = useState<VideoQuality>("Auto");
+  const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
+  const qualityMenuRef = useRef<HTMLDivElement | null>(null);
+  const qualitySwitchTargetPosRef = useRef<number | null>(null);
+  const qualitySwitchWasPlayingRef = useRef<boolean>(false);
+
+  // Quality-transformed stream URL
+  const resolvedVideoSrc = React.useMemo(() => {
+    return getQualityTransformedUrl(baseVideoSrc, selectedQuality);
+  }, [baseVideoSrc, selectedQuality]);
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -95,12 +114,38 @@ export default function CompulsoryVideoPlayer({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showSpeedMenu]);
 
+  // Close quality menu on outside click
+  useEffect(() => {
+    if (!showQualityMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (qualityMenuRef.current && !qualityMenuRef.current.contains(e.target as Node)) {
+        setShowQualityMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showQualityMenu]);
+
   const handleSpeedChange = (speed: number) => {
     setPlaybackSpeed(speed);
     if (videoRef.current) {
       videoRef.current.playbackRate = speed;
     }
     setShowSpeedMenu(false);
+  };
+
+  const handleQualityChange = (q: VideoQuality) => {
+    if (q === selectedQuality) {
+      setShowQualityMenu(false);
+      return;
+    }
+    const video = videoRef.current;
+    if (video) {
+      qualitySwitchTargetPosRef.current = video.currentTime;
+      qualitySwitchWasPlayingRef.current = !video.paused;
+    }
+    setSelectedQuality(q);
+    setShowQualityMenu(false);
   };
 
   // Reset error when lesson or video source changes
@@ -116,6 +161,17 @@ export default function CompulsoryVideoPlayer({
 
   const initialTargetSec = Math.max(initialPositionSec || 0, localResume?.positionSec || 0);
 
+  // Stabilize callbacks and props to avoid unintended re-render cascades
+  const onHeartbeatRef = useRef(onHeartbeat);
+  useEffect(() => {
+    onHeartbeatRef.current = onHeartbeat;
+  }, [onHeartbeat]);
+
+  const durationRef = useRef(duration);
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
   // Anti-skip enforcement refs
   const maxWatchedSecRef = useRef<number>(initialTargetSec);
   const lastValidTimeRef = useRef<number>(initialTargetSec);
@@ -126,6 +182,8 @@ export default function CompulsoryVideoPlayer({
   const hasCompletedRef = useRef<boolean>(false);
   const hasAppliedInitialSeekRef = useRef<boolean>(false);
   const lastSavedLocalTimeRef = useRef<number>(0);
+  const lastExitSyncTimeRef = useRef<number>(0);
+  const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-dismiss resumed playback notice after 3.8s
   useEffect(() => {
@@ -137,18 +195,28 @@ export default function CompulsoryVideoPlayer({
     }
   }, [resumedNotice]);
 
-  // Comprehensive state reset whenever lessonId changes
+  // Clean up any pending pause debounce timers on unmount
   useEffect(() => {
+    return () => {
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Comprehensive state reset ONLY when lessonId changes (never on background heartbeat updates)
+  useEffect(() => {
+    const resumePos = Math.max(initialPositionSec || 0, getLocalVideoResume(lessonId)?.positionSec || 0);
     hasAppliedInitialSeekRef.current = false;
-    hasCompletedRef.current = false;
-    maxWatchedSecRef.current = initialTargetSec;
-    lastValidTimeRef.current = initialTargetSec;
-    lastHeartbeatPositionRef.current = initialTargetSec;
+    hasCompletedRef.current = isLocalLessonCompleted(lessonId);
+    maxWatchedSecRef.current = resumePos;
+    lastValidTimeRef.current = resumePos;
+    lastHeartbeatPositionRef.current = resumePos;
     lastHeartbeatTimeRef.current = Date.now();
     setHasEnded(false);
-    setCurrentTime(initialTargetSec);
+    setCurrentTime(resumePos);
     setIsPlaying(false);
-  }, [lessonId, initialTargetSec]);
+  }, [lessonId]);
 
 
   // Watermark text
@@ -226,7 +294,7 @@ export default function CompulsoryVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
         if (video.paused) {
-          video.play().catch(() => {});
+          video.play().catch(() => { });
         } else {
           video.pause();
         }
@@ -270,10 +338,10 @@ export default function CompulsoryVideoPlayer({
   const handleToggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(() => {});
+      containerRef.current.requestFullscreen().catch(() => { });
       setIsFullscreen(true);
     } else {
-      document.exitFullscreen().catch(() => {});
+      document.exitFullscreen().catch(() => { });
       setIsFullscreen(false);
     }
   };
@@ -335,6 +403,22 @@ export default function CompulsoryVideoPlayer({
     // Prevent NaN duration bug
     const effectiveDur = Number.isFinite(rawDur) && rawDur > 0 ? rawDur : (initialDurationSec || 0);
     setDuration(effectiveDur);
+
+    // Seamless restoration after quality change
+    if (qualitySwitchTargetPosRef.current !== null && qualitySwitchTargetPosRef.current >= 0) {
+      const targetPos = qualitySwitchTargetPosRef.current;
+      qualitySwitchTargetPosRef.current = null;
+      hasAppliedInitialSeekRef.current = true;
+      video.currentTime = targetPos;
+      setCurrentTime(targetPos);
+      lastValidTimeRef.current = targetPos;
+      maxWatchedSecRef.current = Math.max(maxWatchedSecRef.current, targetPos);
+      if (qualitySwitchWasPlayingRef.current) {
+        qualitySwitchWasPlayingRef.current = false;
+        video.play().catch(() => {});
+      }
+      return;
+    }
 
     // Resume from saved position if valid
     applyResumeIfEligible(video);
@@ -417,23 +501,23 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send dynamic periodic heartbeat with exact interval segments (faster for short clips)
+    // Send dynamic periodic heartbeat: 2-minute interval (120s) for maximum server cost efficiency
     const now = Date.now();
-    const intervalMs = dur > 0 && dur < 60 ? Math.max(2500, Math.floor((dur * 1000) / 4)) : 10000;
+    const intervalMs = dur > 0 && dur < 120 ? Math.max(10000, Math.floor((dur * 1000) / 2)) : 120000;
     if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = current;
-      onHeartbeat(
-        Math.floor(current),
-        false,
-        dur > 0 ? dur : undefined,
-        Math.floor(delta),
-        Math.floor(fromSec),
-        Math.floor(toSec),
-      );
+        onHeartbeatRef.current?.(
+          Math.floor(current),
+          false,
+          dur > 0 ? dur : undefined,
+          Math.floor(delta),
+          Math.floor(fromSec),
+          Math.floor(toSec),
+        );
     }
 
     // Save watch position to localStorage every 2 seconds for instant 0ms resume
@@ -442,26 +526,36 @@ export default function CompulsoryVideoPlayer({
       saveLocalVideoResume(lessonId, current, dur);
     }
 
-    // Server-enforced compulsory completion: watchedSeconds >= duration * 0.90 or within 1s of end
-    if (dur > 0 && (current >= dur * 0.90 || current >= dur - 1.0) && !hasCompletedRef.current) {
+    // Compulsory completion: when video is left for 30 seconds or less (or within 1s of end for short clips)
+    const isWithin30sOfEnd =
+      dur > 0 &&
+      (dur - current <= 30 ||
+        (dur <= 30 && (current >= dur - 1.0 || current >= dur * 0.9)) ||
+        current >= dur * 0.9);
+
+    if (isWithin30sOfEnd && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
-      setHasEnded(true);
       clearLocalVideoResume(lessonId);
       saveLocalLessonCompletion(lessonId);
       const fromSec = lastHeartbeatPositionRef.current;
-      const toSec = dur;
+      const toSec = Math.floor(current);
       const delta = Math.max(0, toSec - fromSec);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = toSec;
-      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
+      onHeartbeatRef.current?.(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
       onComplete();
     }
   };
 
   // onEnded event: triggers completion and enables full rewatch capability
   const handleEnded = () => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
     setIsPlaying(false);
     setHasEnded(true);
+    setShowControls(true);
     clearLocalVideoResume(lessonId);
     saveLocalLessonCompletion(lessonId);
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
@@ -472,73 +566,192 @@ export default function CompulsoryVideoPlayer({
       const delta = Math.max(0, toSec - fromSec);
       lastHeartbeatTimeRef.current = Date.now();
       lastHeartbeatPositionRef.current = toSec;
-      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
+      onHeartbeatRef.current?.(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
     }
     onComplete();
+    onVideoEnd?.();
   };
 
-
-  // Auto-hide controls when playing and idle
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (isPlaying) {
-      controlsTimeoutRef.current = setTimeout(() => {
-        setShowControls(false);
-      }, 3000);
+  // Auto-hide controls after 2.5 seconds (between 2 and 3 seconds) when playing
+  const scheduleControlsHide = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
     }
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (!showSpeedMenu && !showQualityMenu) {
+        setShowControls(false);
+      }
+    }, 2500);
+  }, [showSpeedMenu, showQualityMenu]);
+
+  // Show controls immediately and schedule hide if playing
+  const showAndScheduleControls = useCallback(() => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    if (isPlaying && !showSpeedMenu && !showQualityMenu) {
+      scheduleControlsHide();
+    }
+  }, [isPlaying, showSpeedMenu, showQualityMenu, scheduleControlsHide]);
+
+  // Synchronize controls visibility when playing/paused
+  useEffect(() => {
+    if (isPlaying) {
+      scheduleControlsHide();
+    } else {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      setShowControls(true);
+    }
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [isPlaying, scheduleControlsHide]);
+
+  // Video click handler: if playing and controls were hidden, touching/clicking reveals controls without pausing
+  const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement>) => {
+    if (isPlaying && !showControls) {
+      e.preventDefault();
+      e.stopPropagation();
+      showAndScheduleControls();
+      return;
+    }
+    togglePlay();
   };
 
-  // Keepalive heartbeat on tab hide or close
+  // Flush unsynced progress when video pauses
+  const flushPauseHeartbeat = useCallback(() => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
+    const video = videoRef.current;
+    if (!video) return;
+    const cur = video.currentTime;
+    const dur =
+      durationRef.current && durationRef.current > 0
+        ? durationRef.current
+        : Math.floor(video.duration || 0);
+    const fromSec = lastHeartbeatPositionRef.current;
+    const toSec = cur;
+    const delta = Math.max(0, toSec - fromSec);
+    if (delta >= 1) {
+      lastHeartbeatTimeRef.current = Date.now();
+      lastHeartbeatPositionRef.current = toSec;
+      onHeartbeatRef.current?.(
+        Math.floor(cur),
+        false,
+        dur > 0 ? dur : undefined,
+        Math.floor(delta),
+        Math.floor(fromSec),
+        Math.floor(toSec),
+      );
+    }
+  }, []);
+
+  // 3-second trailing debounced pause handler (anti-spam / flapper clicks)
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
+    setShowControls(true);
+    if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+    pauseTimeoutRef.current = setTimeout(() => {
+      flushPauseHeartbeat();
+    }, 3000);
+  }, [flushPauseHeartbeat]);
+
+  // Guaranteed keepalive sync on tab hide, browser close, navigation, or component unmount (Back button)
   useEffect(() => {
-    const handleKeepAlive = () => {
+    const flushExitSync = () => {
+      const now = Date.now();
+      if (now - lastExitSyncTimeRef.current < 2000) return; // Prevent duplicate event storm across multiple exit listeners
+      lastExitSyncTimeRef.current = now;
+
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+        pauseTimeoutRef.current = null;
+      }
+
       const video = videoRef.current;
-      if (video && (document.visibilityState === "hidden" || !document.hasFocus())) {
-        const cur = Math.floor(video.currentTime);
-        const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
-        if (cur > 0) {
-          onHeartbeat(cur, false, dur > 0 ? dur : undefined);
-        }
+      const cur = Math.floor(video?.currentTime ?? lastValidTimeRef.current ?? 0);
+      const dur =
+        durationRef.current && durationRef.current > 0
+          ? durationRef.current
+          : Math.floor(video?.duration || 0);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const delta = Math.max(0, cur - fromSec);
+
+      // If video was playing, pause it safely so playback stops cleanly
+      if (video && !video.paused) {
+        try {
+          video.pause();
+        } catch (e) { }
+      }
+
+      // 1. Instantly save paused position to local storage for 0ms client restore when returning
+      if (cur > 0) {
+        saveLocalVideoResume(lessonId, cur, dur);
+      }
+
+      // 2. ONLY flush to server if there is at least 1s of new watched time
+      if (cur > 0 && delta >= 1) {
+        lastHeartbeatTimeRef.current = Date.now();
+        lastHeartbeatPositionRef.current = cur;
+        onHeartbeatRef.current?.(
+          cur,
+          false,
+          dur > 0 ? dur : undefined,
+          Math.floor(delta),
+          Math.floor(fromSec),
+          cur,
+          { keepalive: true }
+        );
       }
     };
 
-    window.addEventListener("pagehide", handleKeepAlive);
-    document.addEventListener("visibilitychange", handleKeepAlive);
-    return () => {
-      window.removeEventListener("pagehide", handleKeepAlive);
-      document.removeEventListener("visibilitychange", handleKeepAlive);
+    const handlePageHide = () => flushExitSync();
+    const handleBeforeUnload = () => flushExitSync();
+    const handlePopState = () => flushExitSync();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushExitSync();
+      }
     };
-  }, [duration, onHeartbeat]);
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("popstate", handlePopState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      // Ensure exact paused position and any uncredited delta are flushed when unmounting
+      flushExitSync();
+    };
+  }, [lessonId]);
 
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play().catch(() => {});
+      video.play().catch(() => { });
     } else {
       video.pause();
-      const cur = video.currentTime;
-      const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
-      const fromSec = lastHeartbeatPositionRef.current;
-      const toSec = cur;
-      const delta = Math.max(0, toSec - fromSec);
-      if (delta >= 1) {
-        lastHeartbeatTimeRef.current = Date.now();
-        lastHeartbeatPositionRef.current = toSec;
-        onHeartbeat(
-          Math.floor(cur),
-          false,
-          dur > 0 ? dur : undefined,
-          Math.floor(delta),
-          Math.floor(fromSec),
-          Math.floor(toSec),
-        );
-      }
     }
   };
 
   // Restart / Rewatch video from beginning (preserves maxWatched progress)
   const handleRestart = () => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
     const video = videoRef.current;
     if (video) {
       video.currentTime = 0;
@@ -546,7 +759,7 @@ export default function CompulsoryVideoPlayer({
       setCurrentTime(0);
       setHasEnded(false);
       setResumedNotice(null);
-      video.play().catch(() => {});
+      video.play().catch(() => { });
     }
     onRestart?.();
   };
@@ -560,8 +773,16 @@ export default function CompulsoryVideoPlayer({
       ref={containerRef}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => isPlaying && setShowControls(false)}
+      onMouseMove={showAndScheduleControls}
+      onMouseDown={showAndScheduleControls}
+      onTouchStart={showAndScheduleControls}
+      onTouchMove={showAndScheduleControls}
+      onPointerMove={showAndScheduleControls}
+      onMouseLeave={() => {
+        if (isPlaying && !showSpeedMenu && !showQualityMenu) {
+          setShowControls(false);
+        }
+      }}
       onContextMenu={(e) => e.preventDefault()}
       style={{
         position: "relative",
@@ -573,6 +794,7 @@ export default function CompulsoryVideoPlayer({
         outline: "none",
         userSelect: "none",
         boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+        cursor: isPlaying && !showControls ? "none" : "default",
       }}
     >
       {/* 1. Main Video Element */}
@@ -600,7 +822,7 @@ export default function CompulsoryVideoPlayer({
               setVideoError(null);
               if (videoRef.current) {
                 videoRef.current.load();
-                videoRef.current.play().catch(() => {});
+                videoRef.current.play().catch(() => { });
               }
             }}
             style={{
@@ -627,10 +849,22 @@ export default function CompulsoryVideoPlayer({
           controlsList="nodownload noplaybackrate nofullscreen"
           disablePictureInPicture
           onContextMenu={(e) => e.preventDefault()}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onPlay={() => {
+            setIsPlaying(true);
+            if (pauseTimeoutRef.current) {
+              clearTimeout(pauseTimeoutRef.current);
+              pauseTimeoutRef.current = null;
+            }
+            scheduleControlsHide();
+          }}
+          onPause={handlePause}
           onWaiting={() => setIsBuffering(true)}
-          onPlaying={() => setIsBuffering(false)}
+          onPlaying={() => {
+            setIsBuffering(false);
+            if (isPlaying) {
+              scheduleControlsHide();
+            }
+          }}
           onSeeking={handleSeeking}
           onRateChange={handleRateChange}
           onLoadedMetadata={handleLoadedMetadata}
@@ -638,14 +872,19 @@ export default function CompulsoryVideoPlayer({
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           onError={() => {
+            if (selectedQuality !== "Auto") {
+              console.warn(`Quality stream ${selectedQuality} not available on server, automatically falling back to Auto.`);
+              setSelectedQuality("Auto");
+              return;
+            }
             setVideoError("Video stream could not be loaded. Please click Retry Stream.");
           }}
-          onClick={togglePlay}
+          onClick={handleVideoClick}
           style={{
             width: "100%",
             height: "100%",
             objectFit: "contain",
-            cursor: "pointer",
+            cursor: isPlaying && !showControls ? "none" : "pointer",
             display: "block",
           }}
         />
@@ -832,6 +1071,18 @@ export default function CompulsoryVideoPlayer({
 
       {/* 6. Apple Liquid Glass Floating Player Transport Bar (HIG Playing Video & Liquid Glass) */}
       <div
+        onMouseEnter={() => {
+          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+        }}
+        onMouseLeave={() => {
+          if (isPlaying && !showSpeedMenu && !showQualityMenu) {
+            scheduleControlsHide();
+          }
+        }}
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          showAndScheduleControls();
+        }}
         style={{
           position: "absolute",
           bottom: "12px",
@@ -848,6 +1099,7 @@ export default function CompulsoryVideoPlayer({
           gap: "8px",
           opacity: showControls || !isPlaying ? 1 : 0,
           pointerEvents: showControls || !isPlaying ? "auto" : "none",
+          transform: showControls || !isPlaying ? "translateY(0)" : "translateY(8px)",
           transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
           boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
           zIndex: 50,
@@ -1053,7 +1305,10 @@ export default function CompulsoryVideoPlayer({
 
               <button
                 type="button"
-                onClick={() => setShowSpeedMenu((prev) => !prev)}
+                onClick={() => {
+                  setShowSpeedMenu((prev) => !prev);
+                  setShowQualityMenu(false);
+                }}
                 aria-label="Playback speed"
                 title="Playback speed"
                 style={{
@@ -1079,6 +1334,116 @@ export default function CompulsoryVideoPlayer({
                 }}
               >
                 <span>{playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`}</span>
+              </button>
+            </div>
+
+            {/* Quality Selector (Auto, 1080p, 720p, 540p, 360p, 224p) */}
+            <div ref={qualityMenuRef} style={{ position: "relative" }}>
+              {showQualityMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    right: 0,
+                    background: "rgba(0, 0, 0, 0.96)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255, 255, 255, 0.14)",
+                    borderRadius: "8px",
+                    padding: "8px 0",
+                    minWidth: "115px",
+                    boxShadow: "0 12px 32px rgba(0, 0, 0, 0.8)",
+                    zIndex: 100,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "4px 14px 6px",
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Quality
+                  </div>
+                  {VIDEO_QUALITY_OPTIONS.map((q) => {
+                    const isSelected = selectedQuality === q;
+                    return (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => handleQualityChange(q)}
+                        style={{
+                          background: isSelected ? "rgba(129, 140, 248, 0.12)" : "transparent",
+                          color: isSelected ? "#818cf8" : "#ffffff",
+                          border: "none",
+                          padding: "6px 16px",
+                          textAlign: "left",
+                          fontSize: "0.92rem",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          transition: "all 0.15s ease",
+                          letterSpacing: "0.01em",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.background = "transparent";
+                          }
+                        }}
+                      >
+                        <span>{q}</span>
+                        {isSelected && <span style={{ fontSize: "0.75rem", color: "#818cf8" }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQualityMenu((prev) => !prev);
+                  setShowSpeedMenu(false);
+                }}
+                aria-label="Video quality"
+                title="Adjust video quality"
+                style={{
+                  background: selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.25)" : "rgba(255, 255, 255, 0.12)",
+                  border: selectedQuality !== "Auto" ? "1px solid rgba(129, 140, 248, 0.45)" : "1px solid rgba(255, 255, 255, 0.2)",
+                  color: selectedQuality !== "Auto" ? "#c7d2fe" : "#ffffff",
+                  padding: "3px 9px",
+                  borderRadius: "5px",
+                  fontSize: "0.76rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontFamily: "monospace",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.35)" : "rgba(255, 255, 255, 0.2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.25)" : "rgba(255, 255, 255, 0.12)";
+                }}
+              >
+                <span>{selectedQuality}</span>
               </button>
             </div>
 

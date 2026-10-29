@@ -96,7 +96,7 @@ export default function LearnerCourseCard({
                 border: "1px solid #fde68a",
               }}
             >
-              ⏳ On Waitlist — Next Batch Pending
+              On Waitlist — Next Batch Pending
             </span>
           </div>
         ) : (
@@ -151,7 +151,7 @@ export default function LearnerCourseCard({
             <span>On Waitlist (Pending Batch)</span>
           </button>
         ) : (
-          <Link href={course.route} className={styles.viewCourseBtn}>
+          <Link href={course.route} prefetch={false} className={styles.viewCourseBtn}>
             <span>View Course</span>
             <span aria-hidden="true">&rarr;</span>
           </Link>

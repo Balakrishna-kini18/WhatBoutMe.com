@@ -3,112 +3,21 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onThisHost } from "./lib/host";
-import { renewOnce, clearApiCache } from "./lib/api";
+import { renewOnce, clearApiCache, cachedFetch } from "./lib/api";
 
 // resolved for the device showing the page (see lib/host.ts)
 const API_URL = onThisHost(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
 
 // Monkey-patch window.fetch synchronously outside React so it catches the very first render's fetches
+// Routes all requests through cachedFetch for in-flight deduplication, short-lived SWR LRU caching,
+// transparent 401 token refresh, and progressive retry.
 if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
-  (window as any).__fetchPatched = true;
-  (window as any).__apiFetchPatched = true;
   const originalFetch = window.fetch.bind(window);
   (window as any).__rawOriginalFetch = originalFetch;
+  (window as any).__fetchPatched = true;
+  (window as any).__apiFetchPatched = true;
 
-  window.fetch = async (input, init) => {
-    // a phone on Wi-Fi cannot reach "localhost": see lib/host.ts
-    if (typeof input === 'string') input = onThisHost(input);
-    const token = localStorage.getItem('token');
-    let newInit = init;
-    if (token && typeof input === 'string' && input.includes(API_URL)) {
-      const headers = new Headers(init?.headers);
-      if (!headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
-        newInit = { ...init, headers };
-      }
-    }
-    let response!: Response;
-    try {
-      response = await originalFetch(input, newInit);
-    } catch (fetchErr: any) {
-      // If the API server is momentarily restarting or recompiling in watch mode,
-      // attempt progressive retries before bubbling the error
-      if (typeof input === 'string' && (input.includes(':4000') || input.includes(API_URL))) {
-        let lastError = fetchErr;
-        let succeeded = false;
-        for (const delay of [400, 800, 1500]) {
-          await new Promise((r) => setTimeout(r, delay));
-          try {
-            response = await originalFetch(input, newInit);
-            succeeded = true;
-            break;
-          } catch (retryErr: any) {
-            lastError = retryErr;
-          }
-        }
-        if (!succeeded) {
-          throw lastError;
-        }
-      } else {
-        throw fetchErr;
-      }
-    }
-    
-    // Only for requests made with a sign-in token. A wrong password on the
-    // login form is also a 401 and must reach the form untouched.
-    const isSignedInRequest =
-      Boolean(token) &&
-      typeof input === 'string' &&
-      !/\/auth\/(login|signup|admin-login|refresh)/.test(input);
-
-    if (response.status === 401 && isSignedInRequest) {
-      const clone = response.clone();
-      try {
-        const errorData = await clone.json();
-        // The API wraps errors as { error: { code, message, reason } }. An expired
-        // access token arrives as a plain UNAUTHORIZED, so that is renewed too.
-        const code = typeof errorData.error === 'string' ? errorData.error : errorData.error?.code;
-        const reason = errorData.reason || errorData.error?.reason;
-        if (code === 'SESSION_REVOKED') {
-          localStorage.removeItem('token');
-          localStorage.removeItem('refresh_token');
-          localStorage.removeItem('user');
-          clearApiCache();
-          window.dispatchEvent(new CustomEvent('wbm-session-revoked', { detail: { reason: reason || 'SESSION_REVOKED' } }));
-          return response;
-        } else if (code === 'TOKEN_EXPIRED' || code === 'UNAUTHORIZED') {
-          // Several requests can expire together; they all wait on one renewal.
-          const renewed = await renewOnce(originalFetch, token as string);
-          if (renewed === 'signed-out') {
-            localStorage.clear();
-            clearApiCache();
-            window.location.href = '/login';
-          } else if (renewed) {
-            const newHeaders = new Headers(init?.headers);
-            newHeaders.set('Authorization', `Bearer ${renewed}`);
-            response = await originalFetch(input, { ...init, headers: newHeaders });
-          }
-          // otherwise the server could not be reached: stay signed in and let
-          // the page show its own error
-        } else {
-          // Generic 401 (e.g. invalid token after DB reset)
-          if (localStorage.getItem('token')) {
-            localStorage.clear();
-            clearApiCache();
-            window.location.href = '/login';
-          }
-        }
-      } catch(e) {
-        // Not JSON
-        if (localStorage.getItem('token')) {
-          localStorage.clear();
-          clearApiCache();
-          window.location.href = '/login';
-        }
-      }
-    }
-    return response;
-  };
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => cachedFetch(input, init);
 }
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {

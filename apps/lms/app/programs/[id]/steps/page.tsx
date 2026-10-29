@@ -23,6 +23,7 @@ import {
   type EnrolmentProgressionResponse,
   type StepProgressionItem,
 } from "../../../lib/api";
+import { sanitizeExternalUrl } from "../../../lib/auth-redirect";
 
 const Check = (
   <svg
@@ -294,39 +295,12 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       try {
         const headers = getAuthHeaders();
 
-        // 1. Concurrently initiate all primary endpoints: progression, exam config, coaching requests, and mission submissions
-        const progPromise = cachedFetch(`${API_URL}/progression/me/${id}`, {
+        // 1. Fetch unified progression endpoint first to avoid firing multiple redundant queries
+        const res = await cachedFetch(`${API_URL}/progression/me/${id}`, {
           headers,
           ttlMs: 15_000,
           skipCache: isRetry,
         });
-
-        const examPromise = cachedFetch(`${API_URL}/programs/${id}/exam`, {
-          headers,
-          ttlMs: 30_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        const coachingPromise = cachedFetch(`${API_URL}/one-on-one/my-requests`, {
-          headers,
-          ttlMs: 15_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        const missionPromise = cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
-          headers,
-          ttlMs: 15_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        const certsPromise = cachedFetch(`${API_URL}/certificates/mine`, {
-          headers,
-          ttlMs: 15_000,
-          skipCache: isRetry,
-        }).catch(() => null);
-
-        // 2. Await progression response to obtain verified enrolmentId & step completion status
-        const res = await progPromise;
 
         if (res.status === 401) {
           router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
@@ -373,7 +347,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (!resolvedExamConfig) {
           fallbackTasks.push(
-            examPromise
+            cachedFetch(`${API_URL}/programs/${id}/exam`, {
+              headers,
+              ttlMs: 30_000,
+              skipCache: isRetry,
+            })
               .then(async (er) => {
                 if (er && er.ok) {
                   const conf = await er.json().catch(() => null);
@@ -413,7 +391,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (resolvedCoaching.length === 0) {
           fallbackTasks.push(
-            coachingPromise
+            cachedFetch(`${API_URL}/one-on-one/my-requests`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
               .then((cr) => (cr && cr.ok ? cr.json() : []))
               .then((cList) => {
                 if (Array.isArray(cList) && cList.length > 0) {
@@ -434,7 +416,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (resolvedMissions.length === 0) {
           fallbackTasks.push(
-            missionPromise
+            cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
               .then((mr) => (mr && mr.ok ? mr.json() : []))
               .then((mList) => {
                 if (Array.isArray(mList) && mList.length > 0) {
@@ -449,7 +435,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
         if (!resolvedCertificate) {
           fallbackTasks.push(
-            certsPromise
+            cachedFetch(`${API_URL}/certificates/mine`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
               .then((cr) => (cr && cr.ok ? cr.json() : []))
               .then((cList) => {
                 if (Array.isArray(cList) && cList.length > 0) {
@@ -1508,10 +1498,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 )}
 
                               {/* Actions */}
-                              {activeCoachingReq.session?.joinUrl ? (
+                              {sanitizeExternalUrl(activeCoachingReq.session?.joinUrl) ? (
                                 <div>
                                   <a
-                                    href={activeCoachingReq.session.joinUrl}
+                                    href={sanitizeExternalUrl(activeCoachingReq.session!.joinUrl)!}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className={styles.startBtn}
@@ -2257,9 +2247,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                                 <a
                                   href={
-                                    latestMission.fileUrl.startsWith("http") || latestMission.fileUrl.startsWith("data:")
-                                      ? latestMission.fileUrl
-                                      : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                    sanitizeExternalUrl(
+                                      latestMission.fileUrl && latestMission.fileUrl.startsWith("http")
+                                        ? latestMission.fileUrl
+                                        : `${API_URL}/mission-statements/${encodeURIComponent(latestMission.id)}/file`
+                                    ) || "#"
                                   }
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -2452,14 +2444,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     <div className={styles.stepActionCol}>
                       {isCertificateClaimed ? (
                         <Link
-                          href={`/programs/${id}/certificate`}
+                          href="/certificates"
                           className={styles.reviewBtn}
                         >
                           View Certificate
                         </Link>
                       ) : isCertificateUnlocked ? (
                         <Link
-                          href={`/programs/${id}/certificate`}
+                          href="/certificates"
                           className={styles.startBtn}
                           style={{
                             background: "linear-gradient(135deg, #eab308, #ca8a04)",
@@ -2470,12 +2462,17 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           Claim Certificate
                         </Link>
                       ) : (
-                        <Link
-                          href={`/programs/${id}/certificate`}
-                          className={styles.reviewBtn}
+                        <span
+                          className={styles.lockedPill}
+                          title={`Complete all ${total} steps, Final Exam, 1-on-1 Coaching, and Mission Statement to unlock your certificate`}
+                          aria-disabled="true"
                         >
-                          Check Status
-                        </Link>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
+                            <rect x="4" y="11" width="16" height="10" rx="2" />
+                            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                          </svg>
+                          Locked
+                        </span>
                       )}
                     </div>
                   </li>

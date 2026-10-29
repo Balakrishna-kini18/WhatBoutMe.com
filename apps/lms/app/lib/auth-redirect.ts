@@ -143,6 +143,41 @@ export function sanitizeReturnUrl(
   }
 }
 
+/**
+ * Strictly validates an external URL (e.g., Zoom/Google Meet links, external PDF downloads).
+ * Only allows valid http: and https: protocols, strictly rejecting javascript:, data:, vbscript:
+ * or control character injections that lead to DOM XSS upon navigation.
+ */
+export function sanitizeExternalUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl || typeof rawUrl !== "string") {
+    return null;
+  }
+
+  const trimmed = rawUrl.trim();
+  if (!trimmed || hasControlChars(trimmed)) {
+    return null;
+  }
+
+  // Reject dangerous pseudo-protocols explicitly
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    // Relative same-origin path is acceptable
+    if (trimmed.startsWith("/") && !trimmed.startsWith("//") && !trimmed.includes("\\")) {
+      return trimmed;
+    }
+    return null;
+  }
+}
+
 export function extractRedirectParam(
   searchParams?:
     | URLSearchParams

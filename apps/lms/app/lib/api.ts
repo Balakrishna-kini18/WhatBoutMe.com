@@ -66,12 +66,15 @@ export const apiCache = new Map<string, CacheEntry>();
 // In-flight request deduplication map
 export const inFlightRequests = new Map<
   string,
-  Promise<{
-    bodyText: string;
-    status: number;
-    statusText: string;
-    headers: [string, string][];
-  }>
+  Promise<
+    | Response
+    | {
+        bodyText: string;
+        status: number;
+        statusText: string;
+        headers: [string, string][];
+      }
+  >
 >();
 
 /**
@@ -204,6 +207,8 @@ export function autoInvalidateOnMutation(url: string): void {
   }
 
   const resources = [
+    "notes",
+    "events",
     "sessions",
     "bookings",
     "attendance",
@@ -495,7 +500,73 @@ export async function cachedFetch(
           ? (window as any).__rawOriginalFetch
           : fetch;
 
-      let res = await rawFetch(url, { ...init, signal: abortController.signal });
+      // Strictly bind API credential injection to verified same-origin or canonical API_URL origin
+      let effectiveInit = init;
+      let isApiCall = false;
+
+      if (typeof window !== "undefined") {
+        try {
+          const parsedTarget = new URL(url, window.location.origin);
+          const parsedApi = new URL(API_URL, window.location.origin);
+          isApiCall =
+            parsedTarget.origin === parsedApi.origin ||
+            (parsedTarget.origin === window.location.origin &&
+              (url.startsWith("/auth/") ||
+                url.startsWith("/programs") ||
+                url.startsWith("/quizzes") ||
+                url.startsWith("/exams") ||
+                url.startsWith("/sessions") ||
+                url.startsWith("/attendance") ||
+                url.startsWith("/certificates") ||
+                url.startsWith("/notes") ||
+                url.startsWith("/events") ||
+                url.startsWith("/agreements") ||
+                url.startsWith("/one-on-one") ||
+                url.startsWith("/mission-statements") ||
+                url.startsWith("/progression")));
+        } catch {
+          isApiCall = false;
+        }
+      }
+
+      if (typeof window !== "undefined" && isApiCall) {
+        const token = localStorage.getItem("token");
+        if (token) {
+          const h = new Headers(init?.headers);
+          if (!h.has("Authorization")) {
+            h.set("Authorization", `Bearer ${token}`);
+            effectiveInit = { ...init, headers: h };
+          }
+        }
+      }
+
+      let res: Response;
+      try {
+        res = await rawFetch(url, { ...effectiveInit, signal: abortController.signal });
+      } catch (fetchErr: any) {
+        // If the API server is momentarily restarting or recompiling in watch mode,
+        // attempt progressive retry before bubbling the error
+        if (typeof window !== "undefined" && isApiCall && !abortController.signal.aborted) {
+          let succeeded = false;
+          let retryRes!: Response;
+          for (const delay of [400, 1000]) {
+            await new Promise((r) => setTimeout(r, delay));
+            if (abortController.signal.aborted) break;
+            try {
+              retryRes = await rawFetch(url, { ...effectiveInit, signal: abortController.signal });
+              succeeded = true;
+              break;
+            } catch {}
+          }
+          if (succeeded) {
+            res = retryRes;
+          } else {
+            throw fetchErr;
+          }
+        } else {
+          throw fetchErr;
+        }
+      }
       clearTimeout(timeoutTimer);
 
       // Handle transparent 401 token refresh for authenticated requests
@@ -505,9 +576,9 @@ export async function cachedFetch(
         const renewedToken = await renewOnce(rawFetch, currentToken);
 
         if (renewedToken && renewedToken !== "signed-out") {
-          const retryHeaders = new Headers(init?.headers);
+          const retryHeaders = new Headers(effectiveInit?.headers);
           retryHeaders.set("Authorization", `Bearer ${renewedToken}`);
-          res = await rawFetch(url, { ...init, headers: retryHeaders, signal: abortController.signal });
+          res = await rawFetch(url, { ...effectiveInit, headers: retryHeaders, signal: abortController.signal });
         } else if (renewedToken === "signed-out") {
           try {
             const clone = res.clone();

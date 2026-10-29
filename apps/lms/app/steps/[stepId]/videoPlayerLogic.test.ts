@@ -5,6 +5,9 @@ import {
   calculateRewindTarget,
   calculateTimelineSeekTime,
   determineResumePosition,
+  isEligibleToAdvance,
+  getQualityTransformedUrl,
+  VIDEO_QUALITY_OPTIONS,
 } from "./videoPlayerLogic";
 
 describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
@@ -152,6 +155,120 @@ describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
         isCompleted: false,
       });
       expect(res.shouldResume).toBe(false);
+    });
+  });
+
+  describe("isEligibleToAdvance (Advance when 30 seconds left)", () => {
+    it("returns true when lesson is already marked isCompleted", () => {
+      expect(
+        isEligibleToAdvance({
+          currentTime: 10,
+          durationSec: 542,
+          isCompleted: true,
+        })
+      ).toBe(true);
+    });
+
+    it("returns false when more than 30 seconds remain", () => {
+      // 542s total (9:02) - 500s = 42s remaining
+      expect(
+        isEligibleToAdvance({
+          currentTime: 500,
+          durationSec: 542,
+          isCompleted: false,
+        })
+      ).toBe(false);
+    });
+
+    it("returns true when 30 seconds or less remain", () => {
+      // 542s total - 512s = exactly 30s remaining
+      expect(
+        isEligibleToAdvance({
+          currentTime: 512,
+          durationSec: 542,
+          isCompleted: false,
+        })
+      ).toBe(true);
+
+      // 542s total - 525s = 17s remaining
+      expect(
+        isEligibleToAdvance({
+          currentTime: 525,
+          durationSec: 542,
+          isCompleted: false,
+        })
+      ).toBe(true);
+    });
+
+    it("handles short clips <= 30s correctly", () => {
+      expect(
+        isEligibleToAdvance({
+          currentTime: 5,
+          durationSec: 20,
+          isCompleted: false,
+        })
+      ).toBe(false);
+
+      expect(
+        isEligibleToAdvance({
+          currentTime: 19,
+          durationSec: 20,
+          isCompleted: false,
+        })
+      ).toBe(true);
+    });
+  });
+
+  describe("getQualityTransformedUrl and Video Quality Settings", () => {
+    it("has exact quality levels specified in design (Auto, 1080p, 720p, 540p, 360p, 224p)", () => {
+      expect(VIDEO_QUALITY_OPTIONS).toEqual([
+        "Auto",
+        "1080p",
+        "720p",
+        "540p",
+        "360p",
+        "224p",
+      ]);
+    });
+
+    it("returns original URL when quality is Auto", () => {
+      const url = "https://res.cloudinary.com/demo/video/upload/v1234/sample.mp4";
+      expect(getQualityTransformedUrl(url, "Auto")).toBe(url);
+    });
+
+    it("transforms Cloudinary URLs with target resolution", () => {
+      const url = "https://res.cloudinary.com/demo/video/upload/v1234/sample.mp4";
+      expect(getQualityTransformedUrl(url, "1080p")).toBe(
+        "https://res.cloudinary.com/demo/video/upload/c_limit,h_1080,q_auto/v1234/sample.mp4"
+      );
+      expect(getQualityTransformedUrl(url, "720p")).toBe(
+        "https://res.cloudinary.com/demo/video/upload/c_limit,h_720,q_auto/v1234/sample.mp4"
+      );
+      expect(getQualityTransformedUrl(url, "540p")).toBe(
+        "https://res.cloudinary.com/demo/video/upload/c_limit,h_540,q_auto/v1234/sample.mp4"
+      );
+      expect(getQualityTransformedUrl(url, "360p")).toBe(
+        "https://res.cloudinary.com/demo/video/upload/c_limit,h_360,q_auto/v1234/sample.mp4"
+      );
+      expect(getQualityTransformedUrl(url, "224p")).toBe(
+        "https://res.cloudinary.com/demo/video/upload/c_limit,h_224,q_auto/v1234/sample.mp4"
+      );
+    });
+
+    it("replaces existing Cloudinary transformation parameter smoothly", () => {
+      const existingTransformedUrl =
+        "https://res.cloudinary.com/demo/video/upload/q_auto/v1234/sample.mp4";
+      expect(getQualityTransformedUrl(existingTransformedUrl, "720p")).toBe(
+        "https://res.cloudinary.com/demo/video/upload/c_limit,h_720,q_auto/v1234/sample.mp4"
+      );
+    });
+
+    it("appends quality query parameters for local / media stream endpoints", () => {
+      const streamUrl = "http://localhost:4000/media/stream/video-123.mp4?token=abc";
+      const transformed = getQualityTransformedUrl(streamUrl, "720p");
+      expect(transformed).toContain("quality=720p");
+      expect(transformed).toContain("h=720");
+      expect(transformed).toContain("token=abc");
     });
   });
 });

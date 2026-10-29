@@ -63,4 +63,60 @@ describe('richTextHelper', () => {
     expect(cleaned).not.toContain('<script>');
     expect(cleaned).toContain('Safe note');
   });
+
+  it('neutralizes unquoted event handlers, svg, iframe, and dangerous style exploits', () => {
+    const imgPayload = '<p>Note text</p><img src=x onerror=alert(1)>';
+    const cleanedImg = sanitizeNoteHtml(imgPayload);
+    expect(cleanedImg).not.toContain('onerror');
+    expect(cleanedImg).not.toContain('<img');
+    expect(cleanedImg).toContain('Note text');
+
+    const svgPayload = '<h3>Insight</h3><svg onload=alert(2)><circle r=10/></svg>';
+    const cleanedSvg = sanitizeNoteHtml(svgPayload);
+    expect(cleanedSvg).not.toContain('onload');
+    expect(cleanedSvg).not.toContain('<svg');
+    expect(cleanedSvg).toContain('<h3>Insight</h3>');
+
+    const iframePayload = '<iframe src="javascript:alert(3)"></iframe><p>Lesson learned</p>';
+    const cleanedIframe = sanitizeNoteHtml(iframePayload);
+    expect(cleanedIframe).not.toContain('<iframe');
+    expect(cleanedIframe).toContain('<p>Lesson learned</p>');
+
+    const badStyle = '<span style="background: url(http://evil.com/xss); position: fixed;">Text</span>';
+    const cleanedStyle = sanitizeNoteHtml(badStyle);
+    expect(cleanedStyle).not.toContain('url');
+    expect(cleanedStyle).not.toContain('position');
+  });
+
+  it('ensures markdownToHtml sanitizes incoming HTML input', () => {
+    const rawHtmlWithXss = '<p>Key thought <img src=x onerror=alert("xss")></p>';
+    const converted = markdownToHtml(rawHtmlWithXss);
+    expect(converted).not.toContain('onerror');
+    expect(converted).not.toContain('<img');
+    expect(converted).toContain('Key thought');
+  });
+
+  it('converts programmer-syntax tags like <u>***Text** *</u> into user-understandable visual formatting', () => {
+    const input1 = '<u>***Text** *</u>';
+    const html1 = markdownToHtml(input1);
+    expect(html1).toContain('<u>');
+    expect(html1).toContain('<strong>');
+    expect(html1).toContain('<em>Text</em>');
+    expect(html1).not.toContain('***');
+    expect(html1).not.toContain('**');
+
+    const input2 = '<u>***Text** \n*\n</u>';
+    const html2 = markdownToHtml(input2);
+    expect(html2).toContain('<u>');
+    expect(html2).toContain('Text');
+    expect(html2).not.toContain('***');
+
+    const input3 = '<u>**Bold Underlined**</u>';
+    const html3 = markdownToHtml(input3);
+    expect(html3).toContain('<u><strong>Bold Underlined</strong></u>');
+
+    const input4 = '<p>Here is **bold** text</p>';
+    const html4 = markdownToHtml(input4);
+    expect(html4).toBe('<p>Here is <strong>bold</strong> text</p>');
+  });
 });

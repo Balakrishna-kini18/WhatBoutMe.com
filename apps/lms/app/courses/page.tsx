@@ -5,10 +5,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SITE_URL } from "../lib/site";
+import { API_URL, getAuthHeaders } from "../lib/api";
 import { courseImageFor } from "../lib/courseImage";
 import styles from "./courses.module.css";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const MARKETING_URL = SITE_URL;
 
 interface Pending {

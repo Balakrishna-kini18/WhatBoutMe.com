@@ -1,6 +1,7 @@
 import React from "react";
 import Image from "next/image";
 import styles from "./Certificate.module.css";
+import { sanitizeExternalUrl } from "../lib/auth-redirect";
 
 export type CertificateDetails = {
   /** Legacy props for backward compatibility */
@@ -408,7 +409,7 @@ export default function Certificate({
       : `having fulfilled all curriculum milestones, video hours, self-reflections, and knowledge assessments for the ${finalCourse}, accredited for ${effectiveCpdHours} CPD Hours, delivered by ${finalBrand} and facilitated by ${finalIssuer}, Brain Health Coach.`);
 
   const publicVerifyUrl =
-    verificationUrl || `https://whatboutme.com/verify/${finalCertNo}`;
+    sanitizeExternalUrl(verificationUrl) || `https://whatboutme.com/verify/${encodeURIComponent(finalCertNo)}`;
 
   // Parse issue year & month for LinkedIn certificate addition
   const issueDateObj = issueDate || issuedAt ? new Date(issueDate || issuedAt!) : new Date();

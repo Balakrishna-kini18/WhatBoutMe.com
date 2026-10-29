@@ -21,6 +21,8 @@ interface EnrolledProgram {
   programTitle: string;
   status: string;
   progress: number;
+  totalItems?: number;
+  completedItems?: number;
 }
 
 interface UserProfile {
@@ -217,12 +219,16 @@ export default function LearnerDashboardPage() {
 
   const displayCourses = enrolled.map((p, idx) => {
     const progressVal = typeof p.progress === "number" ? p.progress : 0;
-    const totalLessons =
-      lessonTotalPresets[idx % lessonTotalPresets.length] || 20;
-    const completedLessons = Math.min(
-      totalLessons,
-      Math.max(0, Math.round((progressVal / 100) * totalLessons))
-    );
+    const hasRealItems = typeof p.totalItems === "number" && p.totalItems > 0;
+    const totalLessons = hasRealItems
+      ? p.totalItems!
+      : lessonTotalPresets[idx % lessonTotalPresets.length] || 20;
+    const completedLessons = hasRealItems && typeof p.completedItems === "number"
+      ? Math.min(totalLessons, Math.max(0, p.completedItems))
+      : Math.min(
+          totalLessons,
+          Math.max(0, Math.round((progressVal / 100) * totalLessons))
+        );
 
     return {
       key: p.enrolmentId || `course-${p.programId || idx}`,
@@ -257,7 +263,7 @@ export default function LearnerDashboardPage() {
     <div className={styles.dashboard}>
       {/* 1. TOP HERO / GREETING BANNER WITH 3D ART & FLOATING QUOTE (Star of the Page) */}
       <LearnerHeroSection
-        name={user?.name || "sahyadri"}
+        name={user?.name || (user?.email ? user.email.split("@")[0] || "Learner" : "Learner")}
         activeCoursesCount={activeCount}
         quoteText="Small steps every day lead to big results."
       />

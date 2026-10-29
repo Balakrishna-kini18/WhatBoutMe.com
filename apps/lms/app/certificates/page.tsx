@@ -5,9 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { courseImageFor } from "../lib/courseImage";
+import { API_URL, getAuthHeaders } from "../lib/api";
 import styles from "./certificates.module.css";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface Enrolled {
   enrolmentId: string;
@@ -357,6 +356,7 @@ export default function CertificatesPage() {
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
+  const [requestingEnrolmentId, setRequestingEnrolmentId] = useState<string | null>(null);
 
   const loadCertificates = useCallback(async (isInitial = false) => {
     const token = localStorage.getItem("token");
@@ -396,11 +396,13 @@ export default function CertificatesPage() {
   }, [loadCertificates]);
 
   const request = async (enrolmentId: string) => {
+    if (requestingEnrolmentId) return;
+    setRequestingEnrolmentId(enrolmentId);
     setNotice("");
     try {
       const res = await fetch(`${API_URL}/certificates/request/${enrolmentId}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: getAuthHeaders(),
       });
       if (res.ok) {
         const created = await res.json().catch(() => null);
@@ -411,6 +413,8 @@ export default function CertificatesPage() {
       }
     } catch {
       setNotice("Could not reach the server. Please try again in a moment.");
+    } finally {
+      setRequestingEnrolmentId(null);
     }
   };
 
@@ -651,9 +655,11 @@ export default function CertificatesPage() {
                             type="button"
                             onClick={() => request(course.enrolmentId)}
                             className={styles.actionBtnRequest}
+                            disabled={requestingEnrolmentId === course.enrolmentId}
+                            aria-busy={requestingEnrolmentId === course.enrolmentId}
                           >
                             <Icons.SparkleBtn />
-                            <span>Request Certificate</span>
+                            <span>{requestingEnrolmentId === course.enrolmentId ? "Requesting..." : "Request Certificate"}</span>
                           </button>
                         ) : isAwaiting ? (
                           <span className={styles.actionBtnPending}>

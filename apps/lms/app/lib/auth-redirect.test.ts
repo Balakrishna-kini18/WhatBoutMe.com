@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   sanitizeReturnUrl,
+  sanitizeExternalUrl,
   extractRedirectParam,
   buildCourseEnrollmentReturnUrl,
   saveEnrollmentIntent,
@@ -215,6 +216,31 @@ describe("Post-Signup & Post-Login Course Enrollment Redirect Suite", () => {
       expect(buildAuthHref("/login", "https://evil.com")).toBe("/login");
       expect(buildAuthHref("/signup", "//evil.com")).toBe("/signup");
       expect(buildAuthHref("/login", "/signup")).toBe("/login");
+    });
+  });
+
+  describe("5. External URL Sanitization (Zoom/Meet Links & External Resources)", () => {
+    it("accepts valid HTTPS and HTTP meeting URLs", () => {
+      expect(sanitizeExternalUrl("https://zoom.us/j/123456789")).toBe("https://zoom.us/j/123456789");
+      expect(sanitizeExternalUrl("https://meet.google.com/abc-defg-hij")).toBe("https://meet.google.com/abc-defg-hij");
+      expect(sanitizeExternalUrl("http://localhost:4000/media/doc.pdf")).toBe("http://localhost:4000/media/doc.pdf");
+      expect(sanitizeExternalUrl("/media/document/doc-1")).toBe("/media/document/doc-1");
+    });
+
+    it("strictly rejects dangerous pseudo-protocols like javascript:, data:, and file:", () => {
+      expect(sanitizeExternalUrl("javascript:alert(1)")).toBeNull();
+      expect(sanitizeExternalUrl("JAVASCRIPT:alert(document.cookie)")).toBeNull();
+      expect(sanitizeExternalUrl("data:text/html,<script>alert(1)</script>")).toBeNull();
+      expect(sanitizeExternalUrl("vbscript:msgbox(1)")).toBeNull();
+      expect(sanitizeExternalUrl("file:///etc/passwd")).toBeNull();
+    });
+
+    it("strictly rejects null, empty string, control chars, and malformed inputs", () => {
+      expect(sanitizeExternalUrl(null)).toBeNull();
+      expect(sanitizeExternalUrl(undefined)).toBeNull();
+      expect(sanitizeExternalUrl("")).toBeNull();
+      expect(sanitizeExternalUrl("   ")).toBeNull();
+      expect(sanitizeExternalUrl("https://zoom.us/\x00evil")).toBeNull();
     });
   });
 });

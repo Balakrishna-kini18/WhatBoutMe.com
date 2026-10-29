@@ -42,7 +42,8 @@ export function validateSeek(
   const safeTarget = Math.max(0, Number.isFinite(targetTime) ? targetTime : 0);
   const dur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
   const isEffectivelyCompleted =
-    isCompleted || (dur > 0 && maxWatchedSec >= dur * 0.95);
+    isCompleted ||
+    (dur > 0 && (dur - maxWatchedSec <= 30 || maxWatchedSec >= dur * 0.95));
 
   if (isEffectivelyCompleted) {
     const clamped = dur > 0 ? Math.min(dur, safeTarget) : safeTarget;
@@ -65,6 +66,30 @@ export function validateSeek(
     effectiveTime: lastValidTime,
     reason: "Fast-forwarding is locked. You can rewind or rewatch viewed sections.",
   };
+}
+
+/**
+ * Determines whether the user is eligible to advance to the next part:
+ * - When the lesson is already marked completed
+ * - OR when the video is left for 30 seconds or less (duration - current <= 30)
+ */
+export function isEligibleToAdvance({
+  currentTime,
+  durationSec,
+  isCompleted = false,
+}: {
+  currentTime: number;
+  durationSec: number;
+  isCompleted?: boolean;
+}): boolean {
+  if (isCompleted) return true;
+  const dur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
+  const cur = Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0;
+  if (dur <= 0) return false;
+  if (dur <= 30) {
+    return cur >= dur - 1.0 || cur >= dur * 0.9;
+  }
+  return dur - cur <= 30;
 }
 
 /**
@@ -198,4 +223,72 @@ export function determineResumePosition({
   }
 
   return { resumeSec: 0, shouldResume: false };
+}
+
+export type VideoQuality = "Auto" | "1080p" | "720p" | "540p" | "360p" | "224p";
+
+export const VIDEO_QUALITY_OPTIONS: VideoQuality[] = [
+  "Auto",
+  "1080p",
+  "720p",
+  "540p",
+  "360p",
+  "224p",
+];
+
+const QUALITY_HEIGHT_MAP: Record<Exclude<VideoQuality, "Auto">, number> = {
+  "1080p": 1080,
+  "720p": 720,
+  "540p": 540,
+  "360p": 360,
+  "224p": 224,
+};
+
+/**
+ * Transforms a video stream URL to request the specified quality level:
+ * - Supports Cloudinary on-the-fly resolution transformations (/upload/c_limit,h_X,q_auto/...)
+ * - Supports /media/stream proxy query parameters (?quality=...&h=...)
+ * - Gracefully preserves token parameters and query strings
+ */
+export function getQualityTransformedUrl(originalUrl: string, quality: VideoQuality): string {
+  if (!originalUrl) return "";
+  if (quality === "Auto") return originalUrl;
+
+  const targetHeight = QUALITY_HEIGHT_MAP[quality as Exclude<VideoQuality, "Auto">];
+  if (!targetHeight) return originalUrl;
+
+  // 1. Cloudinary URLs
+  if (originalUrl.includes("res.cloudinary.com") && originalUrl.includes("/video/upload/")) {
+    const uploadMarker = "/video/upload/";
+    const uploadIndex = originalUrl.indexOf(uploadMarker);
+    const prefix = originalUrl.substring(0, uploadIndex + uploadMarker.length);
+    const rest = originalUrl.substring(uploadIndex + uploadMarker.length);
+
+    // If already has transformation segment before version (e.g. /upload/q_auto/v1234... or /upload/c_limit,h_720/v1234...)
+    const versionMatch = rest.match(/^(?:([a-zA-Z0-9_,]+)\/)?(v\d+\/.*)$/);
+    if (versionMatch) {
+      const pathAfterVersion = versionMatch[2];
+      return `${prefix}c_limit,h_${targetHeight},q_auto/${pathAfterVersion}`;
+    }
+
+    // Direct path without version tag
+    return `${prefix}c_limit,h_${targetHeight},q_auto/${rest}`;
+  }
+
+  // 2. Query parameter transformation for /media/stream, CDN or direct URLs
+  try {
+    const hasProtocol = originalUrl.startsWith("http://") || originalUrl.startsWith("https://");
+    const dummyOrigin = "https://whatboutme.internal";
+    const urlObj = new URL(hasProtocol ? originalUrl : `${dummyOrigin}${originalUrl.startsWith("/") ? "" : "/"}${originalUrl}`);
+    urlObj.searchParams.set("quality", quality);
+    urlObj.searchParams.set("h", String(targetHeight));
+
+    if (hasProtocol) {
+      return urlObj.toString();
+    }
+    return `${urlObj.pathname}${urlObj.search}`;
+  } catch {
+    const sep = originalUrl.includes("?") ? "&" : "?";
+    return `${originalUrl}${sep}quality=${encodeURIComponent(quality)}&h=${targetHeight}`;
+  }
 }

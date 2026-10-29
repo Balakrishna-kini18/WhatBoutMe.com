@@ -13,6 +13,7 @@ export interface CourseCardData {
   completedLessons: number;
   image: string;
   route: string;
+  status?: string;
 }
 
 interface LearnerCourseCardProps {
@@ -25,6 +26,7 @@ export default function LearnerCourseCard({
   isPriority = false,
 }: LearnerCourseCardProps) {
   const [imgError, setImgError] = useState(false);
+  const isPendingAgreement = course.status === "PENDING_AGREEMENT";
 
   return (
     <article className={styles.courseCard}>
@@ -40,6 +42,26 @@ export default function LearnerCourseCard({
           className={styles.courseCoverImg}
           onError={() => setImgError(true)}
         />
+        {isPendingAgreement && (
+          <span
+            style={{
+              position: "absolute",
+              top: "10px",
+              left: "10px",
+              background: "rgba(180, 83, 9, 0.92)",
+              color: "#ffffff",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              padding: "4px 10px",
+              borderRadius: "9999px",
+              backdropFilter: "blur(4px)",
+              letterSpacing: "0.03em",
+              zIndex: 2,
+            }}
+          >
+            Digital Agreement Required
+          </span>
+        )}
       </div>
 
       {/* Card Body */}
@@ -96,8 +118,13 @@ export default function LearnerCourseCard({
         </p>
 
         {/* Full-width CTA Button */}
-        <Link href={course.route} prefetch={false} className={styles.viewCourseBtn}>
-          <span>View Course</span>
+        <Link
+          href={course.route}
+          prefetch={false}
+          className={styles.viewCourseBtn}
+          style={isPendingAgreement ? { background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)" } : undefined}
+        >
+          <span>{isPendingAgreement ? "Sign Agreement & Begin" : "View Course"}</span>
           <span aria-hidden="true">&rarr;</span>
         </Link>
       </div>

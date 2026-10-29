@@ -247,6 +247,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   // In-memory SWR verification tracker: prevents redundant /auth/me network calls on navigation
   const lastVerifiedAtRef = useRef<number>(0);
   const isVerifyingRef = useRef<boolean>(false);
+  const userRef = useRef<UserData | null>(user);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const login = useCallback(
     (session: { access_token: string; refresh_token?: string; user: UserData }) => {
@@ -280,7 +285,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
 
       // Synchronously hydrate from localStorage if in-memory user state is null
-      let currentUser = user;
+      let currentUser = userRef.current || user;
       if (!currentUser) {
         const cached = getInitialUser();
         if (cached) {
@@ -309,7 +314,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         if (res.ok) {
           const verifiedUser: UserData = await res.json();
           lastVerifiedAtRef.current = Date.now();
-          const existing = currentUser || getInitialUser();
+          const existing = userRef.current || currentUser || getInitialUser();
           const mergedUser: UserData = {
             ...existing,
             ...verifiedUser,
@@ -379,7 +384,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       return currentUser;
     },
-    [pathname, router, user]
+    [pathname]
   );
 
   const logout = useCallback(async () => {
@@ -430,8 +435,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     }
 
     // Background SWR revalidation (only runs if last check > 60s ago)
-    revalidateUser(true);
-  }, [pathname, revalidateUser, router, token, user]);
+    revalidateUser(false);
+  }, [pathname, revalidateUser]);
 
   const contextValue: AuthContextType = {
     user,

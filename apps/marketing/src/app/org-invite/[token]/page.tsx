@@ -51,10 +51,10 @@ export default function OrgInviteTokenPage({ params }: PageProps) {
 
       if (!tokenToUse) {
         if (isNewUser) {
-          const registerRes = await fetch(`${API_BASE_URL}/auth/register`, {
+          const registerRes = await fetch(`${API_BASE_URL}/auth/signup`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fullName, email, password }),
+            body: JSON.stringify({ name: fullName.trim() || email.split("@")[0], email: email.trim().toLowerCase(), password }),
           });
 
           if (!registerRes.ok) {

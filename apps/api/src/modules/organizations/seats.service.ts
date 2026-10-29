@@ -4,8 +4,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import {
   EnrolmentStatus,
   FundingSource,
@@ -16,11 +18,16 @@ import {
   SeatStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { EmailService } from '../email/email.service.js';
+import { getAppUrls } from '../../common/config/app-urls.js';
 import { AssignSeatDto, BulkInviteDto } from './dto/index.js';
 
 @Injectable()
 export class SeatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
+  ) {}
 
   /**
    * Helper to hash a token/code securely with SHA-256.
@@ -45,10 +52,22 @@ export class SeatsService {
   /**
    * Assigns a specific AVAILABLE numbered seat slot to a student or generates a reseller voucher.
    */
+  /**
+   * Assigns a specific AVAILABLE numbered seat slot to a student, provisions/links their account and enrolment,
+   * and dispatches an account setup / course notification email to their Gmail.
+   */
   async assignSeat(orgId: string, dto: AssignSeatDto, actor?: any) {
     const seat = await this.prisma.seat.findUnique({
       where: { id: dto.seatId },
-      include: { seatPool: { include: { batch: true } } },
+      include: {
+        seatPool: {
+          include: {
+            batch: true,
+            program: true,
+            organization: true,
+          },
+        },
+      },
     });
 
     if (!seat) {
@@ -66,48 +85,121 @@ export class SeatsService {
     }
 
     const email = dto.email.trim().toLowerCase();
-
-    // Check if learner is already actively enrolled in this batch
-    const existingEnrolment = await this.prisma.enrolment.findFirst({
-      where: {
-        batchId: seat.seatPool.batchId,
-        user: { email },
-        status: { notIn: [EnrolmentStatus.REVOKED] },
-      },
-    });
-
-    if (existingEnrolment) {
-      throw new ConflictException(
-        `Learner with email ${email} already has an active enrolment in batch "${seat.seatPool.batch.name}"`,
-      );
-    }
-
     const isVoucher = dto.redemptionMode === SeatRedemptionMode.VOUCHER_CODE;
     const rawToken = crypto.randomBytes(24).toString('hex');
     const tokenHash = this.hashSecret(rawToken);
     const voucher = isVoucher ? this.generateVoucherCode() : null;
 
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Create OrganizationInvite record
+    // Check if user already exists
+    let existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      // Check if learner is already actively enrolled in this batch
+      const existingEnrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          batchId: seat.seatPool.batchId,
+          userId: existingUser.id,
+          status: { notIn: [EnrolmentStatus.REVOKED] },
+        },
+      });
+
+      if (existingEnrolment) {
+        throw new ConflictException(
+          `Learner with email ${email} already has an active enrolment in batch "${seat.seatPool.batch.name}"`,
+        );
+      }
+    }
+
+    let passwordSetupToken: string | null = null;
+    let precomputedPasswordHash: string | null = null;
+    let setupTokenHash: string | null = null;
+    let setupExpiresAt: Date | null = null;
+
+    if (!existingUser) {
+      const tempPassword = crypto.randomBytes(16).toString('hex');
+      precomputedPasswordHash = await bcrypt.hash(tempPassword, 10);
+      passwordSetupToken = crypto.randomBytes(32).toString('hex');
+      setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
+      setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Resolve or provision user
+      let targetUser = existingUser;
+      if (!targetUser) {
+        targetUser = await tx.user.create({
+          data: {
+            email,
+            name: dto.fullName?.trim() || email.split('@')[0],
+            phone: dto.phone?.trim() || null,
+            passwordHash: precomputedPasswordHash!,
+            role: Role.USER,
+          },
+        });
+
+        await tx.passwordResetToken.create({
+          data: {
+            userId: targetUser.id,
+            token: setupTokenHash!,
+            expiresAt: setupExpiresAt!,
+          },
+        });
+      } else if (dto.fullName && (!targetUser.name || targetUser.name === email.split('@')[0])) {
+        targetUser = await tx.user.update({
+          where: { id: targetUser.id },
+          data: { name: dto.fullName.trim() },
+        });
+      }
+
+      // 2. Provision sponsored enrolment immediately in PENDING_AGREEMENT status
+      let enrolment = await tx.enrolment.findFirst({
+        where: {
+          userId: targetUser.id,
+          batchId: seat.seatPool.batchId,
+          status: { notIn: [EnrolmentStatus.REVOKED] },
+        },
+      });
+
+      if (!enrolment) {
+        enrolment = await tx.enrolment.create({
+          data: {
+            userId: targetUser.id,
+            batchId: seat.seatPool.batchId,
+            programId: seat.seatPool.programId,
+            status: EnrolmentStatus.PENDING_AGREEMENT,
+            fundingSource: FundingSource.ORG_SPONSORED,
+            organizationId: orgId,
+            oneOnOneStatus: OneOnOneSessionStatus.NOT_BOOKED,
+          },
+        });
+      }
+
+      // 3. Create OrganizationInvite record (automatically accepted since user and enrolment exist)
       const invite = await tx.organizationInvite.create({
         data: {
           organizationId: orgId,
           seatPoolId: seat.seatPoolId,
           email,
-          fullName: dto.fullName,
-          phone: dto.phone,
+          fullName: dto.fullName || targetUser.name,
+          phone: dto.phone || targetUser.phone,
           department: dto.department,
           externalOrderRef: dto.externalOrderRef,
           tokenHash: voucher ? voucher.hash : tokenHash,
-          expiresAt: new Date(Date.now() + 14 * 86400 * 1000), // 14-day expiry
+          expiresAt: new Date(Date.now() + 14 * 86400 * 1000),
+          acceptedAt: new Date(),
         },
       });
 
-      // 2. Update Seat
+      // 4. Update Seat to ASSIGNED
       const updatedSeat = await tx.seat.update({
         where: { id: seat.id },
         data: {
-          status: SeatStatus.INVITED,
+          status: SeatStatus.ASSIGNED,
+          userId: targetUser.id,
+          enrolmentId: enrolment.id,
+          assignedAt: new Date(),
           redemptionMode: dto.redemptionMode || SeatRedemptionMode.EMAIL_INVITE,
           voucherCodeHash: voucher ? voucher.hash : null,
           voucherCodeMasked: voucher ? voucher.masked : null,
@@ -120,7 +212,7 @@ export class SeatsService {
         },
       });
 
-      // 3. Update SeatPool counters
+      // 5. Update SeatPool counters
       await tx.seatPool.update({
         where: { id: seat.seatPoolId },
         data: {
@@ -129,7 +221,7 @@ export class SeatsService {
         },
       });
 
-      // 4. Audit Log
+      // 6. Audit Log
       await tx.auditLog.create({
         data: {
           actorId: actor?.id || null,
@@ -141,6 +233,8 @@ export class SeatsService {
             seatPoolId: seat.seatPoolId,
             slotNumber: seat.slotNumber,
             email,
+            userId: targetUser.id,
+            enrolmentId: enrolment.id,
             department: dto.department,
             externalOrderRef: dto.externalOrderRef,
             redemptionMode: dto.redemptionMode,
@@ -150,13 +244,125 @@ export class SeatsService {
 
       return {
         seat: updatedSeat,
+        user: {
+          id: targetUser.id,
+          name: targetUser.name,
+          email: targetUser.email,
+        },
+        enrolmentId: enrolment.id,
         inviteId: invite.id,
-        inviteUrl: isVoucher
-          ? null
-          : `/org-invite/${rawToken}`,
+        isNewUser: !existingUser,
+        passwordSetupToken,
+        inviteToken: rawToken,
         voucherCode: voucher ? voucher.raw : null,
       };
-    });
+    }, { maxWait: 15000, timeout: 30000 });
+
+    // 7. Dispatch Welcome / Account Setup Email to student's Gmail
+    const { lmsUrl, marketingUrl } = getAppUrls();
+    const orgName = seat.seatPool.organization.name;
+    const programTitle = seat.seatPool.program.title;
+    const batchName = seat.seatPool.batch.name;
+    const studentName = result.user.name || 'Learner';
+
+    let setupUrl: string | null = null;
+    const inviteUrl = `/org-invite/${result.inviteToken}`;
+
+    if (result.isNewUser && result.passwordSetupToken) {
+      setupUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
+
+      if (this.emailService) {
+        const html = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #1e293b; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <span style="font-size: 22px; font-weight: 800; color: #c97a1e; letter-spacing: -0.5px;">whatboutme<span style="color: #e11d48;">&#9829;</span></span>
+            </div>
+            <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 14px; text-align: center;">Welcome to WhatBoutMe!</h2>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Hello <strong>${studentName}</strong>,</p>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">
+              <strong>${orgName}</strong> has sponsored your enrollment in the certified cognitive coaching program:
+            </p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin: 20px 0;">
+              <div style="font-size: 16px; font-weight: 700; color: #0f172a;">${programTitle}</div>
+              <div style="font-size: 14px; color: #64748b; margin-top: 4px;">Cohort Batch: <strong>${batchName}</strong></div>
+              <div style="font-size: 12px; color: #16a34a; font-weight: 600; margin-top: 6px;">&#10003; 100% Sponsored Seat Allocated</div>
+            </div>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">
+              To activate your account and view your course, set up your password by clicking the button below:
+            </p>
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="${setupUrl}" style="background: #c97a1e; color: #ffffff; text-decoration: none; padding: 13px 36px; font-size: 15px; font-weight: 700; border-radius: 8px; display: inline-block; box-shadow: 0 2px 6px rgba(201, 122, 30, 0.3);">
+                Set Up Account &amp; Access Courses &rarr;
+              </a>
+            </div>
+            <p style="font-size: 13px; line-height: 1.5; color: #64748b; text-align: center;">
+              This setup link will expire in 14 days. After creating your password, you will review and complete your Digital Workshop Agreement to begin Step 1.
+            </p>
+            <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.6;">
+              WhatBoutMe FZE &bull; Cognitive Health &amp; Resilience<br />
+              Need help? Sign in anytime at <a href="${lmsUrl}/login" style="color: #c97a1e; text-decoration: none;">${lmsUrl}/login</a>
+            </div>
+          </div>
+        `;
+
+        this.emailService
+          .sendEmail({
+            to: result.user.email,
+            subject: `Set up your WhatBoutMe account — Sponsored by ${orgName}`,
+            html,
+            text: `Hello ${studentName},\n\n${orgName} has sponsored your seat in ${programTitle} (${batchName}).\n\nSet up your password and start learning:\n${setupUrl}\n\nWhatBoutMe Team`,
+          })
+          .catch((e: any) => console.warn('[SeatsService] Email dispatch failed:', e?.message));
+      }
+    } else {
+      setupUrl = `${lmsUrl}/courses`;
+      if (this.emailService) {
+        const html = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #1e293b; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <span style="font-size: 22px; font-weight: 800; color: #c97a1e; letter-spacing: -0.5px;">whatboutme<span style="color: #e11d48;">&#9829;</span></span>
+            </div>
+            <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 14px; text-align: center;">New Course Enrollment Confirmed!</h2>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Hello <strong>${studentName}</strong>,</p>
+            <p style="font-size: 15px; line-height: 1.6; color: #334155;">
+              <strong>${orgName}</strong> has enrolled you into <strong>${programTitle}</strong> (${batchName}).
+            </p>
+            <div style="text-align: center; margin: 28px 0;">
+              <a href="${lmsUrl}/courses" style="background: #c97a1e; color: #ffffff; text-decoration: none; padding: 13px 36px; font-size: 15px; font-weight: 700; border-radius: 8px; display: inline-block;">
+                Go to My Courses &rarr;
+              </a>
+            </div>
+            <p style="font-size: 13px; line-height: 1.5; color: #64748b; text-align: center;">
+              Log in to your LMS portal to sign your Digital Workshop Agreement and start your curriculum.
+            </p>
+            <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
+              WhatBoutMe &bull; Cognitive Education &amp; Resilience
+            </div>
+          </div>
+        `;
+
+        this.emailService
+          .sendEmail({
+            to: result.user.email,
+            subject: `New Course Enrollment: ${programTitle} — Sponsored by ${orgName}`,
+            html,
+            text: `Hello ${studentName},\n\nYou have been enrolled in ${programTitle} by ${orgName}.\n\nAccess your course:\n${lmsUrl}/courses\n\nWhatBoutMe Team`,
+          })
+          .catch((e: any) => console.warn('[SeatsService] Email dispatch failed:', e?.message));
+      }
+    }
+
+    return {
+      success: true,
+      seat: result.seat,
+      user: result.user,
+      enrolmentId: result.enrolmentId,
+      inviteId: result.inviteId,
+      isNewUser: result.isNewUser,
+      setupUrl,
+      inviteUrl: isVoucher ? null : inviteUrl,
+      voucherCode: result.voucherCode,
+    };
   }
 
   /**
@@ -237,15 +443,24 @@ export class SeatsService {
 
     const pool = await this.prisma.seatPool.findUnique({
       where: { id: dto.seatPoolId },
+      include: {
+        batch: true,
+        program: true,
+        organization: true,
+      },
     });
     if (!pool) throw new NotFoundException('SeatPool not found');
 
     const results: Array<{
       slotNumber: number;
       email: string;
+      setupUrl?: string;
       inviteUrl?: string;
       voucherCode?: string;
     }> = [];
+
+    const { lmsUrl, marketingUrl } = getAppUrls();
+    const defaultPasswordHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
 
     await this.prisma.$transaction(async (tx) => {
       // Find AVAILABLE seats ordered by slotNumber
@@ -272,24 +487,78 @@ export class SeatsService {
         const tokenHash = this.hashSecret(rawToken);
         const voucher = isVoucher ? this.generateVoucherCode() : null;
 
+        // Resolve or provision user
+        let user = await tx.user.findUnique({ where: { email } });
+        let passwordSetupToken: string | null = null;
+
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              email,
+              name: inviteItem.fullName?.trim() || email.split('@')[0],
+              phone: inviteItem.phone?.trim() || null,
+              passwordHash: defaultPasswordHash,
+              role: Role.USER,
+            },
+          });
+
+          passwordSetupToken = crypto.randomBytes(32).toString('hex');
+          const setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
+          const expiresAt = new Date(Date.now() + 14 * 86400 * 1000);
+          await tx.passwordResetToken.create({
+            data: {
+              userId: user.id,
+              token: setupTokenHash,
+              expiresAt,
+            },
+          });
+        }
+
+        // Provision enrolment
+        let enrolment = await tx.enrolment.findFirst({
+          where: {
+            userId: user.id,
+            batchId: pool.batchId,
+            status: { notIn: [EnrolmentStatus.REVOKED] },
+          },
+        });
+
+        if (!enrolment) {
+          enrolment = await tx.enrolment.create({
+            data: {
+              userId: user.id,
+              batchId: pool.batchId,
+              programId: pool.programId,
+              status: EnrolmentStatus.PENDING_AGREEMENT,
+              fundingSource: FundingSource.ORG_SPONSORED,
+              organizationId: orgId,
+              oneOnOneStatus: OneOnOneSessionStatus.NOT_BOOKED,
+            },
+          });
+        }
+
         const invite = await tx.organizationInvite.create({
           data: {
             organizationId: orgId,
             seatPoolId: pool.id,
             email,
-            fullName: inviteItem.fullName,
-            phone: inviteItem.phone,
+            fullName: inviteItem.fullName || user.name,
+            phone: inviteItem.phone || user.phone,
             department: inviteItem.department,
             externalOrderRef: inviteItem.externalOrderRef,
             tokenHash: voucher ? voucher.hash : tokenHash,
             expiresAt: new Date(Date.now() + 14 * 86400 * 1000),
+            acceptedAt: new Date(),
           },
         });
 
         await tx.seat.update({
           where: { id: seat.id },
           data: {
-            status: SeatStatus.INVITED,
+            status: SeatStatus.ASSIGNED,
+            userId: user.id,
+            enrolmentId: enrolment.id,
+            assignedAt: new Date(),
             redemptionMode: dto.redemptionMode || SeatRedemptionMode.EMAIL_INVITE,
             voucherCodeHash: voucher ? voucher.hash : null,
             voucherCodeMasked: voucher ? voucher.masked : null,
@@ -300,12 +569,55 @@ export class SeatsService {
           },
         });
 
+        const setupUrl = passwordSetupToken
+          ? `${lmsUrl}/setup-account?token=${passwordSetupToken}&email=${encodeURIComponent(email)}`
+          : `${lmsUrl}/courses`;
+
         results.push({
           slotNumber: seat.slotNumber,
           email,
+          setupUrl,
           inviteUrl: isVoucher ? undefined : `/org-invite/${rawToken}`,
           voucherCode: voucher ? voucher.raw : undefined,
         });
+
+        // Dispatch email notification
+        if (this.emailService) {
+          const studentName = user.name || 'Learner';
+          const emailSubject = passwordSetupToken
+            ? `Set up your WhatBoutMe account — Sponsored by ${pool.organization.name}`
+            : `New Course Enrollment: ${pool.program.title} — Sponsored by ${pool.organization.name}`;
+
+          const html = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #1e293b; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;">
+              <div style="text-align: center; margin-bottom: 24px;">
+                <span style="font-size: 22px; font-weight: 800; color: #c97a1e; letter-spacing: -0.5px;">whatboutme<span style="color: #e11d48;">&#9829;</span></span>
+              </div>
+              <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 14px; text-align: center;">Welcome to WhatBoutMe!</h2>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155;">Hello <strong>${studentName}</strong>,</p>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155;">
+                <strong>${pool.organization.name}</strong> has enrolled you in <strong>${pool.program.title}</strong> (${pool.batch.name}).
+              </p>
+              <div style="text-align: center; margin: 28px 0;">
+                <a href="${setupUrl}" style="background: #c97a1e; color: #ffffff; text-decoration: none; padding: 13px 36px; font-size: 15px; font-weight: 700; border-radius: 8px; display: inline-block;">
+                  ${passwordSetupToken ? 'Set Up Account & Access Courses \u2192' : 'Go to My Courses \u2192'}
+                </a>
+              </div>
+              <p style="font-size: 13px; line-height: 1.5; color: #64748b; text-align: center;">
+                After signing in, please complete your Digital Workshop Agreement to unlock Step 1.
+              </p>
+            </div>
+          `;
+
+          this.emailService
+            .sendEmail({
+              to: email,
+              subject: emailSubject,
+              html,
+              text: `Hello ${studentName},\n\n${pool.organization.name} has enrolled you in ${pool.program.title}.\n\nAccess your course:\n${setupUrl}\n\nWhatBoutMe Team`,
+            })
+            .catch((e: any) => console.warn('[SeatsService] Bulk invite email failed:', e?.message));
+        }
       }
 
       // Update counters
@@ -331,7 +643,7 @@ export class SeatsService {
           },
         },
       });
-    });
+    }, { maxWait: 20000, timeout: 60000 });
 
     return {
       success: true,

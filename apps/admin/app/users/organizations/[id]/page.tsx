@@ -275,6 +275,32 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     fetchLearners();
   }, [orgId, selectedBatchId, studentSearch]);
 
+  // Click outside listener for custom batch dropdown
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (batchDropdownRef.current && !batchDropdownRef.current.contains(e.target as Node)) {
+        setIsBatchDropdownOpen(false);
+      }
+    };
+    if (isBatchDropdownOpen) {
+      document.addEventListener("mousedown", handleOutsideClick);
+    }
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [isBatchDropdownOpen]);
+
+  // Filtered batches for search
+  const filteredBatches = useMemo(() => {
+    if (!batchSearchTerm.trim()) return batches;
+    const q = batchSearchTerm.toLowerCase().trim();
+    return batches.filter(
+      (b) =>
+        b.name?.toLowerCase().includes(q) ||
+        (b.programTitle || b.program?.title)?.toLowerCase().includes(q)
+    );
+  }, [batches, batchSearchTerm]);
+
+
+
   const handleAllocatePoolSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
@@ -518,29 +544,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const ownerName = ownerMember?.user?.name || org.contactPersonName || "shrada";
   const ownerEmail = ownerMember?.user?.email || org.contactEmail || org.billingEmail || "gagan@foxwel.ai";
 
-  // Click outside listener for custom batch dropdown
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (batchDropdownRef.current && !batchDropdownRef.current.contains(e.target as Node)) {
-        setIsBatchDropdownOpen(false);
-      }
-    };
-    if (isBatchDropdownOpen) {
-      document.addEventListener("mousedown", handleOutsideClick);
-    }
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, [isBatchDropdownOpen]);
 
-  // Filtered batches for search
-  const filteredBatches = useMemo(() => {
-    if (!batchSearchTerm.trim()) return batches;
-    const q = batchSearchTerm.toLowerCase().trim();
-    return batches.filter(
-      (b) =>
-        b.name?.toLowerCase().includes(q) ||
-        (b.programTitle || b.program?.title)?.toLowerCase().includes(q)
-    );
-  }, [batches, batchSearchTerm]);
 
   // Pricing calculations for course slot request modal
   const selectedBatchForRequest = batches.find((b) => b.id === requestForm.batchId);
@@ -1977,16 +1981,93 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
         title={`Assign Student to Slot: ${selectedSeatForAssign?.slotLabel || "Slot"}`}
       >
         {assignedResult ? (
-          <div style={{ textAlign: "center", padding: "10px 0" }}>
-            <div style={{ fontSize: "2.5rem", marginBottom: "8px" }}>✅</div>
-            <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", marginBottom: "6px" }}>
-              Student Assigned Successfully!
+          <div style={{ textAlign: "center", padding: "12px 0" }}>
+            <div style={{ fontSize: "2.8rem", marginBottom: "8px" }}>🎉</div>
+            <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a", marginBottom: "6px" }}>
+              Student Enrolled &amp; Slot Allocated!
             </h3>
-            <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: "1rem" }}>
-              {assignedResult.mode === "VOUCHER_CODE"
-                ? "The prepaid voucher code has been generated. Provide this code to the student to claim their pre-paid seat."
-                : `An email invite with the onboarding claim link has been dispatched to ${assignedResult.inviteEmail || assignForm.email}.`}
+            <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: "1.2rem", lineHeight: 1.5 }}>
+              {assignedResult.isNewUser
+                ? `An account setup email with LMS activation link has been dispatched to ${assignedResult.user?.email || assignForm.email}.`
+                : `Student account resolved and course enrolled. A notification email has been dispatched to ${assignedResult.user?.email || assignForm.email}.`}
             </p>
+
+            {/* Direct Setup Link Card */}
+            {assignedResult.setupUrl && (
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "10px",
+                  padding: "16px",
+                  margin: "1rem 0",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+                  Direct Student Setup &amp; Activation Link
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.82rem",
+                    color: "#0f172a",
+                    background: "#ffffff",
+                    padding: "10px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    wordBreak: "break-all",
+                    fontFamily: "monospace",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {assignedResult.setupUrl}
+                </div>
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(assignedResult.setupUrl);
+                      toast.success("Account setup link copied to clipboard!", "Link Copied");
+                    }}
+                    style={{
+                      padding: "7px 16px",
+                      background: "#c97a1e",
+                      color: "#ffffff",
+                      borderRadius: "6px",
+                      border: "none",
+                      fontWeight: 600,
+                      fontSize: "0.82rem",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    📋 Copy Setup Link
+                  </button>
+                  <a
+                    href={assignedResult.setupUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      padding: "7px 14px",
+                      background: "#ffffff",
+                      color: "#475569",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      fontWeight: 600,
+                      fontSize: "0.82rem",
+                      textDecoration: "none",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    Open in LMS &rarr;
+                  </a>
+                </div>
+              </div>
+            )}
 
             {assignedResult.voucherCode && (
               <div
@@ -2041,16 +2122,19 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
             <button
               type="button"
-              onClick={() => setIsAssignModalOpen(false)}
+              onClick={() => {
+                setIsAssignModalOpen(false);
+                setAssignedResult(null);
+              }}
               style={{
-                marginTop: "10px",
-                padding: "8px 20px",
+                marginTop: "12px",
+                padding: "9px 28px",
                 background: "#0f172a",
                 color: "#ffffff",
-                borderRadius: "6px",
+                borderRadius: "8px",
                 border: "none",
                 fontWeight: 600,
-                fontSize: "0.85rem",
+                fontSize: "0.88rem",
                 cursor: "pointer",
               }}
             >

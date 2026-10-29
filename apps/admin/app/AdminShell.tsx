@@ -384,33 +384,31 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const [mounted, setMounted] = useState(false);
 
   const effectiveUser: UserData | null =
-    user || (typeof window !== "undefined" ? (() => {
-      user || (mounted && typeof window !== "undefined" ? (() => {
-        try {
-          const raw = localStorage.getItem("user");
-          return raw ? JSON.parse(raw) : null;
-        } catch {
-          return null;
-        }
-      })() : null);
+    user || (mounted && typeof window !== "undefined" ? (() => {
+      try {
+        const raw = localStorage.getItem("user");
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })() : null);
 
-      const isOrgAccount = Boolean(
-        (effectiveUser as any)?.isOrgUser ||
-        (effectiveUser as any)?.organizationId ||
-        (effectiveUser as any)?.organization ||
-        (effectiveUser as any)?.orgRole ||
-        (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
-      );
-      const isPlatformAdmin = Boolean(
-        !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
-      );
-      const isOrgUser = Boolean(
-        isOrgAccount || (!isPlatformAdmin && (effectiveUser?.role === "USER" || !effectiveUser?.role))
-      );
-      const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
-      const orgName = ((effectiveUser as any)?.organization?.name || "Organization Partner");
-      const homeHref = !isPlatformAdmin && orgId ? `/users/organizations/${orgId}` : "/";
-      const homeHref = mounted && !isPlatformAdmin && orgId ? `/users/organizations/${orgId}` : "/";
+  const isOrgAccount = Boolean(
+    (effectiveUser as any)?.isOrgUser ||
+    (effectiveUser as any)?.organizationId ||
+    (effectiveUser as any)?.organization ||
+    (effectiveUser as any)?.orgRole ||
+    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+  );
+  const isPlatformAdmin = Boolean(
+    !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
+  );
+  const isOrgUser = Boolean(
+    isOrgAccount || (!isPlatformAdmin && (effectiveUser?.role === "USER" || !effectiveUser?.role))
+  );
+  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
+  const orgName = ((effectiveUser as any)?.organization?.name || "Organization Partner");
+  const homeHref = mounted && !isPlatformAdmin && orgId ? `/users/organizations/${orgId}` : "/";
 
       const [isCollapsed, setIsCollapsed] = useState(false);
       const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -919,68 +917,40 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               </button>
             </div>
 
-            {/* Navigation Menu */}
-            <nav className={styles.navMenu}>
-              {effectiveNavGroups.map((group) => {
-                if (group.permission === false) return null;
-                const filteredItems = group.items.filter((item) => item.perm === "all" || hasPermission(item.perm));
-                if (filteredItems.length === 0) return null;
-                <nav className={styles.navMenu} suppressHydrationWarning>
-                  {mounted ? (
-                    effectiveNavGroups.map((group) => {
-                      if (group.permission === false) return null;
-                      const filteredItems = group.items.filter((item) => item.perm === "all" || hasPermission(item.perm));
-                      if (filteredItems.length === 0) return null;
+        {/* Navigation Menu */}
+        <nav className={styles.navMenu} suppressHydrationWarning>
+          {mounted ? (
+            effectiveNavGroups.map((group) => {
+              if (group.permission === false) return null;
+              const filteredItems = group.items.filter((item) => item.perm === "all" || hasPermission(item.perm));
+              if (filteredItems.length === 0) return null;
 
-                      return (
-                        <div key={group.title} className={styles.navGroup}>
-                          <p className={styles.navTitle} suppressHydrationWarning>{group.title}</p>
-                          {filteredItems.map((item) => {
-                            const isActive = item.href === "/"
-                              ? pathname === "/"
-                              : pathname === item.href || pathname.startsWith(item.href + "/");
-                            return (
-                              <div key={group.title} className={styles.navGroup}>
-                                <p className={styles.navTitle} suppressHydrationWarning>{group.title}</p>
-                                {filteredItems.map((item) => {
-                                  const isActive = item.href === "/"
-                                    ? pathname === "/"
-                                    : pathname === item.href || pathname.startsWith(item.href + "/");
+              return (
+                <div key={group.title} className={styles.navGroup}>
+                  <p className={styles.navTitle} suppressHydrationWarning>{group.title}</p>
+                  {filteredItems.map((item) => {
+                    const isActive = item.href === "/"
+                      ? pathname === "/"
+                      : pathname === item.href || pathname.startsWith(item.href + "/");
 
-                                  return (
-                                    <Link
-                                      key={item.label}
-                                      href={item.href}
-                                      className={`${styles.navItem} ${isActive ? styles.active : ""}`}
-                                      title={isCollapsed ? item.label : undefined}
-                                      aria-current={isActive ? "page" : undefined}
-                                    >
-                                      <span className={styles.navIcon}>{item.icon}</span>
-                                      <span className={styles.navLabel}>{item.label}</span>
-                                    </Link>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })}
-                          return (
-                          <Link
-                            key={item.label}
-                            href={item.href}
-                            className={`${styles.navItem} ${isActive ? styles.active : ""}`}
-                            title={isCollapsed ? item.label : undefined}
-                            aria-current={isActive ? "page" : undefined}
-                          >
-                            <span className={styles.navIcon}>{item.icon}</span>
-                            <span className={styles.navLabel}>{item.label}</span>
-                          </Link>
-                          );
+                    return (
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        className={`${styles.navItem} ${isActive ? styles.active : ""}`}
+                        title={isCollapsed ? item.label : undefined}
+                        aria-current={isActive ? "page" : undefined}
+                      >
+                        <span className={styles.navIcon}>{item.icon}</span>
+                        <span className={styles.navLabel}>{item.label}</span>
+                      </Link>
+                    );
                   })}
-                        </div>
-                      );
-                    })
-                  ) : null}
-                </nav>
+                </div>
+              );
+            })
+          ) : null}
+        </nav>
 
                 {/* Sidebar Footer with Sign Out */ }
                 <div className={styles.sidebarFooter}>

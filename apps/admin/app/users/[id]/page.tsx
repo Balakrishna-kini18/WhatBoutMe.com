@@ -294,9 +294,9 @@ export interface CertificateEligibility {
 export default function UserDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as any) : params;
+  const unwrappedParams = use(params);
   const userId = (unwrappedParams as { id?: string })?.id || "";
 
   const router = useRouter();

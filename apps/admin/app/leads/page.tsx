@@ -44,7 +44,6 @@ const STATUSES = [
 ];
 
 import { parseLeadMessage, type ParsedLeadMessage } from "../lib/lead-parser";
-export { parseLeadMessage, type ParsedLeadMessage };
 
 export default function LeadsPage() {
   return (

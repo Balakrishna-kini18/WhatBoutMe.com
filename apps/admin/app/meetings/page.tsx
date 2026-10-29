@@ -88,19 +88,19 @@ export interface Meeting {
   agenda?: string | null;
 }
 
-export const isDiscoveryCall = (m: Meeting) => m.sessionType === "SPEAKER_DISCOVERY_CALL";
-export const isCoachingCall = (m: Meeting) =>
+const isDiscoveryCall = (m: Meeting) => m.sessionType === "SPEAKER_DISCOVERY_CALL";
+const isCoachingCall = (m: Meeting) =>
   m.sessionType === "ONE_ON_ONE" ||
   m.sessionType === "ONE_ON_ONE_WITH_RO" ||
   m.sessionType === "WELCOME_CALL_11_STEPS" ||
   m.sessionType === "CLOSING_CALL_11_STEPS";
-export const isBatchSession = (m: Meeting) =>
+const isBatchSession = (m: Meeting) =>
   m.sessionType === "GROUP_COHORT" ||
   m.sessionType === "BATCH_CLASS" ||
   m.sessionType === "VISION_BOARD_WORKSHOP" ||
   m.sessionType === "VISION_BOARD_ONLINE";
 
-export const parseDiscoveryCallDetails = (m: Meeting) => {
+const parseDiscoveryCallDetails = (m: Meeting) => {
   const prospectName =
     m.learner?.name ||
     m.title.replace(/^1-to-1 Discovery Call:\s*Roweena\s*&\s*/i, "").trim() ||

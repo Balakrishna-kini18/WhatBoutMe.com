@@ -953,8 +953,8 @@ function UsersContent() {
     setFirstName("");
     setLastName("");
     setCohort("");
-    setRole("USER");
-    setInitialRole("USER");
+    setRole("MANAGER");
+    setInitialRole("MANAGER");
     setStatus("ACTIVE");
     setPassword("");
     setPermissions([]);
@@ -1988,7 +1988,7 @@ function UsersContent() {
         <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
           <div className={`${styles.modalContent} ${styles.modalContentWide}`} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2>{editingUserId ? "Edit User & Role Assignment" : "Add New User"}</h2>
+              <h2>{editingUserId ? "Edit User & Role Assignment" : "Add Staff Member"}</h2>
               <button className={styles.closeBtn} onClick={() => setIsModalOpen(false)} aria-label="Close dialog">×</button>
             </div>
 
@@ -2039,8 +2039,25 @@ function UsersContent() {
                     Select Primary Role <span style={{ color: "var(--accent-primary)" }}>*</span>
                   </label>
 
+                  {!editingUserId && (
+                    <div
+                      style={{
+                        background: "#fdf8f0",
+                        border: "1px solid #f3e5ce",
+                        borderRadius: "8px",
+                        padding: "0.65rem 0.85rem",
+                        fontSize: "0.78rem",
+                        color: "#78350f",
+                        lineHeight: 1.4,
+                        marginBottom: "0.75rem",
+                      }}
+                    >
+                      💡 <strong>Staff Provisioning Only:</strong> Learner accounts cannot be manually created here. Learners register themselves via public course checkout to capture their authentic timezone, country, and digital workshop consent. Use this modal to provision staff members (Batch Manager, Admin, or Super Admin).
+                    </div>
+                  )}
+
                   <div className={styles.roleGrid} role="radiogroup" aria-label="Select primary role">
-                    {ROLE_CARDS.map(card => {
+                    {ROLE_CARDS.filter((card) => (editingUserId ? true : card.id !== "USER")).map(card => {
                       const isSelected = role === card.id;
                       const isDisabled = card.requiresSuperAdmin && !isSuperAdmin;
                       return (

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, FormEvent, Suspense } from "react";
+import { useEffect, useState, useMemo, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import styles from "../page.module.css";
 import { API_URL, errorMessage, cachedFetch } from "../lib/api";
-import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast, TableSkeleton, EmptyState } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, ConfirmDialog, useToast, TableSkeleton, EmptyState, SortIndicator, DatePicker, Pagination, type SortOrder } from "../components";
 
 interface Batch {
   id: string;
@@ -19,8 +20,12 @@ interface Batch {
   endDate?: string;
   rawStartDate?: string;
   rawEndDate?: string;
+  rawRegistrationDeadline?: string;
+  registrationDeadline?: string;
   capacity?: number;
 }
+
+type SortField = "name" | "program" | "manager" | "startDate" | "students" | "status";
 
 export default function BatchesPage() {
   return (
@@ -41,7 +46,7 @@ function BatchesContent() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [programs, setPrograms] = useState<{ id: string; title: string }[]>([]);
+  const [programs, setPrograms] = useState<{ id: string; title: string; hasCertificate?: boolean }[]>([]);
   const [managers, setManagers] = useState<{ id: string; name: string; email: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserRole, setCurrentUserRole] = useState("USER");
@@ -56,23 +61,16 @@ function BatchesContent() {
     }
   }, []);
 
-  // result of "Issue Certificates": what happened, and who was left out
-  const [issueResult, setIssueResult] = useState<{
-    batchId: string;
-    batchName: string;
-    ok: boolean;
-    text: string;
-    notFinished: string[];
-  } | null>(null);
-  const [issuingId, setIssuingId] = useState<string | null>(null);
-  // the batch waiting for the admin to confirm "Issue Certificates"
-  const [confirmBatch, setConfirmBatch] = useState<Batch | null>(null);
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Form states
   const [name, setName] = useState("");
   const [programId, setProgramId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [registrationDeadline, setRegistrationDeadline] = useState("");
   const [capacity, setCapacity] = useState("");
   const [manager, setManager] = useState("");
   const [batchStatus, setBatchStatus] = useState("");
@@ -84,6 +82,30 @@ function BatchesContent() {
   const [search, setSearch] = useState("");
   const [selectedProgramFilter, setSelectedProgramFilter] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("");
+
+  const hasActiveFilters = Boolean(
+    search.trim() || selectedProgramFilter || selectedStatusFilter
+  );
+
+  const resetAllFilters = () => {
+    setSearch("");
+    setSelectedProgramFilter("");
+    setSelectedStatusFilter("");
+    setPage(1);
+  };
+
+  // Sorting
+  const [sortField, setSortField] = useState<SortField>("startDate");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
 
   useEffect(() => {
     Promise.all([fetchBatches(), fetchPrograms(), fetchManagers()]).then(() =>
@@ -110,13 +132,12 @@ function BatchesContent() {
   }, [searchParams, batches]);
 
   useEffect(() => {
-    if (isModalOpen || confirmBatch) {
+    if (isModalOpen) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === "Escape") {
-          if (confirmBatch) setConfirmBatch(null);
-          else if (isModalOpen) closeModal();
+          closeModal();
         }
       };
       window.addEventListener("keydown", handleKeyDown);
@@ -125,7 +146,7 @@ function BatchesContent() {
         window.removeEventListener("keydown", handleKeyDown);
       };
     }
-  }, [isModalOpen, confirmBatch]);
+  }, [isModalOpen]);
 
   const fetchManagers = async () => {
     try {
@@ -166,33 +187,32 @@ function BatchesContent() {
         const data = await res.json();
         const now = new Date();
         const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const nowMs = now.getTime();
         const mappedBatches = data.map((b: any) => {
-          let status = b.status;
-          if (b.startDate) {
-            const bDate = new Date(b.startDate);
-            const bDayMs = new Date(bDate.getFullYear(), bDate.getMonth(), bDate.getDate()).getTime();
-            const bEndDate = b.endDate ? new Date(b.endDate) : null;
-            if (bEndDate && bEndDate.getTime() < nowMs) {
-              status = "COMPLETED";
-            } else if (bDate.getTime() <= nowMs || bDayMs <= todayStartMs) {
-              if (b.status === "UPCOMING" || b.status === "ACTIVE") {
-                status = "ACTIVE";
-              }
-            }
-          }
           return {
             ...b,
-            status,
+            status: b.status,
             program: b.program?.title || "Unknown",
-            manager: b.manager?.name || "Unknown",
+            manager: b.manager?.name || "Unassigned",
             managerId: b.managerId || b.manager?.id || "",
             rawStartDate: b.startDate,
             rawEndDate: b.endDate,
+            rawRegistrationDeadline: b.registrationDeadline,
             startDate: b.startDate
-              ? new Date(b.startDate).toLocaleDateString()
+              ? new Date(b.startDate).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
               : "--",
-            students: b.enrolledCount || 0,
+            registrationDeadline: b.registrationDeadline
+              ? new Date(b.registrationDeadline).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : "--",
+            students: b.enrolledCount ?? b.students ?? 0,
+            capacity: b.capacity || 50,
           };
         });
         setBatches(mappedBatches);
@@ -209,6 +229,7 @@ function BatchesContent() {
     setProgramId("");
     setStartDate("");
     setEndDate("");
+    setRegistrationDeadline("");
     setCapacity("");
     setManager("");
     setBatchStatus("");
@@ -221,7 +242,7 @@ function BatchesContent() {
   const openEditModal = (batch: Batch) => {
     setEditingBatchId(batch.id);
     setName(batch.name);
-    const p = programs.find((prog) => prog.title === batch.program);
+    const p = programs.find((prog) => prog.title === batch.program || prog.id === batch.programId);
     setProgramId(p ? p.id : (batch.programId || ""));
     const startSource = batch.rawStartDate || batch.startDate;
     const d = startSource ? new Date(startSource) : null;
@@ -237,10 +258,17 @@ function BatchesContent() {
     } else {
       setEndDate("");
     }
+    const regSource = batch.rawRegistrationDeadline || batch.registrationDeadline;
+    const rd = regSource && regSource !== "--" ? new Date(regSource) : null;
+    if (rd && !isNaN(rd.getTime())) {
+      setRegistrationDeadline(rd.toISOString().split("T")[0] || "");
+    } else {
+      setRegistrationDeadline("");
+    }
     setCapacity(String(batch.capacity || "50"));
     setManager(batch.managerId || "");
     setBatchStatus(batch.status || "");
-    setAwardCertificate(true);
+    setAwardCertificate(p?.hasCertificate ?? true);
     setIsModalOpen(true);
   };
 
@@ -250,6 +278,7 @@ function BatchesContent() {
     setProgramId(programs[0]?.id || "");
     setStartDate("");
     setEndDate("");
+    setRegistrationDeadline("");
     setBatchStatus("");
     setCapacity("50");
     setManager("");
@@ -258,67 +287,6 @@ function BatchesContent() {
     setIsModalOpen(true);
   };
 
-  const handleIssueCertificates = async (
-    batchId: string,
-    batchName: string,
-    includeUnfinished = false
-  ) => {
-    setIssuingId(batchId);
-    try {
-      const res = await fetch(
-        `${API_URL}/certificates/batch/${batchId}/issue`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ includeUnfinished }),
-        }
-      );
-      if (!res.ok) {
-        setIssueResult({
-          batchId,
-          batchName,
-          ok: false,
-          text: await errorMessage(res, "Could not issue the certificates"),
-          notFinished: [],
-        });
-        return;
-      }
-      const result: {
-        learners: number;
-        issued: number;
-        alreadyIssued: number;
-        notFinished: string[];
-      } = await res.json();
-      const parts = [
-        result.learners === 0
-          ? `${batchName} has no enrolled learners yet.`
-          : `${batchName}: ${result.issued} issued.`,
-        result.alreadyIssued > 0
-          ? `${result.alreadyIssued} already had one.`
-          : "",
-        result.notFinished.length > 0
-          ? `${result.notFinished.length} not finished: ${result.notFinished.join(", ")}.`
-          : "",
-      ];
-      setIssueResult({
-        batchId,
-        batchName,
-        ok: true,
-        text: parts.filter(Boolean).join(" "),
-        notFinished: result.notFinished,
-      });
-    } catch {
-      setIssueResult({
-        batchId,
-        batchName,
-        ok: false,
-        text: "Could not reach the server. Check that the API is running.",
-        notFinished: [],
-      });
-    } finally {
-      setIssuingId(null);
-    }
-  };
 
   const confirmDeleteBatch = async () => {
     if (!batchToDelete) return;
@@ -351,6 +319,42 @@ function BatchesContent() {
     e.preventDefault();
     if (isSubmitting) return;
 
+    if (!name.trim()) {
+      setFormError("Batch name is required.");
+      return;
+    }
+
+    if (!startDate) {
+      setFormError("Please select a valid Start Date.");
+      return;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (!editingBatchId && startDate < todayStr) {
+      setFormError("Batch Start Date cannot be in the past.");
+      return;
+    }
+
+    if (endDate && endDate < startDate) {
+      setFormError("Batch End Date must be on or after Start Date.");
+      return;
+    }
+
+    if (!registrationDeadline) {
+      setFormError("Please select a Registration Deadline.");
+      return;
+    }
+
+    if (!editingBatchId && registrationDeadline < todayStr) {
+      setFormError("Registration Deadline cannot be in the past.");
+      return;
+    }
+
+    if (registrationDeadline && endDate && registrationDeadline > endDate) {
+      setFormError("Registration Deadline cannot be after Batch End Date.");
+      return;
+    }
+
     setIsSubmitting(true);
     setFormError("");
 
@@ -366,6 +370,12 @@ function BatchesContent() {
 
     if (endDate) {
       payload.endDate = new Date(endDate).toISOString();
+    }
+
+    if (registrationDeadline) {
+      payload.registrationDeadline = new Date(registrationDeadline).toISOString();
+    } else if (editingBatchId) {
+      payload.registrationDeadline = null;
     }
 
     try {
@@ -412,16 +422,94 @@ function BatchesContent() {
     }
   };
 
+  const filteredAndSortedBatches = batches
+    .filter((batch) => {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        !q ||
+        batch.name.toLowerCase().includes(q) ||
+        (batch.manager && batch.manager.toLowerCase().includes(q)) ||
+        (batch.program && batch.program.toLowerCase().includes(q));
+      const matchesProgram =
+        !selectedProgramFilter || batch.program === selectedProgramFilter;
+      const matchesStatus =
+        !selectedStatusFilter ||
+        batch.status?.toUpperCase() === selectedStatusFilter.toUpperCase();
+      return matchesSearch && matchesProgram && matchesStatus;
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      switch (sortField) {
+        case "name":
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case "program":
+          comparison = a.program.localeCompare(b.program);
+          break;
+        case "manager":
+          comparison = (a.manager || "").localeCompare(b.manager || "");
+          break;
+        case "startDate": {
+          const aTime = a.rawStartDate ? new Date(a.rawStartDate).getTime() : 0;
+          const bTime = b.rawStartDate ? new Date(b.rawStartDate).getTime() : 0;
+          comparison = aTime - bTime;
+          break;
+        }
+        case "students":
+          comparison = (a.students || 0) - (b.students || 0);
+          break;
+        case "status":
+          comparison = (a.status || "").localeCompare(b.status || "");
+          break;
+        default:
+          comparison = 0;
+      }
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+
+  const totalBatches = filteredAndSortedBatches.length;
+  const paginatedBatches = filteredAndSortedBatches.slice(
+    (page - 1) * pageSize,
+    page * pageSize
+  );
+
+  const statusCounts = useMemo(() => {
+    const counts = {
+      ALL: batches.length,
+      ACTIVE: 0,
+      UPCOMING: 0,
+      COMPLETED: 0,
+      ARCHIVED: 0,
+    };
+    for (const b of batches) {
+      const s = (b.status || "").toUpperCase();
+      if (s === "ACTIVE") counts.ACTIVE++;
+      else if (s === "UPCOMING") counts.UPCOMING++;
+      else if (s === "COMPLETED") counts.COMPLETED++;
+      else if (s === "ARCHIVED" || s === "DRAFT") counts.ARCHIVED++;
+    }
+    return counts;
+  }, [batches]);
+
+  const activeTab = selectedStatusFilter ? selectedStatusFilter.toUpperCase() : "ALL";
+
   return (
-    <div className={styles.dashboardContainer}>
-      <header className={styles.header}>
+    <div className={styles.dashboardContainer} style={{ gap: "0.85rem" }}>
+      <header
+        className={styles.header}
+        style={{
+          marginBottom: 0,
+          alignItems: "center",
+          display: "flex",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
         <div className={styles.headerText}>
-          <h1 className={styles.title}>{isManager ? "Assigned Batches" : "Batches"}</h1>
-          {/* {isManager && (
-            <p className={styles.subtitle}>
-              View and manage sessions, attendance, and learners in your batches.
-            </p>
-          )} */}
+          <h1 className={styles.title} style={{ margin: 0 }}>
+            {isManager ? "Assigned Batches" : "Batches"}
+          </h1>
         </div>
         {!isManager && (
           <div className={styles.headerActions}>
@@ -446,92 +534,121 @@ function BatchesContent() {
         )}
       </header>
 
-      {issueResult && (
-        <div
-          role="status"
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: "0.75rem",
-            margin: "0 0 1.5rem",
-            padding: "0.75rem 1rem",
-            borderRadius: "8px",
-            fontSize: "0.88rem",
-            background: issueResult.ok
-              ? "var(--status-success-bg)"
-              : "var(--status-error-bg)",
-            color: issueResult.ok
-              ? "var(--status-success)"
-              : "var(--status-error)",
-            border: `1px solid ${issueResult.ok ? "#a7f3d0" : "#fecdd3"}`,
-          }}
-        >
-          <span style={{ flex: 1, minWidth: "16rem" }}>{issueResult.text}</span>
-          {issueResult.notFinished.length > 0 && (
+      {/* 2. Batch Page Structure: Status Tab Layout */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.25rem" }}>
+        <div className={styles.tabsContainer} role="tablist" aria-label="Batch directory views" style={{ gap: "0.5rem", flexWrap: "wrap", margin: 0 }}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "ALL"}
+            className={`${styles.tabBtn} ${activeTab === "ALL" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setSelectedStatusFilter(""); setPage(1); }}
+          >
+            All Batches ({statusCounts.ALL})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "ACTIVE"}
+            className={`${styles.tabBtn} ${activeTab === "ACTIVE" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setSelectedStatusFilter("ACTIVE"); setPage(1); }}
+          >
+            Active ({statusCounts.ACTIVE})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "UPCOMING"}
+            className={`${styles.tabBtn} ${activeTab === "UPCOMING" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setSelectedStatusFilter("UPCOMING"); setPage(1); }}
+          >
+            Upcoming ({statusCounts.UPCOMING})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "COMPLETED"}
+            className={`${styles.tabBtn} ${activeTab === "COMPLETED" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setSelectedStatusFilter("COMPLETED"); setPage(1); }}
+          >
+            Completed ({statusCounts.COMPLETED})
+          </button>
+          {statusCounts.ARCHIVED > 0 && (
             <button
               type="button"
-              className={styles.secondaryBtnSmall}
-              disabled={issuingId !== null}
-              onClick={() =>
-                handleIssueCertificates(
-                  issueResult.batchId,
-                  issueResult.batchName,
-                  true
-                )
-              }
+              role="tab"
+              aria-selected={activeTab === "ARCHIVED"}
+              className={`${styles.tabBtn} ${activeTab === "ARCHIVED" ? styles.tabBtnActive : ""}`}
+              onClick={() => { setSelectedStatusFilter("ARCHIVED"); setPage(1); }}
             >
-              Issue to them anyway
+              Archived ({statusCounts.ARCHIVED})
             </button>
           )}
         </div>
-      )}
+      </div>
 
       <section className={styles.tableSection}>
-        <div className={styles.sectionHeader}>
-          <h2>All Batches ({batches.length})</h2>
+        <div
+          className={styles.sectionHeader}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.6rem",
+          }}
+        >
+          {/* Left: Search Bar */}
+          <div
+            className={styles.searchContainer}
+            style={{ minWidth: "220px", flex: "1 1 240px", maxWidth: "340px" }}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{
+                color: "var(--text-muted)",
+                flexShrink: 0,
+                marginRight: "0.4rem",
+              }}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search batches, programs, managers..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className={styles.searchInput}
+            />
+          </div>
+
+          {/* Right: Program Filter & Reset Button */}
           <div
             style={{
               display: "flex",
-              gap: "0.75rem",
+              gap: "0.65rem",
               alignItems: "center",
               flexWrap: "wrap",
             }}
           >
-            <div
-              className={styles.searchContainer}
-              style={{ minWidth: "220px" }}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                style={{
-                  color: "var(--text-muted)",
-                  flexShrink: 0,
-                  marginRight: "0.4rem",
-                }}
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search batches..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className={styles.searchInput}
-              />
-            </div>
             <CustomSelect
               value={selectedProgramFilter}
-              onChange={setSelectedProgramFilter}
+              onChange={(val) => {
+                setSelectedProgramFilter(val);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: "All Programs" },
                 ...programs.map((p) => ({ value: p.title, label: p.title })),
@@ -539,19 +656,45 @@ function BatchesContent() {
               minWidth="175px"
               ariaLabel="Filter batches by program"
             />
-            <CustomSelect
-              value={selectedStatusFilter}
-              onChange={setSelectedStatusFilter}
-              options={[
-                { value: "", label: "All Statuses" },
-                { value: "ACTIVE", label: "Active" },
-                { value: "COMPLETED", label: "Completed" },
-                { value: "DRAFT", label: "Draft" },
-                { value: "ARCHIVED", label: "Archived" },
-              ]}
-              minWidth="135px"
-              ariaLabel="Filter batches by status"
-            />
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                style={{
+                  background: "transparent",
+                  border: "1px dashed var(--border-light, #e7decb)",
+                  color: "var(--accent-primary, #c97a1e)",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  padding: "0.4rem 0.75rem",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  borderRadius: "6px",
+                  height: "36px",
+                  whiteSpace: "nowrap",
+                }}
+                title="Reset all filters to default"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M23 4v6h-6" />
+                  <path d="M1 20v-6h6" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                <span>Reset Filters</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -559,12 +702,66 @@ function BatchesContent() {
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Batch Name</th>
-                <th>Program</th>
-                <th>Manager</th>
-                <th>Start Date</th>
-                <th>Learners</th>
-                <th>Status</th>
+                <th
+                  onClick={() => handleSort("name")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Batch Name</span>
+                    <SortIndicator active={sortField === "name"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("program")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "program" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Program</span>
+                    <SortIndicator active={sortField === "program"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("manager")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "manager" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Manager</span>
+                    <SortIndicator active={sortField === "manager"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("startDate")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "startDate" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Start Date</span>
+                    <SortIndicator active={sortField === "startDate"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("students")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "students" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Learners / Capacity</span>
+                    <SortIndicator active={sortField === "students"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("status")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "status" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Status</span>
+                    <SortIndicator active={sortField === "status"} order={sortOrder} />
+                  </div>
+                </th>
                 <th
                   className={styles.alignRight}
                   style={{ width: "4rem", minWidth: "60px" }}
@@ -576,24 +773,7 @@ function BatchesContent() {
             <tbody>
               {isLoading ? (
                 <TableSkeleton columns={7} rows={5} />
-              ) : batches.filter((batch) => {
-                  const q = search.toLowerCase();
-                  const matchesSearch =
-                    !q ||
-                    batch.name.toLowerCase().includes(q) ||
-                    (batch.manager &&
-                      batch.manager.toLowerCase().includes(q)) ||
-                    (batch.program &&
-                      batch.program.toLowerCase().includes(q));
-                  const matchesProgram =
-                    !selectedProgramFilter ||
-                    batch.program === selectedProgramFilter;
-                  const matchesStatus =
-                    !selectedStatusFilter ||
-                    batch.status?.toUpperCase() ===
-                      selectedStatusFilter.toUpperCase();
-                  return matchesSearch && matchesProgram && matchesStatus;
-                }).length === 0 ? (
+              ) : filteredAndSortedBatches.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: "1rem" }}>
                     <EmptyState
@@ -603,55 +783,78 @@ function BatchesContent() {
                            ? `No batches match "${search}". Try adjusting your search query or filters.`
                            : "Get started by launching a batch for an active program."
                       }
-                      actionLabel={!isManager ? "Create Batch" : undefined}
-                      actionHref={!isManager ? "/batches/create" : undefined}
+                      actionLabel={hasActiveFilters ? "Reset Filters" : (!isManager ? "Create Batch" : undefined)}
+                      onAction={hasActiveFilters ? resetAllFilters : undefined}
+                      actionHref={!hasActiveFilters && !isManager ? "/batches/create" : undefined}
                     />
                   </td>
                 </tr>
               ) : (
-                batches
-                  .filter((batch) => {
-                    const q = search.toLowerCase();
-                    const matchesSearch =
-                      !q ||
-                      batch.name.toLowerCase().includes(q) ||
-                      (batch.manager &&
-                        batch.manager.toLowerCase().includes(q)) ||
-                      (batch.program &&
-                        batch.program.toLowerCase().includes(q));
-                    const matchesProgram =
-                      !selectedProgramFilter ||
-                      batch.program === selectedProgramFilter;
-                    const matchesStatus =
-                      !selectedStatusFilter ||
-                      batch.status?.toUpperCase() ===
-                        selectedStatusFilter.toUpperCase();
-                    return matchesSearch && matchesProgram && matchesStatus;
-                  })
-                  .map((batch) => (
+                paginatedBatches.map((batch) => {
+                  const cap = batch.capacity || 50;
+                  const isFull = batch.students >= cap;
+                  const openSeats = Math.max(0, cap - batch.students);
+
+                  return (
                     <tr key={batch.id}>
                       <td>
-                        <span className={styles.cellUserName}>
-                          {batch.name}
-                        </span>
+                        <Link
+                          href={`/batches/${batch.id}`}
+                          className={styles.cellUserName}
+                          style={{ textDecoration: "none", color: "inherit" }}
+                          title="Open batch management hub"
+                        >
+                          <span style={{ color: "var(--accent-primary)", fontWeight: 600 }}>
+                            {batch.name}
+                          </span>
+                        </Link>
                       </td>
                       <td>
                         <span className={styles.cellText}>{batch.program}</span>
                       </td>
                       <td>
-                        <span className={styles.cellTextMuted}>
-                          {batch.manager}
-                        </span>
+                        {batch.manager && batch.manager !== "Unassigned" && batch.manager !== "Unknown" ? (
+                          <span className={styles.cellText}>{batch.manager}</span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.84rem", fontStyle: "italic" }}>
+                            Unassigned
+                          </span>
+                        )}
                       </td>
                       <td>
-                        <span className={styles.cellTextMuted}>
-                          {batch.startDate}
-                        </span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span className={styles.cellText}>{batch.startDate}</span>
+                          {batch.rawEndDate && (
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              to {new Date(batch.rawEndDate).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
-                        <span className={styles.cellText}>
-                          {batch.students}
-                        </span>
+                        <Link
+                          href={`/batches/${batch.id}?tab=learners`}
+                          style={{ textDecoration: "none", color: "inherit" }}
+                          title="View enrolled learners roster"
+                        >
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <span className={styles.cellText} style={{ fontWeight: 600, color: "var(--accent-primary)" }}>
+                              {batch.students}{" "}
+                              <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+                                / {cap}
+                              </span>
+                            </span>
+                            {isFull ? (
+                              <span style={{ fontSize: "0.72rem", color: "var(--status-error)", fontWeight: 600 }}>
+                                Full
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                {openSeats} open
+                              </span>
+                            )}
+                          </div>
+                        </Link>
                       </td>
                       <td>
                         <StatusBadge status={batch.status} />
@@ -667,7 +870,29 @@ function BatchesContent() {
                               isManager
                                 ? [
                                     {
-                                      label: "Manage Sessions & Attendance",
+                                      label: "Manage Batch & Learners",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                          <circle cx="9" cy="7" r="4" />
+                                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                        </svg>
+                                      ),
+                                      href: `/batches/${batch.id}?tab=learners`,
+                                    },
+                                    {
+                                      label: "Manage Live Sessions",
                                       icon: (
                                         <svg
                                           width="15"
@@ -693,12 +918,54 @@ function BatchesContent() {
                                           <line x1="3" y1="10" x2="21" y2="10" />
                                         </svg>
                                       ),
-                                      href: `/batches/${batch.id}/sessions`,
+                                      href: `/batches/${batch.id}?tab=sessions`,
+                                    },
+                                    {
+                                      label: "Send Announcement",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M22 2L11 13" />
+                                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                                        </svg>
+                                      ),
+                                      href: `/batches/${batch.id}?tab=broadcast`,
                                     },
                                   ]
                                 : [
                                     {
-                                      label: "Manage Sessions & Attendance",
+                                      label: "Manage Batch & Learners",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                          <circle cx="9" cy="7" r="4" />
+                                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                        </svg>
+                                      ),
+                                      href: `/batches/${batch.id}?tab=learners`,
+                                    },
+                                    {
+                                      label: "Manage Live Sessions",
                                       icon: (
                                         <svg
                                           width="15"
@@ -724,7 +991,27 @@ function BatchesContent() {
                                           <line x1="3" y1="10" x2="21" y2="10" />
                                         </svg>
                                       ),
-                                      href: `/batches/${batch.id}/sessions`,
+                                      href: `/batches/${batch.id}?tab=sessions`,
+                                    },
+                                    {
+                                      label: "Send Announcement",
+                                      icon: (
+                                        <svg
+                                          width="15"
+                                          height="15"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.75"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <path d="M22 2L11 13" />
+                                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                                        </svg>
+                                      ),
+                                      href: `/batches/${batch.id}?tab=broadcast`,
                                     },
                                     {
                                       label: "Edit Batch",
@@ -745,26 +1032,6 @@ function BatchesContent() {
                                         </svg>
                                       ),
                                       onClick: () => openEditModal(batch),
-                                    },
-                                    {
-                                      label: "Issue Certificates",
-                                      icon: (
-                                        <svg
-                                          width="15"
-                                          height="15"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="1.75"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          aria-hidden="true"
-                                        >
-                                          <circle cx="12" cy="8" r="6" />
-                                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                                        </svg>
-                                      ),
-                                      onClick: () => setConfirmBatch(batch),
                                     },
                                     {
                                       label: "Delete Batch",
@@ -796,81 +1063,28 @@ function BatchesContent() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
-      </section>
 
-      {/* CREATE BATCH MODAL */}
-      {confirmBatch && (
-        <div
-          className={styles.modalOverlay}
-          onClick={() => setConfirmBatch(null)}
-        >
-          <div
-            className={styles.modalContent}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="issue-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className={styles.modalHeader}>
-              <h2 id="issue-title">Issue Certificates?</h2>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                aria-label="Close"
-                onClick={() => setConfirmBatch(null)}
-              >
-                ×
-              </button>
-            </div>
-            <p
-              style={{
-                margin: 0,
-                fontSize: "0.95rem",
-                lineHeight: 1.6,
-                color: "var(--text-secondary)",
-              }}
-            >
-              Every learner in{" "}
-              <strong style={{ color: "var(--text-primary)" }}>
-                {confirmBatch.name}
-              </strong>{" "}
-              who has finished{" "}
-              <strong style={{ color: "var(--text-primary)" }}>
-                {confirmBatch.program}
-              </strong>{" "}
-              will get a certificate dated today. It appears in their portal
-              straight away. Learners who have not finished are left out and
-              listed afterwards.
-            </p>
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={() => setConfirmBatch(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                autoFocus
-                onClick={() => {
-                  const batch = confirmBatch;
-                  setConfirmBatch(null);
-                  handleIssueCertificates(batch.id, batch.name);
-                }}
-              >
-                Approve &amp; Issue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        {!isLoading && totalBatches > 0 && (
+          <Pagination
+            currentPage={page}
+            totalItems={totalBatches}
+            pageSize={pageSize}
+            onPageChange={(newPage) => setPage(newPage)}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 20, 50]}
+            itemLabel="batches"
+          />
+        )}
+      </section>
 
       {isModalOpen && (
         <div
@@ -880,207 +1094,263 @@ function BatchesContent() {
           <div
             className={styles.modalContent}
             onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "620px", maxHeight: "90vh", display: "flex", flexDirection: "column" }}
           >
-            <div className={styles.modalHeader}>
-              <h2>{editingBatchId ? "Edit Batch" : "Create New Batch"}</h2>
+            <div className={styles.modalHeader} style={{ padding: "1rem 1.5rem" }}>
+              <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
+                {editingBatchId ? "Edit Batch" : "Create New Batch"}
+              </h2>
               <button
                 className={styles.closeBtn}
                 onClick={closeModal}
+                aria-label="Close"
               >
                 ×
               </button>
             </div>
 
-            <form className={styles.modalForm} onSubmit={handleSaveBatch}>
-              <div className={styles.modalBody}>
-                {formError && (
-                  <div
-                    style={{
-                      padding: "10px 14px",
-                      background: "rgba(220, 38, 38, 0.08)",
-                      border: "1px solid rgba(220, 38, 38, 0.3)",
-                      borderRadius: "8px",
-                      color: "#dc2626",
-                      fontSize: "0.88rem",
-                      marginBottom: "1rem",
-                    }}
-                    role="alert"
-                  >
-                    {formError}
-                  </div>
-                )}
-                <div className={styles.formGroup}>
-                  <label>Batch Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Winter Batch 2026"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label>Assign Program</label>
-                  <CustomSelect
-                    value={programId}
-                    onChange={setProgramId}
-                    fullWidth
-                    ariaLabel="Assign Program"
-                    placeholder="Select a Program..."
-                    options={programs.map((p) => ({
-                      value: p.id,
-                      label: p.title,
-                    }))}
-                  />
-                </div>
-
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>Start Date</label>
-                    <input
-                      type="date"
-                      required
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>End Date (Optional)</label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>Max Capacity</label>
-                    <input
-                      type="number"
-                      placeholder="50"
-                      min="1"
-                      required
-                      value={capacity}
-                      onChange={(e) => setCapacity(e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Assign Manager</label>
-                    <CustomSelect
-                      value={manager}
-                      onChange={setManager}
-                      fullWidth
-                      ariaLabel="Assign Manager"
-                      placeholder="Select a Manager..."
-                      options={[
-                        { value: "", label: "None / Unassigned" },
-                        ...managers.map((m) => ({
-                          value: m.id,
-                          label: m.name || m.email,
-                        })),
-                      ]}
-                    />
-                  </div>
-                </div>
-
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>Batch Status</label>
-                    <CustomSelect
-                      value={batchStatus}
-                      onChange={setBatchStatus}
-                      fullWidth
-                      ariaLabel="Batch Status"
-                      placeholder="Auto (Based on Start & End Date)"
-                      options={[
-                        { value: "", label: "Auto (Active if started today or earlier)" },
-                        { value: "ACTIVE", label: "Active" },
-                        { value: "UPCOMING", label: "Upcoming" },
-                        { value: "COMPLETED", label: "Completed" },
-                        { value: "CANCELLED", label: "Cancelled" },
-                      ]}
-                    />
-                  </div>
-                </div>
-
-                {/* Certificate Award Option */}
+            <form
+              className={styles.modalForm}
+              onSubmit={handleSaveBatch}
+              style={{
+                padding: "1.25rem 1.5rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                overflowY: "auto",
+                flex: 1,
+              }}
+            >
+              {formError && (
                 <div
                   style={{
-                    padding: "14px 16px",
-                    background: awardCertificate ? "rgba(201, 122, 30, 0.08)" : "var(--bg-card-muted, #fdfbf7)",
-                    border: `1.5px solid ${awardCertificate ? "var(--accent-primary, #c97a1e)" : "var(--border-light)"}`,
-                    borderRadius: "12px",
-                    marginTop: "1.25rem",
-                    transition: "all 0.2s ease",
+                    padding: "10px 14px",
+                    background: "rgba(220, 38, 38, 0.08)",
+                    border: "1px solid rgba(220, 38, 38, 0.3)",
+                    borderRadius: "8px",
+                    color: "#dc2626",
+                    fontSize: "0.88rem",
+                    marginBottom: "0.25rem",
                   }}
+                  role="alert"
                 >
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "12px",
-                      cursor: "pointer",
-                      margin: 0,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={awardCertificate}
-                      onChange={(e) => setAwardCertificate(e.target.checked)}
-                      style={{
-                        marginTop: "3px",
-                        width: "18px",
-                        height: "18px",
-                        accentColor: "var(--accent-primary, #c97a1e)",
-                        cursor: "pointer",
-                      }}
-                    />
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: 700,
-                          fontSize: "0.92rem",
-                          color: "var(--text-primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
-                        }}
-                      >
-                        <svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="var(--accent-primary, #c97a1e)"
-                          strokeWidth="2.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <circle cx="12" cy="8" r="6" />
-                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                        </svg>
-                        <span>Award Certificate of Completion for this Batch</span>
-                      </div>
-                      <p
-                        style={{
-                          margin: "4px 0 0",
-                          fontSize: "0.82rem",
-                          color: "var(--text-muted)",
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        Learners in this batch will have the Certificate milestone at the end of their curriculum (just like Apna College) and unlock it upon completing all activities.
-                      </p>
-                    </div>
+                  {formError}
+                </div>
+              )}
+              <div className={styles.formGroup}>
+                <label>
+                  Batch Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Winter Batch 2026"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>
+                  Assign Program <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                </label>
+                <CustomSelect
+                  value={programId}
+                  onChange={(val) => {
+                    setProgramId(val);
+                    const sel = programs.find((prog) => prog.id === val);
+                    if (sel) {
+                      setAwardCertificate(sel.hasCertificate ?? true);
+                    }
+                  }}
+                  fullWidth
+                  ariaLabel="Assign Program"
+                  placeholder="Select a Program..."
+                  options={programs.map((p) => ({
+                    value: p.id,
+                    label: p.title,
+                  }))}
+                />
+              </div>
+
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>
+                    Start Date <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
                   </label>
+                  <DatePicker
+                    value={startDate}
+                    onChange={(val) => {
+                      setStartDate(val);
+                      if (endDate && val && val > endDate) {
+                        setEndDate("");
+                      }
+                    }}
+                    placeholder="Select Start Date"
+                    ariaLabel="Start Date"
+                    minWidth="100%"
+                    minDate={!editingBatchId ? new Date().toISOString().slice(0, 10) : undefined}
+                    maxDate={endDate || undefined}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>
+                    End Date <span className={styles.optionalLabel}>(Optional)</span>
+                  </label>
+                  <DatePicker
+                    value={endDate}
+                    onChange={setEndDate}
+                    placeholder="Select End Date (Optional)"
+                    ariaLabel="End Date (Optional)"
+                    minWidth="100%"
+                    minDate={startDate || (!editingBatchId ? new Date().toISOString().slice(0, 10) : undefined)}
+                  />
                 </div>
               </div>
 
-              <div className={styles.modalFooter}>
+              <div className={styles.formGroup}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <span>Registration Deadline</span>
+                  <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                  <div className={styles.helpTooltip}>
+                    <span
+                      className={styles.helpIcon}
+                      aria-label="Registration Cutoff Information"
+                      tabIndex={0}
+                    >
+                      ?
+                    </span>
+                    <div className={styles.helpTooltipContent}>
+                      Learners cannot self-enroll after this date. Admins can manually assign students anytime.
+                    </div>
+                  </div>
+                </label>
+                <DatePicker
+                  value={registrationDeadline}
+                  onChange={setRegistrationDeadline}
+                  placeholder="Select Registration Deadline"
+                  ariaLabel="Registration Deadline"
+                  minWidth="100%"
+                  maxDate={endDate || undefined}
+                />
+              </div>
+
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>
+                    Max Capacity <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="50"
+                    min="1"
+                    required
+                    value={capacity}
+                    onChange={(e) => setCapacity(e.target.value)}
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label>
+                    Assign Manager <span className={styles.optionalLabel}>(Optional)</span>
+                  </label>
+                  <CustomSelect
+                    value={manager}
+                    onChange={setManager}
+                    fullWidth
+                    ariaLabel="Assign Manager"
+                    placeholder="Select a Manager..."
+                    options={[
+                      { value: "", label: "None / Unassigned" },
+                      ...managers.map((m) => ({
+                        value: m.id,
+                        label: m.name || m.email,
+                      })),
+                    ]}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>Batch Status</label>
+                  <CustomSelect
+                    value={batchStatus}
+                    onChange={setBatchStatus}
+                    fullWidth
+                    ariaLabel="Batch Status"
+                    placeholder="Auto (Based on Start & End Date)"
+                    options={[
+                      { value: "", label: "Auto (Active if started today or earlier)" },
+                      { value: "ACTIVE", label: "Active" },
+                      { value: "UPCOMING", label: "Upcoming" },
+                      { value: "COMPLETED", label: "Completed" },
+                      { value: "ARCHIVED", label: "Archived" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {/* Certificate Award Option */}
+              <div
+                style={{
+                  padding: "0.75rem 1rem",
+                  background: awardCertificate ? "rgba(201, 122, 30, 0.06)" : "var(--bg-card-muted, #fdfbf7)",
+                  border: `1px solid ${awardCertificate ? "var(--accent-primary, #c97a1e)" : "var(--border-light)"}`,
+                  borderRadius: "8px",
+                  marginTop: "0.25rem",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.65rem",
+                    cursor: "pointer",
+                    margin: 0,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={awardCertificate}
+                    onChange={(e) => setAwardCertificate(e.target.checked)}
+                    style={{
+                      width: "16px",
+                      height: "16px",
+                      accentColor: "var(--accent-primary, #c97a1e)",
+                      cursor: "pointer",
+                    }}
+                  />
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      fontSize: "0.88rem",
+                      color: "var(--text-primary)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--accent-primary, #c97a1e)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="8" r="6" />
+                      <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                    </svg>
+                    <span>Award Certificate of Completion</span>
+                  </div>
+                </label>
+              </div>
+
+              <div className={styles.modalFooter} style={{ padding: "1rem 0 0", marginTop: "0.5rem", borderTop: "1px solid var(--border-light)" }}>
                 <button
                   type="button"
                   className={styles.secondaryBtn}
@@ -1105,6 +1375,7 @@ function BatchesContent() {
           </div>
         </div>
       )}
+
 
       {/* Branded ConfirmDialog for Batch Deletion */}
       <ConfirmDialog

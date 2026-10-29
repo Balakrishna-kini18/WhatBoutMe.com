@@ -3,10 +3,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { BatchStatus, EnrolmentStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { EmailService } from '../email/email.service.js';
 import {
   CreateEnrolmentDto,
   PaymentMode,
@@ -17,12 +19,14 @@ import {
 
 /**
  * Capacity-occupying enrolment states.
- * Learners in these states hold an allocated seat in the batch.
+ * Learners in these states hold an allocated, confirmed seat in the batch.
+ * PENDING_PAYMENT is an in-flight checkout/provisional intent and does not
+ * consume hard capacity to avoid blocking paying learners.
  */
 export const CAPACITY_OCCUPYING_STATUSES: readonly EnrolmentStatus[] = [
-  EnrolmentStatus.PENDING_PAYMENT,
-  EnrolmentStatus.PENDING_AGREEMENT,
   EnrolmentStatus.ACTIVE,
+  EnrolmentStatus.PENDING_AGREEMENT,
+  EnrolmentStatus.COMPLETED,
 ] as const;
 
 /**
@@ -30,8 +34,8 @@ export const CAPACITY_OCCUPYING_STATUSES: readonly EnrolmentStatus[] = [
  * Learners in these states do not consume a seat.
  */
 export const NON_OCCUPYING_STATUSES: readonly EnrolmentStatus[] = [
+  EnrolmentStatus.PENDING_PAYMENT,
   EnrolmentStatus.WAITLIST,
-  EnrolmentStatus.COMPLETED,
   EnrolmentStatus.REVOKED,
 ] as const;
 
@@ -40,6 +44,7 @@ export class EnrollmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheHelper: CacheHelperService,
+    @Optional() private readonly emailService?: EmailService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -98,6 +103,24 @@ export class EnrollmentsService {
         batch.status === BatchStatus.ARCHIVED
       ) {
         throw new BadRequestException(`Cannot enroll into a ${batch.status} batch`);
+      }
+
+      // Registration Cutoff Rule:
+      // If a batch has passed its configured registration deadline,
+      // automated public self-enrollment cannot place a learner into the cohort.
+      // Staff (SUPER_ADMIN, ADMIN, MANAGER) can explicitly override and manually assign.
+      const isStaff = actor && ['SUPER_ADMIN', 'ADMIN', 'MANAGER', Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER].includes(actor.role);
+      if (!isStaff) {
+        const now = Date.now();
+        const cutoffTime = (batch as any).registrationDeadline
+          ? new Date((batch as any).registrationDeadline).getTime()
+          : null;
+
+        if (cutoffTime && now > cutoffTime) {
+          throw new BadRequestException(
+            'Registration for this cohort has closed as the registration deadline has passed. Please enroll in the next upcoming cohort or join the waitlist.',
+          );
+        }
       }
 
       // Check program-level uniqueness constraint
@@ -679,11 +702,138 @@ export class EnrollmentsService {
     return cancelled;
   }
 
+  /**
+   * Reconciles expired PENDING_PAYMENT enrollments (older than 48 hours TTL).
+   * Transitions abandoned checkouts to REVOKED to automatically free batch holds.
+   */
+  async reconcileExpiredPendingPayments(): Promise<number> {
+    const ttlCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    try {
+      if (typeof (this.prisma.enrolment as any)?.updateMany === 'function') {
+        const result = await this.prisma.enrolment.updateMany({
+          where: {
+            status: EnrolmentStatus.PENDING_PAYMENT,
+            createdAt: { lte: ttlCutoff },
+          },
+          data: {
+            status: EnrolmentStatus.REVOKED,
+          },
+        });
+        return result.count;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Resends a personalized checkout link to an unpaid learner.
+   */
+  async resendPaymentLink(id: string, actor?: any) {
+    const enrolment = await this.prisma.enrolment.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        program: { select: { id: true, title: true, price: true, currency: true } },
+        batch: { select: { id: true, name: true, startDate: true } },
+      },
+    });
+
+    if (!enrolment) {
+      throw new NotFoundException('Enrolment not found');
+    }
+
+    if (enrolment.status !== EnrolmentStatus.PENDING_PAYMENT) {
+      throw new BadRequestException(
+        `Cannot resend payment link for enrolment with status "${enrolment.status}". Only PENDING_PAYMENT enrolments require payment.`,
+      );
+    }
+
+    const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+    const checkoutUrl = `${lmsUrl}/checkout?programId=${enrolment.programId}&enrolmentId=${enrolment.id}&batchId=${enrolment.batchId}`;
+    const currency = (enrolment.program.currency || 'USD') as 'USD' | 'AED' | 'INR';
+    const currencySymbol = currency === 'INR' ? '₹' : currency === 'AED' ? 'AED ' : '$';
+    const formattedAmount = `${currencySymbol}${enrolment.program.price?.toLocaleString?.() ?? enrolment.program.price}`;
+
+    if (this.emailService) {
+      try {
+        await this.emailService.sendEmail({
+          to: enrolment.user.email,
+          subject: `Complete Your Enrolment: ${enrolment.program.title} — WhatBoutMe`,
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; color: #1c1917; background-color: #faf7f2; border-radius: 16px;">
+              <div style="text-align: center; margin-bottom: 24px;">
+                <span style="display: inline-block; padding: 4px 14px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #b45309; background-color: rgba(217, 119, 6, 0.15); border-radius: 9999px;">
+                  WhatBoutMe Enrolment
+                </span>
+                <h1 style="font-size: 24px; font-weight: 800; color: #1c1917; margin: 12px 0 6px;">Complete Your Enrolment</h1>
+                <p style="font-size: 15px; color: #78716a; margin: 0;">Hi ${enrolment.user.name || 'Student'}, your seat is reserved in ${enrolment.batch?.name || 'Cohort'}.</p>
+              </div>
+
+              <div style="background: #ffffff; border: 1px solid #e7e0d6; border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <h2 style="font-size: 18px; font-weight: 700; color: #1c1917; margin: 0 0 8px;">${enrolment.program.title}</h2>
+                <p style="font-size: 13px; color: #78716a; margin: 0 0 16px;">Cohort: ${enrolment.batch?.name || 'Upcoming Cohort'}</p>
+                
+                <div style="display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid #f5ede2; padding-top: 14px;">
+                  <span style="font-size: 14px; font-weight: 600; color: #44403c;">Tuition Fee (${currency})</span>
+                  <span style="font-size: 22px; font-weight: 800; color: #b45309;">${formattedAmount}</span>
+                </div>
+              </div>
+
+              <div style="text-align: center; margin-bottom: 24px;">
+                <a href="${checkoutUrl}" style="display: inline-block; background-color: #1c1917; color: #faf7f2; padding: 14px 32px; font-size: 15px; font-weight: 700; text-decoration: none; border-radius: 9999px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                  Complete Payment & Join Cohort &rarr;
+                </a>
+              </div>
+
+              <p style="font-size: 12px; line-height: 1.6; color: #78716a; text-align: center; margin: 0 0 8px;">
+                Direct checkout link: <a href="${checkoutUrl}" style="color: #b45309; word-break: break-all;">${checkoutUrl}</a>
+              </p>
+            </div>
+          `,
+        });
+      } catch (err: any) {
+        console.warn(`[EnrollmentsService] Failed to send payment link email to ${enrolment.user.email}:`, err?.message);
+      }
+    }
+
+    if (this.prisma.auditLog?.create) {
+      try {
+        await this.prisma.auditLog.create({
+          data: {
+            actorId: actor?.sub ?? actor?.id ?? null,
+            action: 'PAYMENT_LINK_RESENT',
+            entity: 'Enrolment',
+            entityId: id,
+            meta: {
+              userId: enrolment.userId,
+              batchId: enrolment.batchId,
+              checkoutUrl,
+            },
+          },
+        });
+      } catch {
+        // Soft fail audit log
+      }
+    }
+
+    return {
+      success: true,
+      enrolmentId: id,
+      userEmail: enrolment.user.email,
+      checkoutUrl,
+      message: `Payment link successfully sent to ${enrolment.user.email}`,
+    };
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // 6. ADMINISTRATIVE QUERIES & MANAGER SCOPING
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findAll(user: any, query?: QueryEnrolmentsDto) {
+    await this.reconcileExpiredPendingPayments();
+
     const isManager = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
 

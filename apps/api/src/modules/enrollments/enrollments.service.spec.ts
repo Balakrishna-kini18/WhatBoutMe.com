@@ -19,7 +19,11 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
         findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
         count: vi.fn(),
+      },
+      auditLog: {
+        create: vi.fn(),
       },
       batch: {
         findUnique: vi.fn(),
@@ -236,6 +240,76 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
           batchId: 'batch-1',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('blocks self-enrollment when registrationDeadline has passed', async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'user-1' });
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1' });
+      prismaMock.batch.findUnique.mockResolvedValue({
+        id: 'batch-1',
+        programId: 'prog-1',
+        status: BatchStatus.ACTIVE,
+        registrationDeadline: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      });
+
+      await expect(
+        service.create(
+          { userId: 'user-1', programId: 'prog-1', batchId: 'batch-1' },
+          { id: 'user-1', role: Role.USER } as any,
+        ),
+      ).rejects.toThrow(
+        /Registration for this cohort has closed as the registration deadline has passed/,
+      );
+    });
+
+    it('allows self-enrollment when registrationDeadline is in the future', async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'user-1' });
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1' });
+      prismaMock.batch.findUnique.mockResolvedValue({
+        id: 'batch-1',
+        programId: 'prog-1',
+        status: BatchStatus.ACTIVE,
+        capacity: 50,
+        registrationDeadline: new Date(Date.now() + 48 * 60 * 60 * 1000),
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(null);
+      prismaMock.enrolment.count.mockResolvedValue(10);
+      prismaMock.enrolment.create.mockImplementation(async ({ data }: any) => ({
+        id: 'enrol-active',
+        ...data,
+      }));
+
+      const res = await service.create(
+        { userId: 'user-1', programId: 'prog-1', batchId: 'batch-1' },
+        { id: 'user-1', role: Role.USER } as any,
+      );
+
+      expect(res.status).toBe(EnrolmentStatus.PENDING_PAYMENT);
+    });
+
+    it('allows staff override even if registrationDeadline has passed', async () => {
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'user-1' });
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1' });
+      prismaMock.batch.findUnique.mockResolvedValue({
+        id: 'batch-1',
+        programId: 'prog-1',
+        status: BatchStatus.ACTIVE,
+        capacity: 50,
+        registrationDeadline: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      });
+      prismaMock.enrolment.findUnique.mockResolvedValue(null);
+      prismaMock.enrolment.count.mockResolvedValue(10);
+      prismaMock.enrolment.create.mockImplementation(async ({ data }: any) => ({
+        id: 'enrol-staff',
+        ...data,
+      }));
+
+      const res = await service.create(
+        { userId: 'user-1', programId: 'prog-1', batchId: 'batch-1' },
+        { id: 'admin-1', role: Role.ADMIN } as any,
+      );
+
+      expect(res.status).toBe(EnrolmentStatus.PENDING_PAYMENT);
     });
 
     it('rejects duplicate enrollment in the same program', async () => {
@@ -756,6 +830,61 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
       await expect(
         service.findOneForLearner('enrol-foreign', 'learner-1'),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 8. UNPAID ABANDONED CHECKOUT TTL RECONCILIATION & PAYMENT LINK RESEND
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('Abandoned Checkout TTL & Payment Link Recovery', () => {
+    it('reconciles expired PENDING_PAYMENT enrollments by transitioning them to REVOKED', async () => {
+      prismaMock.enrolment.updateMany.mockResolvedValue({ count: 3 });
+
+      const count = await service.reconcileExpiredPendingPayments();
+
+      expect(count).toBe(3);
+      expect(prismaMock.enrolment.updateMany).toHaveBeenCalledWith({
+        where: {
+          status: EnrolmentStatus.PENDING_PAYMENT,
+          createdAt: { lte: expect.any(Date) },
+        },
+        data: {
+          status: EnrolmentStatus.REVOKED,
+        },
+      });
+    });
+
+    it('resends payment link successfully for PENDING_PAYMENT enrolment', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-unpaid-1',
+        userId: 'user-1',
+        programId: 'prog-1',
+        batchId: 'batch-1',
+        status: EnrolmentStatus.PENDING_PAYMENT,
+        user: { id: 'user-1', name: 'John Doe', email: 'john@example.com' },
+        program: { id: 'prog-1', title: '11 Steps', price: 500, currency: 'USD' },
+        batch: { id: 'batch-1', name: 'Cohort 1' },
+      });
+
+      const res = await service.resendPaymentLink('enrol-unpaid-1', { id: 'admin-1' });
+
+      expect(res.success).toBe(true);
+      expect(res.userEmail).toBe('john@example.com');
+      expect(res.checkoutUrl).toContain('enrolmentId=enrol-unpaid-1');
+    });
+
+    it('rejects resending payment link if enrolment is not PENDING_PAYMENT', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-paid-1',
+        status: EnrolmentStatus.ACTIVE,
+        user: { email: 'active@example.com' },
+        program: { title: '11 Steps', price: 500 },
+        batch: { name: 'Cohort 1' },
+      });
+
+      await expect(
+        service.resendPaymentLink('enrol-paid-1'),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

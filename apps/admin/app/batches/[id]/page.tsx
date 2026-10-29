@@ -82,7 +82,7 @@ interface BatchSession {
   _count?: { attendances?: number; bookings?: number };
 }
 
-type BatchTab = "learners" | "sessions" | "broadcast" | "settings";
+type BatchTab = "learners" | "awaiting_payment" | "sessions" | "broadcast";
 type LearnerSortField = "name" | "status" | "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
 type SessionSortField = "title" | "date" | "trainer" | "status";
 
@@ -99,7 +99,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   // Sync tab with URL query param if present
   useEffect(() => {
     const tabParam = searchParams.get("tab") as BatchTab;
-    if (tabParam && ["learners", "sessions", "broadcast", "settings"].includes(tabParam)) {
+    if (tabParam && ["learners", "awaiting_payment", "sessions", "broadcast"].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
@@ -123,8 +123,10 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const [learnerSortField, setLearnerSortField] = useState<LearnerSortField>("name");
   const [learnerSortOrder, setLearnerSortOrder] = useState<SortOrder>("asc");
 
-  // Tab 1 Sub-View: Confirmed Roster vs Incomplete/Unpaid Checkouts
-  const [rosterSubView, setRosterSubView] = useState<"confirmed" | "pending_payment">("confirmed");
+  // Tab 2: Awaiting Payment State
+  const [pendingSearch, setPendingSearch] = useState("");
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPageSize, setPendingPageSize] = useState(10);
   const [releasingLearner, setReleasingLearner] = useState<EnrolledLearner | null>(null);
   const [isReleasingSeat, setIsReleasingSeat] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -138,10 +140,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   };
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [assignMode, setAssignMode] = useState<"existing" | "new">("existing");
-  const [newLearnerName, setNewLearnerName] = useState("");
-  const [newLearnerEmail, setNewLearnerEmail] = useState("");
-  const [newLearnerPhone, setNewLearnerPhone] = useState("");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [selectedUserToAssign, setSelectedUserToAssign] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
@@ -278,16 +276,18 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       setSettingsManagerId(data.managerId || "");
       setSettingsStatus(data.status || "ACTIVE");
 
-      // Extract Enrolled Learners
+      // Extract Enrolled Learners (waitlist is managed globally at Batches level, not inside individual batch)
       const rawEnrolments: any[] = data.enrolments || [];
-      const formattedLearners: EnrolledLearner[] = rawEnrolments.map((e) => ({
-        id: e.id,
-        userId: e.userId,
-        status: e.status,
-        createdAt: e.createdAt,
-        user: e.user || { id: e.userId, name: "Learner", email: "", role: "USER" },
-        signedAgreement: e.signedAgreement || null,
-      }));
+      const formattedLearners: EnrolledLearner[] = rawEnrolments
+        .filter((e) => e.status !== "WAITLIST")
+        .map((e) => ({
+          id: e.id,
+          userId: e.userId,
+          status: e.status,
+          createdAt: e.createdAt,
+          user: e.user || { id: e.userId, name: "Learner", email: "", role: "USER" },
+          signedAgreement: e.signedAgreement || null,
+        }));
       setLearners(formattedLearners);
 
       // Lazy-load individual 5-step stages for confirmed learners only
@@ -360,9 +360,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     loadSupportingData();
   }, [loadBatchData, loadSessions, loadSupportingData]);
 
-  // Split Confirmed vs Unpaid
+  // Split Confirmed vs Awaiting Payment (waitlist is managed globally at Batches level)
   const confirmedLearners = useMemo(() => {
-    return learners.filter((l) => l.status !== "PENDING_PAYMENT");
+    return learners.filter((l) => l.status !== "PENDING_PAYMENT" && l.status !== "WAITLIST");
   }, [learners]);
 
   const pendingPaymentLearners = useMemo(() => {
@@ -397,11 +397,11 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   };
 
-  // Filtered Learners for Tab 1
+  // Filtered Confirmed Learners for Tab 1
   const filteredLearners = useMemo(() => {
-    let result = rosterSubView === "confirmed" ? confirmedLearners : pendingPaymentLearners;
+    let result = confirmedLearners;
 
-    if (rosterSubView === "confirmed" && learnerStatusFilter !== "ALL") {
+    if (learnerStatusFilter !== "ALL") {
       result = result.filter((l) => {
         if (learnerStatusFilter === "CALL_PENDING") {
           const s4 = l.stages?.STAGE_4_ONE_ON_ONE;
@@ -432,7 +432,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         l.user?.name?.toLowerCase().includes(q) ||
         l.user?.email?.toLowerCase().includes(q)
     );
-  }, [confirmedLearners, pendingPaymentLearners, rosterSubView, learnerSearch, learnerStatusFilter]);
+  }, [confirmedLearners, learnerSearch, learnerStatusFilter]);
 
   const filteredAndSortedLearners = useMemo(() => {
     const list = [...filteredLearners];
@@ -488,6 +488,30 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     const start = (learnerPage - 1) * learnerPageSize;
     return filteredAndSortedLearners.slice(start, start + learnerPageSize);
   }, [filteredAndSortedLearners, learnerPage, learnerPageSize]);
+
+  // Filtered Awaiting Payment Learners for Tab 2
+  const filteredPendingLearners = useMemo(() => {
+    const q = pendingSearch.toLowerCase().trim();
+    if (!q) return pendingPaymentLearners;
+    return pendingPaymentLearners.filter(
+      (l) =>
+        l.user?.name?.toLowerCase().includes(q) ||
+        l.user?.email?.toLowerCase().includes(q)
+    );
+  }, [pendingPaymentLearners, pendingSearch]);
+
+  const totalPendingPages = Math.max(1, Math.ceil(filteredPendingLearners.length / pendingPageSize));
+
+  useEffect(() => {
+    if (pendingPage > totalPendingPages) {
+      setPendingPage(1);
+    }
+  }, [pendingPage, totalPendingPages]);
+
+  const paginatedPendingLearners = useMemo(() => {
+    const start = (pendingPage - 1) * pendingPageSize;
+    return filteredPendingLearners.slice(start, start + pendingPageSize);
+  }, [filteredPendingLearners, pendingPage, pendingPageSize]);
 
   // Tab 2: Sorted Sessions
   const sortedSessions = useMemo(() => {
@@ -610,39 +634,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     setIsAssigning(true);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      let targetUserId = selectedUserToAssign;
-
-      if (assignMode === "new") {
-        if (!newLearnerName.trim() || !newLearnerEmail.trim()) {
-          toastError("Please enter the learner's name and email address.");
-          setIsAssigning(false);
-          return;
-        }
-
-        const createRes = await fetch(`${API_URL}/users`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            name: newLearnerName.trim(),
-            email: newLearnerEmail.trim().toLowerCase(),
-            phone: newLearnerPhone.trim() || undefined,
-            role: "USER",
-          }),
-        });
-
-        if (!createRes.ok) {
-          throw new Error(await errorMessage(createRes, "Could not create user account."));
-        }
-
-        const createdUser = await createRes.json();
-        targetUserId = createdUser.id || createdUser.user?.id;
-      }
-
-      if (!targetUserId) {
-        toastError("Please select a user to assign.");
+      if (!selectedUserToAssign) {
+        toastError("Please select an existing user to assign.");
         setIsAssigning(false);
         return;
       }
@@ -654,7 +647,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          userId: targetUserId,
+          userId: selectedUserToAssign,
           programId: batch.programId,
           batchId: batch.id,
         }),
@@ -664,13 +657,14 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         throw new Error(await errorMessage(res, "Could not assign learner to batch."));
       }
 
-      toastSuccess(assignMode === "new" ? "New learner created and enrolled in batch." : "Learner successfully assigned to batch.");
+      const created = await res.json();
+      if (created?.status === "WAITLIST") {
+        toastSuccess("Batch is at full capacity. Learner was placed on the waitlist.");
+      } else {
+        toastSuccess("Learner successfully assigned to batch.");
+      }
       setIsAssignModalOpen(false);
       setSelectedUserToAssign("");
-      setNewLearnerName("");
-      setNewLearnerEmail("");
-      setNewLearnerPhone("");
-      setAssignMode("existing");
       await loadBatchData();
     } catch (err: any) {
       toastError(err.message || "Failed to assign learner.");
@@ -738,7 +732,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         capacity: batch?.capacity || 50,
       });
 
-      toastSuccess("Live cohort session scheduled successfully.");
+      toastSuccess("Live batch session scheduled successfully.");
       setIsCreateSessionModalOpen(false);
       setSessionTitle("");
       await loadSessions();
@@ -813,7 +807,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         throw new Error(await errorMessage(res, "Failed to send batch broadcast."));
       }
 
-      toastSuccess(`Announcement broadcast sent to ${learners.length} cohort learner(s).`);
+      toastSuccess(`Announcement broadcast sent to ${learners.length} batch learner(s).`);
       setBroadcastHistory((prev) => [
         {
           id: `bcast-${Date.now()}`,
@@ -974,14 +968,36 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
   return (
     <div className={styles.dashboardContainer} style={{ gap: "1rem" }}>
-      {/* 1. Clean Back Navigation */}
-      <div>
+      {/* 1. Top Bar: Back Navigation & Edit Batch */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
         <Link href="/batches" className={batchStyles.backLink}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
           <span>Back to Batches</span>
         </Link>
+
+        <button
+          type="button"
+          onClick={openSettingsModal}
+          className={styles.secondaryBtn}
+          style={{
+            fontSize: "0.82rem",
+            padding: "0.42rem 0.85rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            fontWeight: 600,
+            borderRadius: "6px",
+          }}
+          title="Edit batch parameters, schedule, capacity & instructor"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          <span>Edit Batch</span>
+        </button>
       </div>
 
       {/* 2. Unified Batch Header Card */}
@@ -1004,91 +1020,96 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 <StatusBadge status={batch?.status || "ACTIVE"} />
               </div>
 
-              {/* Clean Sub-Metadata Row matching User & Enrolment detail style */}
-              <div className={batchStyles.metaRow}>
-                <span className={batchStyles.metaItem}>
-                  <span className={batchStyles.metaLabel}>Program:</span>
-                  <span className={batchStyles.metaValue}>{batch?.program?.title || "—"}</span>
-                </span>
-
-                <span className={batchStyles.metaDot}>•</span>
-
-                <span className={batchStyles.metaItem}>
-                  <span className={batchStyles.metaLabel}>Manager:</span>
-                  <span
-                    className={batchStyles.metaValue}
-                    style={{
-                      color: batch?.manager?.name && batch.manager.name !== "Unassigned" ? "var(--text-primary)" : "var(--text-muted)",
-                      fontStyle: batch?.manager?.name && batch.manager.name !== "Unassigned" ? "normal" : "italic",
-                    }}
-                  >
-                    {batch?.manager?.name || "Unassigned"}
+              {/* Clean 2-Row Sub-Metadata Layout for Optimal Responsiveness */}
+              <div className={batchStyles.metaContainer}>
+                {/* Row 1: Course / Academic Context */}
+                <div className={batchStyles.metaRow}>
+                  <span className={batchStyles.metaItemWrap}>
+                    <span className={batchStyles.metaLabel}>Program:</span>
+                    <span
+                      className={batchStyles.metaValue}
+                      style={{ wordBreak: "break-word" }}
+                      title={batch?.program?.title || "—"}
+                    >
+                      {batch?.program?.title || "—"}
+                    </span>
                   </span>
-                </span>
 
-                <span className={batchStyles.metaDot}>•</span>
+                  <span className={batchStyles.metaDot}>•</span>
 
-                <span className={batchStyles.metaItem}>
-                  <span className={batchStyles.metaLabel}>Schedule:</span>
-                  <span className={batchStyles.metaValue}>{scheduleDisplay}</span>
-                </span>
-
-                <span className={batchStyles.metaDot}>•</span>
-
-                <span className={batchStyles.metaItem}>
-                  <span className={batchStyles.metaLabel}>Capacity:</span>
-                  <span className={batchStyles.metaValue} style={{ color: "var(--accent-primary)" }}>
-                    {batch?.enrolledCount ?? learners.length}
+                  <span className={batchStyles.metaItem}>
+                    <span className={batchStyles.metaLabel}>Manager:</span>
+                    <span
+                      className={batchStyles.metaValue}
+                      style={{
+                        color:
+                          batch?.manager?.name && batch.manager.name !== "Unassigned"
+                            ? "var(--text-primary)"
+                            : "var(--text-muted)",
+                        fontStyle:
+                          batch?.manager?.name && batch.manager.name !== "Unassigned"
+                            ? "normal"
+                            : "italic",
+                      }}
+                    >
+                      {batch?.manager?.name || "Unassigned"}
+                    </span>
                   </span>
-                  <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
-                    / {batch?.capacity && batch.capacity < 9000 ? `${batch.capacity} Learners` : "Open Capacity"}
+                </div>
+
+                {/* Row 2: Operational Schedule, Capacity & Registration */}
+                <div className={batchStyles.metaRow}>
+                  <span className={batchStyles.metaItem}>
+                    <span className={batchStyles.metaLabel}>Schedule:</span>
+                    <span className={batchStyles.metaValue}>{scheduleDisplay}</span>
                   </span>
-                </span>
 
-                <span className={batchStyles.metaDot}>•</span>
+                  <span className={batchStyles.metaDot}>•</span>
 
-                <span className={batchStyles.metaItem}>
-                  <span className={batchStyles.metaLabel}>Registration:</span>
-                  <span
-                    className={batchStyles.metaValue}
-                    style={{
-                      color: batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline) ? "#dc2626" : "#166534",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {batch?.registrationDeadline
-                      ? (new Date() > new Date(batch.registrationDeadline)
+                  <span className={batchStyles.metaItem}>
+                    <span className={batchStyles.metaLabel}>Capacity:</span>
+                    <span className={batchStyles.metaValue}>
+                      <span style={{ color: "var(--accent-primary)" }}>
+                        {confirmedLearners.length}
+                      </span>
+                      <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                        {" "}/ {batch?.capacity && batch.capacity < 9000 ? `${batch.capacity} Learners` : "Open Capacity"}
+                      </span>
+                    </span>
+                  </span>
+
+                  <span className={batchStyles.metaDot}>•</span>
+
+                  <span className={batchStyles.metaItem}>
+                    <span className={batchStyles.metaLabel}>Registration:</span>
+                    <span
+                      className={batchStyles.metaValue}
+                      style={{
+                        color:
+                          batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline)
+                            ? "#dc2626"
+                            : "#166534",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {batch?.registrationDeadline
+                        ? new Date() > new Date(batch.registrationDeadline)
                           ? `Closed (${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })})`
-                          : `Until ${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`)
-                      : "Open (Auto)"}
+                          : `Until ${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                        : "Open (Auto)"}
+                    </span>
+                    {batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline) && (
+                      <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: 400, marginLeft: "0.25rem" }}>
+                        (New signups directed to upcoming batch)
+                      </span>
+                    )}
                   </span>
-                </span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className={batchStyles.headerActions}>
-            <button
-              type="button"
-              onClick={() => handleTabChange("settings")}
-              className={styles.secondaryBtn}
-              style={{
-                fontSize: "0.78rem",
-                padding: "0.38rem 0.75rem",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                fontWeight: 600,
-              }}
-              title="Configure batch parameters, schedule & instructor assignment"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              <span>Batch Settings</span>
-            </button>
-          </div>
+
         </div>
       </div>
 
@@ -1100,6 +1121,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           aria-label="Batch management workspace views"
           style={{ gap: "0.75rem", margin: 0, paddingBottom: 0 }}
         >
+          {/* Tab 1: Learners */}
           <button
             type="button"
             role="tab"
@@ -1115,23 +1137,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <span>Learners ({confirmedLearners.length})</span>
-            {pendingPaymentLearners.length > 0 && (
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 700,
-                  background: "#ea580c",
-                  color: "#ffffff",
-                  padding: "1px 6px",
-                  borderRadius: "100px",
-                }}
-                title={`${pendingPaymentLearners.length} unconfirmed checkouts`}
-              >
-                +{pendingPaymentLearners.length}
-              </span>
-            )}
           </button>
 
+          {/* Tab 2: Awaiting Payment */}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "awaiting_payment"}
+            className={`${styles.tabBtn} ${activeTab === "awaiting_payment" ? styles.tabBtnActive : ""}`}
+            onClick={() => handleTabChange("awaiting_payment")}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            <span>Awaiting Payment ({pendingPaymentLearners.length})</span>
+          </button>
+
+          {/* Tab 3: Live Sessions */}
           <button
             type="button"
             role="tab"
@@ -1149,6 +1173,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             <span>Live Sessions ({sessions.length})</span>
           </button>
 
+          {/* Tab 4: Broadcast */}
           <button
             type="button"
             role="tab"
@@ -1164,20 +1189,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             <span>Broadcast</span>
           </button>
 
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "settings"}
-            className={`${styles.tabBtn} ${activeTab === "settings" ? styles.tabBtnActive : ""}`}
-            onClick={() => handleTabChange("settings")}
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            <span>Settings</span>
-          </button>
+
         </div>
       </div>
 
@@ -1186,110 +1198,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "learners" && (
         <section className={styles.tableSection}>
-          {/* Sub-View Navigation: Confirmed Class Roster vs Awaiting Payment */}
-          <div style={{ display: "flex", gap: "0.5rem", padding: "1rem 1rem 0", flexWrap: "wrap", alignItems: "center" }}>
-            <button
-              type="button"
-              onClick={() => {
-                setRosterSubView("confirmed");
-                setLearnerStatusFilter("ALL");
-                setLearnerPage(1);
-              }}
-              style={{
-                padding: "0.45rem 1rem",
-                borderRadius: "6px",
-                fontSize: "0.84rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                border: rosterSubView === "confirmed" ? "1px solid var(--accent-primary, #c97a1e)" : "1px solid var(--border-color, #e5e7eb)",
-                background: rosterSubView === "confirmed" ? "rgba(201, 122, 30, 0.12)" : "transparent",
-                color: rosterSubView === "confirmed" ? "var(--accent-primary, #c97a1e)" : "var(--text-secondary, #6b7280)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <span>Official Class Roster</span>
-              <span
-                style={{
-                  background: rosterSubView === "confirmed" ? "var(--accent-primary, #c97a1e)" : "rgba(0,0,0,0.06)",
-                  color: rosterSubView === "confirmed" ? "#ffffff" : "inherit",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  padding: "1px 6px",
-                  borderRadius: "100px",
-                }}
-              >
-                {confirmedLearners.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setRosterSubView("pending_payment");
-                setLearnerPage(1);
-              }}
-              style={{
-                padding: "0.45rem 1rem",
-                borderRadius: "6px",
-                fontSize: "0.84rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                border: rosterSubView === "pending_payment" ? "1px solid #f97316" : "1px solid var(--border-color, #e5e7eb)",
-                background: rosterSubView === "pending_payment" ? "#fff7ed" : "transparent",
-                color: rosterSubView === "pending_payment" ? "#c2410c" : "var(--text-secondary, #6b7280)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <span>Awaiting Payment / Incomplete</span>
-              <span
-                style={{
-                  background: pendingPaymentLearners.length > 0 ? "#ea580c" : "rgba(0,0,0,0.06)",
-                  color: pendingPaymentLearners.length > 0 ? "#ffffff" : "inherit",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  padding: "1px 6px",
-                  borderRadius: "100px",
-                }}
-              >
-                {pendingPaymentLearners.length}
-              </span>
-            </button>
-          </div>
-
-          {rosterSubView === "pending_payment" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "0.6rem 1rem",
-                margin: "0.75rem 1rem 0",
-                background: "#fffbeb",
-                border: "1px solid #fef3c7",
-                borderRadius: "8px",
-                fontSize: "0.82rem",
-                color: "#92400e",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span>
-                  These learners initiated registration or signed the workshop agreement but haven&apos;t completed payment. They do not consume batch capacity. Unpaid checkouts older than 48 hours are automatically revoked.
-                </span>
-              </div>
-            </div>
-          )}
-
           <div
             className={styles.sectionHeader}
             style={{
@@ -1298,6 +1206,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               alignItems: "center",
               flexWrap: "wrap",
               gap: "0.75rem",
+              padding: "1rem 1rem 0",
             }}
           >
             {/* Search & Filter Group */}
@@ -1309,7 +1218,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 </svg>
                 <input
                   type="text"
-                  placeholder={rosterSubView === "confirmed" ? "Search enrolled learners by name or email..." : "Search pending checkouts..."}
+                  placeholder="Search enrolled learners by name or email..."
                   value={learnerSearch}
                   onChange={(e) => {
                     setLearnerSearch(e.target.value);
@@ -1319,27 +1228,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 />
               </div>
 
-              {/* Status & Stage Filter (Only shown on confirmed roster) */}
-              {rosterSubView === "confirmed" && (
-                <div style={{ minWidth: "175px" }}>
-                  <CustomSelect
-                    value={learnerStatusFilter}
-                    onChange={(val) => {
-                      setLearnerStatusFilter(val);
-                      setLearnerPage(1);
-                    }}
-                    options={[
-                      { value: "ALL", label: `All Confirmed (${confirmedLearners.length})` },
-                      { value: "ACTIVE", label: "Active Status" },
-                      { value: "CALL_PENDING", label: "Needs Approval (1:1 Call)" },
-                      { value: "MISSION_PENDING", label: "Needs Approval (Stage 5)" },
-                      { value: "CERTIFIED", label: "Certified / Completed" },
-                      { value: "PENDING_AGREEMENT", label: "Pending Agreement" },
-                    ]}
-                    ariaLabel="Filter learners by status or progression"
-                  />
-                </div>
-              )}
+              {/* Status & Stage Filter */}
+              <div style={{ minWidth: "175px" }}>
+                <CustomSelect
+                  value={learnerStatusFilter}
+                  onChange={(val) => {
+                    setLearnerStatusFilter(val);
+                    setLearnerPage(1);
+                  }}
+                  options={[
+                    { value: "ALL", label: `All Confirmed (${confirmedLearners.length})` },
+                    { value: "ACTIVE", label: "Active Status" },
+                    { value: "CALL_PENDING", label: "Needs Approval (1:1 Call)" },
+                    { value: "MISSION_PENDING", label: "Needs Approval (Stage 5)" },
+                    { value: "CERTIFIED", label: "Certified / Completed" },
+                    { value: "PENDING_AGREEMENT", label: "Pending Agreement" },
+                  ]}
+                  ariaLabel="Filter learners by status or progression"
+                />
+              </div>
             </div>
 
             {/* Action Buttons: Export CSV & Assign Learner */}
@@ -1348,7 +1255,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 type="button"
                 className={styles.secondaryBtn}
                 onClick={handleExportRoster}
-                disabled={learners.length === 0}
+                disabled={confirmedLearners.length === 0}
                 title="Export enrolled learners roster to CSV"
                 style={{ fontSize: "0.82rem", padding: "0.4rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
               >
@@ -1374,269 +1281,101 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
             <table className={styles.adminTable} style={{ width: "100%" }}>
               <thead>
-                {rosterSubView === "pending_payment" ? (
-                  <tr>
-                    <th
-                      onClick={() => handleLearnerSort("name")}
-                      style={{ minWidth: "180px", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>Prospect / Learner</span>
-                        <SortIndicator active={learnerSortField === "name"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th style={{ width: "150px" }}>Checkout Status</th>
-                    <th style={{ width: "150px" }}>Workshop Agreement</th>
-                    <th style={{ width: "130px" }}>Initiated Date</th>
-                    <th style={{ width: "220px", textAlign: "right", whiteSpace: "nowrap" }}>Quick Actions</th>
-                  </tr>
-                ) : (
-                  <tr>
-                    <th
-                      onClick={() => handleLearnerSort("name")}
-                      style={{ minWidth: "150px", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>Learner</span>
-                        <SortIndicator active={learnerSortField === "name"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("status")}
-                      style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "status" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>Status</span>
-                        <SortIndicator active={learnerSortField === "status"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage1")}
-                      style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage1" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>1. Curriculum</span>
-                        <SortIndicator active={learnerSortField === "stage1"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage2")}
-                      style={{ width: "80px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage2" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>2. Exam</span>
-                        <SortIndicator active={learnerSortField === "stage2"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage3")}
-                      style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage3" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>3. Attendance</span>
-                        <SortIndicator active={learnerSortField === "stage3"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage4")}
-                      style={{ width: "85px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage4" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>4. 1:1 Call</span>
-                        <SortIndicator active={learnerSortField === "stage4"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage5")}
-                      style={{ width: "140px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage5" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>5. Mission Statement</span>
-                        <SortIndicator active={learnerSortField === "stage5"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th style={{ width: "95px", textAlign: "right", whiteSpace: "nowrap" }}>Action</th>
-                  </tr>
-                )}
+                <tr>
+                  <th
+                    onClick={() => handleLearnerSort("name")}
+                    style={{ minWidth: "150px", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>Learner</span>
+                      <SortIndicator active={learnerSortField === "name"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("status")}
+                    style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "status" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>Status</span>
+                      <SortIndicator active={learnerSortField === "status"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage1")}
+                    style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage1" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>1. Curriculum</span>
+                      <SortIndicator active={learnerSortField === "stage1"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage2")}
+                    style={{ width: "80px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage2" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>2. Exam</span>
+                      <SortIndicator active={learnerSortField === "stage2"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage3")}
+                    style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage3" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>3. Attendance</span>
+                      <SortIndicator active={learnerSortField === "stage3"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage4")}
+                    style={{ width: "85px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage4" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>4. 1:1 Call</span>
+                      <SortIndicator active={learnerSortField === "stage4"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage5")}
+                    style={{ width: "140px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage5" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>5. Mission Statement</span>
+                      <SortIndicator active={learnerSortField === "stage5"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th style={{ width: "95px", textAlign: "right", whiteSpace: "nowrap" }}>Action</th>
+                </tr>
               </thead>
               <tbody>
                 {filteredLearners.length === 0 ? (
                   <tr>
-                    <td colSpan={rosterSubView === "pending_payment" ? 5 : 8} style={{ padding: "3rem 1rem" }}>
+                    <td colSpan={8} style={{ padding: "3rem 1rem" }}>
                       <EmptyState
                         icon="users"
                         title={
                           learnerSearch
                             ? "No learners match your search"
-                            : rosterSubView === "pending_payment"
-                            ? "No pending checkouts in this batch"
                             : "No learners enrolled in this batch"
                         }
                         description={
                           learnerSearch
                             ? `No students found matching "${learnerSearch}". Try clearing your query.`
-                            : rosterSubView === "pending_payment"
-                            ? "All students who registered for this cohort have either completed payment or their holds have expired."
-                            : "Click '+ Assign Learner' to add students from this program into this cohort."
+                            : "No learners have been confirmed for this batch yet. Assign an existing learner to get started."
                         }
-                        actionLabel={rosterSubView === "confirmed" ? "+ Assign Learner" : undefined}
-                        onAction={rosterSubView === "confirmed" ? () => setIsAssignModalOpen(true) : undefined}
+                        actionLabel="+ Assign Learner"
+                        onAction={() => setIsAssignModalOpen(true)}
                       />
                     </td>
                   </tr>
-                ) : rosterSubView === "pending_payment" ? (
-                  paginatedLearners.map((learner) => {
-                    const isAgreementSigned = learner.signedAgreement?.status === "SIGNED";
-                    const dateFormatted = learner.createdAt
-                      ? new Date(learner.createdAt).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })
-                      : "N/A";
-
-                    return (
-                      <tr key={learner.id}>
-                        <td>
-                          <Link
-                            href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
-                            style={{ textDecoration: "none", color: "inherit" }}
-                            title="Open student profile"
-                          >
-                            <div className={styles.cellUser}>
-                              <span className={styles.cellUserName} style={{ color: "var(--accent-primary)", cursor: "pointer" }}>
-                                {learner.user?.name}
-                              </span>
-                              <span className={styles.cellUserEmail}>{learner.user?.email}</span>
-                            </div>
-                          </Link>
-                        </td>
-
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              padding: "2px 8px",
-                              borderRadius: "100px",
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              background: "#fff7ed",
-                              color: "#c2410c",
-                              border: "1px solid #ffedd5",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            ● Awaiting Payment
-                          </span>
-                        </td>
-
-                        <td>
-                          {isAgreementSigned ? (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#dcfce7",
-                                color: "#15803d",
-                                border: "1px solid #bbf7d0",
-                              }}
-                              title={`Agreement signed on ${learner.signedAgreement?.signedAt ? new Date(learner.signedAgreement.signedAt).toLocaleDateString() : 'Yes'}`}
-                            >
-                              ✓ Signed
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#fef3c7",
-                                color: "#b45309",
-                                border: "1px solid #fde68a",
-                              }}
-                            >
-                              Pending Signature
-                            </span>
-                          )}
-                        </td>
-
-                        <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                          {dateFormatted}
-                        </td>
-
-                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                          <div style={{ display: "inline-flex", gap: "6px", alignItems: "center", justifyContent: "flex-end" }}>
-                            <button
-                              type="button"
-                              className={styles.secondaryBtn}
-                              onClick={() => handleResendPaymentLink(learner)}
-                              disabled={resendingId === learner.id}
-                              style={{
-                                fontSize: "0.74rem",
-                                padding: "0.28rem 0.6rem",
-                                fontWeight: 600,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                              }}
-                              title="Resend personalized checkout link to learner's email"
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                                <polyline points="22,6 12,13 2,6" />
-                              </svg>
-                              <span>{resendingId === learner.id ? "Sending..." : "Resend Link"}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setReleasingLearner(learner)}
-                              style={{
-                                fontSize: "0.74rem",
-                                padding: "0.28rem 0.6rem",
-                                fontWeight: 600,
-                                color: "#dc2626",
-                                background: "rgba(220, 38, 38, 0.08)",
-                                border: "1px solid rgba(220, 38, 38, 0.25)",
-                                borderRadius: "6px",
-                                cursor: "pointer",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                              }}
-                              title="Release reserved seat immediately (revokes hold)"
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="15" y1="9" x2="9" y2="15" />
-                                <line x1="9" y1="9" x2="15" y2="15" />
-                              </svg>
-                              <span>Release Seat</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
                 ) : (
                   paginatedLearners.map((learner) => {
                     const s1 = learner.stages?.STAGE_1_CURRICULUM;
@@ -1961,7 +1700,263 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          TAB 2: WEEKLY LIVE SESSIONS & ATTENDANCE MANAGEMENT
+          TAB 2: AWAITING PAYMENT (INCOMPLETE CHECKOUTS)
+          ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "awaiting_payment" && (
+        <section className={styles.tableSection}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0.75rem 1rem",
+              margin: "1rem 1rem 0",
+              background: "#fffbeb",
+              border: "1px solid #fef3c7",
+              borderRadius: "8px",
+              fontSize: "0.82rem",
+              color: "#92400e",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>
+                These students started enrollment or signed the agreement but have not completed payment. They do not consume batch capacity. Unpaid checkouts older than 48 hours are automatically revoked.
+              </span>
+            </div>
+          </div>
+
+          <div
+            className={styles.sectionHeader}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+              padding: "1rem 1rem 0",
+            }}
+          >
+            <div className={styles.searchContainer} style={{ minWidth: "320px", maxWidth: "420px", width: "340px" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", marginRight: "0.4rem" }}>
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search pending checkouts by name or email..."
+                value={pendingSearch}
+                onChange={(e) => {
+                  setPendingSearch(e.target.value);
+                  setPendingPage(1);
+                }}
+                className={styles.searchInput}
+              />
+            </div>
+            <span style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 500 }}>
+              {pendingPaymentLearners.length} pending checkout{pendingPaymentLearners.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
+            <table className={styles.adminTable} style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={{ minWidth: "180px" }}>Prospect / Learner</th>
+                  <th style={{ width: "150px" }}>Checkout Status</th>
+                  <th style={{ width: "150px" }}>Workshop Agreement</th>
+                  <th style={{ width: "130px" }}>Initiated Date</th>
+                  <th style={{ width: "220px", textAlign: "right", whiteSpace: "nowrap" }}>Quick Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPendingLearners.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "3rem 1rem" }}>
+                      <EmptyState
+                        icon="users"
+                        title={pendingSearch ? "No matching checkouts" : "No pending checkouts in this batch"}
+                        description={
+                          pendingSearch
+                            ? `No students found matching "${pendingSearch}".`
+                            : "All students who registered for this batch have either completed payment or their holds have expired."
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedPendingLearners.map((learner) => {
+                    const isAgreementSigned = learner.signedAgreement?.status === "SIGNED";
+                    const dateFormatted = learner.createdAt
+                      ? new Date(learner.createdAt).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "N/A";
+
+                    return (
+                      <tr key={learner.id}>
+                        <td>
+                          <Link
+                            href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
+                            style={{ textDecoration: "none", color: "inherit" }}
+                            title="Open student profile"
+                          >
+                            <div className={styles.cellUser}>
+                              <span className={styles.cellUserName} style={{ color: "var(--accent-primary)", cursor: "pointer" }}>
+                                {learner.user?.name}
+                              </span>
+                              <span className={styles.cellUserEmail}>{learner.user?.email}</span>
+                            </div>
+                          </Link>
+                        </td>
+
+                        <td>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              padding: "2px 8px",
+                              borderRadius: "100px",
+                              fontSize: "0.72rem",
+                              fontWeight: 700,
+                              background: "#fff7ed",
+                              color: "#c2410c",
+                              border: "1px solid #ffedd5",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            ● Awaiting Payment
+                          </span>
+                        </td>
+
+                        <td>
+                          {isAgreementSigned ? (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                              }}
+                              title={`Agreement signed on ${learner.signedAgreement?.signedAt ? new Date(learner.signedAgreement.signedAt).toLocaleDateString() : 'Yes'}`}
+                            >
+                              ✓ Signed
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#fef3c7",
+                                color: "#b45309",
+                                border: "1px solid #fde68a",
+                              }}
+                            >
+                              Pending Signature
+                            </span>
+                          )}
+                        </td>
+
+                        <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                          {dateFormatted}
+                        </td>
+
+                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "inline-flex", gap: "6px", alignItems: "center", justifyContent: "flex-end" }}>
+                            <button
+                              type="button"
+                              className={styles.secondaryBtn}
+                              onClick={() => handleResendPaymentLink(learner)}
+                              disabled={resendingId === learner.id}
+                              style={{
+                                fontSize: "0.74rem",
+                                padding: "0.28rem 0.6rem",
+                                fontWeight: 600,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Resend personalized checkout link to learner's email"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                <polyline points="22,6 12,13 2,6" />
+                              </svg>
+                              <span>{resendingId === learner.id ? "Sending..." : "Resend Link"}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setReleasingLearner(learner)}
+                              style={{
+                                fontSize: "0.74rem",
+                                padding: "0.28rem 0.6rem",
+                                fontWeight: 600,
+                                color: "#dc2626",
+                                background: "rgba(220, 38, 38, 0.08)",
+                                border: "1px solid rgba(220, 38, 38, 0.25)",
+                                borderRadius: "6px",
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title="Release reserved seat immediately (revokes hold)"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="15" y1="9" x2="9" y2="15" />
+                                <line x1="9" y1="9" x2="15" y2="15" />
+                              </svg>
+                              <span>Release Seat</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {filteredPendingLearners.length > 0 && (
+            <Pagination
+              currentPage={pendingPage}
+              totalItems={filteredPendingLearners.length}
+              pageSize={pendingPageSize}
+              onPageChange={(p) => setPendingPage(p)}
+              onPageSizeChange={(sz) => {
+                setPendingPageSize(sz);
+                setPendingPage(1);
+              }}
+              pageSizeOptions={[10, 20, 50]}
+              itemLabel="checkouts"
+            />
+          )}
+        </section>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────
+          TAB 3: WEEKLY LIVE SESSIONS & ATTENDANCE MANAGEMENT
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "sessions" && (
         <section className={styles.tableSection}>
@@ -1976,7 +1971,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             }}
           >
             <div>
-              <h2 style={{ fontSize: "1.1rem", margin: 0, fontWeight: 700 }}>Live Cohort Sessions</h2>
+              <h2 style={{ fontSize: "1.1rem", margin: 0, fontWeight: 700 }}>Live Batch Sessions</h2>
               <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
                 Weekly live Zoom meetings and attendance tracking for {batch?.name}
               </p>
@@ -2049,7 +2044,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       <EmptyState
                         icon="calendar"
                         title="No live sessions scheduled yet"
-                        description="Schedule the weekly Zoom classes for this batch cohort."
+                        description="Schedule the weekly Zoom classes for this batch."
                         actionLabel="+ Schedule First Session"
                         onAction={() => setIsCreateSessionModalOpen(true)}
                       />
@@ -2085,7 +2080,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         <td>
                           <span className={styles.cellUserName}>{sess.title}</span>
                           <span className={styles.cellUserEmail}>
-                            {sess.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching Session" : "Cohort Live Workshop"}
+                            {sess.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching Session" : "Batch Live Workshop"}
                           </span>
                         </td>
                         <td>
@@ -2280,7 +2275,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 gap: "4px",
                                 whiteSpace: "nowrap",
                               }}
-                              title="Mark attendance for cohort learners"
+                              title="Mark attendance for batch learners"
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M9 11l3 3L22 4" />
@@ -2447,195 +2442,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          TAB 4: BATCH CONFIGURATION & SETTINGS
-          ───────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "settings" && (
-        <section className={styles.tableSection} style={{ padding: "1.75rem" }}>
-          <div style={{ maxWidth: "680px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "0 0 0.5rem" }}>
-              Batch Configuration & Lifecycle
-            </h2>
-            <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", margin: "0 0 1.5rem", lineHeight: 1.5 }}>
-              Update cohort schedule, capacity constraints, status, and assigned manager for <strong>{batch?.name}</strong>.
-            </p>
-
-            <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-              {settingsError && (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    background: "rgba(220, 38, 38, 0.08)",
-                    border: "1px solid rgba(220, 38, 38, 0.3)",
-                    borderRadius: "8px",
-                    color: "#dc2626",
-                    fontSize: "0.88rem",
-                  }}
-                  role="alert"
-                >
-                  {settingsError}
-                </div>
-              )}
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                  Batch Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Winter Batch 2026"
-                  required
-                  value={settingsName}
-                  onChange={(e) => setSettingsName(e.target.value)}
-                  className={styles.formInput}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Program</label>
-                <input
-                  type="text"
-                  value={batch?.program?.title || "—"}
-                  disabled
-                  className={styles.formInput}
-                  style={{ background: "#f5ece1", color: "var(--text-secondary)", cursor: "not-allowed" }}
-                />
-              </div>
-
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    Start Date <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                  </label>
-                  <DatePicker
-                    value={settingsStartDate}
-                    onChange={(val) => {
-                      setSettingsStartDate(val);
-                      if (settingsEndDate && val && val > settingsEndDate) {
-                        setSettingsEndDate("");
-                      }
-                    }}
-                    placeholder="Select Start Date"
-                    ariaLabel="Start Date"
-                    minWidth="100%"
-                    maxDate={settingsEndDate || undefined}
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    End Date <span className={styles.optionalLabel}>(Optional)</span>
-                  </label>
-                  <DatePicker
-                    value={settingsEndDate}
-                    onChange={setSettingsEndDate}
-                    placeholder="Select End Date (Optional)"
-                    ariaLabel="End Date (Optional)"
-                    minWidth="100%"
-                    minDate={settingsStartDate || undefined}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  <span>Registration Deadline</span>
-                  <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                  <div className={styles.helpTooltip}>
-                    <span
-                      className={styles.helpIcon}
-                      aria-label="Registration Cutoff Information"
-                      tabIndex={0}
-                    >
-                      ?
-                    </span>
-                    <div className={styles.helpTooltipContent}>
-                      Learners cannot self-enroll after this date. Admins can manually assign students anytime.
-                    </div>
-                  </div>
-                </label>
-                <DatePicker
-                  value={settingsRegistrationDeadline}
-                  onChange={setSettingsRegistrationDeadline}
-                  placeholder="Select Registration Deadline"
-                  ariaLabel="Registration Deadline"
-                  minWidth="100%"
-                  maxDate={settingsEndDate || undefined}
-                />
-              </div>
-
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    Max Capacity <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min={learners.length}
-                    required
-                    value={settingsCapacity}
-                    onChange={(e) => setSettingsCapacity(e.target.value)}
-                    className={styles.formInput}
-                  />
-                  <small style={{ color: "var(--text-muted)", fontSize: "0.72rem", marginTop: "3px" }}>
-                    Currently enrolled: {learners.length} students
-                  </small>
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Batch Status</label>
-                  <CustomSelect
-                    value={settingsStatus}
-                    onChange={setSettingsStatus}
-                    fullWidth
-                    ariaLabel="Batch Status"
-                    options={[
-                      { value: "ACTIVE", label: "Active" },
-                      { value: "UPCOMING", label: "Upcoming" },
-                      { value: "COMPLETED", label: "Completed" },
-                      { value: "ARCHIVED", label: "Archived" },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                  Assign Manager <span className={styles.optionalLabel}>(Optional)</span>
-                </label>
-                <CustomSelect
-                  value={settingsManagerId}
-                  onChange={setSettingsManagerId}
-                  fullWidth
-                  ariaLabel="Assign Manager"
-                  placeholder="Select a Manager..."
-                  options={[
-                    { value: "", label: "None / Unassigned" },
-                    ...managers.map((m) => ({
-                      value: m.id,
-                      label: m.name || m.email,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <div style={{ paddingTop: "0.5rem" }}>
-                <button
-                  type="submit"
-                  className={styles.primaryBtn}
-                  disabled={isSavingSettings}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
-                >
-                  {isSavingSettings ? "Saving Settings..." : "Save Batch Settings"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
-      )}
-
-
-
-      {/* ─────────────────────────────────────────────────────────────────────────
           MODAL: ASSIGN LEARNER TO BATCH
           ───────────────────────────────────────────────────────────────────────── */}
       {isAssignModalOpen && (
@@ -2645,7 +2451,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Assign Learner to {batch?.name}</h3>
                 <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 400 }}>
-                  Select an existing user to provision an active enrollment in <strong>{batch?.program?.title}</strong> for this cohort batch.
+                  Select an existing user to provision an active enrollment in <strong>{batch?.program?.title}</strong> for this batch.
                 </p>
               </div>
               <button
@@ -2659,103 +2465,40 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             </div>
 
             <div className={styles.modalBody} style={{ padding: "1.25rem" }}>
-              {/* Dual-Mode Segmented Tabs */}
-              <div style={{ display: "flex", background: "#f5ece1", padding: "3px", borderRadius: "8px", marginBottom: "1.25rem", gap: "4px" }}>
-                <button
-                  type="button"
-                  onClick={() => setAssignMode("existing")}
-                  style={{
-                    flex: 1,
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "none",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    background: assignMode === "existing" ? "#ffffff" : "transparent",
-                    color: assignMode === "existing" ? "var(--text-primary)" : "var(--text-muted)",
-                    boxShadow: assignMode === "existing" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  Assign Existing Learner
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAssignMode("new")}
-                  style={{
-                    flex: 1,
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "none",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    background: assignMode === "new" ? "#ffffff" : "transparent",
-                    color: assignMode === "new" ? "var(--text-primary)" : "var(--text-muted)",
-                    boxShadow: assignMode === "new" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  Create New Learner &amp; Assign
-                </button>
+              <div
+                style={{
+                  background: "#fdf8f0",
+                  border: "1px solid #f3e5ce",
+                  borderRadius: "8px",
+                  padding: "0.75rem 1rem",
+                  fontSize: "0.8rem",
+                  color: "#78350f",
+                  lineHeight: "1.4",
+                  marginBottom: "1.25rem",
+                }}
+              >
+                💡 <strong>Existing Users Only:</strong> Learners self-register via checkout to capture their verified country, timezone, and digital workshop consent. Select an existing user account below to provision an enrollment.
               </div>
 
-              {assignMode === "existing" ? (
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Select User *</label>
-                  <CustomSelect
-                    value={selectedUserToAssign}
-                    onChange={setSelectedUserToAssign}
-                    options={[
-                      { value: "", label: "Search and select a user..." },
-                      ...allUsers.map((u) => ({
-                        value: u.id,
-                        label: `${u.name || "Unnamed"} (${u.email})`,
-                      })),
-                    ]}
-                    fullWidth
-                    menuMaxHeight="200px"
-                    ariaLabel="Select user"
-                  />
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>Full Name *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., Alex Johnson"
-                      value={newLearnerName}
-                      onChange={(e) => setNewLearnerName(e.target.value)}
-                      className={styles.modalInput}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "0.55rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>Email Address *</label>
-                    <input
-                      type="email"
-                      placeholder="e.g., alex@example.com"
-                      value={newLearnerEmail}
-                      onChange={(e) => setNewLearnerEmail(e.target.value)}
-                      className={styles.modalInput}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "0.55rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>Phone Number (Optional)</label>
-                    <input
-                      type="tel"
-                      placeholder="e.g., +971 50 123 4567"
-                      value={newLearnerPhone}
-                      onChange={(e) => setNewLearnerPhone(e.target.value)}
-                      className={styles.modalInput}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "0.55rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                </div>
-              )}
+              <div className={styles.formGroup}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>
+                  Select Existing User <span style={{ color: "var(--accent-primary)" }}>*</span>
+                </label>
+                <CustomSelect
+                  value={selectedUserToAssign}
+                  onChange={setSelectedUserToAssign}
+                  options={[
+                    { value: "", label: "Search and select a user..." },
+                    ...allUsers.map((u) => ({
+                      value: u.id,
+                      label: `${u.name || "Unnamed"} (${u.email})`,
+                    })),
+                  ]}
+                  fullWidth
+                  menuMaxHeight="220px"
+                  ariaLabel="Select user"
+                />
+              </div>
             </div>
 
             <div className={styles.modalFooter}>
@@ -2771,18 +2514,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 type="button"
                 className={styles.primaryBtn}
                 onClick={handleAssignLearner}
-                disabled={
-                  isAssigning ||
-                  (assignMode === "existing"
-                    ? !selectedUserToAssign
-                    : !newLearnerName.trim() || !newLearnerEmail.trim())
-                }
+                disabled={isAssigning || !selectedUserToAssign}
               >
-                {isAssigning
-                  ? "Processing..."
-                  : assignMode === "new"
-                  ? "Create & Assign to Batch"
-                  : "Assign to Batch"}
+                {isAssigning ? "Assigning..." : "Assign to Batch"}
               </button>
             </div>
           </div>
@@ -2797,7 +2531,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "540px" }}>
             <form onSubmit={handleCreateSession}>
               <div className={styles.modalHeader}>
-                <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Schedule Live Cohort Session</h3>
+                <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Schedule Live Batch Session</h3>
                 <button
                   type="button"
                   className={styles.closeBtn}
@@ -3005,7 +2739,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           >
             <div className={styles.modalHeader} style={{ padding: "1rem 1.5rem" }}>
               <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
-                Batch Settings
+                Edit Batch
               </h2>
               <button
                 className={styles.closeBtn}
@@ -3115,8 +2849,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     >
                       ?
                     </span>
-                    <div className={styles.helpTooltipContent}>
-                      Learners cannot self-enroll after this date. Admins can manually assign students anytime.
+                    <div className={styles.helpTooltipContent} style={{ width: "270px", lineHeight: "1.4" }}>
+                      <strong>Registration Deadline:</strong>
+                      <ul style={{ margin: "6px 0 0", paddingLeft: "16px", fontSize: "0.75rem", display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <li>Registration closes for this batch after this date.</li>
+                        <li>New students will be added to the upcoming batch or to the waitlist.</li>
+                        <li>Even if this batch has open seats, no new students can join this batch after this deadline.</li>
+                      </ul>
                     </div>
                   </div>
                 </label>
@@ -3158,7 +2897,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       { value: "ACTIVE", label: "Active" },
                       { value: "UPCOMING", label: "Upcoming" },
                       { value: "COMPLETED", label: "Completed" },
-                      { value: "ARCHIVED", label: "Archived" },
                     ]}
                   />
                 </div>
@@ -3198,7 +2936,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   className={styles.primaryBtn}
                   disabled={isSavingSettings}
                 >
-                  {isSavingSettings ? "Saving Settings..." : "Save Settings"}
+                  {isSavingSettings ? "Saving Changes..." : "Save Changes"}
                 </button>
               </div>
             </form>

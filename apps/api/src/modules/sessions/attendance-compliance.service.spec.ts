@@ -131,11 +131,17 @@ describe('AttendanceComplianceService', () => {
   it('10. 1:1 sessions do not count as cohort attendance (query check)', async () => {
     setupMocks(80, null, 2, Array(2).fill(AttendanceStatus.PRESENT_AUTO));
     await service.calculateCompliance('enrol-1');
-    // Verify query explicitly demands SessionType.GROUP_COHORT
+    // Verify query explicitly excludes 1:1 session types from cohort attendance
     expect(prismaMock.session.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          sessionType: SessionType.GROUP_COHORT
+          sessionType: {
+            notIn: [
+              SessionType.ONE_ON_ONE,
+              SessionType.ONE_ON_ONE_WITH_RO,
+              SessionType.SPEAKER_DISCOVERY_CALL,
+            ],
+          },
         })
       })
     );

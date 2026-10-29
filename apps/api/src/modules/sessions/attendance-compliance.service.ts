@@ -49,11 +49,17 @@ export class AttendanceComplianceService {
     }
 
     // 1. Determine the required live cohort sessions
-    // We look for sessions in this batch that are GROUP_COHORT, isRequired = true, and not CANCELLED
+    // Includes cohort sessions (GROUP_COHORT, BATCH_CLASS, VISION_BOARD_*, etc.), excluding 1:1 individual consultations
     const requiredSessions = await this.prisma.session.findMany({
       where: {
         batchId: enrolment.batchId,
-        sessionType: SessionType.GROUP_COHORT,
+        sessionType: {
+          notIn: [
+            SessionType.ONE_ON_ONE,
+            SessionType.ONE_ON_ONE_WITH_RO,
+            SessionType.SPEAKER_DISCOVERY_CALL,
+          ],
+        },
         isRequired: true,
         status: {
           not: SessionStatus.CANCELLED

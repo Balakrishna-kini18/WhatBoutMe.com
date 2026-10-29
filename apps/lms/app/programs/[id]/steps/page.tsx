@@ -172,7 +172,7 @@ function formatLockReason(step: StepProgressionItem): string {
   }
 
   if (step.lockReason === "ENROLMENT_NOT_ACTIVE") {
-    return "Enrolment is inactive. Access requires an active enrolment.";
+    return "Step 1 will unlock once you are assigned to a batch. Currently on waitlist.";
   }
 
   return "Complete previous step requirements to unlock";
@@ -910,9 +910,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
           {progression.enrolmentStatus === "WAITLIST" && (
             <>
-              <h3 className={styles.statusBannerTitle}>Cohort Waitlisted</h3>
+              <h3 className={styles.statusBannerTitle}>Batch Assignment Pending</h3>
               <p className={styles.statusBannerText}>
-                You are on the waitlist for {progression.batchName}. You will be notified and given immediate access when a seat becomes available.
+                Step 1 will unlock once you are assigned to a batch. You are currently on the waitlist for the next upcoming batch.
               </p>
             </>
           )}

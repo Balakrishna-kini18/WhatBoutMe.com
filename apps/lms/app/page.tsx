@@ -227,6 +227,8 @@ export default function LearnerDashboardPage() {
     return {
       key: p.enrolmentId || `course-${p.programId || idx}`,
       title: p.programTitle || p.batchName || "Certified Resilience Program",
+      batchName: p.batchName,
+      status: p.status,
       progress: progressVal,
       totalLessons,
       completedLessons,

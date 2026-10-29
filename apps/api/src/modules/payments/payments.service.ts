@@ -313,7 +313,41 @@ export class PaymentsService {
       // Handle Success Simulation:
       // Agreement pre-condition: if agreement is signed -> ACTIVE, else PENDING_AGREEMENT
       const isSigned = enrolment.signedAgreement && enrolment.signedAgreement.status === AgreementStatus.SIGNED;
-      const targetEnrolmentStatus = isSigned ? EnrolmentStatus.ACTIVE : EnrolmentStatus.PENDING_AGREEMENT;
+      let targetEnrolmentStatus: EnrolmentStatus;
+      if (enrolment.status === EnrolmentStatus.WAITLIST) {
+        targetEnrolmentStatus = EnrolmentStatus.WAITLIST;
+      } else {
+        const batch = enrolment.batchId
+          ? await this.prisma.batch.findUnique({
+              where: { id: enrolment.batchId },
+              include: {
+                _count: {
+                  select: {
+                    enrolments: {
+                      where: {
+                        id: { not: enrolment.id },
+                        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                      },
+                    },
+                  },
+                },
+              },
+            })
+          : null;
+
+        const occupied = batch?._count?.enrolments ?? 0;
+        const capacity = batch?.capacity ?? 50;
+        const isFull = occupied >= capacity;
+        const isDeadlinePassed = batch?.registrationDeadline
+          ? new Date() > new Date(batch.registrationDeadline)
+          : false;
+
+        if (isFull || isDeadlinePassed) {
+          targetEnrolmentStatus = EnrolmentStatus.WAITLIST;
+        } else {
+          targetEnrolmentStatus = isSigned ? EnrolmentStatus.ACTIVE : EnrolmentStatus.PENDING_AGREEMENT;
+        }
+      }
 
       // 1. Authoritative Server-Side Program Price Resolution
       const program = enrolment.program;

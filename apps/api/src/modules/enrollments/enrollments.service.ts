@@ -5,7 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { BatchStatus, EnrolmentStatus, Role } from '@prisma/client';
+import { AgreementStatus, BatchStatus, EnrolmentStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { EmailService } from '../email/email.service.js';
@@ -87,7 +87,8 @@ export class EnrollmentsService {
           status: true,
           capacity: true,
           startDate: true,
-        },
+            registrationDeadline: true,
+          },
       });
 
       if (!batch) {
@@ -158,15 +159,17 @@ export class EnrollmentsService {
       });
 
       const isFull = occupiedSeats >= batch.capacity;
+      const isDeadlinePassed = batch.registrationDeadline
+        ? new Date() > new Date(batch.registrationDeadline)
+        : false;
       let initialStatus: EnrolmentStatus;
 
-      if (isFull) {
+      if (isFull || isDeadlinePassed) {
         initialStatus = EnrolmentStatus.WAITLIST;
       } else if (
         dto.paymentMode === PaymentMode.OFFLINE ||
         dto.paymentMode === PaymentMode.COMPLIMENTARY
       ) {
-        // Payment is immediately satisfied for offline/complimentary seats
         initialStatus = EnrolmentStatus.PENDING_AGREEMENT;
       } else {
         initialStatus = EnrolmentStatus.PENDING_PAYMENT;
@@ -198,8 +201,9 @@ export class EnrollmentsService {
 
       // Record satisfied payment record if offline or complimentary
       if (
-        dto.paymentMode === PaymentMode.OFFLINE ||
-        dto.paymentMode === PaymentMode.COMPLIMENTARY
+        initialStatus !== EnrolmentStatus.WAITLIST &&
+        (dto.paymentMode === PaymentMode.OFFLINE ||
+          dto.paymentMode === PaymentMode.COMPLIMENTARY)
       ) {
         await tx.payment.create({
           data: {
@@ -588,10 +592,23 @@ export class EnrollmentsService {
 
       const destIsFull = occupiedInDest >= destinationBatch.capacity;
 
-      // If destination is full, learner moves to WAITLIST; otherwise preserves progress and active status
-      const nextStatus = destIsFull
-        ? EnrolmentStatus.WAITLIST
-        : enrolment.status;
+              // If destination is full, learner moves to WAITLIST; otherwise promote out of WAITLIST
+        let nextStatus = enrolment.status;
+        if (destIsFull) {
+          nextStatus = EnrolmentStatus.WAITLIST;
+        } else if (enrolment.status === EnrolmentStatus.WAITLIST) {
+          const hasSigned = (enrolment as any).signedAgreement?.status === AgreementStatus.SIGNED;
+          const hasPayment = (enrolment as any).payments?.some(
+            (p: any) => p.status === 'succeeded' || p.status === 'paid' || p.status === 'COMPLETED',
+          );
+          if (hasSigned) {
+            nextStatus = EnrolmentStatus.ACTIVE;
+          } else if (hasPayment) {
+            nextStatus = EnrolmentStatus.PENDING_AGREEMENT;
+          } else {
+            nextStatus = EnrolmentStatus.ACTIVE;
+          }
+        }
 
       const updated = await tx.enrolment.update({
         where: { id },
@@ -833,6 +850,7 @@ export class EnrollmentsService {
 
   async findAll(user: any, query?: QueryEnrolmentsDto) {
     await this.reconcileExpiredPendingPayments();
+    await this.absorbWaitlistLearners().catch(() => {});
 
     const isManager = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
@@ -1203,4 +1221,132 @@ export class EnrollmentsService {
       await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
     }
   }
+
+  async absorbWaitlistLearners(): Promise<number> {
+    if (
+      typeof (this.prisma.enrolment as any)?.findMany !== 'function' ||
+      typeof (this.prisma.batch as any)?.findMany !== 'function'
+    ) {
+      return 0;
+    }
+
+    const waitlisted = await this.prisma.enrolment.findMany({
+      where: {
+        status: EnrolmentStatus.WAITLIST,
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        signedAgreement: true,
+        payments: true,
+      },
+    });
+
+    if (!waitlisted.length) return 0;
+
+    const now = new Date();
+    let absorbedCount = 0;
+
+    const programMap = new Map<string, typeof waitlisted>();
+    for (const enr of waitlisted) {
+      if (!programMap.has(enr.programId)) {
+        programMap.set(enr.programId, []);
+      }
+      programMap.get(enr.programId)!.push(enr);
+    }
+
+    for (const [programId, learners] of programMap.entries()) {
+      const openBatches = await this.prisma.batch.findMany({
+        where: {
+          programId,
+          status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
+          OR: [
+            { registrationDeadline: null },
+            { registrationDeadline: { gte: now } },
+          ],
+        },
+        include: {
+          _count: {
+            select: {
+              enrolments: {
+                where: {
+                  status: {
+                    in: [
+                      EnrolmentStatus.ACTIVE,
+                      EnrolmentStatus.PENDING_AGREEMENT,
+                      EnrolmentStatus.COMPLETED,
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { startDate: 'asc' },
+      });
+
+      for (const batch of openBatches) {
+        let currentCount = batch._count.enrolments;
+        const availableSeats = batch.capacity - currentCount;
+        if (availableSeats <= 0) continue;
+
+        const toAbsorb = learners.splice(0, availableSeats);
+        for (const enr of toAbsorb) {
+          const hasSigned = enr.signedAgreement?.status === AgreementStatus.SIGNED;
+          const hasPayment = enr.payments?.some(
+            (p: any) =>
+              p.status === 'succeeded' ||
+              p.status === 'paid' ||
+              p.status === 'COMPLETED',
+          );
+          let targetStatus: EnrolmentStatus = EnrolmentStatus.ACTIVE;
+          if (hasSigned) {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          } else if (hasPayment) {
+            targetStatus = EnrolmentStatus.PENDING_AGREEMENT;
+          } else {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          }
+
+          await this.prisma.enrolment.update({
+            where: { id: enr.id },
+            data: {
+              batchId: batch.id,
+              status: targetStatus,
+            },
+          });
+
+          if (typeof (this.prisma as any).auditLog?.create === 'function') {
+            await (this.prisma as any).auditLog.create({
+              data: {
+                actorId: null,
+                action: 'WAITLIST_AUTO_ASSIGNED',
+                entity: 'Enrolment',
+                entityId: enr.id,
+                meta: {
+                  batchId: batch.id,
+                  batchName: batch.name,
+                  programId,
+                  previousStatus: EnrolmentStatus.WAITLIST,
+                  newStatus: targetStatus,
+                },
+              },
+            }).catch(() => null);
+          }
+
+          absorbedCount++;
+          currentCount++;
+        }
+
+        if (learners.length === 0) break;
+      }
+    }
+
+    if (absorbedCount > 0) {
+      await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
+      await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+    }
+
+    return absorbedCount;
+  }
+
 }

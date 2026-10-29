@@ -230,14 +230,45 @@ export class PaymentWebhookController {
         enrolment.signedAgreement.status === AgreementStatus.SIGNED;
 
       let targetEnrolmentStatus: EnrolmentStatus;
-      if (isSigned) {
-        targetEnrolmentStatus = EnrolmentStatus.ACTIVE;
+      if (enrolment.status === EnrolmentStatus.WAITLIST) {
+        targetEnrolmentStatus = EnrolmentStatus.WAITLIST;
       } else {
-        // Payment captured but learner has not signed agreement -> access stays locked
-        targetEnrolmentStatus = EnrolmentStatus.PENDING_AGREEMENT;
-        this.logger.warn(
-          `Payment received for enrolment ${enrolment.id}, but agreement is NOT signed. Setting status to PENDING_AGREEMENT.`,
-        );
+        const batch = enrolment.batchId
+          ? await this.prisma.batch.findUnique({
+              where: { id: enrolment.batchId },
+              include: {
+                _count: {
+                  select: {
+                    enrolments: {
+                      where: {
+                        id: { not: enrolment.id },
+                        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                      },
+                    },
+                  },
+                },
+              },
+            })
+          : null;
+
+        const occupied = batch?._count?.enrolments ?? 0;
+        const capacity = batch?.capacity ?? 50;
+        const isFull = occupied >= capacity;
+        const isDeadlinePassed = batch?.registrationDeadline
+          ? new Date() > new Date(batch.registrationDeadline)
+          : false;
+
+        if (isFull || isDeadlinePassed) {
+          targetEnrolmentStatus = EnrolmentStatus.WAITLIST;
+        } else if (isSigned) {
+          targetEnrolmentStatus = EnrolmentStatus.ACTIVE;
+        } else {
+          // Payment captured but learner has not signed agreement -> access stays locked
+          targetEnrolmentStatus = EnrolmentStatus.PENDING_AGREEMENT;
+          this.logger.warn(
+            `Payment received for enrolment ${enrolment.id}, but agreement is NOT signed. Setting status to PENDING_AGREEMENT.`,
+          );
+        }
       }
 
       // 5.5 INDEPENDENT AMOUNT AND CURRENCY VALIDATION AGAINST TRUSTED RECORDS
@@ -323,6 +354,7 @@ export class PaymentWebhookController {
       if (this.cacheHelper) {
         await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => {});
         await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+        await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
       }
 
       // Send confirmation email

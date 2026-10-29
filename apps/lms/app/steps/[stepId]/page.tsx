@@ -1439,13 +1439,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const currentQuizQuestion: QuizQuestion | undefined = quizQuestions[safeActiveIndex];
 
-  // Strictly clamp activeQuizIndex whenever quiz questions count changes
-  useEffect(() => {
-    if (quizQuestions.length > 0 && activeQuizIndex >= quizQuestions.length) {
-      setActiveQuizIndex(Math.max(0, quizQuestions.length - 1));
-    }
-  }, [quizQuestions.length, activeQuizIndex]);
-
   const renderLessonNavigationRow = () => {
     const hasPrevious = activeLessonIndex > 0;
     const prevLesson = hasPrevious ? videoLessons[activeLessonIndex - 1] : null;

@@ -785,7 +785,17 @@ export class QuizzesService {
           userSubmission?.selectedOptionId || userSubmission?.optionId;
         if (subOptId) {
           selectedOptionId = subOptId;
-          const matchingOption = question.options.find((o) => o.id === subOptId);
+          let matchingOption = question.options.find((o) => o.id === subOptId);
+
+          if (!matchingOption) {
+            // Resilient fallback: Check if client submitted option text or trimmed string
+            matchingOption = question.options.find(
+              (o) => o.text.trim().toLowerCase() === String(subOptId).trim().toLowerCase(),
+            );
+            if (matchingOption) {
+              selectedOptionId = matchingOption.id;
+            }
+          }
 
           if (!matchingOption) {
             throw new BadRequestException(

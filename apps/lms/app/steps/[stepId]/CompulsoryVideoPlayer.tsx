@@ -38,6 +38,9 @@ import {
   saveLocalLessonCompletion,
   isLocalLessonCompleted,
   determineResumePosition,
+  getQualityTransformedUrl,
+  VIDEO_QUALITY_OPTIONS,
+  type VideoQuality,
 } from "./videoPlayerLogic";
 
 export default function CompulsoryVideoPlayer({
@@ -57,8 +60,8 @@ export default function CompulsoryVideoPlayer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Resolve upload streaming key or direct Cloudinary/S3 URL with auth token
-  const resolvedVideoSrc = React.useMemo(() => {
+  // Base raw streaming key or direct Cloudinary/S3 URL with auth token
+  const baseVideoSrc = React.useMemo(() => {
     if (!videoSrc) return "";
     if (videoSrc.startsWith("http://") || videoSrc.startsWith("https://") || videoSrc.startsWith("/")) {
       return videoSrc;
@@ -69,6 +72,18 @@ export default function CompulsoryVideoPlayer({
     const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
     return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   }, [videoSrc]);
+
+  // Video Quality adjustment state
+  const [selectedQuality, setSelectedQuality] = useState<VideoQuality>("Auto");
+  const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
+  const qualityMenuRef = useRef<HTMLDivElement | null>(null);
+  const qualitySwitchTargetPosRef = useRef<number | null>(null);
+  const qualitySwitchWasPlayingRef = useRef<boolean>(false);
+
+  // Quality-transformed stream URL
+  const resolvedVideoSrc = React.useMemo(() => {
+    return getQualityTransformedUrl(baseVideoSrc, selectedQuality);
+  }, [baseVideoSrc, selectedQuality]);
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -99,12 +114,38 @@ export default function CompulsoryVideoPlayer({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showSpeedMenu]);
 
+  // Close quality menu on outside click
+  useEffect(() => {
+    if (!showQualityMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (qualityMenuRef.current && !qualityMenuRef.current.contains(e.target as Node)) {
+        setShowQualityMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showQualityMenu]);
+
   const handleSpeedChange = (speed: number) => {
     setPlaybackSpeed(speed);
     if (videoRef.current) {
       videoRef.current.playbackRate = speed;
     }
     setShowSpeedMenu(false);
+  };
+
+  const handleQualityChange = (q: VideoQuality) => {
+    if (q === selectedQuality) {
+      setShowQualityMenu(false);
+      return;
+    }
+    const video = videoRef.current;
+    if (video) {
+      qualitySwitchTargetPosRef.current = video.currentTime;
+      qualitySwitchWasPlayingRef.current = !video.paused;
+    }
+    setSelectedQuality(q);
+    setShowQualityMenu(false);
   };
 
   // Reset error when lesson or video source changes
@@ -363,6 +404,22 @@ export default function CompulsoryVideoPlayer({
     const effectiveDur = Number.isFinite(rawDur) && rawDur > 0 ? rawDur : (initialDurationSec || 0);
     setDuration(effectiveDur);
 
+    // Seamless restoration after quality change
+    if (qualitySwitchTargetPosRef.current !== null && qualitySwitchTargetPosRef.current >= 0) {
+      const targetPos = qualitySwitchTargetPosRef.current;
+      qualitySwitchTargetPosRef.current = null;
+      hasAppliedInitialSeekRef.current = true;
+      video.currentTime = targetPos;
+      setCurrentTime(targetPos);
+      lastValidTimeRef.current = targetPos;
+      maxWatchedSecRef.current = Math.max(maxWatchedSecRef.current, targetPos);
+      if (qualitySwitchWasPlayingRef.current) {
+        qualitySwitchWasPlayingRef.current = false;
+        video.play().catch(() => {});
+      }
+      return;
+    }
+
     // Resume from saved position if valid
     applyResumeIfEligible(video);
   };
@@ -521,11 +578,11 @@ export default function CompulsoryVideoPlayer({
       clearTimeout(controlsTimeoutRef.current);
     }
     controlsTimeoutRef.current = setTimeout(() => {
-      if (!showSpeedMenu) {
+      if (!showSpeedMenu && !showQualityMenu) {
         setShowControls(false);
       }
     }, 2500);
-  }, [showSpeedMenu]);
+  }, [showSpeedMenu, showQualityMenu]);
 
   // Show controls immediately and schedule hide if playing
   const showAndScheduleControls = useCallback(() => {
@@ -533,10 +590,10 @@ export default function CompulsoryVideoPlayer({
     if (controlsTimeoutRef.current) {
       clearTimeout(controlsTimeoutRef.current);
     }
-    if (isPlaying && !showSpeedMenu) {
+    if (isPlaying && !showSpeedMenu && !showQualityMenu) {
       scheduleControlsHide();
     }
-  }, [isPlaying, showSpeedMenu, scheduleControlsHide]);
+  }, [isPlaying, showSpeedMenu, showQualityMenu, scheduleControlsHide]);
 
   // Synchronize controls visibility when playing/paused
   useEffect(() => {
@@ -722,7 +779,7 @@ export default function CompulsoryVideoPlayer({
       onTouchMove={showAndScheduleControls}
       onPointerMove={showAndScheduleControls}
       onMouseLeave={() => {
-        if (isPlaying && !showSpeedMenu) {
+        if (isPlaying && !showSpeedMenu && !showQualityMenu) {
           setShowControls(false);
         }
       }}
@@ -815,6 +872,11 @@ export default function CompulsoryVideoPlayer({
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           onError={() => {
+            if (selectedQuality !== "Auto") {
+              console.warn(`Quality stream ${selectedQuality} not available on server, automatically falling back to Auto.`);
+              setSelectedQuality("Auto");
+              return;
+            }
             setVideoError("Video stream could not be loaded. Please click Retry Stream.");
           }}
           onClick={handleVideoClick}
@@ -1013,7 +1075,7 @@ export default function CompulsoryVideoPlayer({
           if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
         }}
         onMouseLeave={() => {
-          if (isPlaying && !showSpeedMenu) {
+          if (isPlaying && !showSpeedMenu && !showQualityMenu) {
             scheduleControlsHide();
           }
         }}
@@ -1243,7 +1305,10 @@ export default function CompulsoryVideoPlayer({
 
               <button
                 type="button"
-                onClick={() => setShowSpeedMenu((prev) => !prev)}
+                onClick={() => {
+                  setShowSpeedMenu((prev) => !prev);
+                  setShowQualityMenu(false);
+                }}
                 aria-label="Playback speed"
                 title="Playback speed"
                 style={{
@@ -1269,6 +1334,116 @@ export default function CompulsoryVideoPlayer({
                 }}
               >
                 <span>{playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`}</span>
+              </button>
+            </div>
+
+            {/* Quality Selector (Auto, 1080p, 720p, 540p, 360p, 224p) */}
+            <div ref={qualityMenuRef} style={{ position: "relative" }}>
+              {showQualityMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    right: 0,
+                    background: "rgba(0, 0, 0, 0.96)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255, 255, 255, 0.14)",
+                    borderRadius: "8px",
+                    padding: "8px 0",
+                    minWidth: "115px",
+                    boxShadow: "0 12px 32px rgba(0, 0, 0, 0.8)",
+                    zIndex: 100,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "4px 14px 6px",
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                      borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    Quality
+                  </div>
+                  {VIDEO_QUALITY_OPTIONS.map((q) => {
+                    const isSelected = selectedQuality === q;
+                    return (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => handleQualityChange(q)}
+                        style={{
+                          background: isSelected ? "rgba(129, 140, 248, 0.12)" : "transparent",
+                          color: isSelected ? "#818cf8" : "#ffffff",
+                          border: "none",
+                          padding: "6px 16px",
+                          textAlign: "left",
+                          fontSize: "0.92rem",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          transition: "all 0.15s ease",
+                          letterSpacing: "0.01em",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.background = "transparent";
+                          }
+                        }}
+                      >
+                        <span>{q}</span>
+                        {isSelected && <span style={{ fontSize: "0.75rem", color: "#818cf8" }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQualityMenu((prev) => !prev);
+                  setShowSpeedMenu(false);
+                }}
+                aria-label="Video quality"
+                title="Adjust video quality"
+                style={{
+                  background: selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.25)" : "rgba(255, 255, 255, 0.12)",
+                  border: selectedQuality !== "Auto" ? "1px solid rgba(129, 140, 248, 0.45)" : "1px solid rgba(255, 255, 255, 0.2)",
+                  color: selectedQuality !== "Auto" ? "#c7d2fe" : "#ffffff",
+                  padding: "3px 9px",
+                  borderRadius: "5px",
+                  fontSize: "0.76rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontFamily: "monospace",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.35)" : "rgba(255, 255, 255, 0.2)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.25)" : "rgba(255, 255, 255, 0.12)";
+                }}
+              >
+                <span>{selectedQuality}</span>
               </button>
             </div>
 

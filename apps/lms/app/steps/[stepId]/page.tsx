@@ -253,6 +253,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   useEffect(() => {
     if (typeof window === "undefined" || !stepId) return;
     try {
+      if (lastQuizResult?.passed) {
+        localStorage.removeItem(`wbm_step_quiz_${stepId}`);
+        return;
+      }
       if (Object.keys(quizAnswers).length > 0 || (activeTab === "quiz" && activeQuizIndex > 0)) {
         localStorage.setItem(
           `wbm_step_quiz_${stepId}`,
@@ -265,7 +269,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         );
       }
     } catch (e) {}
-  }, [stepId, quizAnswers, activeQuizIndex, activeTab]);
+  }, [stepId, quizAnswers, activeQuizIndex, activeTab, lastQuizResult?.passed]);
 
   // 2. Fetch Step & Progression with automatic retry & cache resilience
   const fetchStepAndProgression = useCallback(async (isRetry = false, forceFresh = false) => {
@@ -587,7 +591,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     "AFTER_VIDEO";
 
   const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
-  const isQuizAlreadyPassed = Boolean(lastQuizResult?.passed || (currentStepProg as any)?.quiz?.isPassed);
+  const isQuizAlreadyPassed = Boolean(
+    lastQuizResult?.passed ||
+    (currentStepProg as any)?.quiz?.isPassed ||
+    (currentStepProg?.isCompleted && lastQuizResult?.passed !== false)
+  );
   
   const stepMaterials = useMemo(() => {
     const list: Array<{
@@ -1298,7 +1306,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       } catch (e) {}
       if (data.passed) {
         invalidateCache("/progression");
-        fetchStepAndProgression();
+        invalidateCache("/programs");
+        void fetchStepAndProgression(false, true);
         setCelebrationMode("module");
         setIsCelebrationOpen(true);
         if (nextStepId) {
@@ -1418,52 +1427,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     );
   }
 
-  const defaultFallbackQuestion: QuizQuestion = {
-    id: "q-sample-1",
-    text: "What is the primary purpose of this LMS platform?",
-    type: "MULTIPLE_CHOICE",
-    points: 1,
-    options: [
-      { id: "opt-1", text: "To edit video files", order: 1 },
-      { id: "opt-2", text: "To manage payroll", order: 2 },
-      { id: "opt-3", text: "To manage learning and track course progress", order: 3 },
-      { id: "opt-4", text: "To design graphics", order: 4 },
-    ],
-  };
-
   const quizQuestions: QuizQuestion[] = (attemptQuestions && attemptQuestions.length > 0)
     ? attemptQuestions
     : (step?.quiz?.questions && step.quiz.questions.length > 0)
     ? step.quiz.questions
-    : [
-        defaultFallbackQuestion,
-        {
-          id: "q-sample-2",
-          text: "How do lessons unlock within a module?",
-          type: "MULTIPLE_CHOICE",
-          points: 1,
-          options: [
-            { id: "opt-21", text: "Randomly upon login", order: 1 },
-            { id: "opt-22", text: "Sequentially as video and knowledge check requirements are met", order: 2 },
-            { id: "opt-23", text: "By purchasing unlock tokens", order: 3 },
-            { id: "opt-24", text: "Only after midnight every Sunday", order: 4 },
-          ],
-        },
-        {
-          id: "q-sample-3",
-          text: "What minimum passing score is required on the Knowledge Check?",
-          type: "MULTIPLE_CHOICE",
-          points: 1,
-          options: [
-            { id: "opt-31", text: "50%", order: 1 },
-            { id: "opt-32", text: "75%", order: 2 },
-            { id: "opt-33", text: "90%", order: 3 },
-            { id: "opt-34", text: "100%", order: 4 },
-          ],
-        },
-      ];
+    : [];
 
-  const currentQuizQuestion: QuizQuestion = quizQuestions[activeQuizIndex] || quizQuestions[0] || defaultFallbackQuestion;
+  const safeActiveIndex = quizQuestions.length > 0
+    ? Math.min(Math.max(0, activeQuizIndex), quizQuestions.length - 1)
+    : 0;
+
+  const currentQuizQuestion: QuizQuestion | undefined = quizQuestions[safeActiveIndex];
+
+  // Strictly clamp activeQuizIndex whenever quiz questions count changes
+  useEffect(() => {
+    if (quizQuestions.length > 0 && activeQuizIndex >= quizQuestions.length) {
+      setActiveQuizIndex(Math.max(0, quizQuestions.length - 1));
+    }
+  }, [quizQuestions.length, activeQuizIndex]);
 
   const renderLessonNavigationRow = () => {
     const hasPrevious = activeLessonIndex > 0;
@@ -2308,275 +2289,336 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 </div>
               )}
 
-              {lastQuizResult && lastQuizResult.score !== undefined && lastQuizResult.status !== "IN_PROGRESS" && (
+              {isQuizAlreadyPassed ? (
+                /* PASSED COMPLETION CARD */
                 <div
                   style={{
-                    background: lastQuizResult.passed ? "#dcfce7" : "#fee2e2",
-                    border: `1px solid ${lastQuizResult.passed ? "#86efac" : "#fca5a5"}`,
-                    color: lastQuizResult.passed ? "#14532d" : "#7f1d1d",
-                    padding: "16px 20px",
-                    borderRadius: 12,
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    color: "#14532d",
+                    padding: "28px 24px",
+                    borderRadius: 14,
                     marginBottom: 20,
+                    textAlign: "center",
                   }}
                 >
-                  <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700 }}>
-                    {lastQuizResult.passed ? "✓ Assessment Passed!" : "Assessment Not Passed Yet"}
-                  </h4>
-                  <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
-                    Score: {lastQuizResult.score}% (Pass threshold: {lastQuizResult.passMark ?? 75}%).
-                    {lastQuizResult.passed
-                      ? " Great job! Your progress has been updated and the next module is unlocked."
-                      : " Review the video lessons and try again."}
+                  <div style={{ fontSize: "2.5rem", marginBottom: 10 }}>🎉</div>
+                  <h3 style={{ margin: "0 0 8px", fontSize: "1.25rem", fontWeight: 700, color: "#15803d" }}>
+                    Module Knowledge Check Passed!
+                  </h3>
+                  <p style={{ margin: "0 0 18px", fontSize: "0.92rem", color: "#166534", maxWidth: 540, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
+                    {lastQuizResult?.score !== undefined
+                      ? `Great job! You achieved a score of ${lastQuizResult.score}% (Pass threshold: ${lastQuizResult.passMark ?? 75}%).`
+                      : "Great job! You have satisfied all requirements for this module."}{" "}
+                    {nextStep ? `Step ${nextStep.sequence}: ${nextStep.title} is now unlocked.` : "You have completed all modules in this program."}
                   </p>
-                  {!lastQuizResult.passed && (
-                    <button
-                      type="button"
-                      disabled={isStartingQuiz}
-                      onClick={async () => {
-                        setQuizError(null);
-                        setQuizAnswers({});
-                        setActiveQuizIndex(0);
-                        setIsStartingQuiz(true);
-                        if (step?.quiz?.id) {
-                          hasAttemptedQuizStartRef.current[step.quiz.id] = false;
-                        }
-                        try {
-                          const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
-                            method: "POST",
-                            headers: getAuthHeaders(),
-                          });
-                          const startData = await startRes.json();
-                          if (startRes.ok) {
-                            setLastQuizResult(null);
-                            setActiveAttemptId(startData.attemptId || startData.id);
-                            if (Array.isArray(startData.questions) && startData.questions.length > 0) {
-                              setAttemptQuestions(startData.questions);
-                            }
-                          } else {
-                            const errorMsg = Array.isArray(startData?.message)
-                              ? startData.message.join(", ")
-                              : startData?.message;
-                            setQuizError(errorMsg || "Failed to start a new quiz attempt");
-                          }
-                        } catch (e: any) {
-                          setQuizError(e.message || "Failed to start quiz attempt");
-                        } finally {
-                          setIsStartingQuiz(false);
-                        }
-                      }}
-                      className={styles.btnPrimaryOrange}
-                      style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: isStartingQuiz ? "wait" : "pointer", marginRight: 8 }}
-                    >
-                      {isStartingQuiz ? "Starting..." : "Try Again →"}
-                    </button>
-                  )}
-                  {lastQuizResult.passed && nextStep && nextStepId && (
+                  <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+                    {nextStep && nextStepId ? (
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/steps/${nextStepId}`)}
+                        className={styles.btnPrimaryOrange}
+                        style={{ padding: "12px 24px", fontSize: "0.95rem" }}
+                      >
+                        Continue to Next Module ({nextStep.title}) &rarr;
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/programs/${step?.programId}/steps`}
+                        className={styles.btnPrimaryOrange}
+                        style={{ padding: "12px 24px", fontSize: "0.95rem", textDecoration: "none" }}
+                      >
+                        Return to Learning Path &rarr;
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              ) : quizQuestions.length === 0 ? (
+                /* EMPTY STATE: NO QUESTIONS CONFIGURED BY INSTRUCTOR */
+                <div
+                  className={styles.emptyStateCard}
+                  style={{
+                    background: "#fffdfa",
+                    border: "1px dashed #e7dfd5",
+                    padding: "2.5rem 1.5rem",
+                    borderRadius: 14,
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: "2rem", marginBottom: 8 }}>📋</div>
+                  <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700, color: "#1c1917" }}>
+                    No Questions Configured Yet
+                  </h4>
+                  <p style={{ margin: "0 0 16px", fontSize: "0.88rem", color: "#78716a", maxWidth: 440, marginLeft: "auto", marginRight: "auto" }}>
+                    The instructor has not added questions to this module&apos;s knowledge check yet.
+                  </p>
+                  {nextStep && nextStepId ? (
                     <button
                       type="button"
                       onClick={() => router.push(`/steps/${nextStepId}`)}
                       className={styles.btnPrimaryOrange}
-                      style={{ padding: "10px 20px", fontSize: "0.88rem" }}
                     >
                       Continue to Next Module ({nextStep.title}) &rarr;
                     </button>
-                  )}
-                  {lastQuizResult.passed && !nextStep && (
-                    <Link
-                      href={`/programs/${step?.programId}/steps`}
-                      className={styles.btnPrimaryOrange}
-                      style={{ padding: "10px 20px", fontSize: "0.88rem", display: "inline-block", textDecoration: "none" }}
-                    >
+                  ) : (
+                    <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
                       Return to Learning Path &rarr;
                     </Link>
                   )}
                 </div>
-              )}
-
-              <div className={styles.quizGrid}>
-                {/* Left Column: Question Card */}
-                <div className={styles.questionCard}>
-                  <div className={styles.questionNumberLabel}>
-                    Question {activeQuizIndex + 1} of {quizQuestions.length}
-                  </div>
-                  {(currentQuizQuestion as any).imageUrl && (
-                    <div style={{ marginBottom: "1rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 480 }}>
-                      <img
-                        src={(currentQuizQuestion as any).imageUrl}
-                        alt={`Question ${activeQuizIndex + 1}`}
-                        style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
-                      />
+              ) : (
+                /* ACTIVE QUIZ QUESTION CARD */
+                <>
+                  {lastQuizResult && !lastQuizResult.passed && lastQuizResult.status !== "IN_PROGRESS" && (
+                    <div
+                      style={{
+                        background: "#fee2e2",
+                        border: "1px solid #fca5a5",
+                        color: "#7f1d1d",
+                        padding: "16px 20px",
+                        borderRadius: 12,
+                        marginBottom: 20,
+                      }}
+                    >
+                      <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700 }}>
+                        Assessment Not Passed Yet
+                      </h4>
+                      <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
+                        Score: {lastQuizResult.score}% (Pass threshold: {lastQuizResult.passMark ?? 75}%).
+                        Please review the video lessons and try again.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isStartingQuiz}
+                        onClick={async () => {
+                          setQuizError(null);
+                          setQuizAnswers({});
+                          setActiveQuizIndex(0);
+                          setIsStartingQuiz(true);
+                          if (step?.quiz?.id) {
+                            hasAttemptedQuizStartRef.current[step.quiz.id] = false;
+                          }
+                          try {
+                            const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
+                              method: "POST",
+                              headers: getAuthHeaders(),
+                            });
+                            const startData = await startRes.json();
+                            if (startRes.ok) {
+                              setLastQuizResult(null);
+                              setActiveAttemptId(startData.attemptId || startData.id);
+                              if (Array.isArray(startData.questions) && startData.questions.length > 0) {
+                                setAttemptQuestions(startData.questions);
+                              }
+                            } else {
+                              const errorMsg = Array.isArray(startData?.message)
+                                ? startData.message.join(", ")
+                                : startData?.message;
+                              setQuizError(errorMsg || "Failed to start a new quiz attempt");
+                            }
+                          } catch (e: any) {
+                            setQuizError(e.message || "Failed to start quiz attempt");
+                          } finally {
+                            setIsStartingQuiz(false);
+                          }
+                        }}
+                        className={styles.btnPrimaryOrange}
+                        style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: isStartingQuiz ? "wait" : "pointer" }}
+                      >
+                        {isStartingQuiz ? "Starting..." : "Try Again →"}
+                      </button>
                     </div>
                   )}
-                  <h3 className={styles.questionPrompt}>
-                    {currentQuizQuestion.text}
-                  </h3>
 
-                  {(() => {
-                    const qType = (currentQuizQuestion as any).type || "MULTIPLE_CHOICE";
-                    const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
-                    const isMulti = qType === "MULTI_SELECT";
-                    const selectedMultiList =
-                      isMulti && quizAnswers[currentQuizQuestion.id]
-                        ? (quizAnswers[currentQuizQuestion.id] || "").split(",").filter(Boolean)
-                        : [];
-
-                    if (isText) {
-                      const minChars = (currentQuizQuestion as any).minCharacters ?? 10;
-                      const currentText = quizAnswers[currentQuizQuestion.id] || "";
-                      return (
-                        <div style={{ marginBottom: "1.5rem" }}>
-                          <textarea
-                            rows={4}
-                            placeholder="Write your reflection or response here..."
-                            value={currentText}
-                            onChange={(e) =>
-                              setQuizAnswers((prev) => ({
-                                ...prev,
-                                [currentQuizQuestion.id]: e.target.value,
-                              }))
-                            }
-                            style={{
-                              width: "100%",
-                              padding: "12px 14px",
-                              borderRadius: 10,
-                              border: "1px solid #dcd5cb",
-                              fontFamily: "inherit",
-                              fontSize: "0.95rem",
-                              background: "#fffdfa",
-                            }}
-                          />
-                          <div style={{ fontSize: "0.78rem", color: "#78716a", marginTop: 4 }}>
-                            Characters: {currentText.trim().length} / {minChars} minimum
-                          </div>
+                  {currentQuizQuestion && (
+                    <div className={styles.quizGrid}>
+                      {/* Left Column: Question Card */}
+                      <div className={styles.questionCard}>
+                        <div className={styles.questionNumberLabel}>
+                          Question {safeActiveIndex + 1} of {quizQuestions.length}
                         </div>
-                      );
-                    }
+                        {(currentQuizQuestion as any).imageUrl && (
+                          <div style={{ marginBottom: "1rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 480 }}>
+                            <img
+                              src={(currentQuizQuestion as any).imageUrl}
+                              alt={`Question ${safeActiveIndex + 1}`}
+                              style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
+                            />
+                          </div>
+                        )}
+                        <h3 className={styles.questionPrompt}>
+                          {currentQuizQuestion.text}
+                        </h3>
 
-                    return (
-                      <div className={styles.optionsStack}>
-                        {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
-                          const isSelected = isMulti
-                            ? selectedMultiList.includes(opt.id)
-                            : quizAnswers[currentQuizQuestion.id] === opt.id;
-                          return (
-                            <div
-                              key={opt.id || optIdx}
-                              onClick={() =>
-                                setQuizAnswers((prev) => {
-                                  if (!isMulti) {
-                                    return {
+                        {(() => {
+                          const qType = (currentQuizQuestion as any).type || "MULTIPLE_CHOICE";
+                          const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+                          const isMulti = qType === "MULTI_SELECT";
+                          const selectedMultiList =
+                            isMulti && quizAnswers[currentQuizQuestion.id]
+                              ? (quizAnswers[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                              : [];
+
+                          if (isText) {
+                            const minChars = (currentQuizQuestion as any).minCharacters ?? 10;
+                            const currentText = quizAnswers[currentQuizQuestion.id] || "";
+                            return (
+                              <div style={{ marginBottom: "1.5rem" }}>
+                                <textarea
+                                  rows={4}
+                                  placeholder="Write your reflection or response here..."
+                                  value={currentText}
+                                  onChange={(e) =>
+                                    setQuizAnswers((prev) => ({
                                       ...prev,
-                                      [currentQuizQuestion.id]: opt.id,
-                                    };
+                                      [currentQuizQuestion.id]: e.target.value,
+                                    }))
                                   }
-                                  const existing = prev[currentQuizQuestion.id]
-                                    ? (prev[currentQuizQuestion.id] || "").split(",").filter(Boolean)
-                                    : [];
-                                  const next = existing.includes(opt.id)
-                                    ? existing.filter((id) => id !== opt.id)
-                                    : [...existing, opt.id];
-                                  return {
-                                    ...prev,
-                                    [currentQuizQuestion.id]: next.join(","),
-                                  };
-                                })
-                              }
-                              className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
-                            >
-                              <div className={styles.optionRadioCircle}>
-                                {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                  style={{
+                                    width: "100%",
+                                    padding: "12px 14px",
+                                    borderRadius: 10,
+                                    border: "1px solid #dcd5cb",
+                                    fontFamily: "inherit",
+                                    fontSize: "0.95rem",
+                                    background: "#fffdfa",
+                                  }}
+                                />
+                                <div style={{ fontSize: "0.78rem", color: "#78716a", marginTop: 4 }}>
+                                  Characters: {currentText.trim().length} / {minChars} minimum
+                                </div>
                               </div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                                {opt.imageUrl && (
-                                  <img
-                                    src={opt.imageUrl}
-                                    alt={opt.text}
-                                    style={{ maxWidth: 220, maxHeight: 120, objectFit: "cover", borderRadius: 6 }}
-                                  />
-                                )}
-                                <span className={styles.optionText}>{opt.text}</span>
-                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className={styles.optionsStack}>
+                              {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
+                                const isSelected = isMulti
+                                  ? selectedMultiList.includes(opt.id)
+                                  : quizAnswers[currentQuizQuestion.id] === opt.id;
+                                return (
+                                  <div
+                                    key={opt.id || optIdx}
+                                    onClick={() =>
+                                      setQuizAnswers((prev) => {
+                                        if (!isMulti) {
+                                          return {
+                                            ...prev,
+                                            [currentQuizQuestion.id]: opt.id,
+                                          };
+                                        }
+                                        const existing = prev[currentQuizQuestion.id]
+                                          ? (prev[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                                          : [];
+                                        const next = existing.includes(opt.id)
+                                          ? existing.filter((id) => id !== opt.id)
+                                          : [...existing, opt.id];
+                                        return {
+                                          ...prev,
+                                          [currentQuizQuestion.id]: next.join(","),
+                                        };
+                                      })
+                                    }
+                                    className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
+                                  >
+                                    <div className={styles.optionRadioCircle}>
+                                      {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                    </div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                                      {opt.imageUrl && (
+                                        <img
+                                          src={opt.imageUrl}
+                                          alt={opt.text}
+                                          style={{ maxWidth: 220, maxHeight: 120, objectFit: "cover", borderRadius: 6 }}
+                                        />
+                                      )}
+                                      <span className={styles.optionText}>{opt.text}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           );
-                        })}
+                        })()}
+
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <button
+                            type="button"
+                            disabled={safeActiveIndex === 0}
+                            onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
+                            className={styles.btnSecondaryOutline}
+                            style={{ opacity: safeActiveIndex === 0 ? 0.5 : 1 }}
+                          >
+                            &larr; Previous Question
+                          </button>
+
+                          {safeActiveIndex < quizQuestions.length - 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveQuizIndex((prev) => prev + 1)}
+                              className={styles.btnPrimaryOrange}
+                            >
+                              Next Question &rarr;
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isSubmittingQuiz}
+                              onClick={handleQuizSubmit}
+                              className={styles.btnPrimaryOrange}
+                            >
+                              {isSubmittingQuiz ? "Submitting..." : "Submit Quiz"}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    );
-                  })()}
 
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <button
-                      type="button"
-                      disabled={activeQuizIndex === 0}
-                      onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
-                      className={styles.btnSecondaryOutline}
-                      style={{ opacity: activeQuizIndex === 0 ? 0.5 : 1 }}
-                    >
-                      &larr; Previous Question
-                    </button>
+                      {/* Right Column: Question Numbers Grid */}
+                      <div className={styles.questionNavCard}>
+                        <h4 className={styles.questionNavTitle}>Questions</h4>
+                        <div className={styles.questionNumGrid}>
+                          {quizQuestions.map((q, idx) => {
+                            const isCurrent = idx === safeActiveIndex;
+                            const isAnswered = !!quizAnswers[q.id];
+                            return (
+                              <button
+                                key={q.id}
+                                type="button"
+                                onClick={() => setActiveQuizIndex(idx)}
+                                className={`${styles.qNumCircle} ${
+                                  isCurrent
+                                    ? styles.qNumCurrent
+                                    : isAnswered
+                                    ? styles.qNumAnswered
+                                    : ""
+                                }`}
+                              >
+                                {idx + 1}
+                              </button>
+                            );
+                          })}
+                        </div>
 
-                    {activeQuizIndex < quizQuestions.length - 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => setActiveQuizIndex((prev) => prev + 1)}
-                        className={styles.btnPrimaryOrange}
-                      >
-                        Next Question &rarr;
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={isSubmittingQuiz}
-                        onClick={handleQuizSubmit}
-                        className={styles.btnPrimaryOrange}
-                      >
-                        {isSubmittingQuiz ? "Submitting..." : "Submit Quiz"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right Column: Question Numbers Grid */}
-                <div className={styles.questionNavCard}>
-                  <h4 className={styles.questionNavTitle}>Questions</h4>
-                  <div className={styles.questionNumGrid}>
-                    {quizQuestions.map((q, idx) => {
-                      const isCurrent = idx === activeQuizIndex;
-                      const isAnswered = !!quizAnswers[q.id];
-                      return (
-                        <button
-                          key={q.id}
-                          type="button"
-                          onClick={() => setActiveQuizIndex(idx)}
-                          className={`${styles.qNumCircle} ${
-                            isCurrent
-                              ? styles.qNumCurrent
-                              : isAnswered
-                              ? styles.qNumAnswered
-                              : ""
-                          }`}
-                        >
-                          {idx + 1}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className={styles.quizLegend}>
-                    <div className={styles.legendItem}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706" }} />
-                      <span>Current</span>
+                        <div className={styles.quizLegend}>
+                          <div className={styles.legendItem}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706" }} />
+                            <span>Current</span>
+                          </div>
+                          <div className={styles.legendItem}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1c1917" }} />
+                            <span>Answered</span>
+                          </div>
+                          <div className={styles.legendItem}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#e5e7eb" }} />
+                            <span>Not answered</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className={styles.legendItem}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1c1917" }} />
-                      <span>Answered</span>
-                    </div>
-                    <div className={styles.legendItem}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#e5e7eb" }} />
-                      <span>Not answered</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  )}
+                </>
+              )}
                 </>
               )}
             </div>

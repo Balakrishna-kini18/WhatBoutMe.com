@@ -295,7 +295,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         throw new Error(err.message || `Step could not be loaded (${stepRes.status})`);
       }
       const stepData = await stepRes.json();
-      setStep(stepData);
+
+      // Build synchronous initial progress from local storage so resume position and completion are known with 0ms delay
+      const lpMap: Record<string, any> = {};
+      if (Array.isArray(stepData.lessons)) {
+        for (const l of stepData.lessons) {
+          const localResume = getLocalVideoResume(l.id);
+          const isLocallyDone = isLocalLessonCompleted(l.id);
+          const effectivePos = Math.max(l.lastPositionSec || 0, localResume?.positionSec || 0);
+          if (isLocallyDone) {
+            hasTriggeredCompletionRef.current[l.id] = true;
+          }
+          const posPct = l.durationSec && l.durationSec > 0
+            ? Math.min(100, Math.round((effectivePos / l.durationSec) * 100))
+            : 0;
+          lpMap[l.id] = {
+            viewed: isLocallyDone,
+            progressPercent: isLocallyDone ? 100 : posPct,
+            lastPositionSec: effectivePos,
+            durationSec: l.durationSec,
+            isCompleted: isLocallyDone,
+          };
+        }
+      }
 
       // Concurrent fetch of progression and quiz attempt
       let progData: EnrolmentProgressionResponse | null = null;
@@ -319,12 +341,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       if (progRes && progRes.ok) {
         progData = await progRes.json();
-        setProgression(progData);
       }
 
-      // Initialize lesson progress
+      // Initialize lesson progress by merging server progression with local resume markers
       const stepProgItem = progData?.steps?.find((s: any) => s.stepId === stepId);
-      const lpMap: Record<string, any> = {};
 
       if (stepProgItem?.lessons && stepProgItem.lessons.length > 0) {
         for (const l of stepProgItem.lessons) {
@@ -345,7 +365,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             isCompleted: isDone,
           };
         }
-        setLessonProgress(lpMap);
 
         // Automatic Server Completion Reconciliation:
         // If a lesson was finished locally but server missed it (e.g. dropped connection during reload),
@@ -398,14 +417,27 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         } catch (e) {}
       }
 
-      // Default active lesson
+      // Determine authoritative active lesson without intermediate jump
+      let targetLessonId: string | null = null;
       if (Array.isArray(stepData.lessons) && stepData.lessons.length > 0) {
-        setSelectedMediaId((prev) => {
-          if (prev && stepData.lessons.some((l: any) => l.id === prev)) return prev;
+        let requestedLessonId: string | null = null;
+        if (typeof window !== "undefined") {
+          const sp = new URLSearchParams(window.location.search);
+          requestedLessonId = sp.get("lessonId");
+        }
+        if (requestedLessonId && stepData.lessons.some((l: any) => l.id === requestedLessonId)) {
+          targetLessonId = requestedLessonId;
+        } else {
           const firstIncomplete = stepData.lessons.find((l: any) => !lpMap[l.id]?.isCompleted);
-          return firstIncomplete ? firstIncomplete.id : stepData.lessons[0].id;
-        });
+          targetLessonId = firstIncomplete ? firstIncomplete.id : stepData.lessons[0].id;
+        }
       }
+
+      // Atomically commit all step, progression, and selection states together
+      setStep(stepData);
+      if (progData) setProgression(progData);
+      setLessonProgress(lpMap);
+      if (targetLessonId) setSelectedMediaId(targetLessonId);
 
       // Handle quiz attempt
       if (quizAttemptRes && quizAttemptRes.ok) {
@@ -639,12 +671,34 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     });
   }, [videoLessons, lessonProgress, currentMedia?.id, isCurrentLessonLeftUnder30s]);
 
+  // Materials Unlock Rule:
+  // - Unlocked if step has no video lessons
+  // - Unlocked if admin explicitly allows viewing materials without watching video (requireVideosBeforeMaterials === false)
+  // - Otherwise strictly LOCKED until all video parts in this step (Part 1, Part 2, etc.) are completed!
+  const isMaterialsUnlocked = useMemo(() => {
+    if (isManuallyUnlocked) return true;
+    if (!videoLessons.length) return true;
+    if ((step as any)?.requireVideosBeforeMaterials === false) return true;
+    if ((progression as any)?.program?.requireVideosBeforeMaterials === false) return true;
+    if ((progression as any)?.program?.sequentialProgressionEnabled === false) return true;
+    return areAllVideosDone;
+  }, [
+    isManuallyUnlocked,
+    videoLessons.length,
+    (step as any)?.requireVideosBeforeMaterials,
+    (progression as any)?.program?.requireVideosBeforeMaterials,
+    (progression as any)?.program?.sequentialProgressionEnabled,
+    areAllVideosDone,
+  ]);
+
   const areAllMaterialsDone = useMemo(() => {
     if (!stepMaterials.length) return true;
+    // Materials cannot be considered completed if materials are still locked
+    if (!isMaterialsUnlocked) return false;
     return stepMaterials.every((m: any) => {
       return Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
     });
-  }, [stepMaterials, lessonProgress]);
+  }, [stepMaterials, lessonProgress, isMaterialsUnlocked]);
 
   const isQuizUnlocked = Boolean(
     isManuallyUnlocked ||
@@ -799,10 +853,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       setActiveTab(videoLessons.length > 0 ? "video" : "materials");
     } else if (activeTab === "materials" && stepMaterials.length === 0 && videoLessons.length > 0) {
       setActiveTab("video");
+    } else if (activeTab === "materials" && !isMaterialsUnlocked && videoLessons.length > 0) {
+      setActiveTab("video");
     } else if (activeTab === "video" && videoLessons.length === 0 && stepMaterials.length > 0) {
       setActiveTab("materials");
     }
-  }, [activeTab, hasQuiz, stepMaterials.length, videoLessons.length]);
+  }, [activeTab, hasQuiz, stepMaterials.length, videoLessons.length, isMaterialsUnlocked]);
 
   // Proactively pre-warm quiz attempt in background when user views quiz tab AND quiz is unlocked
   useEffect(() => {
@@ -1413,7 +1469,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         </button>
       );
     } else if (stepMaterials.length > 0) {
-      // Last video part -> Materials
+      // Last video part -> Materials (strictly locked until this final video part is completed)
       nextBtnNode = (
         <button
           type="button"
@@ -1422,7 +1478,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             if (currentMedia?.id) {
               handleLessonComplete(currentMedia.id, false);
             }
-            setActiveTab("materials");
+            if (isCurrentWatched || isMaterialsUnlocked) {
+              setActiveTab("materials");
+            }
           }}
           className={styles.btnPrimaryOrange}
           style={{
@@ -1672,15 +1730,34 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {stepMaterials.length > 0 && (
             <button
               type="button"
-              onClick={() => setActiveTab("materials")}
+              disabled={!isMaterialsUnlocked}
+              onClick={() => {
+                if (isMaterialsUnlocked) {
+                  setActiveTab("materials");
+                }
+              }}
               className={`${styles.flowStepItem} ${
                 activeTab === "materials" ? styles.flowStepItemActive : ""
-              } ${areAllMaterialsDone ? styles.flowStepItemCompleted : ""}`}
-              title={`Materials (${stepMaterials.length} items)`}
+              } ${areAllMaterialsDone && isMaterialsUnlocked ? styles.flowStepItemCompleted : ""} ${
+                !isMaterialsUnlocked ? styles.flowStepItemLocked : ""
+              }`}
+              style={{
+                opacity: !isMaterialsUnlocked ? 0.65 : 1,
+                cursor: !isMaterialsUnlocked ? "not-allowed" : "pointer",
+              }}
+              title={
+                !isMaterialsUnlocked
+                  ? `Complete all video parts to unlock materials (${stepMaterials.length} items)`
+                  : `Materials (${stepMaterials.length} items)`
+              }
               aria-current={activeTab === "materials" ? "step" : undefined}
             >
               <span className={styles.flowStepBadge}>
-                {areAllMaterialsDone ? "✓" : (
+                {!isMaterialsUnlocked ? (
+                  "🔒"
+                ) : areAllMaterialsDone ? (
+                  "✓"
+                ) : (
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
@@ -1689,7 +1766,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               <div className={styles.flowStepText}>
                 <span className={styles.flowStepLabel}>Materials</span>
                 <span className={styles.flowStepTitle}>
-                  {stepMaterials.length} {stepMaterials.length === 1 ? "Item" : "Items"}
+                  {!isMaterialsUnlocked
+                    ? "Locked"
+                    : `${stepMaterials.length} ${stepMaterials.length === 1 ? "Item" : "Items"}`}
                 </span>
               </div>
               {activeTab === "materials" && <span className={styles.flowStepActiveIndicator} aria-hidden="true" />}

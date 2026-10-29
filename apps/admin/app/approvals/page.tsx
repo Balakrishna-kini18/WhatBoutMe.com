@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
@@ -163,6 +163,14 @@ const DEFAULT_RUBRIC: RubricScoreItem[] = [
 ];
 
 export default function ApprovalsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ApprovalsContent />
+    </Suspense>
+  );
+}
+
+function ApprovalsContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
   const batchParam = searchParams?.get("batchId");

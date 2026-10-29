@@ -13,6 +13,7 @@ export type Course = {
   alt: string;
   flagship: boolean;
   body: string;
+  fullDescription?: string;
   inPerson: string;
   online: string;
   points: string[];
@@ -98,13 +99,14 @@ function toCourse(program: Program, index: number): Course {
   return {
     slug: program.slug || `program-${index}`,
     title: program.title || "Untitled Course",
-    category: info.type || (brochure && BROCHURE_CATEGORY[brochure.slug]) || "Course",
+    category: (program as any).category || info.type || (brochure && BROCHURE_CATEGORY[brochure.slug]) || "Course",
     duration: info.duration || brochure?.duration || info.type || "Course",
     meta: info.audience || brochure?.meta || "",
     image,
     alt,
     flagship: brochure?.flagship ?? false,
-    body: info.summary || brochure?.body || "",
+    body: info.short || (program as any).shortDescription || info.summary || brochure?.body || "",
+    fullDescription: info.summary || info.short || (program as any).shortDescription || brochure?.body || "",
     inPerson: info.inPerson || brochure?.inPerson || "",
     online: info.online || brochure?.online || "",
     points: info.points?.length ? info.points : [...(brochure?.points ?? [])],

@@ -1,26 +1,49 @@
 "use client";
 
-import { useEffect, useState, use, Fragment } from "react";
+import { useEffect, useState, use, Fragment, useRef } from "react";
 import styles from "./UserDetail.module.css";
 import Link from "next/link";
-import { API_URL, errorMessage, apiGet } from "../../lib/api";
+import { useSearchParams, useRouter } from "next/navigation";
+import {
+  API_URL,
+  errorMessage,
+  apiGet,
+  fetchOneOnOneRequests,
+  approveOneOnOneRequest,
+  rejectOneOnOneRequest,
+  fetchMissionStatements,
+  approveMissionStatement,
+  rejectMissionStatement,
+  type OneOnOneRequestItem,
+  type MissionStatementItem,
+} from "../../lib/api";
 import { CustomSelect, StatusBadge, InputDialog, useToast } from "../../components";
 
 interface EnrolmentOption {
   id: string;
+  batchId?: string;
   status: string;
-  enrolledAt: string;
+  createdAt?: string;
+  enrolledAt?: string;
+  examPassedAt?: string | null;
+  attendanceSatisfiedAt?: string | null;
+  oneOnOneCompletedAt?: string | null;
+  missionStatementApprovedAt?: string | null;
+  certificateIssuedAt?: string | null;
   batch?: {
     id: string;
     name: string;
+    attendanceThreshold?: number | null;
     program?: {
       id: string;
       title: string;
+      attendanceThreshold?: number | null;
     };
   };
   program?: {
     id: string;
     title: string;
+    attendanceThreshold?: number | null;
   };
   signedAgreement?: {
     id: string;
@@ -196,6 +219,13 @@ interface EnrolmentProgression {
   totalItems?: number;
   completedSteps?: number;
   totalSteps?: number;
+  certificate?: {
+    id: string;
+    status: string;
+    certificateNumber?: string;
+    pdfUrl?: string | null;
+    issueDate?: string | null;
+  } | null;
 }
 
 interface LearnerAttendanceHistory {
@@ -269,12 +299,28 @@ export default function UserDetailPage({
   const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as any) : params;
   const userId = (unwrappedParams as { id?: string })?.id || "";
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromBatchId = searchParams?.get("batchId");
+  const fromBatchName = searchParams?.get("batchName");
+  const queryEnrolmentId = searchParams?.get("enrolmentId");
+
   const toast = useToast();
   const [user, setUser] = useState<UserDetail | null>(null);
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState<string>("");
+  const lastFetchedEnrolmentId = useRef<string>("");
   const [progression, setProgression] = useState<EnrolmentProgression | null>(null);
   const [compliance, setCompliance] = useState<any>(null);
   const [attendanceHistory, setAttendanceHistory] = useState<LearnerAttendanceHistory | null>(null);
+
+  const selectedEnrolment = user?.enrolments?.find((e) => e.id === selectedEnrolmentId);
+  const activeBatchId = selectedEnrolment?.batch?.id || (progression as any)?.batchId || fromBatchId || "";
+  const activeBatchName = selectedEnrolment?.batch?.name || fromBatchName || "";
+
+  const backHref = activeBatchId ? `/batches/${activeBatchId}` : "/users";
+  const backLabel = activeBatchId
+    ? `Back to ${activeBatchName ? decodeURIComponent(activeBatchName) : "Batch"}`
+    : "Back to Users & Enrolments";
 
   // 5-Stage Progression State Machine & Certificate Eligibility
   const [stagesEval, setStagesEval] = useState<LearnerProgressionStages | null>(null);
@@ -283,8 +329,17 @@ export default function UserDetailPage({
   const [targetStageForOverride, setTargetStageForOverride] = useState<string | null>(null);
   const [submittingStageOverride, setSubmittingStageOverride] = useState(false);
 
+  // In-profile Stage 4 & Stage 5 direct actions
+  const [oneOnOneRequests, setOneOnOneRequests] = useState<OneOnOneRequestItem[]>([]);
+  const [missionSubmissions, setMissionSubmissions] = useState<MissionStatementItem[]>([]);
+  const [actingOneOnOne, setActingOneOnOne] = useState(false);
+  const [actingMission, setActingMission] = useState(false);
+  const [rejectingMissionModal, setRejectingMissionModal] = useState<MissionStatementItem | null>(null);
+  const [rejectFeedback, setRejectFeedback] = useState("");
+  const [submittingRejectFeedback, setSubmittingRejectFeedback] = useState(false);
+
   const [loading, setLoading] = useState(true);
-  const [loadingProgression, setLoadingProgression] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Active Tab: "curriculum" or "attendance"
@@ -324,17 +379,27 @@ export default function UserDetailPage({
       setLoading(true);
 
       try {
-        const userData = await apiGet<UserDetail>(`/users/${userId}`);
+        const userData = await apiGet<UserDetail>(`/users/${userId}`, { skipCache: true });
         if (!isCurrent) return;
 
         setUser(userData);
-        if (userData.enrolments && userData.enrolments.length > 0 && userData.enrolments[0]) {
-          setSelectedEnrolmentId(userData.enrolments[0].id);
+        let targetEnrolmentId = "";
+        if (userData.enrolments && userData.enrolments.length > 0) {
+          const matchedEnrolment = queryEnrolmentId
+            ? userData.enrolments.find((e) => e.id === queryEnrolmentId)
+            : null;
+          targetEnrolmentId = matchedEnrolment ? matchedEnrolment.id : (userData.enrolments[0]?.id ?? "");
+          setSelectedEnrolmentId(targetEnrolmentId);
+        }
+
+        // Fetch progression immediately while skeleton is shown so all data is ready on load
+        if (userData.role === "USER" && targetEnrolmentId) {
+          await fetchProgression(targetEnrolmentId);
         }
 
         // Load attendance history asynchronously in background for learners
         if (userData.role === "USER") {
-          apiGet<LearnerAttendanceHistory>(`/attendance/user/${userId}`)
+          apiGet<LearnerAttendanceHistory>(`/attendance/user/${userId}`, { skipCache: true })
             .then((attData) => {
               if (isCurrent && attData) setAttendanceHistory(attData);
             })
@@ -355,12 +420,14 @@ export default function UserDetailPage({
     return () => {
       isCurrent = false;
     };
-  }, [userId]);
+  }, [userId, queryEnrolmentId]);
 
   // Load progression when selected enrolment changes (learners only)
   useEffect(() => {
     if (!selectedEnrolmentId || (user && user.role !== "USER")) {
-      setProgression(null);
+      return;
+    }
+    if (lastFetchedEnrolmentId.current === selectedEnrolmentId) {
       return;
     }
     const controller = new AbortController();
@@ -369,15 +436,15 @@ export default function UserDetailPage({
   }, [selectedEnrolmentId, user?.role]);
 
   async function fetchProgression(enrolmentId: string, signal?: AbortSignal) {
-    setLoadingProgression(true);
+    lastFetchedEnrolmentId.current = enrolmentId;
     setCompliance(null);
     try {
-      // Parallel fetch with apiGet: auto-parsed JSON, SWR cached, deduplicated & 4x faster!
+      // Parallel fetch with apiGet: auto-parsed JSON, deduplicated & fresh from DB
       const [progResult, compResult, stagesResult, certResult] = await Promise.allSettled([
-        apiGet<EnrolmentProgression>(`/progression/enrolments/${enrolmentId}`, { signal }),
-        apiGet<any>(`/attendance/compliance/${enrolmentId}`, { signal }),
-        apiGet<LearnerProgressionStages>(`/progression/enrolments/${enrolmentId}/stages`, { signal }),
-        apiGet<CertificateEligibility>(`/certificates/eligibility/${enrolmentId}`, { signal }),
+        apiGet<EnrolmentProgression>(`/progression/enrolments/${enrolmentId}`, { signal, skipCache: true }),
+        apiGet<any>(`/attendance/compliance/${enrolmentId}`, { signal, skipCache: true }),
+        apiGet<LearnerProgressionStages>(`/progression/enrolments/${enrolmentId}/stages`, { signal, skipCache: true }),
+        apiGet<CertificateEligibility>(`/certificates/eligibility/${enrolmentId}`, { signal, skipCache: true }),
       ]);
 
       if (progResult.status === "fulfilled" && progResult.value) {
@@ -401,14 +468,70 @@ export default function UserDetailPage({
       } else if (certResult.status === "rejected") {
         console.warn("Could not fetch certificate eligibility evaluation", certResult.reason);
       }
+
+      // Fetch 1:1 requests & mission statement submissions for this student
+      fetchOneOnOneRequests()
+        .then((reqs) => {
+          if (Array.isArray(reqs)) {
+            setOneOnOneRequests(reqs.filter((r) => r.userId === userId || r.enrolmentId === enrolmentId));
+          }
+        })
+        .catch(() => {});
+
+      fetchMissionStatements()
+        .then((subs) => {
+          if (Array.isArray(subs)) {
+            setMissionSubmissions(subs.filter((s) => s.userId === userId || s.enrolmentId === enrolmentId));
+          }
+        })
+        .catch(() => {});
     } catch (err: any) {
       if (err.name !== "AbortError") {
         console.error("Error fetching progression:", err);
       }
-    } finally {
-      setLoadingProgression(false);
     }
   }
+
+  // Handle enrolment track switch by administrator: loads entire page with skeleton and syncs URL
+  const handleEnrolmentChange = async (newEnrolmentId: string) => {
+    if (newEnrolmentId === selectedEnrolmentId) return;
+
+    setLoading(true);
+    setSelectedEnrolmentId(newEnrolmentId);
+
+    // Synchronize URL parameters
+    const targetEnr = user?.enrolments?.find((e) => e.id === newEnrolmentId);
+    const targetBatch = targetEnr?.batch;
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("enrolmentId", newEnrolmentId);
+      if (targetBatch?.id) {
+        url.searchParams.set("batchId", targetBatch.id);
+      } else {
+        url.searchParams.delete("batchId");
+      }
+      if (targetBatch?.name) {
+        url.searchParams.set("batchName", targetBatch.name);
+      } else {
+        url.searchParams.delete("batchName");
+      }
+      router.replace(url.pathname + url.search);
+    }
+
+    // Clear stale state
+    setProgression(null);
+    setCompliance(null);
+    setStagesEval(null);
+    setCertEligibility(null);
+
+    try {
+      await fetchProgression(newEnrolmentId);
+    } catch (err: any) {
+      console.error("Failed to load progression for enrolment:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Handle stage override by administrator
   async function handleOverrideStageWithReason(reason: string) {
@@ -447,9 +570,8 @@ export default function UserDetailPage({
 
   // Handle recalculate progression
   async function handleRecalculate() {
-    if (!selectedEnrolmentId || loadingProgression) return;
-    setLoadingProgression(true);
-
+    if (!selectedEnrolmentId || syncing) return;
+    setSyncing(true);
 
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -476,7 +598,7 @@ export default function UserDetailPage({
     } catch (err: any) {
       toast.error(err.message || "Failed to recalculate progression");
     } finally {
-      setLoadingProgression(false);
+      setSyncing(false);
     }
   }
 
@@ -537,6 +659,35 @@ export default function UserDetailPage({
       toast.error(err.message || "Could not download PDF");
     } finally {
       setDownloadingPdf(false);
+    }
+  }
+
+  // Handle Certificate PDF download
+  async function handleDownloadCertificatePdf(certId?: string, directUrl?: string | null) {
+    if (!certId && !directUrl) {
+      toast.error("Certificate record not found");
+      return;
+    }
+    try {
+      if (certId) {
+        const res = await fetch(`${API_URL}/certificates/${certId}/pdf`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.downloadUrl || data.pdfUrl) {
+            window.open(data.downloadUrl || data.pdfUrl, "_blank");
+            return;
+          }
+        }
+      }
+      if (directUrl) {
+        window.open(directUrl, "_blank");
+        return;
+      }
+      toast.info("Certificate PDF is currently generating. Please try again in a moment.");
+    } catch {
+      if (directUrl) {
+        window.open(directUrl, "_blank");
+      }
     }
   }
 
@@ -609,26 +760,54 @@ export default function UserDetailPage({
   if (loading) {
     return (
       <div className={styles.container} aria-busy="true" aria-label="Loading user profile">
+        {/* Back Link Skeleton */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", width: "160px" }}>
           <div className="skeleton" style={{ width: "14px", height: "14px", borderRadius: "4px" }} />
           <div className="skeleton" style={{ width: "130px", height: "14px", borderRadius: "4px" }} />
         </div>
 
+        {/* Profile Header Card Skeleton */}
         <div style={{ background: "#ffffff", border: "1px solid var(--border-light, #e7decb)", borderRadius: "12px", padding: "1rem 1.25rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
               <div className="skeleton" style={{ width: "48px", height: "48px", borderRadius: "12px" }} />
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-                <div className="skeleton" style={{ width: "180px", height: "22px", borderRadius: "6px" }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <div className="skeleton" style={{ width: "180px", height: "22px", borderRadius: "6px" }} />
+                  <div className="skeleton" style={{ width: "60px", height: "18px", borderRadius: "100px" }} />
+                </div>
                 <div className="skeleton" style={{ width: "240px", height: "14px", borderRadius: "4px" }} />
               </div>
             </div>
-            <div className="skeleton" style={{ width: "120px", height: "36px", borderRadius: "8px" }} />
+            <div className="skeleton" style={{ width: "130px", height: "36px", borderRadius: "8px" }} />
           </div>
         </div>
 
-        <div className="skeleton" style={{ width: "100%", height: "42px", borderRadius: "10px" }} />
-        <div className="skeleton" style={{ width: "100%", height: "220px", borderRadius: "12px" }} />
+        {/* Enrolment Context Bar Skeleton */}
+        <div style={{ background: "#faf7f2", border: "1px solid var(--border-light, #e7decb)", borderRadius: "10px", padding: "0.75rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="skeleton" style={{ width: "280px", height: "24px", borderRadius: "6px" }} />
+          <div className="skeleton" style={{ width: "160px", height: "24px", borderRadius: "6px" }} />
+        </div>
+
+        {/* Metrics Strip Skeleton */}
+        <div style={{ background: "#ffffff", border: "1px solid var(--border-light, #e7decb)", borderRadius: "12px", padding: "0.75rem 1.25rem", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+          {[120, 100, 90, 80, 95, 130].map((w, idx) => (
+            <div key={idx} className="skeleton" style={{ width: `${w}px`, height: "18px", borderRadius: "4px" }} />
+          ))}
+        </div>
+
+        {/* 5-Stage Stepper Ribbon Skeleton */}
+        <div style={{ background: "#ffffff", border: "1px solid var(--border-light, #e7decb)", borderRadius: "12px", padding: "1rem 1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          <div className="skeleton" style={{ width: "200px", height: "16px", borderRadius: "4px" }} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "0.6rem" }}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="skeleton" style={{ height: "64px", borderRadius: "10px" }} />
+            ))}
+          </div>
+        </div>
+
+        {/* Workspace Card Skeleton */}
+        <div className="skeleton" style={{ width: "100%", height: "280px", borderRadius: "12px" }} />
       </div>
     );
   }
@@ -637,11 +816,11 @@ export default function UserDetailPage({
   if (!user) {
     return (
       <div className={styles.container}>
-        <Link href="/users" className={styles.backLink}>
+        <Link href={backHref} className={styles.backLink}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
-          <span>Back to Users &amp; Enrolments</span>
+          <span>{backLabel}</span>
         </Link>
         <div
           style={{
@@ -683,15 +862,13 @@ export default function UserDetailPage({
           <p style={{ color: "var(--text-secondary)", margin: 0, maxWidth: "440px", fontSize: "0.875rem", lineHeight: 1.5 }}>
             {loadError || "The requested user account does not exist or has been removed."}
           </p>
-          <Link href="/users" className={styles.actionBtnSecondary} style={{ marginTop: "0.5rem" }}>
-            Return to Users &amp; Enrolments
+          <Link href={backHref} className={styles.actionBtnSecondary} style={{ marginTop: "0.5rem" }}>
+            {fromBatchId ? `Return to ${fromBatchName ? decodeURIComponent(fromBatchName) : "Batch"}` : "Return to Users & Enrolments"}
           </Link>
         </div>
       </div>
     );
   }
-
-  const selectedEnrolment = user.enrolments?.find((e) => e.id === selectedEnrolmentId);
 
   // Compute metrics
   const overallPct = progression
@@ -737,11 +914,11 @@ export default function UserDetailPage({
     <div className={styles.container}>
       {/* Back Navigation */}
       <div>
-        <Link href="/users" className={styles.backLink}>
+        <Link href={backHref} className={styles.backLink}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
-          <span>Back to Users &amp; Enrolments</span>
+          <span>{backLabel}</span>
         </Link>
       </div>
 
@@ -778,7 +955,11 @@ export default function UserDetailPage({
                     <line x1="8" y1="2" x2="8" y2="6" />
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
-                  <span>Joined {formatNumericDate(user.createdAt)}</span>
+                  <span>
+                    {user.role === "USER"
+                      ? `Enrolled ${formatNumericDate(selectedEnrolment?.createdAt || selectedEnrolment?.enrolledAt || user.createdAt)}`
+                      : `Joined ${formatNumericDate(user.createdAt)}`}
+                  </span>
                 </span>
               </div>
             </div>
@@ -790,13 +971,13 @@ export default function UserDetailPage({
                 type="button"
                 className={styles.actionBtnSecondary}
                 onClick={handleRecalculate}
-                disabled={!selectedEnrolmentId || loadingProgression}
+                disabled={!selectedEnrolmentId || syncing}
                 title="Recalculate progression locks and gates"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animation: loadingProgression ? "spin 1s linear infinite" : undefined }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ animation: syncing ? "spin 1s linear infinite" : undefined }}>
                   <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
                 </svg>
-                <span>{loadingProgression ? "Syncing..." : "Sync Progress"}</span>
+                <span>{syncing ? "Syncing..." : "Sync Progress"}</span>
               </button>
             ) : (
               <Link href="/users" className={styles.actionBtnSecondary}>
@@ -817,7 +998,7 @@ export default function UserDetailPage({
               {user.enrolments.length > 1 ? (
                 <CustomSelect
                   value={selectedEnrolmentId}
-                  onChange={setSelectedEnrolmentId}
+                  onChange={handleEnrolmentChange}
                   minWidth="320px"
                   ariaLabel="Select Enrolment Track"
                   options={user.enrolments.map((enr) => ({
@@ -886,7 +1067,7 @@ export default function UserDetailPage({
 
               {totalVideos > 0 && (
                 <span className={styles.statItem}>
-                  <span>Media:</span>
+                  <span>Videos:</span>
                   <strong>{completedVideos} of {totalVideos}</strong>
                 </span>
               )}
@@ -924,11 +1105,6 @@ export default function UserDetailPage({
                   <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                 </svg>
                 <h3 className={styles.pipelineTitle}>5-Stage Certification Pipeline</h3>
-                {stagesEval && (
-                  <span className={styles.pipelineCurrentStageBadge}>
-                    Active: {stagesEval.currentStage ? stagesEval.currentStage.replace(/^STAGE_\d+_/, "").replace(/_/g, " ") : "Curriculum"}
-                  </span>
-                )}
               </div>
               {stagesEval?.allStagesCompleted ? (
                 <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#15803d", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -964,7 +1140,7 @@ export default function UserDetailPage({
                         <span className={styles.pipelineBadgeActive}>In Progress</span>
                       )}
                     </div>
-                    <div className={styles.stepNameText}>1. Curriculum</div>
+                    <div className={styles.stepNameText}>Curriculum</div>
                   </button>
                 );
               })()}
@@ -997,7 +1173,7 @@ export default function UserDetailPage({
                         <span className={styles.pipelineBadgeActive}>Pending</span>
                       ) : null}
                     </div>
-                    <div className={styles.stepNameText}>2. Final Exam</div>
+                    <div className={styles.stepNameText}>Final Exam</div>
                   </button>
                 );
               })()}
@@ -1005,8 +1181,34 @@ export default function UserDetailPage({
               {/* STAGE 3: LIVE ATTENDANCE */}
               {(() => {
                 const s3 = stagesEval?.stages?.STAGE_3_ATTENDANCE;
-                const isDone = Boolean(s3?.isCompleted || compliance?.status === "COMPLIANT");
-                const isUnlocked = Boolean(s3?.isUnlocked || compliance);
+                const weeklySessions = (attendanceHistory?.history || []).filter(
+                  (r) => r.sessionType !== "ONE_ON_ONE" && (!activeBatchId || r.batchId === activeBatchId)
+                );
+                const attendedCount = s3?.details?.attendedSessions ?? compliance?.attendedSessions ?? compliance?.attendedSessionCount ?? 0;
+                const requiredCount = Math.max(
+                  s3?.details?.requiredSessions ?? compliance?.requiredSessions ?? compliance?.requiredSessionCount ?? 0,
+                  weeklySessions.length
+                );
+                const hasScheduledSessions = requiredCount > 0;
+                const attPct = Math.round(
+                  s3?.details?.attendancePercentage ??
+                  compliance?.attendancePercentage ??
+                  (hasScheduledSessions ? (attendedCount / requiredCount) * 100 : 0)
+                );
+                const reqPct =
+                  s3?.details?.thresholdPercent ??
+                  compliance?.thresholdPercent ??
+                  compliance?.thresholdUsed ??
+                  selectedEnrolment?.batch?.attendanceThreshold ??
+                  selectedEnrolment?.batch?.program?.attendanceThreshold ??
+                  80;
+                const isOverridden = Boolean(s3?.isOverridden);
+                const isCompliant = Boolean(
+                  s3?.isCompleted ||
+                  compliance?.status === "COMPLIANT" ||
+                  (hasScheduledSessions && attPct >= reqPct)
+                );
+                const isDone = isOverridden || isCompliant;
                 const isSelected = selectedStageKey === "STAGE_3_ATTENDANCE";
                 return (
                   <button
@@ -1022,15 +1224,17 @@ export default function UserDetailPage({
                           </svg>
                         ) : "3"}
                       </span>
-                      {isDone ? (
-                        <span className={styles.pipelineBadgeCompleted}>
-                          {s3?.isOverridden ? "Overridden" : "Compliant"}
+                      {isOverridden ? (
+                        <span className={styles.pipelineBadgeCompleted}>Overridden</span>
+                      ) : isDone ? (
+                        <span className={styles.pipelineBadgeCompleted}>{attPct}%</span>
+                      ) : (
+                        <span className={styles.pipelineBadgeActive}>
+                          {hasScheduledSessions ? `${attPct}%` : "0%"}
                         </span>
-                      ) : isUnlocked ? (
-                        <span className={styles.pipelineBadgeActive}>Pending</span>
-                      ) : null}
+                      )}
                     </div>
-                    <div className={styles.stepNameText}>3. Attendance</div>
+                    <div className={styles.stepNameText}>Attendance</div>
                   </button>
                 );
               })()}
@@ -1038,8 +1242,15 @@ export default function UserDetailPage({
               {/* STAGE 4: 1-ON-1 SESSION */}
               {(() => {
                 const s4 = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
-                const isDone = Boolean(s4?.isCompleted);
-                const isUnlocked = Boolean(s4?.isUnlocked);
+                const isCallCompleted = Boolean(
+                  s4?.isCompleted ||
+                  (s4?.details as any)?.isCallCompleted ||
+                  selectedEnrolment?.oneOnOneCompletedAt ||
+                  oneOnOneRequests?.some((r) => (r.status as string) === "COMPLETED" || (r.session as any)?.status === "COMPLETED") ||
+                  attendanceHistory?.history?.some((r) => r.sessionType === "ONE_ON_ONE" && (r.status === "PRESENT" || (r.minutesPresent ?? 0) > 0))
+                );
+                const isDone = Boolean(s4?.isCompleted || s4?.isOverridden || isCallCompleted);
+                const isUnlocked = Boolean(s4?.isUnlocked || isCallCompleted);
                 const isSelected = selectedStageKey === "STAGE_4_ONE_ON_ONE";
                 return (
                   <button
@@ -1063,7 +1274,7 @@ export default function UserDetailPage({
                         <span className={styles.pipelineBadgeActive}>Pending</span>
                       ) : null}
                     </div>
-                    <div className={styles.stepNameText}>4. 1:1 Session</div>
+                    <div className={styles.stepNameText}>1:1 Call</div>
                   </button>
                 );
               })()}
@@ -1071,10 +1282,16 @@ export default function UserDetailPage({
               {/* STAGE 5: MISSION STATEMENT */}
               {(() => {
                 const s5 = stagesEval?.stages?.STAGE_5_MISSION_STATEMENT;
-                const isDone = Boolean(s5?.isCompleted);
-                const isUnlocked = Boolean(s5?.isUnlocked);
+                const isMissionApproved = Boolean(
+                  s5?.isCompleted ||
+                  (s5?.details as any)?.isMissionApproved ||
+                  selectedEnrolment?.missionStatementApprovedAt ||
+                  missionSubmissions?.some((m) => m.status === "APPROVED")
+                );
+                const isDone = Boolean(s5?.isCompleted || s5?.isOverridden || isMissionApproved);
+                const isUnlocked = Boolean(s5?.isUnlocked || isMissionApproved);
                 const isSelected = selectedStageKey === "STAGE_5_MISSION_STATEMENT";
-                const latestStatus = s5?.details?.latestStatus;
+                const latestStatus = (s5?.details as any)?.latestStatus || (missionSubmissions[0]?.status ?? null);
                 return (
                   <button
                     type="button"
@@ -1090,21 +1307,28 @@ export default function UserDetailPage({
                         ) : "5"}
                       </span>
                       {isDone ? (
-                        <span className={styles.pipelineBadgeCompleted}>Approved</span>
+                        <span className={styles.pipelineBadgeCompleted}>
+                          {s5?.isOverridden ? "Overridden" : "Approved"}
+                        </span>
                       ) : latestStatus === "SUBMITTED" ? (
                         <span className={styles.pipelineBadgeActive}>Under Review</span>
                       ) : isUnlocked ? (
                         <span className={styles.pipelineBadgeActive}>Pending</span>
                       ) : null}
                     </div>
-                    <div className={styles.stepNameText}>5. Mission Statement</div>
+                    <div className={styles.stepNameText}>Mission Statement</div>
                   </button>
                 );
               })()}
 
               {/* MILESTONE: CERTIFICATE */}
               {(() => {
-                const isIssued = Boolean(certEligibility?.status === "ISSUED" || (progression as any)?.certificateIssued);
+                const isIssued = Boolean(
+                  certEligibility?.status === "ISSUED" ||
+                  progression?.certificate?.status === "ISSUED" ||
+                  (progression as any)?.certificateIssued ||
+                  (selectedEnrolment as any)?.certificate?.status === "ISSUED"
+                );
                 const isEligible = Boolean(certEligibility?.isEligible || stagesEval?.allStagesCompleted);
                 const isSelected = selectedStageKey === "CERTIFICATE";
                 return (
@@ -1115,10 +1339,16 @@ export default function UserDetailPage({
                   >
                     <div className={styles.stepCardTop}>
                       <span className={`${styles.stepNumberPill} ${isIssued || isEligible ? styles.stepNumberPillCompleted : ""}`}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <circle cx="12" cy="8" r="6" />
-                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                        </svg>
+                        {isIssued ? (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="8" r="6" />
+                            <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                          </svg>
+                        )}
                       </span>
                       {isIssued ? (
                         <span className={styles.pipelineBadgeCompleted}>Issued</span>
@@ -1154,24 +1384,33 @@ export default function UserDetailPage({
                 </div>
                 <div className={styles.stageHeaderActions}>
                   {completedSteps < totalSteps && (
-                    <button
-                      type="button"
-                      onClick={() => setTargetStageForOverride("STAGE_1_CURRICULUM")}
-                      className={styles.tableActionBtn}
-                      style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-                      title="Override this stage requirement with logged admin reason"
-                    >
-                      Override Stage 1
-                    </button>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setTargetStageForOverride("STAGE_1_CURRICULUM")}
+                        className={styles.tableActionBtn}
+                        style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
+                      >
+                        Override Curriculum
+                      </button>
+                      <div className={styles.helpTooltip}>
+                        <span
+                          className={styles.helpIcon}
+                          aria-label="Override Information"
+                          tabIndex={0}
+                        >
+                          ?
+                        </span>
+                        <div className={styles.helpTooltipContent}>
+                          Clicking override bypasses curriculum completion requirements and marks Stage 1 cleared. This action is permanently recorded in the immutable audit log with your reason.
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {loadingProgression ? (
-                <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
-                  Loading steps...
-                </div>
-              ) : !progression || !progression.steps || progression.steps.length === 0 ? (
+              {!progression || !progression.steps || progression.steps.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
                   No curriculum steps found for this enrolment.
                 </div>
@@ -1381,6 +1620,12 @@ export default function UserDetailPage({
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
                     <span>Stage 2: Final Exam</span>
+                    <div className={`${styles.helpTooltip} ${styles.helpTooltipLeft}`}>
+                      <span className={styles.helpIcon} aria-label="Prerequisites Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Prerequisites: Stage 1 (Curriculum) must be 100% completed before attempting the final exam.
+                      </div>
+                    </div>
                     {stagesEval?.stages?.STAGE_2_EXAM?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
@@ -1389,32 +1634,32 @@ export default function UserDetailPage({
                   </h4>
                 </div>
                 <div className={styles.stageHeaderActions}>
-                  <button
-                    type="button"
-                    onClick={() => setTargetStageForOverride("STAGE_2_EXAM")}
+                  <Link
+                    href={`/approvals?tab=oral${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
                     className={styles.tableActionBtn}
-                    style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-                    title="Override this stage requirement with logged admin reason"
                   >
-                    Override Stage 2
-                  </button>
+                    Open Oral Approvals ↗
+                  </Link>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTargetStageForOverride("STAGE_2_EXAM")}
+                      className={styles.tableActionBtn}
+                      style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
+                    >
+                      Override Final Exam
+                    </button>
+                    <div className={styles.helpTooltip}>
+                      <span className={styles.helpIcon} aria-label="Override Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Clicking override marks Stage 2 (Final Exam) cleared, granting passing status regardless of exam scores. This action is permanently recorded in the audit log.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className={styles.stageDetailsBox}>
-                {stagesEval?.stages?.STAGE_2_EXAM?.unmetPrerequisites && stagesEval.stages.STAGE_2_EXAM.unmetPrerequisites.length > 0 ? (
-                  <ul className={styles.unmetPrereqsList}>
-                    {stagesEval.stages.STAGE_2_EXAM.unmetPrerequisites.map((p, idx) => (
-                      <li key={idx}>{p}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-                    <span>Stage 2 prerequisites are satisfied. Learner is cleared to take the Final Exam.</span>
-                  </div>
-                )}
-
                 <div className={styles.inspectorGrid}>
                   <div className={styles.inspectorMetaItem}>
                     <span className={styles.inspectorMetaLabel}>Best Exam Score</span>
@@ -1447,20 +1692,6 @@ export default function UserDetailPage({
                     </span>
                   </div>
                 </div>
-
-                <div className={styles.stageInfoCallout}>
-                  <div>
-                    <strong>Final Exam Workflow Note:</strong>
-                    <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)" }}>
-                      The final exam draws from the program's randomized question bank. Attempts are autograded immediately upon submission. If an oral assessment is required, grades are recorded in the Approvals queue.
-                    </p>
-                  </div>
-                  {stagesEval?.stages?.STAGE_2_EXAM?.details?.oralRequired && (
-                    <Link href="/approvals?tab=oral" className={styles.tableActionBtn} target="_blank">
-                      Open Oral Approvals ↗
-                    </Link>
-                  )}
-                </div>
               </div>
             </div>
           )}
@@ -1471,6 +1702,12 @@ export default function UserDetailPage({
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
                     <span>Stage 3: Live Attendance</span>
+                    <div className={`${styles.helpTooltip} ${styles.helpTooltipLeft}`}>
+                      <span className={styles.helpIcon} aria-label="Prerequisites Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Prerequisites: Learner must be actively enrolled in a live cohort batch. Requires ≥80% attendance compliance across scheduled live sessions.
+                      </div>
+                    </div>
                     {stagesEval?.stages?.STAGE_3_ATTENDANCE?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
@@ -1479,43 +1716,101 @@ export default function UserDetailPage({
                   </h4>
                 </div>
                 <div className={styles.stageHeaderActions}>
-                  <button
-                    type="button"
-                    onClick={() => setTargetStageForOverride("STAGE_3_ATTENDANCE")}
-                    className={styles.tableActionBtn}
-                    style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-                    title="Override this stage requirement with logged admin reason"
-                  >
-                    Override Stage 3
-                  </button>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTargetStageForOverride("STAGE_3_ATTENDANCE")}
+                      className={styles.tableActionBtn}
+                      style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
+                    >
+                      Override Attendance
+                    </button>
+                    <div className={styles.helpTooltip}>
+                      <span className={styles.helpIcon} aria-label="Override Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Clicking override bypasses the 80% weekly attendance threshold and clears Stage 3. This action is permanently recorded in the audit log.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Attendance Compliance Meter Card */}
               {(() => {
                 const s3 = stagesEval?.stages?.STAGE_3_ATTENDANCE;
-                const attPct = Math.round(s3?.details?.attendancePercentage ?? compliance?.attendancePercentage ?? 0);
-                const reqPct = s3?.details?.thresholdPercent ?? compliance?.thresholdPercent ?? 80;
-                const isCompliant = attPct >= reqPct || s3?.isCompleted || compliance?.status === "COMPLIANT";
-                const attendedCount = s3?.details?.attendedSessions ?? compliance?.attendedSessions ?? 0;
-                const requiredCount = s3?.details?.requiredSessions ?? compliance?.requiredSessions ?? 0;
+                const weeklySessions = (attendanceHistory?.history || []).filter(
+                  (r) => r.sessionType !== "ONE_ON_ONE" && (!activeBatchId || r.batchId === activeBatchId)
+                );
+                // Dynamic required threshold set by Admin for this course/batch (never static)
+                const reqPct =
+                  s3?.details?.thresholdPercent ??
+                  compliance?.thresholdPercent ??
+                  compliance?.thresholdUsed ??
+                  selectedEnrolment?.batch?.attendanceThreshold ??
+                  selectedEnrolment?.batch?.program?.attendanceThreshold ??
+                  80;
+                const attendedCount = s3?.details?.attendedSessions ?? compliance?.attendedSessions ?? compliance?.attendedSessionCount ?? 0;
+                const requiredCount = Math.max(
+                  s3?.details?.requiredSessions ?? compliance?.requiredSessions ?? compliance?.requiredSessionCount ?? 0,
+                  weeklySessions.length
+                );
+                const hasScheduledSessions = requiredCount > 0;
+                const attPct = Math.round(
+                  s3?.details?.attendancePercentage ??
+                  compliance?.attendancePercentage ??
+                  (hasScheduledSessions ? (attendedCount / requiredCount) * 100 : 0)
+                );
+                const isCompliant = hasScheduledSessions && (attPct >= reqPct || Boolean(s3?.isCompleted) || compliance?.status === "COMPLIANT");
 
                 return (
                   <div className={styles.complianceMeterCard}>
                     <div className={styles.complianceStatsRow}>
                       <span>
-                        Weekly Live Attendance: <strong style={{ color: isCompliant ? "#15803d" : "#991b1b" }}>{attPct}%</strong> ({attendedCount} of {requiredCount} Sessions Attended)
+                        Live Session Attendance:{" "}
+                        {hasScheduledSessions ? (
+                          <>
+                            <strong style={{ color: isCompliant ? "#15803d" : "#991b1b" }}>{attPct}%</strong> ({attendedCount} of {requiredCount} Sessions Attended)
+                          </>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)" }}>No cohort live sessions scheduled yet (0 required)</span>
+                        )}
                       </span>
                       <span style={{
                         fontSize: "0.72rem",
                         fontWeight: 700,
                         padding: "2px 8px",
                         borderRadius: "100px",
-                        background: isCompliant ? "#dcfce7" : "#fee2e2",
-                        color: isCompliant ? "#15803d" : "#991b1b",
-                        border: `1px solid ${isCompliant ? "#bbf7d0" : "#fecaca"}`
+                        background: s3?.isOverridden
+                          ? "#fef3c7"
+                          : !hasScheduledSessions
+                          ? "#f5ece1"
+                          : isCompliant
+                          ? "#dcfce7"
+                          : "#fee2e2",
+                        color: s3?.isOverridden
+                          ? "#92400e"
+                          : !hasScheduledSessions
+                          ? "#78716a"
+                          : isCompliant
+                          ? "#15803d"
+                          : "#991b1b",
+                        border: `1px solid ${
+                          s3?.isOverridden
+                            ? "#fde68a"
+                            : !hasScheduledSessions
+                            ? "#e7e0d6"
+                            : isCompliant
+                            ? "#bbf7d0"
+                            : "#fecaca"
+                        }`
                       }}>
-                        {isCompliant ? "COMPLIANT (≥80%)" : "BELOW 80% THRESHOLD"}
+                        {s3?.isOverridden
+                          ? "OVERRIDDEN"
+                          : !hasScheduledSessions
+                          ? "NO SESSIONS SCHEDULED"
+                          : isCompliant
+                          ? `COMPLIANT (≥${reqPct}%)`
+                          : `BELOW ${reqPct}% THRESHOLD`}
                       </span>
                     </div>
 
@@ -1524,14 +1819,31 @@ export default function UserDetailPage({
                         <div
                           className={styles.complianceFill}
                           style={{
-                            width: `${Math.min(100, Math.max(0, attPct))}%`,
-                            background: isCompliant ? "#16a34a" : "#dc2626",
+                            width: `${hasScheduledSessions ? Math.min(100, Math.max(0, attPct)) : 0}%`,
+                            background: !hasScheduledSessions ? "#d6d3d1" : isCompliant ? "#16a34a" : "#dc2626",
                           }}
                         />
+                        {hasScheduledSessions && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: `${Math.min(100, Math.max(0, reqPct))}%`,
+                              top: 0,
+                              bottom: 0,
+                              width: "2px",
+                              backgroundColor: "#92400e",
+                              zIndex: 2,
+                              pointerEvents: "none",
+                            }}
+                            title={`Minimum Required: ${reqPct}%`}
+                          />
+                        )}
                       </div>
                       <div className={styles.complianceLabelsRow}>
                         <span>0%</span>
-                        <span>Required Minimum: {reqPct}%</span>
+                        <span style={{ color: isCompliant ? "#15803d" : "var(--text-muted)" }}>
+                          Required Minimum: {reqPct}%
+                        </span>
                         <span>100%</span>
                       </div>
                     </div>
@@ -1539,16 +1851,19 @@ export default function UserDetailPage({
                 );
               })()}
 
-              {/* Weekly Live Cohort Sessions Table */}
+              {/* Live Cohort Sessions Table */}
               {(() => {
-                const weeklySessions = attendanceHistory?.history?.filter((r) => r.sessionType !== "ONE_ON_ONE") || [];
+                // Filter weekly sessions specifically to the currently selected cohort batch
+                const weeklySessions = (attendanceHistory?.history || []).filter(
+                  (r) => r.sessionType !== "ONE_ON_ONE" && (!activeBatchId || r.batchId === activeBatchId)
+                );
 
                 return (
                   <div className={styles.tableWrapper}>
                     <table className={styles.cleanTable}>
                       <thead>
                         <tr>
-                          <th>Weekly Cohort Session</th>
+                          <th>Live Cohort Session</th>
                           <th>Date</th>
                           <th>Duration Attended</th>
                           <th style={{ textAlign: "right" }}>Status</th>
@@ -1558,62 +1873,102 @@ export default function UserDetailPage({
                         {weeklySessions.length === 0 ? (
                           <tr>
                             <td colSpan={4} style={{ textAlign: "center", padding: "2.5rem", color: "var(--text-muted)" }}>
-                              No weekly cohort live sessions recorded yet for this batch.
+                              No cohort live sessions recorded yet for this batch.
                             </td>
                           </tr>
                         ) : (
                           weeklySessions.map((record) => {
                             const sessionTime = new Date(record.startTimeUtc).getTime();
                             const isFuture = sessionTime > Date.now();
+                            // Required threshold for this session
+                            const sReqPct =
+                              stagesEval?.stages?.STAGE_3_ATTENDANCE?.details?.thresholdPercent ??
+                              compliance?.thresholdPercent ??
+                              compliance?.thresholdUsed ??
+                              selectedEnrolment?.batch?.program?.attendanceThreshold ??
+                              80;
                             const isPresent =
                               record.status === "PRESENT" ||
                               record.status === "PRESENT_AUTO" ||
                               record.status === "PRESENT_MANUAL" ||
-                              record.status === "CORRECTED";
-                            const isUpcoming = isFuture && !isPresent;
+                              record.status === "CORRECTED" ||
+                              record.status === "PRESENT_LIVE" ||
+                              record.status === "PRESENT_RECORDED" ||
+                              (record.attendancePercentage != null && record.attendancePercentage >= sReqPct);
+                            // Enhanced UX: Partial status for learners who joined but didn't reach threshold
+                            const isPartial = !isPresent && !isFuture && ((record.minutesPresent ?? 0) > 0 || (record.attendancePercentage ?? 0) > 0);
+                            const isUpcoming = isFuture && !isPresent && !isPartial;
 
                             return (
                               <tr key={record.sessionId} className={styles.tableRow}>
                                 <td>
                                   <strong>{record.sessionTitle}</strong>
                                   <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                                    Weekly Live Session &bull; {record.batchName || record.programTitle}
+                                    Live Cohort Session
                                   </div>
                                 </td>
                                 <td>
                                   <span>{formatNumericDate(record.startTimeUtc)}</span>
                                 </td>
                                 <td>
-                                  <span>
-                                    {isUpcoming
-                                      ? `Scheduled (${record.durationMinutes} min)`
-                                      : `${record.minutesPresent} min / ${record.durationMinutes} min`}
-                                  </span>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                    <span>
+                                      {isUpcoming
+                                        ? `Scheduled (${record.durationMinutes} min)`
+                                        : `${record.minutesPresent} min / ${record.durationMinutes} min`}
+                                    </span>
+                                    {!isUpcoming && record.durationMinutes > 0 && (
+                                      <span style={{ fontSize: "0.72rem", color: isPresent ? "#15803d" : isPartial ? "#b45309" : "var(--text-muted)" }}>
+                                        {Math.round(record.attendancePercentage ?? 0)}% attended ({sReqPct}% required)
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td style={{ textAlign: "right" }}>
                                   <span
                                     style={{
                                       display: "inline-block",
-                                      padding: "2px 8px",
-                                      borderRadius: "4px",
+                                      padding: "3px 9px",
+                                      borderRadius: "6px",
                                       fontSize: "0.72rem",
                                       fontWeight: 700,
                                       background: isUpcoming
                                         ? "#eff6ff"
                                         : isPresent
                                         ? "#dcfce7"
+                                        : isPartial
+                                        ? "#fef3c7"
                                         : "#fee2e2",
                                       color: isUpcoming
                                         ? "#1d4ed8"
                                         : isPresent
                                         ? "#15803d"
+                                        : isPartial
+                                        ? "#b45309"
                                         : "#991b1b",
                                       border: `1px solid ${
-                                        isUpcoming ? "#bfdbfe" : isPresent ? "#bbf7d0" : "#fecaca"
+                                        isUpcoming
+                                          ? "#bfdbfe"
+                                          : isPresent
+                                          ? "#bbf7d0"
+                                          : isPartial
+                                          ? "#fde68a"
+                                          : "#fecaca"
                                       }`,
                                     }}
+                                    title={
+                                      isPartial
+                                        ? `Attended ${record.minutesPresent}m of ${record.durationMinutes}m (${Math.round(record.attendancePercentage)}%). Watch recording to complete remaining minutes.`
+                                        : undefined
+                                    }
                                   >
-                                    {isUpcoming ? "Upcoming" : isPresent ? "Present" : "Absent"}
+                                    {isUpcoming
+                                      ? "Upcoming"
+                                      : isPresent
+                                      ? "Present"
+                                      : isPartial
+                                      ? `Partial (${Math.round(record.attendancePercentage)}%)`
+                                      : "Absent"}
                                   </span>
                                 </td>
                               </tr>
@@ -1626,22 +1981,6 @@ export default function UserDetailPage({
                 );
               })()}
 
-              {/* 1-on-1 Reference Callout */}
-              {attendanceHistory?.history?.some((r) => r.sessionType === "ONE_ON_ONE") && (
-                <div style={{ padding: "0.85rem 1.25rem", borderTop: "1px solid #f0e7d8", background: "#fdfbf7", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
-                  <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-                    Looking for 1-on-1 Closing Coaching? Individual consultations are tracked under <strong>Stage 4 (1:1 Session)</strong>.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedStageKey("STAGE_4_ONE_ON_ONE")}
-                    className={styles.tableActionBtn}
-                    style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-                  >
-                    View 1:1 Session (Stage 4) →
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -1650,7 +1989,13 @@ export default function UserDetailPage({
               <div className={styles.stageHeader}>
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
-                    <span>Stage 4: 1:1 Session</span>
+                    <span>Stage 4: 1:1 Call</span>
+                    <div className={`${styles.helpTooltip} ${styles.helpTooltipLeft}`}>
+                      <span className={styles.helpIcon} aria-label="Prerequisites Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Prerequisites: Stage 1 (Curriculum), Stage 2 (Final Exam), and ≥80% live attendance compliance in Stage 3 live cohort sessions are required before scheduling.
+                      </div>
+                    </div>
                     {stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
@@ -1659,77 +2004,193 @@ export default function UserDetailPage({
                   </h4>
                 </div>
                 <div className={styles.stageHeaderActions}>
-                  <button
-                    type="button"
-                    onClick={() => setTargetStageForOverride("STAGE_4_ONE_ON_ONE")}
+                  <Link
+                    href={`/approvals?tab=coaching${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
                     className={styles.tableActionBtn}
-                    style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-                    title="Override this stage requirement with logged admin reason"
                   >
-                    Override Stage 4
-                  </button>
+                    Open Coaching Schedule ↗
+                  </Link>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTargetStageForOverride("STAGE_4_ONE_ON_ONE")}
+                      className={styles.tableActionBtn}
+                      style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
+                    >
+                      Override 1:1 Call
+                    </button>
+                    <div className={styles.helpTooltip}>
+                      <span className={styles.helpIcon} aria-label="Override Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Clicking override marks Stage 4 (1:1 Call) satisfied without requiring an attended consultation. This action is permanently recorded in the audit log.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className={styles.stageDetailsBox}>
-                {stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.unmetPrerequisites && stagesEval.stages.STAGE_4_ONE_ON_ONE.unmetPrerequisites.length > 0 ? (
-                  <ul className={styles.unmetPrereqsList}>
-                    {stagesEval.stages.STAGE_4_ONE_ON_ONE.unmetPrerequisites.map((p, idx) => (
-                      <li key={idx}>{p}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-                    <span>Stage 4 prerequisites satisfied. Learner is eligible for their 1:1 session.</span>
-                  </div>
-                )}
 
                 {(() => {
                   const oneOnOne = attendanceHistory?.history?.find((r) => r.sessionType === "ONE_ON_ONE");
                   const isCompleted = stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isCompleted;
+                  const latest1on1 = oneOnOneRequests[0] || null;
 
                   return (
-                    <div className={styles.inspectorGrid}>
-                      <div className={styles.inspectorMetaItem}>
-                        <span className={styles.inspectorMetaLabel}>Session</span>
-                        <span className={styles.inspectorMetaValue}>
-                          {oneOnOne ? oneOnOne.sessionTitle : "1:1 Session"}
-                        </span>
+                    <>
+                      <div className={styles.inspectorGrid}>
+                        <div className={styles.inspectorMetaItem}>
+                          <span className={styles.inspectorMetaLabel}>Session</span>
+                          <span className={styles.inspectorMetaValue}>
+                            {oneOnOne ? oneOnOne.sessionTitle : "1:1 Call"}
+                          </span>
+                        </div>
+                        <div className={styles.inspectorMetaItem}>
+                          <span className={styles.inspectorMetaLabel}>Scheduled Date</span>
+                          <span className={styles.inspectorMetaValue}>
+                            {latest1on1?.requestedStart
+                              ? formatNumericDate(latest1on1.requestedStart)
+                              : oneOnOne ? formatNumericDate(oneOnOne.startTimeUtc) : "Pending Booking"}
+                          </span>
+                        </div>
+                        <div className={styles.inspectorMetaItem}>
+                          <span className={styles.inspectorMetaLabel}>Attended Duration</span>
+                          <span className={styles.inspectorMetaValue}>
+                            {oneOnOne ? `${oneOnOne.minutesPresent} min / ${oneOnOne.durationMinutes} min` : "—"}
+                          </span>
+                        </div>
+                        <div className={styles.inspectorMetaItem}>
+                          <span className={styles.inspectorMetaLabel}>Stage Gate Status</span>
+                          <span className={styles.inspectorMetaValue} style={{ color: isCompleted ? "#15803d" : "#92400e" }}>
+                            {isCompleted ? "Completed & Satisfied" : "Pending Call Completion"}
+                          </span>
+                        </div>
                       </div>
-                      <div className={styles.inspectorMetaItem}>
-                        <span className={styles.inspectorMetaLabel}>Scheduled Date</span>
-                        <span className={styles.inspectorMetaValue}>
-                          {oneOnOne ? formatNumericDate(oneOnOne.startTimeUtc) : "Pending Booking"}
-                        </span>
-                      </div>
-                      <div className={styles.inspectorMetaItem}>
-                        <span className={styles.inspectorMetaLabel}>Attended Duration</span>
-                        <span className={styles.inspectorMetaValue}>
-                          {oneOnOne ? `${oneOnOne.minutesPresent} min / ${oneOnOne.durationMinutes} min` : "—"}
-                        </span>
-                      </div>
-                      <div className={styles.inspectorMetaItem}>
-                        <span className={styles.inspectorMetaLabel}>Stage Gate Status</span>
-                        <span className={styles.inspectorMetaValue} style={{ color: isCompleted ? "#15803d" : "#92400e" }}>
-                          {isCompleted ? "Completed & Satisfied" : "Pending Session Completion"}
-                        </span>
-                      </div>
-                    </div>
+
+                      {/* In-Profile Action: Booking Request Pending Approval */}
+                      {latest1on1 && latest1on1.status === "PENDING_APPROVAL" && (
+                        <div style={{ padding: "0.85rem 1rem", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "8px", marginTop: "1rem" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+                            <div>
+                              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#92400e", textTransform: "uppercase" }}>
+                                Booking Request Pending Approval
+                              </div>
+                              <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#78350f", marginTop: "2px" }}>
+                                Requested Slot: {new Date(latest1on1.requestedStart).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                {latest1on1.learnerTimezone ? ` (${latest1on1.learnerTimezone})` : ""}
+                              </div>
+                              {latest1on1.notes && (
+                                <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "3px" }}>
+                                  Learner Notes: <em>{latest1on1.notes}</em>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: "0.5rem" }}>
+                              <button
+                                type="button"
+                                disabled={actingOneOnOne}
+                                onClick={async () => {
+                                  setActingOneOnOne(true);
+                                  try {
+                                    await approveOneOnOneRequest(latest1on1.id, {
+                                      startTime: latest1on1.requestedStart,
+                                      endTime: latest1on1.requestedEnd,
+                                    });
+                                    toast.success("1:1 Call booking approved and scheduled with Zoom link!");
+                                    await fetchProgression(selectedEnrolmentId);
+                                  } catch (err: any) {
+                                    toast.error(err.message || "Failed to approve 1:1 request");
+                                  } finally {
+                                    setActingOneOnOne(false);
+                                  }
+                                }}
+                                className={styles.actionBtnPrimary}
+                                style={{ padding: "0.45rem 0.85rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }}
+                              >
+                                {actingOneOnOne ? "Approving..." : "Approve Call Slot ✓"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actingOneOnOne}
+                                onClick={async () => {
+                                  const reason = prompt("Enter rejection reason for learner:") || "";
+                                  if (!reason.trim()) return;
+                                  setActingOneOnOne(true);
+                                  try {
+                                    await rejectOneOnOneRequest(latest1on1.id, reason.trim());
+                                    toast.info("1:1 Call booking request rejected.");
+                                    await fetchProgression(selectedEnrolmentId);
+                                  } catch (err: any) {
+                                    toast.error(err.message || "Failed to reject 1:1 request");
+                                  } finally {
+                                    setActingOneOnOne(false);
+                                  }
+                                }}
+                                className={styles.tableActionBtn}
+                                style={{ color: "#991b1b", borderColor: "#fecaca" }}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* In-Profile Action: Scheduled Session Ready to Mark Completed */}
+                      {((latest1on1 && latest1on1.status === "APPROVED") || oneOnOne) && !isCompleted && (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.85rem 1rem", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", marginTop: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
+                          <div>
+                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#166534", textTransform: "uppercase" }}>Scheduled 1:1 Consultation</span>
+                            <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#15803d", marginTop: "2px" }}>
+                              {latest1on1?.session?.startTime
+                                ? new Date(latest1on1.session.startTime).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                                : (oneOnOne ? formatNumericDate(oneOnOne.startTimeUtc) : "Confirmed")}
+                            </div>
+                            {latest1on1?.session?.joinUrl && (
+                              <a href={latest1on1.session.joinUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.78rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600, marginTop: "3px", display: "inline-block" }}>
+                                Join Zoom Meeting ↗
+                              </a>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={actingOneOnOne}
+                            onClick={async () => {
+                              const sessionId = latest1on1?.sessionId || latest1on1?.session?.id || oneOnOne?.sessionId;
+                              if (!sessionId) {
+                                toast.error("No active session ID found to mark completed.");
+                                return;
+                              }
+                              setActingOneOnOne(true);
+                              try {
+                                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                                const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+                                  method: "PATCH",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                  },
+                                  body: JSON.stringify({ status: "COMPLETED" }),
+                                });
+                                if (!res.ok) throw new Error(await errorMessage(res, "Failed to complete session"));
+                                toast.success("1:1 Call marked completed! Stage 5 (Mission Statement) unlocked.");
+                                await fetchProgression(selectedEnrolmentId);
+                              } catch (err: any) {
+                                toast.error(err.message || "Failed to mark call completed");
+                              } finally {
+                                setActingOneOnOne(false);
+                              }
+                            }}
+                            className={styles.actionBtnPrimary}
+                            style={{ padding: "0.45rem 0.9rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }}
+                          >
+                            {actingOneOnOne ? "Completing Session..." : "Mark Session Completed ✓"}
+                          </button>
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
-
-                <div className={styles.stageInfoCallout}>
-                  <div>
-                    <strong>1:1 Session Workflow:</strong>
-                    <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)" }}>
-                      Completion of the 1:1 session automatically unlocks Stage 5 (Mission Statement).
-                    </p>
-                  </div>
-                  <Link href="/approvals?tab=coaching" className={styles.tableActionBtn} target="_blank">
-                    Open Coaching Schedule ↗
-                  </Link>
-                </div>
               </div>
             </div>
           )}
@@ -1740,6 +2201,12 @@ export default function UserDetailPage({
                 <div className={styles.stageHeaderLeft}>
                   <h4 className={styles.stageHeaderTitle}>
                     <span>Stage 5: Mission Statement</span>
+                    <div className={`${styles.helpTooltip} ${styles.helpTooltipLeft}`}>
+                      <span className={styles.helpIcon} aria-label="Prerequisites Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Prerequisites: Completion of Stage 4 (1:1 Closing Call) is required before mission statement submission and final certificate issuance.
+                      </div>
+                    </div>
                     {stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isOverridden && (
                       <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fef3c7", color: "#92400e" }}>
                         Administratively Overridden
@@ -1748,34 +2215,32 @@ export default function UserDetailPage({
                   </h4>
                 </div>
                 <div className={styles.stageHeaderActions}>
-                  <button
-                    type="button"
-                    onClick={() => setTargetStageForOverride("STAGE_5_MISSION_STATEMENT")}
+                  <Link
+                    href={`/approvals?tab=missions${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
                     className={styles.tableActionBtn}
-                    style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
-                    title="Override this stage requirement with logged admin reason"
                   >
-                    Override Stage 5
-                  </button>
-                  <Link href="/approvals?tab=missions" className={styles.tableActionBtn} target="_blank">
                     Review in Mission Approvals ↗
                   </Link>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTargetStageForOverride("STAGE_5_MISSION_STATEMENT")}
+                      className={styles.tableActionBtn}
+                      style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)" }}
+                    >
+                      Override Mission Statement
+                    </button>
+                    <div className={styles.helpTooltip}>
+                      <span className={styles.helpIcon} aria-label="Override Information" tabIndex={0}>?</span>
+                      <div className={styles.helpTooltipContent}>
+                        Clicking override approves Stage 5 and immediately triggers automated certificate generation. This action is permanently recorded in the audit log.
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className={styles.stageDetailsBox}>
-                {stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.unmetPrerequisites && stagesEval.stages.STAGE_5_MISSION_STATEMENT.unmetPrerequisites.length > 0 ? (
-                  <ul className={styles.unmetPrereqsList}>
-                    {stagesEval.stages.STAGE_5_MISSION_STATEMENT.unmetPrerequisites.map((p, idx) => (
-                      <li key={idx}>{p}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-                    <span>Stage 5 prerequisites satisfied. Learner is cleared to submit their Mission Statement.</span>
-                  </div>
-                )}
 
                 <div className={styles.inspectorGrid}>
                   <div className={styles.inspectorMetaItem}>
@@ -1801,17 +2266,99 @@ export default function UserDetailPage({
                   </div>
                 </div>
 
-                <div className={styles.stageInfoCallout}>
-                  <div>
-                    <strong>Mission Statement Review Flow:</strong>
-                    <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)" }}>
-                      When a learner submits their Mission Statement, leadership evaluates their handwritten or typed manifesto in the Approvals panel. Approval immediately triggers certificate eligibility.
-                    </p>
-                  </div>
-                  <Link href="/approvals?tab=missions" className={styles.tableActionBtn} target="_blank">
-                    Open Mission Approvals ↗
-                  </Link>
-                </div>
+                {/* In-Profile Document Inspection & Action for Mission Statement */}
+                {(() => {
+                  const latestMission = missionSubmissions[0] || null;
+                  if (!latestMission) return null;
+                  const fileLink = latestMission.fileUrl.startsWith("http")
+                    ? latestMission.fileUrl
+                    : `${API_URL}/mission-statements/${latestMission.id}/file`;
+                  const sizeMb = (latestMission.sizeBytes / (1024 * 1024)).toFixed(2);
+
+                  return (
+                    <div style={{ marginTop: "1rem", padding: "0.9rem 1rem", borderRadius: "8px", background: "#fdfbf7", border: "1px solid #ebdccb" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "2px 8px", borderRadius: "100px", background: "#e0e7ff", color: "#3730a3" }}>
+                              v{latestMission.version}
+                            </span>
+                            <strong style={{ fontSize: "0.875rem", color: "var(--text-primary)" }}>
+                              {latestMission.fileName || "Mission-Statement.pdf"}
+                            </strong>
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              ({sizeMb} MB)
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "4px" }}>
+                            Submitted on {new Date(latestMission.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                          {latestMission.feedback && (
+                            <div style={{ fontSize: "0.78rem", color: latestMission.status === "APPROVED" ? "#166534" : "#991b1b", marginTop: "4px" }}>
+                              Feedback: <em>{latestMission.feedback}</em>
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <a
+                            href={fileLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.tableActionBtn}
+                          >
+                            View / Download Document ↗
+                          </a>
+
+                          {latestMission.status === "SUBMITTED" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={actingMission}
+                                onClick={async () => {
+                                  setActingMission(true);
+                                  try {
+                                    await approveMissionStatement(latestMission.id);
+                                    toast.success("Mission statement approved! Certificate has been automatically issued.");
+                                    await fetchProgression(selectedEnrolmentId);
+                                    const updatedUser = await apiGet<UserDetail>(`/users/${userId}`, { skipCache: true });
+                                    if (updatedUser) setUser(updatedUser);
+                                  } catch (err: any) {
+                                    toast.error(err.message || "Failed to approve mission statement");
+                                  } finally {
+                                    setActingMission(false);
+                                  }
+                                }}
+                                className={styles.actionBtnPrimary}
+                                style={{ padding: "0.45rem 0.9rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }}
+                              >
+                                {actingMission ? "Approving & Issuing..." : "Approve & Auto-Issue Certificate ✓"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actingMission}
+                                onClick={() => {
+                                  setRejectingMissionModal(latestMission);
+                                  setRejectFeedback("");
+                                }}
+                                className={styles.tableActionBtn}
+                                style={{ color: "#991b1b", borderColor: "#fecaca" }}
+                              >
+                                Request Revision
+                              </button>
+                            </>
+                          )}
+
+                          {latestMission.status === "APPROVED" && (
+                            <span style={{ fontSize: "0.75rem", fontWeight: 700, padding: "3px 10px", borderRadius: "100px", background: "#dcfce7", color: "#15803d" }}>
+                              Approved &bull; Certificate Issued
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -1828,62 +2375,100 @@ export default function UserDetailPage({
                     </svg>
                     <span>Milestone: Certificate Eligibility &amp; Issuance</span>
                   </h4>
-                  <p className={styles.stageHeaderSubtitle}>
-                    Cryptographically verifiable certificate with tamper-evident QR code &bull; Track: {certEligibility?.certificateType || stagesEval?.certificateType || "PROFESSIONAL"}
-                  </p>
                 </div>
                 <div className={styles.stageHeaderActions}>
-                  <Link href="/approvals?tab=certificates" className={styles.tableActionBtn} target="_blank">
+                  <Link
+                    href={`/approvals?tab=certificates${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
+                    className={styles.tableActionBtn}
+                  >
                     Open Certificate Approvals ↗
                   </Link>
                 </div>
               </div>
 
               <div className={styles.stageDetailsBox}>
-                {/* Eligibility Decision Banner */}
-                <div style={{
-                  padding: "0.85rem 1rem",
-                  borderRadius: "8px",
-                  background: certEligibility?.isEligible ? "#f0fdf4" : "#fef2f2",
-                  border: `1px solid ${certEligibility?.isEligible ? "#bbf7d0" : "#fecaca"}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: "0.75rem",
-                }}>
-                  <div>
-                    <div style={{
-                      fontSize: "0.72rem",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      color: certEligibility?.isEligible ? "#166534" : "#991b1b",
-                    }}>
-                      Eligibility Decision
-                    </div>
-                    <div style={{
-                      fontSize: "1rem",
-                      fontWeight: 800,
-                      color: certEligibility?.isEligible ? "#15803d" : "#991b1b",
-                    }}>
-                      {certEligibility?.isEligible ? "ELIGIBLE FOR ISSUANCE" : "INELIGIBLE (PREREQUISITES REMAINING)"}
-                    </div>
+                <div className={styles.inspectorGrid}>
+                  <div className={styles.inspectorMetaItem}>
+                    <span className={styles.inspectorMetaLabel}>Eligibility Decision</span>
+                    <span
+                      className={styles.inspectorMetaValue}
+                      style={{ color: certEligibility?.isEligible ? "#15803d" : "#b45309" }}
+                    >
+                      {certEligibility?.isEligible ? "Eligible for Issuance" : "Ineligible (Prerequisites Remaining)"}
+                    </span>
                   </div>
 
-                  <span style={{
-                    fontSize: "0.75rem",
-                    fontWeight: 700,
-                    padding: "3px 10px",
-                    borderRadius: "100px",
-                    background: certEligibility?.isEligible ? "#dcfce7" : "#fee2e2",
-                    color: certEligibility?.isEligible ? "#15803d" : "#991b1b",
-                  }}>
-                    {certEligibility?.isEligible
-                      ? "All 5 Gates Satisfied"
-                      : `${certEligibility?.unmetRequirements?.length || 5} Gates Pending`}
-                  </span>
+                  <div className={styles.inspectorMetaItem}>
+                    <span className={styles.inspectorMetaLabel}>5-Stage Milestones</span>
+                    <span className={styles.inspectorMetaValue}>
+                      {(() => {
+                        const gates = [
+                          Boolean(stagesEval?.stages?.STAGE_1_CURRICULUM?.isCompleted || (completedSteps === totalSteps && totalSteps > 0)),
+                          Boolean(stagesEval?.stages?.STAGE_2_EXAM?.isCompleted),
+                          Boolean(stagesEval?.stages?.STAGE_3_ATTENDANCE?.isCompleted || compliance?.status === "COMPLIANT"),
+                          Boolean(stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isCompleted),
+                          Boolean(stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isCompleted),
+                        ];
+                        const cleared = gates.filter(Boolean).length;
+                        return `${cleared} of 5 Gates Satisfied`;
+                      })()}
+                    </span>
+                  </div>
+
+                  <div className={styles.inspectorMetaItem}>
+                    <span className={styles.inspectorMetaLabel}>Certificate Track</span>
+                    <span className={styles.inspectorMetaValue}>
+                      {certEligibility?.certificateType || stagesEval?.certificateType || "PROFESSIONAL"}
+                    </span>
+                  </div>
+
+                  <div className={styles.inspectorMetaItem}>
+                    <span className={styles.inspectorMetaLabel}>Issuance Status</span>
+                    <span
+                      className={styles.inspectorMetaValue}
+                      style={{ color: (certEligibility?.status === "ISSUED" || progression?.certificate?.status === "ISSUED" || certEligibility?.isEligible) ? "#15803d" : "var(--text-secondary)" }}
+                    >
+                      {certEligibility?.status === "ISSUED" || progression?.certificate?.status === "ISSUED"
+                        ? "Issued"
+                        : certEligibility?.isEligible
+                        ? "Ready in Approvals Queue"
+                        : "Awaiting Milestones"}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Instant Certificate Download Action Card when Issued */}
+                {(() => {
+                  const cert = progression?.certificate || (selectedEnrolment as any)?.certificate || (certEligibility as any)?.certificate;
+                  const isIssued = Boolean(certEligibility?.status === "ISSUED" || cert?.status === "ISSUED" || (progression as any)?.certificateIssued);
+                  if (!isIssued && !cert) return null;
+                  return (
+                    <div style={{ margin: "1rem 0", padding: "1rem 1.25rem", borderRadius: "8px", background: "#f0fdf4", border: "1px solid #bbf7d0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#dcfce7", color: "#15803d", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#166534" }}>
+                            Official Certificate Issued
+                          </div>
+                          <div style={{ fontSize: "0.78rem", color: "#15803d", marginTop: "2px" }}>
+                            Certificate Code: <strong>{cert?.certificateCode || "Verified"}</strong> {cert?.issuedAt && `• Issued ${formatNumericDate(cert.issuedAt)}`}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadCertificatePdf(cert?.id, cert?.pdfUrl)}
+                        className={styles.actionBtnPrimary}
+                        style={{ background: "#15803d", borderColor: "#15803d", fontSize: "0.8rem", padding: "0.5rem 1rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Download Certificate PDF ↗
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* 5-Prerequisites Checklist */}
                 <div>
@@ -1895,7 +2480,7 @@ export default function UserDetailPage({
                       { num: 1, name: "Curriculum & Quizzes", done: Boolean(stagesEval?.stages?.STAGE_1_CURRICULUM?.isCompleted || (completedSteps === totalSteps && totalSteps > 0)) },
                       { num: 2, name: "Final Exam (≥70%)", done: Boolean(stagesEval?.stages?.STAGE_2_EXAM?.isCompleted) },
                       { num: 3, name: "Attendance Compliance (≥80%)", done: Boolean(stagesEval?.stages?.STAGE_3_ATTENDANCE?.isCompleted || compliance?.status === "COMPLIANT") },
-                      { num: 4, name: "1-on-1 Ro Consultation", done: Boolean(stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isCompleted) },
+                      { num: 4, name: "1:1 Session Consultation", done: Boolean(stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isCompleted) },
                       { num: 5, name: "Approved Mission Statement", done: Boolean(stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isCompleted) },
                     ].map((gate) => (
                       <div
@@ -1921,20 +2506,6 @@ export default function UserDetailPage({
                     ))}
                   </div>
                 </div>
-
-                {/* Unmet Requirements List */}
-                {certEligibility?.unmetRequirements && certEligibility.unmetRequirements.length > 0 && (
-                  <div>
-                    <h5 style={{ fontSize: "0.8125rem", fontWeight: 700, margin: "0 0 0.4rem", color: "#991b1b" }}>
-                      Unmet Prerequisites List:
-                    </h5>
-                    <ul className={styles.unmetPrereqsList}>
-                      {certEligibility.unmetRequirements.map((req, idx) => (
-                        <li key={idx}>{req}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -1989,7 +2560,7 @@ export default function UserDetailPage({
                 STAGE_1_CURRICULUM: "Curriculum",
                 STAGE_2_EXAM: "Final Exam",
                 STAGE_3_ATTENDANCE: "Attendance",
-                STAGE_4_ONE_ON_ONE: "1:1 Session",
+                STAGE_4_ONE_ON_ONE: "1:1 Call",
                 STAGE_5_MISSION_STATEMENT: "Mission Statement",
               }[targetStageForOverride] || targetStageForOverride}`}
               description="This manual override will be permanently recorded in the audit logs."
@@ -1999,6 +2570,39 @@ export default function UserDetailPage({
               tone="warning"
               confirmText="Confirm Override"
               isLoading={submittingStageOverride}
+            />
+          )}
+
+          {/* Modal for Rejecting / Requesting Revision on Mission Statement */}
+          {rejectingMissionModal && (
+            <InputDialog
+              isOpen={Boolean(rejectingMissionModal)}
+              onClose={() => setRejectingMissionModal(null)}
+              onSubmit={async (feedback) => {
+                if (!feedback.trim()) {
+                  toast.error("Feedback is required when requesting revisions.");
+                  return;
+                }
+                setSubmittingRejectFeedback(true);
+                try {
+                  await rejectMissionStatement(rejectingMissionModal.id, feedback.trim());
+                  toast.info("Revision requested for mission statement.");
+                  setRejectingMissionModal(null);
+                  await fetchProgression(selectedEnrolmentId);
+                } catch (err: any) {
+                  toast.error(err.message || "Failed to reject mission statement");
+                } finally {
+                  setSubmittingRejectFeedback(false);
+                }
+              }}
+              title="Request Mission Statement Revision"
+              description={`Provide specific feedback for ${user.name} on what changes are needed before approval.`}
+              label="Revision Feedback"
+              placeholder="e.g., Please expand on your 10-year core vision and restate your values in section 2..."
+              required={true}
+              tone="warning"
+              confirmText="Send Revision Request"
+              isLoading={submittingRejectFeedback}
             />
           )}
 

@@ -553,11 +553,11 @@ export default function AttendancePage() {
                           <p className={styles.listItemTitle}>{session.title}</p>
                           <p className={styles.listItemMeta}>
                             {session.programTitle} · {timeOf(session.startTime)} to {timeOf(session.endTime)}
-                            {session.attended && session.durationMin ? ` · ${session.durationMin} min attended` : ""}
+                            {(session.durationMin ?? 0) > 0 ? ` · ${session.durationMin} min attended` : ""}
                           </p>
                         </div>
-                        <span className={session.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
-                          {session.attended ? "Present" : isUpcoming ? "Upcoming" : "Absent"}
+                        <span className={session.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : (session.durationMin ?? 0) > 0 ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
+                          {session.attended ? "Present" : isUpcoming ? "Upcoming" : (session.durationMin ?? 0) > 0 ? `Partial (${session.durationMin}m)` : "Absent"}
                         </span>
                       </div>
                     );

@@ -866,6 +866,7 @@ model Batch {
 
   startDate           DateTime
   endDate             DateTime?
+  registrationDeadline DateTime?
   capacity            Int
   status              BatchStatus @default(UPCOMING)
   attendanceThreshold Int?

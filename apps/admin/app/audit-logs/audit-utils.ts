@@ -20,6 +20,7 @@ export const ACTION_FILTER_OPTIONS = [
   { value: "LOGIN", label: "Login" },
   { value: "LOGOUT", label: "Logout" },
   { value: "USER_REGISTERED", label: "User Registered" },
+  { value: "STAFF_USER_CREATED", label: "Staff User Created" },
   { value: "STEP_MANUAL_UNLOCKED", label: "Step Manual Unlock" },
   { value: "STEP_MANUAL_LOCKED", label: "Step Manual Lock" },
   { value: "STEP_UNLOCK_OVERRIDE", label: "Step Unlock Override" },
@@ -50,6 +51,15 @@ export const ACTION_FILTER_OPTIONS = [
   { value: "SESSION_CREATED", label: "Session Created" },
   { value: "SESSION_COMPLETED", label: "Session Completed" },
   { value: "SESSION_CANCELLED", label: "Session Cancelled" },
+  { value: "SESSION_UPDATED", label: "Session Updated" },
+  { value: "SESSION_DELETED", label: "Session Deleted" },
+  { value: "ORAL_ASSESSMENT_GRADED", label: "Oral Assessment Graded" },
+  { value: "AGREEMENT_SIGNED", label: "Agreement Signed" },
+  { value: "CERTIFICATE_ISSUED", label: "Certificate Issued" },
+  { value: "COUPON_CREATED", label: "Coupon Created" },
+  { value: "COUPON_UPDATED", label: "Coupon Updated" },
+  { value: "ENROLMENT_CREATED", label: "Enrolment Created" },
+  { value: "ENROLMENT_CANCELLED", label: "Enrolment Cancelled" },
   { value: "USER_ROLE_CHANGED", label: "User Role Changed" },
   { value: "LEARNER_ACCESS_REVOKED", label: "Learner Access Revoked" },
   { value: "BATCH_TRANSFERRED", label: "Batch Transferred" },
@@ -228,6 +238,15 @@ export function getAuditDetails(log: AuditLogItem): string {
   if (log.action === "SESSION_CREATED") {
     return "Live class or session created";
   }
+  if (log.action === "SESSION_UPDATED") {
+    if (meta?.title) return `Updated session: "${meta.title}"`;
+    if (log.targetLabel && log.targetLabel !== "Session") return `Updated session: ${log.targetLabel}`;
+    return "Session schedule or details updated";
+  }
+  if (log.action === "SESSION_DELETED") {
+    if (meta?.title) return `Deleted session: "${meta.title}"`;
+    return "Session deleted";
+  }
 
   // 6. Curriculum & Progress Overrides
   if (log.action === "STEP_MANUAL_UNLOCKED") {
@@ -256,6 +275,11 @@ export function getAuditDetails(log: AuditLogItem): string {
   }
   if (log.action === "EXAM_ATTEMPTS_RESET") {
     return "Final exam attempt limit reset by instructor";
+  }
+  if (log.action === "ORAL_ASSESSMENT_GRADED") {
+    const score = meta?.overallScore !== undefined ? ` (${meta.overallScore}%)` : "";
+    const passStatus = meta?.passed ? "Passed" : "Needs Retake";
+    return `Oral assessment graded: ${passStatus}${score}`;
   }
 
   // 6b. Mission Statements & 1-on-1 Ro Sessions
@@ -290,6 +314,12 @@ export function getAuditDetails(log: AuditLogItem): string {
   // 7. Certificates & Invoices
   if (log.action === "CERTIFICATE_APPROVED") {
     return meta?.certificateCode ? `Certificate approved (${meta.certificateCode})` : "Certificate reviewed and approved";
+  }
+  if (log.action === "CERTIFICATE_ISSUED") {
+    return meta?.certificateCode ? `Certificate issued (${meta.certificateCode})` : "Official certificate issued to learner";
+  }
+  if (log.action === "CERTIFICATE_REQUESTED") {
+    return "Certificate issuance requested";
   }
   if (log.action === "CERTIFICATE_REJECTED") {
     return "Certificate application rejected";
@@ -347,6 +377,24 @@ export function getAuditDetails(log: AuditLogItem): string {
   if (log.action === "LEAD_CONVERT") {
     return "Prospect converted and checkout link sent";
   }
+  if (log.action === "COUPON_CREATED") {
+    return meta?.code ? `Created coupon: ${meta.code}` : "Marketing coupon created";
+  }
+  if (log.action === "COUPON_UPDATED") {
+    return meta?.code ? `Updated coupon: ${meta.code}` : "Marketing coupon updated";
+  }
+  if (log.action === "COUPON_ARCHIVED") {
+    return meta?.code ? `Archived coupon: ${meta.code}` : "Marketing coupon archived";
+  }
+  if (log.action === "ENROLMENT_CREATED") {
+    return "Learner enrolled into program";
+  }
+  if (log.action === "ENROLMENT_STATUS_TRANSITIONED") {
+    return meta?.newStatus ? `Enrolment transitioned to ${meta.newStatus}` : "Enrolment status updated";
+  }
+  if (log.action === "ENROLMENT_CANCELLED") {
+    return "Enrolment cancelled";
+  }
   if (log.action === "NOTIFICATION_BROADCAST") {
     return "Broadcast announcement sent";
   }
@@ -403,6 +451,23 @@ export const ACTION_SHORT_NAMES: Record<string, string> = {
   SESSION_ACTIVATED: "Session Activated",
   SESSION_COMPLETED: "Session Completed",
   SESSION_CANCELLED: "Session Cancelled",
+  SESSION_UPDATED: "Session Updated",
+  SESSION_DELETED: "Session Deleted",
+  ORAL_ASSESSMENT_GRADED: "Oral Graded",
+  CERTIFICATE_ISSUED: "Cert Issued",
+  CERTIFICATE_REQUESTED: "Cert Requested",
+  COUPON_CREATED: "Coupon Created",
+  COUPON_UPDATED: "Coupon Updated",
+  COUPON_ARCHIVED: "Coupon Archived",
+  COUPON_DELETED: "Coupon Deleted",
+  ENROLMENT_CREATED: "Enrolled",
+  ENROLMENT_STATUS_TRANSITIONED: "Enrolment Status",
+  ENROLMENT_CANCELLED: "Enrolment Cancelled",
+  LOGOUT_ALL_SESSIONS: "Logout All",
+  STAFF_USER_CREATED: "Staff Created",
+  USER_STATUS_CHANGED: "Status Changed",
+  USER_DELETED: "User Deleted",
+  SESSIONS_REVOKED: "Sessions Revoked",
   SESSION_BOOKED: "Session Booked",
   USER_ROLE_CHANGED: "Role Changed",
   LEARNER_ACCESS_REVOKED: "Access Revoked",

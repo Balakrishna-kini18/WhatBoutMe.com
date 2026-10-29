@@ -106,6 +106,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       });
     }
 
+    if (userProfile.permissions?.includes('ACCOUNT_SUSPENDED')) {
+      throw new UnauthorizedException({
+        message: 'Your account has been temporarily suspended. Please contact support.',
+        error: 'ACCOUNT_SUSPENDED',
+      });
+    }
+
     // Canonical 4 roles normalization (map legacy TEACHER alias to MANAGER)
     const effectiveRole = userProfile.role === 'TEACHER' ? 'MANAGER' : userProfile.role;
 

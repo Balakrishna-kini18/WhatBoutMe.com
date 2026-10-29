@@ -18,12 +18,14 @@ interface CoachingApprovalsTabProps {
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onPendingCountChange?: (count: number) => void;
+  batchId?: string;
 }
 
 export default function CoachingApprovalsTab({
   onError,
   onSuccess,
   onPendingCountChange,
+  batchId,
 }: CoachingApprovalsTabProps) {
   const [requests, setRequests] = useState<OneOnOneRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,11 +71,23 @@ export default function CoachingApprovalsTab({
   }, []);
 
   const pendingCount = useMemo(() => {
-    return requests.filter((r) => r.status === "PENDING_APPROVAL").length;
-  }, [requests]);
+    return requests.filter((r) => {
+      if (batchId) {
+        const reqBatchId = r.enrolment?.batch?.id || (r.enrolment as any)?.batchId;
+        if (reqBatchId !== batchId) return false;
+      }
+      return r.status === "PENDING_APPROVAL";
+    }).length;
+  }, [requests, batchId]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((r) => {
+      if (batchId) {
+        const reqBatchId = r.enrolment?.batch?.id || (r.enrolment as any)?.batchId;
+        if (reqBatchId !== batchId) {
+          return false;
+        }
+      }
       if (filter === "ALL") return true;
       if (filter === "PENDING_APPROVAL") return r.status === "PENDING_APPROVAL";
       if (filter === "APPROVED") return r.status === "APPROVED";
@@ -81,7 +95,7 @@ export default function CoachingApprovalsTab({
       if (filter === "REJECTED") return r.status === "REJECTED" || r.status === "CANCELLED";
       return true;
     });
-  }, [requests, filter]);
+  }, [requests, filter, batchId]);
 
   function handleOpenApprove(req: OneOnOneRequestItem) {
     setApprovingReq(req);

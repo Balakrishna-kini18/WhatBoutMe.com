@@ -44,6 +44,7 @@ export default function CreateBatchPage() {
   const [managerId, setManagerId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [registrationDeadline, setRegistrationDeadline] = useState("");
   const [capacity, setCapacity] = useState(50);
   const [status, setStatus] = useState<"UPCOMING" | "ACTIVE">("UPCOMING");
 
@@ -152,8 +153,24 @@ export default function CreateBatchPage() {
       return;
     }
 
-    if (endDate && new Date(endDate).getTime() <= new Date(startDate).getTime()) {
-      setFormError("End date must be strictly after the start date.");
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (startDate < todayStr) {
+      setFormError("Batch start date cannot be in the past.");
+      return;
+    }
+
+    if (!registrationDeadline) {
+      setFormError("Registration deadline is required.");
+      return;
+    }
+
+    if (registrationDeadline < todayStr) {
+      setFormError("Registration deadline cannot be in the past.");
+      return;
+    }
+
+    if (endDate && new Date(registrationDeadline).getTime() > new Date(endDate).getTime()) {
+      setFormError("Registration deadline cannot be after the batch end date.");
       return;
     }
 
@@ -170,6 +187,7 @@ export default function CreateBatchPage() {
         managerId: managerId || null,
         startDate: new Date(startDate).toISOString(),
         endDate: endDate ? new Date(endDate).toISOString() : null,
+        registrationDeadline: new Date(registrationDeadline).toISOString(),
         capacity: Number(capacity),
         status,
         currency,
@@ -411,7 +429,7 @@ export default function CreateBatchPage() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1.25rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
               <label style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
                 Start Date <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
@@ -440,6 +458,39 @@ export default function CreateBatchPage() {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  height: "42px",
+                  padding: "0.55rem 0.85rem",
+                  fontSize: "0.875rem",
+                  borderRadius: "8px",
+                  border: "1px solid var(--border-light, #ece4d7)",
+                  outline: "none",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+              <label style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--text-primary, #14110f)", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span>Registration Deadline</span>
+                <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                <div className={styles.helpTooltip}>
+                  <span
+                    className={styles.helpIcon}
+                    aria-label="Registration Cutoff Information"
+                    tabIndex={0}
+                  >
+                    ?
+                  </span>
+                  <div className={styles.helpTooltipContent}>
+                    Learners cannot self-enroll after this date. Admins can manually assign students anytime.
+                  </div>
+                </div>
+              </label>
+              <input
+                type="date"
+                required
+                value={registrationDeadline}
+                onChange={(e) => setRegistrationDeadline(e.target.value)}
                 style={{
                   height: "42px",
                   padding: "0.55rem 0.85rem",

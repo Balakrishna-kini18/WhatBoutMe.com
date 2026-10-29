@@ -3,15 +3,15 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import styles from "../page.module.css";
 import { API_URL, cachedFetch } from "../lib/api";
-import { TableSkeleton, EmptyState, CustomSelect, Pagination, DatePicker, type CustomSelectOption } from "../components";
+import { TableSkeleton, EmptyState, CustomSelect, Pagination, DatePicker, SortIndicator, type CustomSelectOption } from "../components";
 import { isDateInRange, calculateRevenuePeriodDates, type DateRangeFilter } from "./date-range";
 import { formatRevenueMetric, formatCurrencyAmount, getCurrencyParts } from "./revenue-utils";
 
 export { isDateInRange, type DateRangeFilter };
 
 const DATE_FILTER_OPTIONS: CustomSelectOption[] = [
-  { value: "THIS_MONTH", label: "This Month" },
   { value: "ALL", label: "All Time" },
+  { value: "THIS_MONTH", label: "This Month" },
   { value: "TODAY", label: "Today" },
   { value: "YESTERDAY", label: "Yesterday" },
   { value: "LAST_7_DAYS", label: "Last 7 Days" },
@@ -78,8 +78,8 @@ export default function RevenuePage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const initialDates = calculateRevenuePeriodDates("THIS_MONTH");
-  const [dateFilter, setDateFilter] = useState<DateRangeFilter>("THIS_MONTH");
+  const initialDates = calculateRevenuePeriodDates("ALL");
+  const [dateFilter, setDateFilter] = useState<DateRangeFilter>("ALL");
   const [startDate, setStartDate] = useState<string>(initialDates.startDate);
   const [endDate, setEndDate] = useState<string>(initialDates.endDate);
   const [isFromPickerOpen, setIsFromPickerOpen] = useState(false);
@@ -348,35 +348,25 @@ export default function RevenuePage() {
   };
 
   const renderSortIcon = (field: SortField) => {
-    const isActive = sortField === field;
     return (
-      <span
-        style={{
-          display: "inline-flex",
-          fontSize: "0.68rem",
-          lineHeight: 1,
-          color: isActive ? "var(--accent-primary, #c97a1e)" : "var(--text-muted, #a8a29e)",
-          fontWeight: isActive ? 800 : 400,
-          marginLeft: "4px",
-        }}
-        aria-hidden="true"
-      >
-        {isActive ? (sortDirection === "asc" ? "▲" : "▼") : "⇅"}
-      </span>
+      <SortIndicator
+        active={sortField === field}
+        order={sortDirection}
+      />
     );
   };
 
   // Active filters summary
   const hasActiveFilters =
-    dateFilter !== "THIS_MONTH" ||
+    (dateFilter !== "ALL" && dateFilter !== "all") ||
     programFilter !== "all" ||
     batchFilter !== "all" ||
     statusFilter !== "all" ||
     searchQuery.trim() !== "";
 
   const resetAllFilters = () => {
-    setDateFilter("THIS_MONTH");
-    const { startDate: s, endDate: e } = calculateRevenuePeriodDates("THIS_MONTH");
+    setDateFilter("ALL");
+    const { startDate: s, endDate: e } = calculateRevenuePeriodDates("ALL");
     setStartDate(s);
     setEndDate(e);
     setIsFromPickerOpen(false);
@@ -1307,7 +1297,7 @@ export default function RevenuePage() {
               setPageSize(size);
               setCurrentPage(1);
             }}
-            pageSizeOptions={[10, 30, 50]}
+            pageSizeOptions={[10, 20, 50]}
             itemLabel="transactions"
           />
         )}

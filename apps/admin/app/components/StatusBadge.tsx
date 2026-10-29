@@ -67,12 +67,14 @@ function resolveTone(rawStatus: string): StatusTone {
     normalized === "PENDING_AGREEMENT" ||
     normalized === "SCHEDULED" ||
     normalized === "CONTACTED" ||
-    normalized === "DRAFT"
+    normalized === "DRAFT" ||
+    normalized === "UPCOMING"
   ) {
     return "pending";
   }
   if (normalized === "WAITLIST") return "info";
-  if (normalized === "INACTIVE" || normalized === "ARCHIVED") return "inactive";
+  if (normalized === "INACTIVE" || normalized === "ARCHIVED" || normalized === "DISABLED") return "inactive";
+  if (normalized === "SUSPENDED") return "error";
   if (
     normalized === "CANCELLED" ||
     normalized === "REJECTED" ||

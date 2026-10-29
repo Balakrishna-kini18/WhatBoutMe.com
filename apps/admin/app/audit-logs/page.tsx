@@ -12,6 +12,8 @@ import {
   Pagination,
   Modal,
   StatusBadge,
+  SortIndicator,
+  type SortOrder,
 } from "../components";
 import {
   getAuditDetails,
@@ -26,6 +28,7 @@ import {
 } from "./audit-utils";
 
 type AuditLogEntry = AuditLogItem;
+type AuditSortField = "createdAt" | "user" | "role" | "action" | "details";
 
 export default function AuditLogsPage() {
   const { success: toastSuccess, error: toastError } = useToast();
@@ -39,6 +42,19 @@ export default function AuditLogsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Sorting
+  const [sortField, setSortField] = useState<AuditSortField>("createdAt");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
+  const handleSort = (field: AuditSortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
 
   // Filter states
   const [search, setSearch] = useState("");
@@ -319,6 +335,45 @@ export default function AuditLogsPage() {
       </div>
     );
   }
+
+  const sortedLogs = [...logs].sort((a, b) => {
+    let comparison = 0;
+    switch (sortField) {
+      case "createdAt": {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        comparison = aTime - bTime;
+        break;
+      }
+      case "user": {
+        const aUser = (a.actorName || a.actorEmail || "System").toLowerCase();
+        const bUser = (b.actorName || b.actorEmail || "System").toLowerCase();
+        comparison = aUser.localeCompare(bUser);
+        break;
+      }
+      case "role": {
+        const aRole = (a.actorRole || "SYSTEM").toLowerCase();
+        const bRole = (b.actorRole || "SYSTEM").toLowerCase();
+        comparison = aRole.localeCompare(bRole);
+        break;
+      }
+      case "action": {
+        const aAction = (ACTION_SHORT_NAMES[a.action] || a.action).toLowerCase();
+        const bAction = (ACTION_SHORT_NAMES[b.action] || b.action).toLowerCase();
+        comparison = aAction.localeCompare(bAction);
+        break;
+      }
+      case "details": {
+        const aDetails = (getAuditDetails(a) || a.summaryNote || "").toLowerCase();
+        const bDetails = (getAuditDetails(b) || b.summaryNote || "").toLowerCase();
+        comparison = aDetails.localeCompare(bDetails);
+        break;
+      }
+      default:
+        comparison = 0;
+    }
+    return sortOrder === "asc" ? comparison : -comparison;
+  });
 
   return (
     <div className={styles.dashboardContainer} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -643,11 +698,56 @@ export default function AuditLogsPage() {
           <table className={styles.adminTable} style={{ width: "100%", minWidth: "960px", tableLayout: "fixed" }}>
             <thead>
               <tr>
-                <th style={{ width: "155px", minWidth: "155px", paddingRight: "0.5rem" }}>Date &amp; Time (UTC)</th>
-                <th style={{ width: "185px", minWidth: "175px", paddingRight: "0.75rem" }}>User</th>
-                <th style={{ width: "150px", minWidth: "145px", paddingRight: "0.75rem" }}>Role</th>
-                <th style={{ width: "155px", minWidth: "150px", paddingRight: "0.75rem" }}>Action</th>
-                <th style={{ minWidth: "200px" }}>Details / Reason</th>
+                <th
+                  onClick={() => handleSort("createdAt")}
+                  style={{ width: "155px", minWidth: "155px", paddingRight: "0.5rem", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "createdAt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Date &amp; Time (UTC)</span>
+                    <SortIndicator active={sortField === "createdAt"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("user")}
+                  style={{ width: "185px", minWidth: "175px", paddingRight: "0.75rem", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "user" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>User</span>
+                    <SortIndicator active={sortField === "user"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("role")}
+                  style={{ width: "150px", minWidth: "145px", paddingRight: "0.75rem", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "role" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Role</span>
+                    <SortIndicator active={sortField === "role"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("action")}
+                  style={{ width: "155px", minWidth: "150px", paddingRight: "0.75rem", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "action" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Action</span>
+                    <SortIndicator active={sortField === "action"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("details")}
+                  style={{ minWidth: "200px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "details" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Details / Reason</span>
+                    <SortIndicator active={sortField === "details"} order={sortOrder} />
+                  </div>
+                </th>
                 <th style={{ width: "95px", minWidth: "95px", textAlign: "center" }}>
                   Metadata
                 </th>
@@ -697,7 +797,7 @@ export default function AuditLogsPage() {
                     </button>
                   </td>
                 </tr>
-              ) : logs.length === 0 ? (
+              ) : sortedLogs.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: "3rem 1.5rem" }}>
                     <EmptyState
@@ -710,7 +810,7 @@ export default function AuditLogsPage() {
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => {
+                sortedLogs.map((log) => {
                   const detailText = getAuditDetails(log);
 
                   return (
@@ -817,7 +917,25 @@ export default function AuditLogsPage() {
 
                       {/* Action */}
                       <td style={{ width: "155px", minWidth: "150px", whiteSpace: "nowrap", paddingRight: "0.75rem" }}>
-                        {formatActionPill(log.action)}
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <div>{formatActionPill(log.action)}</div>
+                          {log.targetLabel && log.targetLabel !== log.entity && (
+                            <span
+                              style={{
+                                fontSize: "0.72rem",
+                                color: "var(--text-muted, #78716a)",
+                                maxWidth: "148px",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                display: "block",
+                              }}
+                              title={log.targetLabel}
+                            >
+                              {log.targetLabel}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Details / Reason (Clamped to 2 lines max with clean constrained width) */}

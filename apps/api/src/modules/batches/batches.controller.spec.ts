@@ -187,8 +187,9 @@ describe('D1-031: BatchesController & Authorization Tests', () => {
 
     it('create calls service.create with dto', async () => {
       const dto = { name: 'New Cohort', programId: 'p-1', startDate: '2026-11-01', capacity: 20 };
-      await controller.create(dto as any);
-      expect(serviceMock.create).toHaveBeenCalledWith(dto);
+      const req = { user: { id: 'u-1' } };
+      await controller.create(dto as any, req as any);
+      expect(serviceMock.create).toHaveBeenCalledWith(dto, 'u-1');
     });
 
     it('assignTrainer calls service.assignTrainer with id and dto', async () => {
@@ -204,8 +205,9 @@ describe('D1-031: BatchesController & Authorization Tests', () => {
 
     it('transitionStatus calls service.transitionStatus with id and dto', async () => {
       const dto = { status: 'ACTIVE' as any };
-      await controller.transitionStatus('b-1', dto);
-      expect(serviceMock.transitionStatus).toHaveBeenCalledWith('b-1', dto);
+      const req = { user: { id: 'u-1' } };
+      await controller.transitionStatus('b-1', dto, req as any);
+      expect(serviceMock.transitionStatus).toHaveBeenCalledWith('b-1', dto, 'u-1');
     });
   });
 });

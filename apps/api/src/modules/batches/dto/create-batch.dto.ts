@@ -32,6 +32,10 @@ export class CreateBatchDto {
   @IsDateString()
   endDate?: string;
 
+  @IsOptional()
+  @IsDateString()
+  registrationDeadline?: string;
+
   @IsInt()
   @Min(1)
   capacity: number;

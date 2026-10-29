@@ -6,6 +6,7 @@ import {
   IsOptional,
   Min,
   IsEnum,
+  ValidateIf,
 } from 'class-validator';
 import { BatchStatus, CurrencyCode } from '@prisma/client';
 
@@ -21,8 +22,9 @@ export class UpdateBatchDto {
   programId?: string;
 
   @IsOptional()
+  @ValidateIf((_, val) => val !== null && val !== undefined && val !== '')
   @IsString()
-  managerId?: string;
+  managerId?: string | null;
 
   @IsOptional()
   @IsDateString()
@@ -31,6 +33,10 @@ export class UpdateBatchDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  registrationDeadline?: string;
 
   @IsOptional()
   @IsInt()

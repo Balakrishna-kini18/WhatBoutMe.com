@@ -136,12 +136,13 @@ export function generateOtpauthUri(options: {
  * Retrieve and validate the 32-byte AES-256 encryption key from TOTP_ENCRYPTION_KEY.
  */
 export function getTotpEncryptionKey(): Buffer {
-  const key = process.env.TOTP_ENCRYPTION_KEY;
+  const key =
+    process.env.TOTP_ENCRYPTION_KEY ||
+    (process.env.NODE_ENV !== 'production'
+      ? '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      : undefined);
+
   if (!key) {
-    if (process.env.NODE_ENV === 'test') {
-      // In test mode without explicit key, provide safe fallback
-      return Buffer.from('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'hex');
-    }
     throw new Error(
       'TOTP_ENCRYPTION_KEY environment variable is required and must be 32 bytes (64 hex characters or 32 characters)',
     );

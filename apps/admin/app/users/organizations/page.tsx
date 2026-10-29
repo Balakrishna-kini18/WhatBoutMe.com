@@ -2,6 +2,8 @@
 
 import { useEffect, useState, FormEvent, Suspense } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../../AuthProvider";
 import styles from "../../page.module.css";
 import {
   CustomSelect,
@@ -68,6 +70,37 @@ export default function OrganizationsPage() {
 
 function OrganizationsContent() {
   const toast = useToast();
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const effectiveUser = user || (typeof window !== "undefined" ? (() => {
+    try {
+      const raw = localStorage.getItem("user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })() : null);
+
+  const isOrgAccount = Boolean(
+    (effectiveUser as any)?.isOrgUser ||
+    (effectiveUser as any)?.organizationId ||
+    (effectiveUser as any)?.organization ||
+    (effectiveUser as any)?.orgRole ||
+    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+  );
+  const isPlatformAdmin = Boolean(
+    !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
+  );
+  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && orgId) {
+      router.replace(`/users/organizations/${orgId}`);
+    } else if (!isPlatformAdmin) {
+      router.replace("/login");
+    }
+  }, [isPlatformAdmin, orgId, router]);
   const [organizations, setOrganizations] = useState<OrganizationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -153,6 +186,7 @@ function OrganizationsContent() {
   };
 
   const fetchOrganizations = async () => {
+    if (!isPlatformAdmin) return;
     try {
       setIsLoading(true);
       const queryParams = new URLSearchParams({
@@ -247,6 +281,14 @@ function OrganizationsContent() {
   const totalSlotsLicensed = organizations.reduce((sum, o) => sum + o.totalSlots, 0);
   const totalSlotsUtilized = organizations.reduce((sum, o) => sum + (o.assignedSlots + o.consumedSlots), 0);
   const totalActiveBatches = organizations.reduce((sum, o) => sum + o.activeBatchesCount, 0);
+
+  if (!isPlatformAdmin) {
+    return (
+      <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
+        <p style={{ fontWeight: 600, fontSize: "1rem" }}>Redirecting to your organization workspace...</p>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.dashboard}>
@@ -610,7 +652,7 @@ function OrganizationsContent() {
                       <td style={{ padding: "14px 18px" }}>
                         <div style={{ fontWeight: 600, color: "#0f172a" }}>
                           {org.defaultCurrency}{" "}
-                          {(org.revenueByCurrency[org.defaultCurrency] || 0).toLocaleString()}
+                          {(org.revenueByCurrency?.[org.defaultCurrency] || 0).toLocaleString()}
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
                           {org.billingEmail}

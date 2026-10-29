@@ -12,6 +12,11 @@ export interface UserData {
   role: string;
   permissions?: string[];
   avatar?: string | null;
+  isOrgUser?: boolean;
+  organizationId?: string | null;
+  organization?: any;
+  orgRole?: string | null;
+  timezone?: string | null;
 }
 
 export interface AuthContextType {
@@ -240,7 +245,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // In-memory SWR verification tracker: prevents redundant /auth/me network calls on navigation
-  const lastVerifiedAtRef = useRef<number>(user ? Date.now() : 0);
+  const lastVerifiedAtRef = useRef<number>(0);
   const isVerifyingRef = useRef<boolean>(false);
 
   const login = useCallback(
@@ -308,6 +313,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
           const mergedUser: UserData = {
             ...existing,
             ...verifiedUser,
+            role: verifiedUser.role,
+            isOrgUser: verifiedUser.isOrgUser,
+            organizationId: verifiedUser.organizationId,
+            organization: verifiedUser.organization,
+            orgRole: (verifiedUser as any).orgRole,
             permissions: verifiedUser.permissions || existing?.permissions || [],
           };
           setUser(mergedUser);
@@ -330,6 +340,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                 const mergedUser: UserData = {
                   ...existing,
                   ...verifiedUser,
+                  role: verifiedUser.role,
+                  isOrgUser: verifiedUser.isOrgUser,
+                  organizationId: verifiedUser.organizationId,
+                  organization: verifiedUser.organization,
+                  orgRole: (verifiedUser as any).orgRole,
                   permissions: verifiedUser.permissions || existing?.permissions || [],
                 };
                 setUser(mergedUser);
@@ -415,7 +430,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     }
 
     // Background SWR revalidation (only runs if last check > 60s ago)
-    revalidateUser(false);
+    revalidateUser(true);
   }, [pathname, revalidateUser, router, token, user]);
 
   const contextValue: AuthContextType = {

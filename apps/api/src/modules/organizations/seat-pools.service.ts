@@ -166,6 +166,21 @@ export class SeatPoolsService {
       throw new NotFoundException(`Batch ${dto.batchId} not found`);
     }
 
+    // Prevent duplicate pending requests for the same batch
+    const existingPending = await this.prisma.seatPool.findFirst({
+      where: {
+        organizationId: orgId,
+        batchId: dto.batchId,
+        status: { in: [SeatPoolStatus.PENDING_APPROVAL, SeatPoolStatus.PENDING_PAYMENT] },
+      },
+    });
+    if (existingPending) {
+      const stateText = existingPending.status === SeatPoolStatus.PENDING_APPROVAL ? 'admin review' : 'payment';
+      throw new BadRequestException(
+        `A slot request for this cohort (${existingPending.poolCode}) is already pending ${stateText}. Please complete or cancel the existing request before requesting more slots.`,
+      );
+    }
+
     // Atomically check batch capacity
     const occupied = await this.getBatchOccupiedSeats(batch.id);
     if (occupied + dto.totalSeats > batch.capacity) {
@@ -551,6 +566,23 @@ export class SeatPoolsService {
     if (!batch) {
       throw new NotFoundException(`Batch ${dto.batchId} not found`);
     }
+    // Check for existing pending request for this batch to prevent duplicate bookings
+    const existingPending = await this.prisma.seatPool.findFirst({
+      where: {
+        organizationId: orgId,
+        batchId: dto.batchId,
+        status: {
+          in: [SeatPoolStatus.PENDING_APPROVAL, SeatPoolStatus.PENDING_PAYMENT],
+        },
+      },
+    });
+    if (existingPending) {
+      const stateText = existingPending.status === SeatPoolStatus.PENDING_APPROVAL ? 'admin review' : 'payment';
+      throw new BadRequestException(
+        `A slot request for this cohort (${existingPending.poolCode}) is already pending ${stateText}. Please complete or cancel the existing request before requesting more slots.`,
+      );
+    }
+
 
     // Atomically check batch capacity
     const occupied = await this.getBatchOccupiedSeats(batch.id);
@@ -747,6 +779,59 @@ export class SeatPoolsService {
     });
 
     return updated;
+  }
+
+  /**
+   * Cancels or permanently removes a pending SeatPool request.
+   */
+  async cancelSeatPool(poolId: string, actor: any) {
+    const pool = await this.prisma.seatPool.findUnique({
+      where: { id: poolId },
+      include: { seats: true },
+    });
+    if (!pool) throw new NotFoundException(`SeatPool ${poolId} not found`);
+
+    if (pool.status === SeatPoolStatus.ACTIVE) {
+      const assignedCount = pool.seats.filter((s) => s.status !== SeatStatus.AVAILABLE).length;
+      if (assignedCount > 0) {
+        throw new BadRequestException('Cannot cancel an active pool with assigned students.');
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Delete associated unpaid invoices
+      await tx.invoice.deleteMany({
+        where: { seatPoolId: pool.id, status: { not: InvoiceStatus.PAID } },
+      });
+
+      // 2. Delete unassigned seats if any
+      await tx.seat.deleteMany({
+        where: { seatPoolId: pool.id },
+      });
+
+      // 3. Delete the pool
+      await tx.seatPool.delete({
+        where: { id: pool.id },
+      });
+
+      // 4. Audit Log
+      await tx.auditLog.create({
+        data: {
+          actorId: actor?.id || null,
+          action: 'SEAT_POOL_CANCELLED',
+          entity: 'SeatPool',
+          entityId: pool.id,
+          meta: {
+            poolCode: pool.poolCode,
+            organizationId: pool.organizationId,
+            batchId: pool.batchId,
+            totalSeats: pool.totalSeats,
+          },
+        },
+      });
+
+      return { success: true, message: `Slot request ${pool.poolCode} cancelled successfully` };
+    });
   }
 
   /**

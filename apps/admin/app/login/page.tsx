@@ -66,6 +66,24 @@ export default function AdminLogin() {
   useEffect(() => {
     // Hide sidebar for login page
     document.body.classList.add("login-page-active");
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const emailParam = params.get("email");
+      const typeParam = params.get("type");
+      if (emailParam) {
+        setEmail(emailParam);
+      }
+      if (
+        typeParam === "organization" ||
+        (emailParam &&
+          !emailParam.endsWith("@whatboutme.com") &&
+          !emailParam.endsWith("@foxwel.ai"))
+      ) {
+        setLoginType("organization");
+      }
+    }
+
     return () => {
       document.body.classList.remove("login-page-active");
     };

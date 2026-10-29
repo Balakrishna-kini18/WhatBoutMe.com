@@ -804,6 +804,7 @@ export class AuthService {
         isOrgUser: !isPlatformAdmin && Boolean(orgMembership),
         organizationId: orgMembership?.organizationId || null,
         organization: orgMembership ? { id: orgMembership.organization.id, name: orgMembership.organization.name, orgCode: orgMembership.organization.orgCode, role: orgMembership.role, isAuthorizedReseller: orgMembership.organization.isAuthorizedReseller } : null,
+        orgRole: orgMembership?.role || null,
         permissions: Array.from(new Set([
           ...(user.permissions || []),
           ...getRolePermissions(user.role)
@@ -988,50 +989,65 @@ export class AuthService {
     return this.cacheHelper.getOrSet(
       cacheKey,
       async () => {
-        // the two lookups do not depend on each other, so they run together
-        const [user, sessions] = await Promise.all([this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        role: true,
-        permissions: true,
-        companyId: true,
-        country: true,
-        timezone: true,
-        createdAt: true,
-        enrolments: {
-          select: {
-            id: true,
-            status: true,
-            batchId: true,
-            curriculumCompletedAt: true,
-            currentStage: true,
-            missionStatementApprovedAt: true,
-            examPassedAt: true,
-            oneOnOneCompletedAt: true,
-            batch: {
-              select: {
-                name: true, status: true, programId: true,
-                program: { select: { title: true, status: true } }
+        // the lookups do not depend on each other, so they run together
+        const [user, sessions, orgMembership] = await Promise.all([
+          this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              phone: true,
+              role: true,
+              permissions: true,
+              companyId: true,
+              country: true,
+              timezone: true,
+              createdAt: true,
+              enrolments: {
+                select: {
+                  id: true,
+                  status: true,
+                  batchId: true,
+                  curriculumCompletedAt: true,
+                  currentStage: true,
+                  missionStatementApprovedAt: true,
+                  examPassedAt: true,
+                  oneOnOneCompletedAt: true,
+                  batch: {
+                    select: {
+                      name: true, status: true, programId: true,
+                      program: { select: { title: true, status: true } }
+                    }
+                  }
+                }
               }
             }
-          }
-        }
-      }
-    }),
-      // upcoming sessions of every batch the user is in
-      this.prisma.session.findMany({
-        where: {
-          batch: { enrolments: { some: { userId } } },
-          endTime: { gt: new Date() }, // Only future or ongoing sessions
-        },
-        orderBy: { startTime: 'asc' },
-        take: 5,
-      }),
-    ]);
+          }),
+          // upcoming sessions of every batch the user is in
+          this.prisma.session.findMany({
+            where: {
+              batch: { enrolments: { some: { userId } } },
+              endTime: { gt: new Date() }, // Only future or ongoing sessions
+            },
+            orderBy: { startTime: 'asc' },
+            take: 5,
+          }),
+          this.prisma.organizationMember ? this.prisma.organizationMember.findFirst({
+            where: { userId },
+            include: {
+              organization: {
+                select: {
+                  id: true,
+                  name: true,
+                  orgCode: true,
+                  status: true,
+                  orgType: true,
+                },
+              },
+            },
+          }) : Promise.resolve(null),
+        ]);
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -1181,6 +1197,10 @@ export class AuthService {
       };
     });
 
+    const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER];
+    const isPlatformAdmin = adminRoles.includes(user.role);
+    const isOrgUser = !isPlatformAdmin && Boolean(orgMembership);
+
     return {
       id: user.id,
       email: user.email,
@@ -1189,6 +1209,10 @@ export class AuthService {
       companyId: user.companyId,
       country: user.country,
       timezone: user.timezone,
+      isOrgUser,
+      organizationId: orgMembership?.organizationId || null,
+      organization: orgMembership?.organization || null,
+      orgRole: orgMembership?.role || null,
       enrolledPrograms,
       upcomingSessions: sessions,
     };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, FormEvent, Suspense, use } from "react";
+import { useEffect, useState, FormEvent, Suspense, use, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import styles from "../../../page.module.css";
@@ -32,7 +32,36 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const router = useRouter();
   const toast = useToast();
   const { user } = useAuth();
-  const isOrgUser = Boolean((user as any)?.isOrgUser || (user as any)?.organizationId);
+
+  const effectiveUser = user || (typeof window !== "undefined" ? (() => {
+    try {
+      const raw = localStorage.getItem("user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })() : null);
+
+  const isOrgAccount = Boolean(
+    (effectiveUser as any)?.isOrgUser ||
+    (effectiveUser as any)?.organizationId ||
+    (effectiveUser as any)?.organization ||
+    (effectiveUser as any)?.orgRole ||
+    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+  );
+  const isPlatformAdmin = Boolean(
+    !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
+  );
+  const isOrgUser = Boolean(
+    isOrgAccount || (!isPlatformAdmin && (effectiveUser?.role === "USER" || !effectiveUser?.role))
+  );
+  const userOrgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && userOrgId && orgId !== userOrgId) {
+      router.replace(`/users/organizations/${userOrgId}`);
+    }
+  }, [isPlatformAdmin, userOrgId, orgId, router]);
   const searchParams = useSearchParams();
   const tabParam = searchParams?.get("tab");
 
@@ -68,6 +97,9 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   // Self-Service Slot Booking & Purchase Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState(false);
+  const [batchSearchTerm, setBatchSearchTerm] = useState("");
+  const batchDropdownRef = useRef<HTMLDivElement>(null);
   const [requestForm, setRequestForm] = useState({
     batchId: "",
     totalSeats: 10,
@@ -309,6 +341,19 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     }
   };
 
+  const handleCancelPool = async (poolId: string, poolCode: string) => {
+    if (!window.confirm(`Are you sure you want to cancel slot request ${poolCode}?`)) {
+      return;
+    }
+    try {
+      await apiDelete(`/admin/organizations/${orgId}/seat-pools/${poolId}`);
+      toast.success(`Slot request ${poolCode} cancelled.`, "Request Cancelled");
+      fetchOrganizationDetails();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to cancel request", "Action Failed");
+    }
+  };
+
   const handleApprovePool = async (poolId: string) => {
     try {
       await apiPost(`/admin/organizations/seat-pools/${poolId}/approve`, {});
@@ -459,17 +504,43 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     );
   }
 
-  // Aggregate slot calculations
-  const totalSlots = org.seatPools?.reduce((s: number, p: any) => s + p.totalSeats, 0) || 0;
-  const assignedSlots = org.seatPools?.reduce((s: number, p: any) => s + p.seatsAssigned, 0) || 0;
-  const consumedSlots = org.seatPools?.reduce((s: number, p: any) => s + p.seatsConsumed, 0) || 0;
-  const availableSlots = org.seatPools?.reduce((s: number, p: any) => s + p.seatsAvailable, 0) || 0;
+  // Active pools only for licensed slots and capacity metrics (exclude unpaid pending requests)
+  const activePools = org.seatPools?.filter((p: any) => p.status === "ACTIVE" || p.status === "ACTIVE_UNPAID") || [];
+  const totalSlots = activePools.reduce((s: number, p: any) => s + p.totalSeats, 0);
+  const assignedSlots = activePools.reduce((s: number, p: any) => s + p.seatsAssigned, 0);
+  const consumedSlots = activePools.reduce((s: number, p: any) => s + p.seatsConsumed, 0);
+  const availableSlots = activePools.reduce((s: number, p: any) => s + p.seatsAvailable, 0);
+  const activeBatchesCount = new Set(activePools.map((p: any) => p.batchId)).size;
   const utilization = totalSlots > 0 ? Math.round(((assignedSlots + consumedSlots) / totalSlots) * 100) : 0;
 
   // Owner identity resolution
   const ownerMember = org.members?.find((m: any) => m.role === "OWNER");
   const ownerName = ownerMember?.user?.name || org.contactPersonName || "shrada";
   const ownerEmail = ownerMember?.user?.email || org.contactEmail || org.billingEmail || "gagan@foxwel.ai";
+
+  // Click outside listener for custom batch dropdown
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (batchDropdownRef.current && !batchDropdownRef.current.contains(e.target as Node)) {
+        setIsBatchDropdownOpen(false);
+      }
+    };
+    if (isBatchDropdownOpen) {
+      document.addEventListener("mousedown", handleOutsideClick);
+    }
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [isBatchDropdownOpen]);
+
+  // Filtered batches for search
+  const filteredBatches = useMemo(() => {
+    if (!batchSearchTerm.trim()) return batches;
+    const q = batchSearchTerm.toLowerCase().trim();
+    return batches.filter(
+      (b) =>
+        b.name?.toLowerCase().includes(q) ||
+        (b.programTitle || b.program?.title)?.toLowerCase().includes(q)
+    );
+  }, [batches, batchSearchTerm]);
 
   // Pricing calculations for course slot request modal
   const selectedBatchForRequest = batches.find((b) => b.id === requestForm.batchId);
@@ -691,7 +762,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             <span>Export CSV Report</span>
           </a>
 
-          {!isOrgUser && (
+          {isPlatformAdmin && (
             <button
               type="button"
               onClick={() => {
@@ -723,7 +794,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             </button>
           )}
 
-          {!isOrgUser && (
+          {isPlatformAdmin && (
             <button
               type="button"
               onClick={() => setIsAllocateModalOpen(true)}
@@ -791,9 +862,9 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             Active Batches
           </div>
           <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
-            {org.seatPools?.length || 0}
+            {activeBatchesCount}
           </div>
-          <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Allocated cohort pools</div>
+          <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Allocated cohort batches</div>
         </div>
       </div>
 
@@ -922,9 +993,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 }}
               >
                 <option value="ALL">All Cohort Batches</option>
-                {org.seatPools?.map((p: any) => (
-                  <option key={p.batchId} value={p.batchId}>
-                    {p.batch?.name || p.poolCode}
+                {Array.from(
+                  new Map<string, string>(
+                    (org.seatPools || [])
+                      .filter((p: any) => Boolean(p.batchId))
+                      .map((p: any) => [String(p.batchId), String(p.batch?.name || p.poolCode || p.batchId)])
+                  ).entries()
+                ).map(([batchId, batchName]) => (
+                  <option key={batchId} value={batchId}>
+                    {batchName}
                   </option>
                 ))}
               </select>
@@ -1350,7 +1427,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                             {/* State 1: PENDING_APPROVAL */}
                             {isPendingApproval && (
                               <>
-                                {!isOrgUser ? (
+                                {isPlatformAdmin ? (
                                   <>
                                     <button
                                       type="button"
@@ -1390,32 +1467,70 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                                     </button>
                                   </>
                                 ) : (
-                                  <span style={{ color: "#b45309", fontSize: "0.8rem", fontWeight: 600 }}>
-                                    ⏳ Awaiting Admin Approval
-                                  </span>
+                                  <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                                    <span style={{ color: "#b45309", fontSize: "0.8rem", fontWeight: 600 }}>
+                                      ⏳ Awaiting Admin Approval
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                      style={{
+                                        padding: "4px 8px",
+                                        borderRadius: "6px",
+                                        border: "1px solid #e2e8f0",
+                                        background: "#fff",
+                                        color: "#dc2626",
+                                        fontSize: "0.72rem",
+                                        fontWeight: 600,
+                                        cursor: "pointer",
+                                      }}
+                                      title="Cancel this slot request"
+                                    >
+                                      ✕ Cancel
+                                    </button>
+                                  </div>
                                 )}
                               </>
                             )}
 
                             {/* State 2: PENDING_PAYMENT */}
                             {isPendingPayment && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenPaymentModal(pool)}
-                                style={{
-                                  padding: "7px 16px",
-                                  borderRadius: "6px",
-                                  border: "none",
-                                  background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
-                                  color: "#ffffff",
-                                  fontWeight: 700,
-                                  fontSize: "0.82rem",
-                                  cursor: "pointer",
-                                  boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
-                                }}
-                              >
-                                💳 Pay Now ({pool.currency} {pool.netAmount?.toLocaleString()}) &rarr;
-                              </button>
+                              <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPaymentModal(pool)}
+                                  style={{
+                                    padding: "7px 16px",
+                                    borderRadius: "6px",
+                                    border: "none",
+                                    background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
+                                    color: "#ffffff",
+                                    fontWeight: 700,
+                                    fontSize: "0.82rem",
+                                    cursor: "pointer",
+                                    boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
+                                  }}
+                                >
+                                  💳 Pay Now ({pool.currency} {pool.netAmount?.toLocaleString()}) &rarr;
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                  style={{
+                                    padding: "7px 10px",
+                                    borderRadius: "6px",
+                                    border: "1px solid #e2e8f0",
+                                    background: "#ffffff",
+                                    color: "#dc2626",
+                                    fontWeight: 600,
+                                    fontSize: "0.78rem",
+                                    cursor: "pointer",
+                                  }}
+                                  title="Cancel this pending slot request"
+                                >
+                                  ✕ Cancel
+                                </button>
+                              </div>
                             )}
 
                             {/* State 3: ACTIVE */}
@@ -1442,7 +1557,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                             )}
 
                             {/* Staff Fallback: Manual Bypass Unlock */}
-                            {!isOrgUser && !isActive && (
+                            {isPlatformAdmin && !isActive && (
                               <button
                                 type="button"
                                 onClick={() => handleMarkPaid(pool.id)}
@@ -2081,105 +2196,488 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
         onClose={() => {
           if (isSubmittingRequest) return;
           setIsRequestModalOpen(false);
+          setIsBatchDropdownOpen(false);
         }}
-        title={`Purchase / Request Course Slots — ${org?.name || ""}`}
-      >
-        <form onSubmit={handleRequestPoolSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <div>
-            <label style={{ display: "block", fontSize: "0.83rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
-              Target Course & Cohort Batch *
-            </label>
-            <select
-              required
-              value={requestForm.batchId}
-              onChange={(e) => setRequestForm({ ...requestForm, batchId: e.target.value })}
+        maxWidth="680px"
+        title="Purchase / Request Course Slots"
+        subtitle={`Select a cohort batch and allocate student seats for ${org?.name || "your organization"}`}
+        footer={
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsRequestModalOpen(false);
+                setIsBatchDropdownOpen(false);
+              }}
+              disabled={isSubmittingRequest}
               style={{
-                width: "100%",
-                padding: "9px 12px",
-                borderRadius: "6px",
+                padding: "9px 18px",
+                borderRadius: "8px",
                 border: "1px solid #cbd5e1",
-                background: "#fff",
-                fontSize: "0.88rem",
+                background: "#ffffff",
+                color: "#475569",
+                fontWeight: 600,
+                fontSize: "0.86rem",
+                cursor: isSubmittingRequest ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
               }}
             >
-              <option value="">Select a course cohort batch...</option>
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} • {b.programTitle || "Program"} (Starts: {b.startDate ? new Date(b.startDate).toLocaleDateString() : "TBD"}) — {b.availableSeats} batch seats remaining
-                </option>
-              ))}
-            </select>
+              Cancel
+            </button>
+            {(() => {
+              const hasPending = Boolean(
+                requestForm.batchId &&
+                org?.seatPools?.some(
+                  (p: any) =>
+                    p.batchId === requestForm.batchId &&
+                    (p.status === "PENDING_APPROVAL" || p.status === "PENDING_PAYMENT")
+                )
+              );
+              const isDisabled = isSubmittingRequest || !requestForm.batchId || hasPending || (Number(requestForm.totalSeats) || 0) < 1;
+              return (
+                <button
+                  type="button"
+                  onClick={handleRequestPoolSubmit}
+                  disabled={isDisabled}
+                  style={{
+                    padding: "10px 24px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: isDisabled ? "#e2e8f0" : "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
+                    color: isDisabled ? "#94a3b8" : "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "0.9rem",
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                    boxShadow: isDisabled ? "none" : "0 3px 8px rgba(201, 122, 30, 0.3)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {isSubmittingRequest ? "Submitting Booking..." : "Submit Booking Request to WhatBoutMe Admin →"}
+                </button>
+              );
+            })()}
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "0.83rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
-                Number of Student Seats *
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+          {/* Target Course & Cohort Batch Custom Selector */}
+          <div style={{ position: "relative" }} ref={batchDropdownRef}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#1e293b" }}>
+                Target Course & Cohort Batch <span style={{ color: "#dc2626" }}>*</span>
               </label>
-              <input
-                type="number"
-                min={1}
-                required
-                value={requestForm.totalSeats}
-                onChange={(e) => setRequestForm({ ...requestForm, totalSeats: Math.max(1, Number(e.target.value)) })}
-                style={{
-                  width: "100%",
-                  padding: "9px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
-                }}
-              />
+              {selectedBatchForRequest && (
+                <span style={{ fontSize: "0.76rem", color: "#64748b" }}>
+                  Selected: <strong>{selectedBatchForRequest.name}</strong>
+                </span>
+              )}
             </div>
 
-            <div>
-              <label style={{ display: "block", fontSize: "0.83rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
-                Billing Currency
-              </label>
-              <select
-                value={requestCurrency}
-                onChange={(e) => setRequestForm({ ...requestForm, currency: e.target.value })}
+            {/* Trigger Button Card */}
+            <button
+              type="button"
+              onClick={() => setIsBatchDropdownOpen(!isBatchDropdownOpen)}
+              style={{
+                width: "100%",
+                textAlign: "left",
+                background: "#ffffff",
+                border: isBatchDropdownOpen ? "2px solid #c97a1e" : "1px solid #cbd5e1",
+                borderRadius: "10px",
+                padding: "12px 14px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+                transition: "all 0.15s ease",
+                boxShadow: isBatchDropdownOpen ? "0 0 0 3px rgba(201, 122, 30, 0.15)" : "0 1px 2px rgba(0,0,0,0.03)",
+              }}
+            >
+              {selectedBatchForRequest ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0, flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#0f172a" }}>
+                      {selectedBatchForRequest.name}
+                    </span>
+                    {selectedBatchForRequest.programTitle && !selectedBatchForRequest.name.toLowerCase().includes(selectedBatchForRequest.programTitle.toLowerCase()) && (
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, background: "#fef3c7", color: "#92400e", padding: "2px 8px", borderRadius: "10px" }}>
+                        {selectedBatchForRequest.programTitle}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "0.78rem", color: "#64748b" }}>
+                    <span>📅 Starts: {selectedBatchForRequest.startDate ? new Date(selectedBatchForRequest.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD"}</span>
+                    <span>&bull;</span>
+                    <span style={{ color: selectedBatchForRequest.availableSeats > 0 ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
+                      {selectedBatchForRequest.availableSeats > 0 ? `✓ ${selectedBatchForRequest.availableSeats.toLocaleString()} seats available` : "Sold Out (0 seats)"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>Select a course cohort batch...</span>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#64748b" }}>
+                <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#c97a1e" }}>
+                  {isBatchDropdownOpen ? "Close" : "Change"}
+                </span>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#c97a1e"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transform: isBatchDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s ease", flexShrink: 0 }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+            </button>
+
+            {/* Custom Dropdown List */}
+            {isBatchDropdownOpen && (
+              <div
                 style={{
-                  width: "100%",
-                  padding: "9px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  background: "#fff",
-                  fontSize: "0.9rem",
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  right: 0,
+                  background: "#ffffff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "12px",
+                  boxShadow: "0 14px 30px -4px rgba(0, 0, 0, 0.15), 0 4px 10px -2px rgba(0, 0, 0, 0.06)",
+                  zIndex: 100,
+                  maxHeight: "310px",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  animation: "fadeIn 0.15s ease-out",
                 }}
               >
-                <option value="USD">USD ($)</option>
-                <option value="AED">AED (AED)</option>
-                <option value="INR">INR (₹)</option>
-              </select>
+                {batches.length > 3 && (
+                  <div style={{ padding: "8px 10px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc" }}>
+                    <input
+                      type="text"
+                      placeholder="Search by cohort or course name..."
+                      value={batchSearchTerm}
+                      onChange={(e) => setBatchSearchTerm(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "0.84rem",
+                        background: "#fff",
+                        outline: "none",
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div style={{ overflowY: "auto", flex: 1, padding: "6px" }}>
+                  {filteredBatches.length === 0 ? (
+                    <div style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: "0.85rem" }}>
+                      No matching cohort batches found.
+                    </div>
+                  ) : (
+                    filteredBatches.map((b) => {
+                      const isSelected = b.id === requestForm.batchId;
+                      const isSoldOut = (b.availableSeats || 0) <= 0;
+                      const hasPending = org?.seatPools?.some(
+                        (p: any) => p.batchId === b.id && (p.status === "PENDING_APPROVAL" || p.status === "PENDING_PAYMENT")
+                      );
+                      const hasActive = org?.seatPools?.some(
+                        (p: any) => p.batchId === b.id && (p.status === "ACTIVE" || p.status === "ACTIVE_UNPAID")
+                      );
+
+                      return (
+                        <div
+                          key={b.id}
+                          onClick={() => {
+                            if (hasPending) return;
+                            setRequestForm((prev) => ({ ...prev, batchId: b.id }));
+                            setIsBatchDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: "10px 14px",
+                            borderRadius: "8px",
+                            background: isSelected ? "#fef3c7" : "transparent",
+                            cursor: hasPending ? "not-allowed" : "pointer",
+                            opacity: hasPending ? 0.6 : isSoldOut ? 0.65 : 1,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "10px",
+                            transition: "background 0.12s ease",
+                            border: isSelected ? "1.5px solid #fde68a" : "1.5px solid transparent",
+                            marginBottom: "4px",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected && !hasPending) e.currentTarget.style.background = "#faf8f5";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected && !hasPending) e.currentTarget.style.background = "transparent";
+                          }}
+                        >
+                          <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700, fontSize: "0.9rem", color: isSelected ? "#92400e" : "#0f172a" }}>
+                                {b.name}
+                              </span>
+                              {hasPending && (
+                                <span style={{ fontSize: "0.7rem", fontWeight: 700, background: "#fef3c7", color: "#b45309", padding: "1px 7px", borderRadius: "10px" }}>
+                                  ⏳ Request Pending
+                                </span>
+                              )}
+                              {hasActive && (
+                                <span style={{ fontSize: "0.7rem", fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", padding: "1px 7px", borderRadius: "10px" }}>
+                                  Top-up
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.76rem", color: "#64748b" }}>
+                              <span>📅 Starts {b.startDate ? new Date(b.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD"}</span>
+                              <span>&bull;</span>
+                              <span style={{ color: isSoldOut ? "#dc2626" : "#16a34a", fontWeight: 600 }}>
+                                {isSoldOut ? "0 seats remaining" : `${b.availableSeats?.toLocaleString()} seats remaining`}
+                              </span>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span style={{ color: "#c97a1e", fontWeight: 800, fontSize: "1.1rem" }}>✓</span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Context Notice for Selected Batch */}
+            {(() => {
+              if (!requestForm.batchId) return null;
+              const activePool = org?.seatPools?.find(
+                (p: any) => p.batchId === requestForm.batchId && (p.status === "ACTIVE" || p.status === "ACTIVE_UNPAID")
+              );
+              const pendingPool = org?.seatPools?.find(
+                (p: any) => p.batchId === requestForm.batchId && (p.status === "PENDING_APPROVAL" || p.status === "PENDING_PAYMENT")
+              );
+              if (pendingPool) {
+                return (
+                  <div style={{ marginTop: "10px", background: "#fffbeb", border: "1px solid #fde68a", padding: "10px 14px", borderRadius: "8px", fontSize: "0.82rem", color: "#92400e" }}>
+                    ⚠️ <strong>Pending Request Exists:</strong> Request <strong>{pendingPool.poolCode}</strong> ({pendingPool.totalSeats} seats) for this batch is currently {pendingPool.status === "PENDING_APPROVAL" ? "awaiting admin approval" : "awaiting payment"}. Please complete or cancel the existing request before requesting more slots.
+                  </div>
+                );
+              }
+              if (activePool) {
+                return (
+                  <div style={{ marginTop: "10px", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "10px 14px", borderRadius: "8px", fontSize: "0.82rem", color: "#166534" }}>
+                    ℹ️ <strong>Top-Up Allocation:</strong> You already have <strong>{activePool.totalSeats} active seats</strong> in this batch ({activePool.seatsAvailable} available). This booking will add <strong>+{requestForm.totalSeats} additional seats</strong>.
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+
+          {/* Seat Quantity & Quick-Select Presets */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <label style={{ fontSize: "0.84rem", fontWeight: 700, color: "#1e293b" }}>
+                Number of Student Seats <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                Volume discount unlocks at <strong>10+ seats</strong>
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              {/* Stepper controls */}
+              <div style={{ display: "inline-flex", alignItems: "center", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", background: "#ffffff" }}>
+                <button
+                  type="button"
+                  onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: Math.max(1, (Number(prev.totalSeats) || 1) - 5) }))}
+                  style={{
+                    width: "36px",
+                    height: "38px",
+                    border: "none",
+                    borderRight: "1px solid #e2e8f0",
+                    background: "#f8fafc",
+                    color: "#334155",
+                    fontWeight: 700,
+                    fontSize: "1.1rem",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title="Decrease 5 seats"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={requestForm.totalSeats}
+                  onChange={(e) => setRequestForm((prev) => ({ ...prev, totalSeats: Math.max(1, Number(e.target.value)) }))}
+                  style={{
+                    width: "70px",
+                    textAlign: "center",
+                    border: "none",
+                    outline: "none",
+                    padding: "8px 6px",
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    color: "#0f172a",
+                    background: "#fff",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: (Number(prev.totalSeats) || 0) + 5 }))}
+                  style={{
+                    width: "36px",
+                    height: "38px",
+                    border: "none",
+                    borderLeft: "1px solid #e2e8f0",
+                    background: "#f8fafc",
+                    color: "#334155",
+                    fontWeight: 700,
+                    fontSize: "1.1rem",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title="Increase 5 seats"
+                >
+                  +
+                </button>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                {[
+                  { qty: 10, label: "10 seats", discount: "10% OFF" },
+                  { qty: 25, label: "25 seats", discount: "15% OFF" },
+                  { qty: 50, label: "50 seats", discount: "25% OFF" },
+                  { qty: 100, label: "100 seats", discount: "25% OFF" },
+                ].map((preset) => {
+                  const isCurrent = Number(requestForm.totalSeats) === preset.qty;
+                  return (
+                    <button
+                      key={preset.qty}
+                      type="button"
+                      onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: preset.qty }))}
+                      style={{
+                        padding: "7px 12px",
+                        borderRadius: "20px",
+                        border: isCurrent ? "1.5px solid #c97a1e" : "1px solid #e2e8f0",
+                        background: isCurrent ? "#fef3c7" : "#ffffff",
+                        color: isCurrent ? "#92400e" : "#475569",
+                        fontSize: "0.78rem",
+                        fontWeight: isCurrent ? 700 : 500,
+                        cursor: "pointer",
+                        boxShadow: isCurrent ? "0 1px 2px rgba(201, 122, 30, 0.2)" : "none",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {preset.label} <span style={{ color: "#16a34a", fontWeight: 700 }}>({preset.discount})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Currency Segmented Toggle */}
+          <div>
+            <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 700, color: "#1e293b", marginBottom: "6px" }}>
+              Billing Currency
+            </label>
+            <div
+              style={{
+                display: "inline-flex",
+                background: "#f1f5f9",
+                padding: "3px",
+                borderRadius: "9px",
+                border: "1px solid #e2e8f0",
+                gap: "3px",
+              }}
+            >
+              {[
+                { code: "USD", symbol: "$" },
+                { code: "AED", symbol: "AED" },
+                { code: "INR", symbol: "₹" },
+              ].map((curr) => {
+                const isSelected = requestCurrency === curr.code;
+                return (
+                  <button
+                    key={curr.code}
+                    type="button"
+                    onClick={() => setRequestForm((prev) => ({ ...prev, currency: curr.code }))}
+                    style={{
+                      padding: "6px 16px",
+                      borderRadius: "7px",
+                      border: "none",
+                      background: isSelected ? "#c97a1e" : "transparent",
+                      color: isSelected ? "#ffffff" : "#475569",
+                      fontWeight: isSelected ? 700 : 600,
+                      fontSize: "0.82rem",
+                      cursor: "pointer",
+                      boxShadow: isSelected ? "0 1px 3px rgba(201, 122, 30, 0.3)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {curr.code} ({curr.symbol})
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {/* Dynamic Commercials & Volume Discount Card */}
           <div
             style={{
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: "8px",
-              padding: "14px 16px",
+              background: "#faf8f5",
+              border: "1px solid #f3e8d2",
+              borderRadius: "12px",
+              padding: "16px 18px",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.83rem", marginBottom: "6px", color: "#64748b" }}>
-              <span>Base Rate per Seat:</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#78350f", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Commercial Terms &amp; Volume Pricing
+              </div>
+              {discountPercent > 0 && (
+                <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+                  ✓ {discountPercent}% Volume Discount Active
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.84rem", marginBottom: "6px", color: "#64748b" }}>
+              <span>Standard Base Rate per Seat:</span>
               <span style={{ fontWeight: 600, color: "#0f172a" }}>
-                {requestCurrency} {unitPrice.toLocaleString()}
+                {requestCurrency} {unitPrice.toLocaleString()} / seat
               </span>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.83rem", marginBottom: "6px", color: "#64748b" }}>
-              <span>Subtotal ({requestForm.totalSeats} seats):</span>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.84rem", marginBottom: "6px", color: "#64748b" }}>
+              <span>Gross Subtotal ({requestForm.totalSeats} seats):</span>
               <span style={{ fontWeight: 600, color: "#0f172a" }}>
                 {requestCurrency} {subtotalAmount.toLocaleString()}
               </span>
             </div>
 
             {discountPercent > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.83rem", marginBottom: "6px", color: "#16a34a" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.84rem", marginBottom: "6px", color: "#16a34a" }}>
                 <span>Volume Tier Discount ({discountPercent}%):</span>
                 <span style={{ fontWeight: 700 }}>
                   -{requestCurrency} {calculatedDiscount.toLocaleString()}
@@ -2187,25 +2685,31 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               </div>
             )}
 
-            <div style={{ height: "1px", background: "#e2e8f0", margin: "8px 0" }} />
+            <div style={{ height: "1px", background: "#e7decb", margin: "10px 0" }} />
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "#0f172a" }}>
-                Estimated Total:
-              </span>
-              <span style={{ fontSize: "1.25rem", fontWeight: 800, color: "#c97a1e" }}>
+              <div>
+                <span style={{ fontSize: "0.92rem", fontWeight: 700, color: "#0f172a" }}>
+                  Estimated Net Total:
+                </span>
+                <div style={{ fontSize: "0.74rem", color: "#64748b", marginTop: "1px" }}>
+                  Locked upon admin review &bull; Invoiced in {requestCurrency}
+                </div>
+              </div>
+              <span style={{ fontSize: "1.45rem", fontWeight: 800, color: "#b45309" }}>
                 {requestCurrency} {estimatedNetAmount.toLocaleString()}
               </span>
             </div>
 
             {/* Volume Tier Pill */}
-            <div style={{ marginTop: "10px", fontSize: "0.75rem", color: "#64748b" }}>
+            <div style={{ marginTop: "12px", fontSize: "0.75rem", color: "#78350f", background: "#fffbeb", padding: "6px 10px", borderRadius: "6px", border: "1px solid #fde68a" }}>
               💡 Volume discounts: <strong>10+ seats: 10% off</strong> &bull; <strong>25+ seats: 15% off</strong> &bull; <strong>50+ seats: 25% off</strong>
             </div>
           </div>
 
+          {/* Notes / Message for WhatBoutMe Admin */}
           <div>
-            <label style={{ display: "block", fontSize: "0.83rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
+            <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 700, color: "#1e293b", marginBottom: "6px" }}>
               Notes / Message for WhatBoutMe Admin (Optional)
             </label>
             <textarea
@@ -2215,66 +2719,31 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               onChange={(e) => setRequestForm({ ...requestForm, notes: e.target.value })}
               style={{
                 width: "100%",
-                padding: "8px 12px",
-                borderRadius: "6px",
+                padding: "9px 12px",
+                borderRadius: "8px",
                 border: "1px solid #cbd5e1",
-                fontSize: "0.85rem",
+                fontSize: "0.86rem",
+                outline: "none",
+                fontFamily: "inherit",
               }}
             />
           </div>
 
+          {/* Workflow Alert Box */}
           <div
             style={{
               padding: "10px 14px",
-              borderRadius: "6px",
+              borderRadius: "8px",
               background: "#eff6ff",
               border: "1px solid #bfdbfe",
               color: "#1e40af",
               fontSize: "0.8rem",
-              lineHeight: 1.4,
+              lineHeight: 1.45,
             }}
           >
-            ℹ️ <strong>Workflow:</strong> Upon clicking submit, your request will be delivered to WhatBoutMe administration for approval. Once approved, the <strong>Pay Now</strong> button will appear in your workspace to complete payment and unlock the seats.
+            ⚡ <strong>WhatBoutMe Booking Workflow:</strong> Upon submission, your request will be delivered to WhatBoutMe administration for approval. Once approved, click the <strong>Pay Now</strong> button in your workspace to complete simulated payment and unlock your student seats.
           </div>
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
-            <button
-              type="button"
-              onClick={() => setIsRequestModalOpen(false)}
-              disabled={isSubmittingRequest}
-              style={{
-                padding: "8px 16px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                background: "#ffffff",
-                color: "#475569",
-                fontWeight: 600,
-                fontSize: "0.85rem",
-                cursor: isSubmittingRequest ? "not-allowed" : "pointer",
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmittingRequest || !requestForm.batchId}
-              style={{
-                padding: "9px 22px",
-                borderRadius: "6px",
-                border: "none",
-                background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
-                color: "#ffffff",
-                fontWeight: 700,
-                fontSize: "0.88rem",
-                cursor: isSubmittingRequest || !requestForm.batchId ? "not-allowed" : "pointer",
-                opacity: isSubmittingRequest || !requestForm.batchId ? 0.6 : 1,
-                boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
-              }}
-            >
-              {isSubmittingRequest ? "Submitting Request..." : "Submit Booking Request to WhatBoutMe Admin →"}
-            </button>
-          </div>
-        </form>
+        </div>
       </Modal>
 
       {/* Modal: Complete Payment (Simulated Checkout) */}

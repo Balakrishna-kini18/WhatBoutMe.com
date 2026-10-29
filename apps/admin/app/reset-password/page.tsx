@@ -145,8 +145,9 @@ function ResetPasswordForm() {
       }
 
       setSuccess(true);
+      const targetEmail = resolvedEmail || initialEmail || emailParam;
       setTimeout(() => {
-        router.push("/login");
+        router.push(targetEmail ? `/login?email=${encodeURIComponent(targetEmail)}&type=organization` : "/login");
       }, 2200);
     } catch (err: any) {
       setError(err?.message || "Failed to set password.");

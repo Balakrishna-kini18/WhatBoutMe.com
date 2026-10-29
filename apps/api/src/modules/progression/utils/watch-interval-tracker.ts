@@ -195,8 +195,8 @@ export class WatchIntervalTracker {
       const elapsedServerSec = elapsedServerMs / 1000;
       maxAllowedCredit = elapsedServerSec * maxRate + toleranceSec;
     } else {
-      // First heartbeat in session: allow up to reasonable initial segment (e.g. 15s * maxRate + tolerance)
-      maxAllowedCredit = 15.0 * maxRate + toleranceSec;
+      // First heartbeat in session: allow up to reasonable initial segment (e.g. 120s batch * maxRate + tolerance)
+      maxAllowedCredit = 120.0 * maxRate + toleranceSec;
     }
 
     // Clamp credited end to what could physically have been played

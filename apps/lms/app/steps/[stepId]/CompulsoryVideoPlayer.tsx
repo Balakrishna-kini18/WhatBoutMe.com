@@ -119,6 +119,17 @@ export default function CompulsoryVideoPlayer({
 
   const initialTargetSec = Math.max(initialPositionSec || 0, localResume?.positionSec || 0);
 
+  // Stabilize callbacks and props to avoid unintended re-render cascades
+  const onHeartbeatRef = useRef(onHeartbeat);
+  useEffect(() => {
+    onHeartbeatRef.current = onHeartbeat;
+  }, [onHeartbeat]);
+
+  const durationRef = useRef(duration);
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
   // Anti-skip enforcement refs
   const maxWatchedSecRef = useRef<number>(initialTargetSec);
   const lastValidTimeRef = useRef<number>(initialTargetSec);
@@ -129,6 +140,7 @@ export default function CompulsoryVideoPlayer({
   const hasCompletedRef = useRef<boolean>(false);
   const hasAppliedInitialSeekRef = useRef<boolean>(false);
   const lastSavedLocalTimeRef = useRef<number>(0);
+  const lastExitSyncTimeRef = useRef<number>(0);
 
   // Auto-dismiss resumed playback notice after 3.8s
   useEffect(() => {
@@ -229,7 +241,7 @@ export default function CompulsoryVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
         if (video.paused) {
-          video.play().catch(() => {});
+          video.play().catch(() => { });
         } else {
           video.pause();
         }
@@ -273,10 +285,10 @@ export default function CompulsoryVideoPlayer({
   const handleToggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(() => {});
+      containerRef.current.requestFullscreen().catch(() => { });
       setIsFullscreen(true);
     } else {
-      document.exitFullscreen().catch(() => {});
+      document.exitFullscreen().catch(() => { });
       setIsFullscreen(false);
     }
   };
@@ -420,23 +432,23 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send dynamic periodic heartbeat with exact interval segments (30s interval cuts server writes by 50%+)
+    // Send dynamic periodic heartbeat: 2-minute interval (120s) for maximum server cost efficiency
     const now = Date.now();
-    const intervalMs = dur > 0 && dur < 60 ? Math.max(5000, Math.floor((dur * 1000) / 3)) : 30000;
+    const intervalMs = dur > 0 && dur < 120 ? Math.max(10000, Math.floor((dur * 1000) / 2)) : 120000;
     if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;
       const delta = Math.max(0, current - lastHeartbeatPositionRef.current);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = current;
-      onHeartbeat(
-        Math.floor(current),
-        false,
-        dur > 0 ? dur : undefined,
-        Math.floor(delta),
-        Math.floor(fromSec),
-        Math.floor(toSec),
-      );
+        onHeartbeatRef.current?.(
+          Math.floor(current),
+          false,
+          dur > 0 ? dur : undefined,
+          Math.floor(delta),
+          Math.floor(fromSec),
+          Math.floor(toSec),
+        );
     }
 
     // Save watch position to localStorage every 2 seconds for instant 0ms resume
@@ -461,7 +473,7 @@ export default function CompulsoryVideoPlayer({
       const delta = Math.max(0, toSec - fromSec);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = toSec;
-      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
+      onHeartbeatRef.current?.(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
       onComplete();
     }
   };
@@ -481,7 +493,7 @@ export default function CompulsoryVideoPlayer({
       const delta = Math.max(0, toSec - fromSec);
       lastHeartbeatTimeRef.current = Date.now();
       lastHeartbeatPositionRef.current = toSec;
-      onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
+      onHeartbeatRef.current?.(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
     }
     onComplete();
     onVideoEnd?.();
@@ -543,14 +555,17 @@ export default function CompulsoryVideoPlayer({
     const video = videoRef.current;
     if (!video) return;
     const cur = video.currentTime;
-    const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
+    const dur =
+      durationRef.current && durationRef.current > 0
+        ? durationRef.current
+        : Math.floor(video.duration || 0);
     const fromSec = lastHeartbeatPositionRef.current;
     const toSec = cur;
     const delta = Math.max(0, toSec - fromSec);
     if (delta >= 1) {
       lastHeartbeatTimeRef.current = Date.now();
       lastHeartbeatPositionRef.current = toSec;
-      onHeartbeat(
+      onHeartbeatRef.current?.(
         Math.floor(cur),
         false,
         dur > 0 ? dur : undefined,
@@ -559,28 +574,41 @@ export default function CompulsoryVideoPlayer({
         Math.floor(toSec),
       );
     }
-  }, [duration, onHeartbeat]);
+  }, []);
 
-  // Guaranteed keepalive sync on tab hide, browser close, or component unmount
+  // Guaranteed keepalive sync on tab hide, browser close, navigation, or component unmount (Back button)
   useEffect(() => {
-    const flushExitSync = (isUnload = false) => {
+    const flushExitSync = () => {
+      const now = Date.now();
+      if (now - lastExitSyncTimeRef.current < 2000) return; // Prevent duplicate event storm across multiple exit listeners
+      lastExitSyncTimeRef.current = now;
+
       const video = videoRef.current;
-      if (!video) return;
-      const cur = Math.floor(video.currentTime);
-      const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
+      const cur = Math.floor(video?.currentTime ?? lastValidTimeRef.current ?? 0);
+      const dur =
+        durationRef.current && durationRef.current > 0
+          ? durationRef.current
+          : Math.floor(video?.duration || 0);
       const fromSec = lastHeartbeatPositionRef.current;
       const delta = Math.max(0, cur - fromSec);
 
-      // Instantly save to local storage for 0ms client restore
+      // If video was playing, pause it safely so playback stops cleanly
+      if (video && !video.paused) {
+        try {
+          video.pause();
+        } catch (e) { }
+      }
+
+      // 1. Instantly save paused position to local storage for 0ms client restore when returning
       if (cur > 0) {
         saveLocalVideoResume(lessonId, cur, dur);
       }
 
-      // Flush to server with keepalive if there is uncredited watched time or page is unloading
-      if (cur > 0 && (delta >= 1 || isUnload)) {
+      // 2. ONLY flush to server if there is at least 1s of new watched time
+      if (cur > 0 && delta >= 1) {
         lastHeartbeatTimeRef.current = Date.now();
         lastHeartbeatPositionRef.current = cur;
-        onHeartbeat(
+        onHeartbeatRef.current?.(
           cur,
           false,
           dur > 0 ? dur : undefined,
@@ -592,32 +620,35 @@ export default function CompulsoryVideoPlayer({
       }
     };
 
-    const handlePageHide = () => flushExitSync(true);
-    const handleBeforeUnload = () => flushExitSync(true);
+    const handlePageHide = () => flushExitSync();
+    const handleBeforeUnload = () => flushExitSync();
+    const handlePopState = () => flushExitSync();
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        flushExitSync(false);
+        flushExitSync();
       }
     };
 
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("popstate", handlePopState);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      // Ensure any watch delta is flushed when component unmounts (e.g. user changes tabs or lessons)
-      flushExitSync(true);
+      // Ensure exact paused position and any uncredited delta are flushed when unmounting
+      flushExitSync();
     };
-  }, [lessonId, duration, onHeartbeat]);
+  }, [lessonId]);
 
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play().catch(() => {});
+      video.play().catch(() => { });
     } else {
       video.pause();
       flushPauseHeartbeat();
@@ -633,7 +664,7 @@ export default function CompulsoryVideoPlayer({
       setCurrentTime(0);
       setHasEnded(false);
       setResumedNotice(null);
-      video.play().catch(() => {});
+      video.play().catch(() => { });
     }
     onRestart?.();
   };
@@ -696,7 +727,7 @@ export default function CompulsoryVideoPlayer({
               setVideoError(null);
               if (videoRef.current) {
                 videoRef.current.load();
-                videoRef.current.play().catch(() => {});
+                videoRef.current.play().catch(() => { });
               }
             }}
             style={{

@@ -524,8 +524,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const formatLessonDuration = (sec?: number) => {
     if (!sec || sec <= 0) return null;
-    const m = Math.floor(sec / 60);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
     const s = Math.round(sec % 60);
+    if (h > 0) {
+      return `${h}h ${m}m`;
+    }
     return `${m}:${String(s).padStart(2, "0")}`;
   };
 
@@ -1096,6 +1100,23 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       await sendHeartbeatAttempt(0);
     },
     [fetchStepAndProgression]
+  );
+
+  const handlePlayerHeartbeat = useCallback(
+    (
+      pos: number,
+      ended?: boolean,
+      dur?: number,
+      delta?: number,
+      from?: number,
+      to?: number,
+      options?: { keepalive?: boolean }
+    ) => {
+      if (currentMedia?.id) {
+        sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to, options);
+      }
+    },
+    [currentMedia?.id, sendMediaHeartbeat]
   );
 
 
@@ -1869,9 +1890,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         userEmail={userEmail}
                         durationSec={currentMedia.durationSec || 0}
                         initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
-                        onHeartbeat={(pos, ended, dur, delta, from, to, options) =>
-                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to, options)
-                        }
+                        onHeartbeat={handlePlayerHeartbeat}
                         onComplete={() => handleLessonComplete(currentMedia.id, false)}
                         onVideoEnd={() => handleLessonComplete(currentMedia.id, true)}
                         onTimeUpdate={(sec) => setCurrentVideoTime(sec)}

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import styles from "../step.module.css";
 import { StepIcons } from "./StepIcons";
+import { sanitizeExternalUrl } from "../../../lib/auth-redirect";
 
 export type AssistantTabType = "aitutor" | "notes" | "resources" | "transcript";
 
@@ -307,9 +308,9 @@ export default function LearningTabsPanel({
                 </div>
 
                 <a
-                  href={doc.mediaUrl}
+                  href={sanitizeExternalUrl(doc.mediaUrl) || "#"}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className={styles.openPdfBtn}
                   onClick={() => onCompleteDocument(doc.id)}
                 >

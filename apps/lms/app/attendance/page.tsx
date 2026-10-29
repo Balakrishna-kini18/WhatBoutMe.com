@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { API_URL, getAuthHeaders } from "../lib/api";
+import { sanitizeExternalUrl } from "../lib/auth-redirect";
 import styles from "./attendance.module.css";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface MySession {
   id: string;
@@ -144,7 +144,7 @@ export default function AttendancePage() {
   const [sessions, setSessions] = useState<MySession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [userName, setUserName] = useState("sahyadri");
+  const [userName, setUserName] = useState("Learner");
 
   // Calendar State
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -719,11 +719,11 @@ export default function AttendancePage() {
                             </div>
 
                             {/* Join Button */}
-                            {isUpcoming && s.joinUrl ? (
+                            {isUpcoming && sanitizeExternalUrl(s.joinUrl) ? (
                               <a
-                                href={s.joinUrl}
+                                href={sanitizeExternalUrl(s.joinUrl)!}
                                 target="_blank"
-                                rel="noreferrer"
+                                rel="noopener noreferrer"
                                 className={styles.joinNowBtn}
                               >
                                 {Icons.video}

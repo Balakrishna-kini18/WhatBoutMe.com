@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { type CertificateDetails } from "../Certificate";
+import { sanitizeExternalUrl } from "../../lib/auth-redirect";
 import styles from "../Certificate.module.css";
 
 const Certificate = dynamic(() => import("../Certificate"), {
@@ -88,14 +89,14 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
       });
       if (res.ok) {
         const data = await res.json();
-        const targetUrl = data.downloadUrl || data.pdfUrl;
+        const targetUrl = sanitizeExternalUrl(data.downloadUrl || data.pdfUrl);
         if (targetUrl) {
-          window.open(targetUrl, "_blank");
+          window.open(targetUrl, "_blank", "noopener,noreferrer");
           return;
         }
       }
-      if (details?.pdfUrl) {
-        window.open(details.pdfUrl, "_blank");
+      if (sanitizeExternalUrl(details?.pdfUrl)) {
+        window.open(sanitizeExternalUrl(details?.pdfUrl)!, "_blank", "noopener,noreferrer");
       } else {
         setNotice({
           title: "Official Signed PDF Being Prepared",
@@ -106,8 +107,8 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
       }
     } catch (err) {
       console.error(err);
-      if (details?.pdfUrl) {
-        window.open(details.pdfUrl, "_blank");
+      if (sanitizeExternalUrl(details?.pdfUrl)) {
+        window.open(sanitizeExternalUrl(details?.pdfUrl)!, "_blank", "noopener,noreferrer");
       } else {
         setNotice({
           title: "Official Signed PDF Being Prepared",

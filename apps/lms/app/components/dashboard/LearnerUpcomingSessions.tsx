@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { sanitizeExternalUrl } from "../../lib/auth-redirect";
 import styles from "../../page.module.css";
 
 export interface UpcomingSessionData {
@@ -79,9 +80,9 @@ export default function LearnerUpcomingSessions({
                   })}
                 </div>
               </div>
-              {s.joinUrl ? (
+              {sanitizeExternalUrl(s.joinUrl) ? (
                 <a
-                  href={s.joinUrl}
+                  href={sanitizeExternalUrl(s.joinUrl)!}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={styles.sessionJoinBtn}

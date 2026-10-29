@@ -57,7 +57,7 @@ function CheckInContent({ sessionId }: { sessionId: string }) {
     setErrorMsg(null);
 
     try {
-      const res = await fetch(`${API_URL}/sessions/${sessionId}/check-in`, {
+      const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/check-in`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ token: cleanToken }),

@@ -83,7 +83,8 @@ export default function LeadCheckoutPage({
           if (json.accessToken) {
             localStorage.setItem("token", json.accessToken);
             localStorage.setItem("user", JSON.stringify(json.user));
-            document.cookie = `token=${json.accessToken}; path=/; max-age=86400; SameSite=Lax`;
+            const isSecure = typeof window !== "undefined" && window.location.protocol === "https:";
+            document.cookie = `token=${json.accessToken}; path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
           }
         }
       } catch (err: any) {

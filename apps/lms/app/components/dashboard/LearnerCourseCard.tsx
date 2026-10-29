@@ -96,7 +96,7 @@ export default function LearnerCourseCard({
         </p>
 
         {/* Full-width CTA Button */}
-        <Link href={course.route} className={styles.viewCourseBtn}>
+        <Link href={course.route} prefetch={false} className={styles.viewCourseBtn}>
           <span>View Course</span>
           <span aria-hidden="true">&rarr;</span>
         </Link>

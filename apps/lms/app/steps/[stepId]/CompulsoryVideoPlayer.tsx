@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Lock, AlertCircle, RotateCcw } from "lucide-react";
+import { API_URL } from "../../lib/api";
 
 export interface CompulsoryVideoPlayerProps {
   lessonId: string;
@@ -19,6 +20,7 @@ export interface CompulsoryVideoPlayerProps {
     toSec?: number,
   ) => void;
   onComplete: () => void;
+  onVideoEnd?: () => void;
   onRestart?: () => void;
   onTimeUpdate?: (currentSec: number) => void;
   seekToTime?: number | null;
@@ -45,6 +47,7 @@ export default function CompulsoryVideoPlayer({
   durationSec: initialDurationSec,
   onHeartbeat,
   onComplete,
+  onVideoEnd,
   onRestart,
   onTimeUpdate,
   seekToTime,
@@ -62,8 +65,7 @@ export default function CompulsoryVideoPlayer({
     const isUpload = videoSrc.startsWith("upload:");
     const rawKey = isUpload ? videoSrc.replace("upload:", "") : videoSrc;
     const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-    return `${apiUrl}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    return `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   }, [videoSrc]);
 
   // Playback state
@@ -419,7 +421,7 @@ export default function CompulsoryVideoPlayer({
 
     // Send dynamic periodic heartbeat with exact interval segments (faster for short clips)
     const now = Date.now();
-    const intervalMs = dur > 0 && dur < 60 ? Math.max(2500, Math.floor((dur * 1000) / 4)) : 10000;
+    const intervalMs = dur > 0 && dur < 60 ? Math.max(3000, Math.floor((dur * 1000) / 4)) : 15000;
     if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;
@@ -442,14 +444,19 @@ export default function CompulsoryVideoPlayer({
       saveLocalVideoResume(lessonId, current, dur);
     }
 
-    // Server-enforced compulsory completion: watchedSeconds >= duration * 0.90 or within 1s of end
-    if (dur > 0 && (current >= dur * 0.90 || current >= dur - 1.0) && !hasCompletedRef.current) {
+    // Compulsory completion: when video is left for 30 seconds or less (or within 1s of end for short clips)
+    const isWithin30sOfEnd =
+      dur > 0 &&
+      (dur - current <= 30 ||
+        (dur <= 30 && (current >= dur - 1.0 || current >= dur * 0.9)) ||
+        current >= dur * 0.9);
+
+    if (isWithin30sOfEnd && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
-      setHasEnded(true);
       clearLocalVideoResume(lessonId);
       saveLocalLessonCompletion(lessonId);
       const fromSec = lastHeartbeatPositionRef.current;
-      const toSec = dur;
+      const toSec = Math.floor(current);
       const delta = Math.max(0, toSec - fromSec);
       lastHeartbeatTimeRef.current = now;
       lastHeartbeatPositionRef.current = toSec;
@@ -462,6 +469,7 @@ export default function CompulsoryVideoPlayer({
   const handleEnded = () => {
     setIsPlaying(false);
     setHasEnded(true);
+    setShowControls(true);
     clearLocalVideoResume(lessonId);
     saveLocalLessonCompletion(lessonId);
     const dur = duration > 0 ? duration : Math.floor(videoRef.current?.duration || 0);
@@ -475,18 +483,58 @@ export default function CompulsoryVideoPlayer({
       onHeartbeat(dur, true, dur, Math.floor(delta), Math.floor(fromSec), Math.floor(toSec));
     }
     onComplete();
+    onVideoEnd?.();
   };
 
-
-  // Auto-hide controls when playing and idle
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (isPlaying) {
-      controlsTimeoutRef.current = setTimeout(() => {
-        setShowControls(false);
-      }, 3000);
+  // Auto-hide controls after 2.5 seconds (between 2 and 3 seconds) when playing
+  const scheduleControlsHide = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
     }
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (!showSpeedMenu) {
+        setShowControls(false);
+      }
+    }, 2500);
+  }, [showSpeedMenu]);
+
+  // Show controls immediately and schedule hide if playing
+  const showAndScheduleControls = useCallback(() => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    if (isPlaying && !showSpeedMenu) {
+      scheduleControlsHide();
+    }
+  }, [isPlaying, showSpeedMenu, scheduleControlsHide]);
+
+  // Synchronize controls visibility when playing/paused
+  useEffect(() => {
+    if (isPlaying) {
+      scheduleControlsHide();
+    } else {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      setShowControls(true);
+    }
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [isPlaying, scheduleControlsHide]);
+
+  // Video click handler: if playing and controls were hidden, touching/clicking reveals controls without pausing
+  const handleVideoClick = (e: React.MouseEvent<HTMLVideoElement>) => {
+    if (isPlaying && !showControls) {
+      e.preventDefault();
+      e.stopPropagation();
+      showAndScheduleControls();
+      return;
+    }
+    togglePlay();
   };
 
   // Keepalive heartbeat on tab hide or close
@@ -560,8 +608,16 @@ export default function CompulsoryVideoPlayer({
       ref={containerRef}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => isPlaying && setShowControls(false)}
+      onMouseMove={showAndScheduleControls}
+      onMouseDown={showAndScheduleControls}
+      onTouchStart={showAndScheduleControls}
+      onTouchMove={showAndScheduleControls}
+      onPointerMove={showAndScheduleControls}
+      onMouseLeave={() => {
+        if (isPlaying && !showSpeedMenu) {
+          setShowControls(false);
+        }
+      }}
       onContextMenu={(e) => e.preventDefault()}
       style={{
         position: "relative",
@@ -573,6 +629,7 @@ export default function CompulsoryVideoPlayer({
         outline: "none",
         userSelect: "none",
         boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+        cursor: isPlaying && !showControls ? "none" : "default",
       }}
     >
       {/* 1. Main Video Element */}
@@ -627,10 +684,21 @@ export default function CompulsoryVideoPlayer({
           controlsList="nodownload noplaybackrate nofullscreen"
           disablePictureInPicture
           onContextMenu={(e) => e.preventDefault()}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onPlay={() => {
+            setIsPlaying(true);
+            scheduleControlsHide();
+          }}
+          onPause={() => {
+            setIsPlaying(false);
+            setShowControls(true);
+          }}
           onWaiting={() => setIsBuffering(true)}
-          onPlaying={() => setIsBuffering(false)}
+          onPlaying={() => {
+            setIsBuffering(false);
+            if (isPlaying) {
+              scheduleControlsHide();
+            }
+          }}
           onSeeking={handleSeeking}
           onRateChange={handleRateChange}
           onLoadedMetadata={handleLoadedMetadata}
@@ -640,12 +708,12 @@ export default function CompulsoryVideoPlayer({
           onError={() => {
             setVideoError("Video stream could not be loaded. Please click Retry Stream.");
           }}
-          onClick={togglePlay}
+          onClick={handleVideoClick}
           style={{
             width: "100%",
             height: "100%",
             objectFit: "contain",
-            cursor: "pointer",
+            cursor: isPlaying && !showControls ? "none" : "pointer",
             display: "block",
           }}
         />
@@ -832,6 +900,18 @@ export default function CompulsoryVideoPlayer({
 
       {/* 6. Apple Liquid Glass Floating Player Transport Bar (HIG Playing Video & Liquid Glass) */}
       <div
+        onMouseEnter={() => {
+          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+        }}
+        onMouseLeave={() => {
+          if (isPlaying && !showSpeedMenu) {
+            scheduleControlsHide();
+          }
+        }}
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          showAndScheduleControls();
+        }}
         style={{
           position: "absolute",
           bottom: "12px",
@@ -848,6 +928,7 @@ export default function CompulsoryVideoPlayer({
           gap: "8px",
           opacity: showControls || !isPlaying ? 1 : 0,
           pointerEvents: showControls || !isPlaying ? "auto" : "none",
+          transform: showControls || !isPlaying ? "translateY(0)" : "translateY(8px)",
           transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
           boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
           zIndex: 50,

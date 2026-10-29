@@ -42,7 +42,8 @@ export function validateSeek(
   const safeTarget = Math.max(0, Number.isFinite(targetTime) ? targetTime : 0);
   const dur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
   const isEffectivelyCompleted =
-    isCompleted || (dur > 0 && maxWatchedSec >= dur * 0.95);
+    isCompleted ||
+    (dur > 0 && (dur - maxWatchedSec <= 30 || maxWatchedSec >= dur * 0.95));
 
   if (isEffectivelyCompleted) {
     const clamped = dur > 0 ? Math.min(dur, safeTarget) : safeTarget;
@@ -65,6 +66,30 @@ export function validateSeek(
     effectiveTime: lastValidTime,
     reason: "Fast-forwarding is locked. You can rewind or rewatch viewed sections.",
   };
+}
+
+/**
+ * Determines whether the user is eligible to advance to the next part:
+ * - When the lesson is already marked completed
+ * - OR when the video is left for 30 seconds or less (duration - current <= 30)
+ */
+export function isEligibleToAdvance({
+  currentTime,
+  durationSec,
+  isCompleted = false,
+}: {
+  currentTime: number;
+  durationSec: number;
+  isCompleted?: boolean;
+}): boolean {
+  if (isCompleted) return true;
+  const dur = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0;
+  const cur = Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0;
+  if (dur <= 0) return false;
+  if (dur <= 30) {
+    return cur >= dur - 1.0 || cur >= dur * 0.9;
+  }
+  return dur - cur <= 30;
 }
 
 /**

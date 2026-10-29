@@ -27,6 +27,9 @@ import {
 
 @Injectable()
 export class QuizzesService {
+  private activeAttemptCache = new Map<string, { expiresAt: number; data: any }>();
+  private inflightActiveAttempt = new Map<string, Promise<any>>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheHelper: CacheHelperService,
@@ -226,6 +229,7 @@ export class QuizzesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async startQuiz(quizId: string, actor: any, dto?: StartQuizDto) {
+    this.activeAttemptCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
       throw new ForbiddenException('Access denied: Authentication required');
@@ -519,6 +523,7 @@ export class QuizzesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async submitQuiz(quizId: string, actor: any, dto: SubmitQuizDto) {
+    this.activeAttemptCache.clear();
     const actorId = actor?.sub ?? actor?.id;
     if (!actorId) {
       throw new ForbiddenException('Access denied: Authentication required');
@@ -952,6 +957,18 @@ export class QuizzesService {
       throw new ForbiddenException('Access denied: Authentication required');
     }
 
+    const cacheKey = `${actorId}:${quizId}`;
+    const cached = this.activeAttemptCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const inflight = this.inflightActiveAttempt.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const computePromise = (async () => {
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
       include: {
@@ -1070,6 +1087,19 @@ export class QuizzesService {
       retryGuidance: !latestAttempt.passed ? quiz.retryGuidance : null,
       stepToRevisit: retryMeta.stepToRevisit,
     };
+    })();
+
+    this.inflightActiveAttempt.set(cacheKey, computePromise);
+    try {
+      const result = await computePromise;
+      this.activeAttemptCache.set(cacheKey, {
+        expiresAt: Date.now() + 15000,
+        data: result,
+      });
+      return result;
+    } finally {
+      this.inflightActiveAttempt.delete(cacheKey);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

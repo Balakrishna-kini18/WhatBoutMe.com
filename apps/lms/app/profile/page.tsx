@@ -15,9 +15,8 @@ import ActiveDevicesSecuritySection, {
   DeviceSession,
 } from "./components/ActiveDevicesSecuritySection";
 import { SignatureMethod } from "../agreement/SignaturePad";
+import { API_URL, getAuthHeaders } from "../lib/api";
 import styles from "./profile.module.css";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface Profile {
   name: string | null;
@@ -234,7 +233,7 @@ export default function ProfilePage() {
     );
   }
 
-  const displayName = profile.name || "sahyadri";
+  const displayName = profile.name || profile.email.split("@")[0] || "Learner";
   const initials = (profile.name || profile.email)
     .split(/[\s@.]+/)
     .filter(Boolean)
@@ -259,7 +258,7 @@ export default function ProfilePage() {
           displayName={displayName}
           email={profile.email}
           role={profile.role}
-          initials={initials || "S"}
+          initials={initials || "L"}
           accountType={accountType}
           onSignOut={signOut}
           onSignOutEverywhere={signOutEverywhere}

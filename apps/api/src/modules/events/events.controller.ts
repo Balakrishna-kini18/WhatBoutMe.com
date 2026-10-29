@@ -26,6 +26,13 @@ export class EventsController {
     return this.eventsService.listForPublic(query, userId);
   }
 
+  @Get('my/registrations')
+  getMyRegistrations(@Req() req: any) {
+    const userId = req.user?.id || req.user?.userId || req.user?.sub;
+    if (!userId) return [];
+    return this.eventsService.listMyRegistrations(userId);
+  }
+
   @Public()
   @Get(':idOrSlug')
   getEvent(@Param('idOrSlug') idOrSlug: string, @Req() req: any) {

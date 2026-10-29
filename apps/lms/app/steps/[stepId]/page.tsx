@@ -22,6 +22,7 @@ import {
 import CompulsoryVideoPlayer from "./CompulsoryVideoPlayer";
 import PdfViewerModal from "./components/PdfViewerModal";
 import RichNoteEditorModal from "../../components/notes/RichNoteEditorModal";
+import { VisualRichTextEditor } from "../../components/notes/VisualRichTextEditor";
 import StepLoading from "./loading";
 import {
   normalizeStudentNote,
@@ -30,7 +31,8 @@ import {
   extractPlainTextPreview,
 } from "../../lib/notesAdapter";
 import { ContextualNote, formatSecondsToTimestamp } from "../../types/learner-flow";
-import { markdownToHtml, sanitizeNoteHtml } from "../../lib/richTextHelper";
+import { markdownToHtml, sanitizeNoteHtml, isEditorEmpty, stripHtmlToPlainText } from "../../lib/richTextHelper";
+import { sanitizeExternalUrl } from "../../lib/auth-redirect";
 import {
   getLocalVideoResume,
   isLocalLessonCompleted,
@@ -106,6 +108,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [notes, setNotes] = useState<StudentNote[]>([]);
   const [noteTitle, setNoteTitle] = useState("");
   const [noteInput, setNoteInput] = useState("");
+  const [notePlainText, setNotePlainText] = useState("");
+  const [noteEditorResetKey, setNoteEditorResetKey] = useState(0);
   const [noteIsFavorite, setNoteIsFavorite] = useState(false);
   const [capturedTimestamp, setCapturedTimestamp] = useState<number | null>(null);
   const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
@@ -178,7 +182,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isFetchingRef = useRef<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isHeartbeatInFlightRef = useRef<boolean>(false);
+  const reconciledLessonsRef = useRef<Set<string>>(new Set());
   const lastEndedSentTimeRef = useRef<Record<string, number>>({});
+  const hasTriggeredCompletionRef = useRef<Record<string, boolean>>({});
   const [recheckCount, setRecheckCount] = useState<number>(0);
   const [isRecheckingUnlock, setIsRecheckingUnlock] = useState<boolean>(false);
 
@@ -327,6 +333,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           const isDone = Boolean(l.isCompleted || isLocallyDone);
           const effectivePos = Math.max(l.lastPositionSec || 0, localResume?.positionSec || 0);
 
+          if (isDone) {
+            hasTriggeredCompletionRef.current[l.lessonId] = true;
+          }
           lpMap[l.lessonId] = {
             viewed: isDone,
             progressPercent: isDone ? 100 : (l.progressPercent || 0),
@@ -342,9 +351,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         // If a lesson was finished locally but server missed it (e.g. dropped connection during reload),
         // reconcile completion with server so database records and next step unlocks stay 100% in sync
         const missingOnServer = stepProgItem.lessons.filter(
-          (l: any) => !l.isCompleted && isLocalLessonCompleted(l.lessonId)
+          (l: any) => !l.isCompleted && isLocalLessonCompleted(l.lessonId) && !reconciledLessonsRef.current.has(l.lessonId)
         );
         if (missingOnServer.length > 0) {
+          missingOnServer.forEach((l: any) => reconciledLessonsRef.current.add(l.lessonId));
           void (async () => {
             try {
               for (const ml of missingOnServer) {
@@ -487,6 +497,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     return `${m}:${String(s).padStart(2, "0")}`;
   };
 
+  // Check if current lesson has 30 seconds or less remaining (unlocking advance to next part)
+  const isCurrentLessonLeftUnder30s = useMemo(() => {
+    if (!currentMedia) return false;
+    if (lessonProgress[currentMedia.id]?.isCompleted) return true;
+    const dur = currentMedia.durationSec || 0;
+    if (dur > 0 && dur - currentVideoTime <= 30) return true;
+    return false;
+  }, [currentMedia, lessonProgress, currentVideoTime]);
+
   // Load Notes for current lesson
   const loadNotesForLesson = useCallback(async (lessonId: string) => {
     try {
@@ -612,8 +631,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const areAllVideosDone = useMemo(() => {
     if (!videoLessons.length) return true;
-    return videoLessons.every((l: any) => lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
-  }, [videoLessons, lessonProgress]);
+    return videoLessons.every((l: any) => {
+      const isDone = Boolean(lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
+      if (isDone) return true;
+      if (l.id === currentMedia?.id && isCurrentLessonLeftUnder30s) return true;
+      return false;
+    });
+  }, [videoLessons, lessonProgress, currentMedia?.id, isCurrentLessonLeftUnder30s]);
 
   const areAllMaterialsDone = useMemo(() => {
     if (!stepMaterials.length) return true;
@@ -824,10 +848,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Handle Save Note with Full Structured Envelope (Exact parity with My Notes page)
   const handleSaveNote = async () => {
-    if ((!noteInput.trim() && !noteTitle.trim()) || !currentMedia?.id) return;
+    if ((isEditorEmpty(noteInput) && !noteTitle.trim()) || !currentMedia?.id) return;
     setIsSavingNote(true);
     try {
-      const titleToSave = noteTitle.trim() || extractPlainTextPreview(noteInput, 50) || "Untitled Note";
+      const plainText = notePlainText || stripHtmlToPlainText(noteInput);
+      const titleToSave = noteTitle.trim() || extractPlainTextPreview(plainText, 50) || "Untitled Note";
       const tsToSave = capturedTimestamp !== null ? capturedTimestamp : (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null);
       
       const payload = serializeCreateNotePayload({
@@ -845,11 +870,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       setNotes((prev) => [saved, ...prev]);
       setNoteTitle("");
       setNoteInput("");
+      setNotePlainText("");
       setNoteIsFavorite(false);
       setCapturedTimestamp(null);
+      setNoteEditorResetKey((k) => k + 1);
     } catch (err: any) {
       console.warn("Failed to save note to API, falling back to local note:", err);
-      const titleToSave = noteTitle.trim() || extractPlainTextPreview(noteInput, 50) || "Untitled Note";
+      const plainText = notePlainText || stripHtmlToPlainText(noteInput);
+      const titleToSave = noteTitle.trim() || extractPlainTextPreview(plainText, 50) || "Untitled Note";
       const tsToSave = capturedTimestamp !== null ? capturedTimestamp : (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null);
       const fallbackEnvelope = serializeCreateNotePayload({
         courseId: step?.programId,
@@ -876,8 +904,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       setNotes((prev) => [fallbackNote, ...prev]);
       setNoteTitle("");
       setNoteInput("");
+      setNotePlainText("");
       setNoteIsFavorite(false);
       setCapturedTimestamp(null);
+      setNoteEditorResetKey((k) => k + 1);
     } finally {
       setIsSavingNote(false);
     }
@@ -979,8 +1009,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (res.ok) {
             const data = await res.json();
             setLessonProgress((prev) => ({ ...prev, [lessonId]: { ...prev[lessonId], ...data } }));
-            if (data.isCompleted || data.viewed || isEnded) {
-              invalidateCache();
+            // Only invalidate cache and trigger re-fetch when transitioning to completed for the first time
+            const isTransitionToCompleted = Boolean((data.isCompleted || data.viewed || isEnded) && !hasTriggeredCompletionRef.current[lessonId]);
+            if (isTransitionToCompleted) {
+              hasTriggeredCompletionRef.current[lessonId] = true;
+              invalidateCache("/progression");
+              invalidateCache("/progress");
               void fetchStepAndProgression(false, true);
             }
           } else if (isEnded && attempt < 2) {
@@ -1025,7 +1059,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   // Lesson Completion with 0ms Instant Optimistic Unlocking
   const handleLessonComplete = useCallback(
-    (lessonId: string) => {
+    (lessonId: string, fromVideoEnd = false) => {
       // 1. Immediately persist locally (0ms lag)
       saveLocalLessonCompletion(lessonId);
 
@@ -1065,22 +1099,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             };
           });
 
-          if (
-            step?.quiz &&
-            !lastQuizResult?.passed &&
-            !(currentStepProg as any)?.quizPassed &&
-            !currentStepProg?.isCompleted
-          ) {
-            setCelebrationMode("lesson");
-            setIsCelebrationOpen(true);
-          } else {
-            setCelebrationMode("module");
-            setIsCelebrationOpen(true);
-            if (nextStepId) {
-              setRedirectCountdown(3);
+          if (fromVideoEnd) {
+            if (
+              step?.quiz &&
+              !lastQuizResult?.passed &&
+              !(currentStepProg as any)?.quizPassed &&
+              !currentStepProg?.isCompleted
+            ) {
+              setCelebrationMode("lesson");
+              setIsCelebrationOpen(true);
+            } else {
+              setCelebrationMode("module");
+              setIsCelebrationOpen(true);
+              if (nextStepId) {
+                setRedirectCountdown(3);
+              }
             }
           }
-        } else {
+        } else if (fromVideoEnd) {
           setCelebrationMode("lesson");
           setIsCelebrationOpen(true);
         }
@@ -1343,7 +1379,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const renderLessonNavigationRow = () => {
     const hasPrevious = activeLessonIndex > 0;
     const prevLesson = hasPrevious ? videoLessons[activeLessonIndex - 1] : null;
-    const isCurrentWatched = Boolean(lessonProgress[currentMedia?.id]?.isCompleted);
+    const isCurrentWatched = Boolean(
+      lessonProgress[currentMedia?.id]?.isCompleted || isCurrentLessonLeftUnder30s
+    );
 
     let nextBtnNode = null;
 
@@ -1354,13 +1392,22 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         <button
           type="button"
           disabled={!isCurrentWatched}
-          onClick={() => setSelectedMediaId(nextPart.id)}
+          onClick={() => {
+            if (currentMedia?.id) {
+              handleLessonComplete(currentMedia.id, false);
+            }
+            setSelectedMediaId(nextPart.id);
+          }}
           className={styles.btnPrimaryOrange}
           style={{
             opacity: !isCurrentWatched ? 0.6 : 1,
             cursor: !isCurrentWatched ? "not-allowed" : "pointer",
           }}
-          title={!isCurrentWatched ? "Complete this video to unlock next part" : `Next: Part ${activeLessonIndex + 2} (${nextPart.title})`}
+          title={
+            !isCurrentWatched
+              ? "Complete this video (or reach the last 30s) to unlock next part"
+              : `Next: Part ${activeLessonIndex + 2} (${nextPart.title})`
+          }
         >
           Next Part ({nextPart.title}) &rarr;
         </button>
@@ -1371,23 +1418,37 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         <button
           type="button"
           disabled={!isCurrentWatched}
-          onClick={() => setActiveTab("materials")}
+          onClick={() => {
+            if (currentMedia?.id) {
+              handleLessonComplete(currentMedia.id, false);
+            }
+            setActiveTab("materials");
+          }}
           className={styles.btnPrimaryOrange}
           style={{
             opacity: !isCurrentWatched ? 0.6 : 1,
             cursor: !isCurrentWatched ? "not-allowed" : "pointer",
           }}
-          title={!isCurrentWatched ? "Complete this video to unlock materials" : "Next: Module Learning Materials"}
+          title={
+            !isCurrentWatched
+              ? "Complete this video (or reach the last 30s) to unlock materials"
+              : "Next: Module Learning Materials"
+          }
         >
           Next: Materials ({stepMaterials.length}) &rarr;
         </button>
       );
     } else if (step?.quiz && !isQuizAlreadyPassed) {
       // Last video part & no materials -> Quiz
-      nextBtnNode = isQuizUnlocked ? (
+      nextBtnNode = isQuizUnlocked || isCurrentWatched ? (
         <button
           type="button"
-          onClick={() => setActiveTab("quiz")}
+          onClick={() => {
+            if (currentMedia?.id) {
+              handleLessonComplete(currentMedia.id, false);
+            }
+            setActiveTab("quiz");
+          }}
           className={styles.btnPrimaryOrange}
         >
           Next: Module Quiz &rarr;
@@ -1405,22 +1466,26 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       );
     } else if (nextStep && nextStepId) {
       // Last part -> Next module
+      const isReadyForNextStep = isStepCompleted || completedLessonsCount >= totalLessonsCount || isCurrentWatched;
       nextBtnNode = (
         <button
           type="button"
-          disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
+          disabled={!isReadyForNextStep}
           onClick={() => {
-            if (isStepCompleted || completedLessonsCount >= totalLessonsCount) {
+            if (isReadyForNextStep) {
+              if (currentMedia?.id) {
+                handleLessonComplete(currentMedia.id, false);
+              }
               router.push(`/steps/${nextStepId}`);
             }
           }}
           className={styles.btnPrimaryOrange}
           style={{
-            opacity: !isStepCompleted && completedLessonsCount < totalLessonsCount ? 0.6 : 1,
-            cursor: !isStepCompleted && completedLessonsCount < totalLessonsCount ? "not-allowed" : "pointer",
+            opacity: !isReadyForNextStep ? 0.6 : 1,
+            cursor: !isReadyForNextStep ? "not-allowed" : "pointer",
           }}
         >
-          {!isStepCompleted && completedLessonsCount < totalLessonsCount
+          {!isReadyForNextStep
             ? `🔒 Complete all parts to unlock Next Module`
             : `Next Module (${nextStep.title}) →`}
         </button>
@@ -1560,7 +1625,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           {videoLessons.map((l: any, idx: number) => {
             const isSelected = activeTab === "video" && currentMedia?.id === l.id;
             const isDone = Boolean(lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
-            const isLocked = idx > 0 && !lessonProgress[videoLessons[idx - 1]?.id]?.isCompleted && !isDone;
+            const prevLesson = idx > 0 ? videoLessons[idx - 1] : null;
+            const isPrevDone = Boolean(
+              !prevLesson ||
+              lessonProgress[prevLesson.id]?.isCompleted ||
+              lessonProgress[prevLesson.id]?.viewed ||
+              (prevLesson.id === currentMedia?.id && isCurrentLessonLeftUnder30s)
+            );
+            const isLocked = idx > 0 && !isPrevDone && !isDone;
 
             return (
               <button
@@ -1569,6 +1641,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                 disabled={isLocked}
                 onClick={() => {
                   if (!isLocked) {
+                    if (currentMedia?.id && isCurrentLessonLeftUnder30s) {
+                      handleLessonComplete(currentMedia.id, false);
+                    }
                     setActiveTab("video");
                     setSelectedMediaId(l.id);
                   }
@@ -1712,7 +1787,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         onHeartbeat={(pos, ended, dur, delta, from, to) =>
                           sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to)
                         }
-                        onComplete={() => handleLessonComplete(currentMedia.id)}
+                        onComplete={() => handleLessonComplete(currentMedia.id, false)}
+                        onVideoEnd={() => handleLessonComplete(currentMedia.id, true)}
                         onTimeUpdate={(sec) => setCurrentVideoTime(sec)}
                         seekToTime={videoSeekTarget}
                       />
@@ -1838,113 +1914,38 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       </button>
                     </div>
 
-                    {/* Rich Formatting Toolbar */}
-                    <div className={styles.noteFormattingToolbar}>
-                      <div className={styles.noteToolbarLeftGroup}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => prev ? `**${prev}**` : "**Text** ");
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Bold"
-                        >
-                          <strong>B</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => prev ? `*${prev}*` : "*Text* ");
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Italic"
-                        >
-                          <em>I</em>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => prev ? `<u>${prev}</u>` : "<u>Text</u> ");
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Underline"
-                        >
-                          <u>U</u>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => prev ? `<mark>${prev}</mark>` : "<mark>Highlight</mark> ");
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Highlight"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 4 }}>
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                          </svg>
-                          Highlight
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => `${prev}\n• `);
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Bullet List"
-                        >
-                          • List
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => `${prev}\n1. `);
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Numbered List"
-                        >
-                          1. List
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNoteInput((prev) => prev.replace(/[*#_~<>`]/g, ''));
-                          }}
-                          className={styles.noteFormatBtn}
-                          title="Clear formatting"
-                        >
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 4 }}>
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                          Clear
-                        </button>
-                      </div>
+                    {/* Visual Rich Text Canvas - WYSIWYG, No programmer tokens/HTML visible */}
+                    <div style={{ marginTop: 6, marginBottom: 6 }}>
+                      <VisualRichTextEditor
+                        key={noteEditorResetKey}
+                        initialContent={noteInput}
+                        onChange={(html, text) => {
+                          setNoteInput(html);
+                          setNotePlainText(text);
+                        }}
+                        placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
+                        minHeight={85}
+                        compact
+                      />
                     </div>
-
-                    {/* Note Content Area */}
-                    <textarea
-                      value={noteInput}
-                      onChange={(e) => setNoteInput(e.target.value.slice(0, 5000))}
-                      placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
-                      className={styles.noteEditorTextarea}
-                    />
 
                     {/* Action Bar */}
                     <div className={styles.noteToolbarRow} style={{ marginTop: 6 }}>
                       <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>
-                        {noteInput.length}/5000
+                        {(notePlainText || stripHtmlToPlainText(noteInput)).length}/5000
                       </span>
 
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {(noteTitle || noteInput || noteIsFavorite || capturedTimestamp !== null) && (
+                        {(noteTitle || !isEditorEmpty(noteInput) || noteIsFavorite || capturedTimestamp !== null) && (
                           <button
                             type="button"
                             onClick={() => {
                               setNoteTitle("");
                               setNoteInput("");
+                              setNotePlainText("");
                               setNoteIsFavorite(false);
                               setCapturedTimestamp(null);
+                              setNoteEditorResetKey((k) => k + 1);
                             }}
                             className={styles.btnSecondaryOutline}
                             style={{ padding: "0.35rem 0.65rem", fontSize: "0.76rem" }}
@@ -1955,7 +1956,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         <button
                           type="button"
                           onClick={handleSaveNote}
-                          disabled={(!noteInput.trim() && !noteTitle.trim()) || isSavingNote}
+                          disabled={(isEditorEmpty(noteInput) && !noteTitle.trim()) || isSavingNote}
                           className={styles.btnPrimaryOrange}
                           style={{ padding: "0.4rem 0.95rem", fontSize: "0.8rem", fontWeight: 700 }}
                         >
@@ -2604,9 +2605,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   .map((m) => {
                     const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
                     const isDone = Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
-                    const downloadUrl = isPdf
-                      ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
-                      : resolveMediaDownloadUrl(m.mediaUrl);
+                    const downloadUrl = sanitizeExternalUrl(
+                      isPdf
+                        ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
+                        : resolveMediaDownloadUrl(m.mediaUrl)
+                    );
                     return (
                       <div
                         key={m.id}

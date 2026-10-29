@@ -239,6 +239,11 @@
   user-select: none;
 }
 
+.toolbarCompact {
+  padding: 0.35rem 0.5rem;
+  gap: 0.25rem;
+}
+
 .toolBtn {
   background: none;
   border: none;
@@ -252,6 +257,12 @@
   align-items: center;
   gap: 0.25rem;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+.toolBtnCompact {
+  padding: 0.22rem 0.45rem;
+  font-size: 0.78rem;
+  border-radius: 5px;
 }
 
 .toolBtn:hover {
@@ -312,6 +323,13 @@
   background: #ffffff;
   cursor: text;
   word-break: break-word;
+}
+
+.editorCanvasCompact {
+  padding: 0.65rem 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  min-height: 85px;
 }
 
 .editorCanvas:focus {
@@ -377,6 +395,14 @@
   line-height: 1.65;
   pointer-events: none;
   user-select: none;
+}
+
+.placeholderOverlayCompact {
+  top: 0.65rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .editorTextarea {

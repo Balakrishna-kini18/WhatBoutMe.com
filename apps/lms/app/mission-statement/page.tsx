@@ -10,6 +10,7 @@ import {
   submitMissionStatement,
   type MissionStatementSubmission,
 } from "../lib/api";
+import { sanitizeExternalUrl } from "../lib/auth-redirect";
 
 interface UserProfile {
   id: string;
@@ -541,9 +542,10 @@ export default function MissionStatementPage() {
               <h3 className={styles.cardTitle}>Submission History</h3>
               <div className={styles.historyList}>
                 {submissions.map((sub) => {
-                  const fileUrl = sub.fileUrl.startsWith("http")
+                  const rawFileUrl = sub.fileUrl && sub.fileUrl.startsWith("http")
                     ? sub.fileUrl
-                    : `${API_URL}/mission-statements/${sub.id}/file`;
+                    : `${API_URL}/mission-statements/${encodeURIComponent(sub.id)}/file`;
+                  const fileUrl = sanitizeExternalUrl(rawFileUrl) || "#";
                   const sizeMb = (sub.sizeBytes / (1024 * 1024)).toFixed(2);
 
                   return (

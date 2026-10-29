@@ -123,13 +123,15 @@ export default function SessionRecordingPage({ params }: { params: Promise<{ id:
     videoDurationSec?: number,
     _deltaSec?: number,
     fromSec?: number,
-    toSec?: number
+    toSec?: number,
+    options?: { keepalive?: boolean }
   ) => {
     try {
       const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
       const res = await fetch(`${API_URL}/sessions/${encodeURIComponent(sessionId)}/recording-progress`, {
         method: "POST",
         headers,
+        keepalive: Boolean(options?.keepalive),
         body: JSON.stringify({
           positionSec,
           fromSec,

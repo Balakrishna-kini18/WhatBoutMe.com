@@ -1025,7 +1025,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     setNotes((prev) => prev.filter((n) => n.id !== id));
   };
 
-  // Video Heartbeat with deduplication
+  // Video Heartbeat with deduplication & exit keepalive
   const sendMediaHeartbeat = useCallback(
     async (
       lessonId: string,
@@ -1035,16 +1035,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       deltaWatchedSec?: number,
       fromSec?: number,
       toSec?: number,
+      options?: { keepalive?: boolean }
     ) => {
       const now = Date.now();
       if (isEnded) {
         const lastSent = lastEndedSentTimeRef.current[lessonId] || 0;
         if (now - lastSent < 4000) return;
         lastEndedSentTimeRef.current[lessonId] = now;
-      } else if (isHeartbeatInFlightRef.current) {
+      } else if (isHeartbeatInFlightRef.current && !options?.keepalive) {
         return;
       }
-      isHeartbeatInFlightRef.current = true;
+      if (!options?.keepalive) {
+        isHeartbeatInFlightRef.current = true;
+      }
 
       const sendHeartbeatAttempt = async (attempt = 0): Promise<void> => {
         try {
@@ -1052,6 +1055,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           const res = await fetch(`${API_URL}/progress/lessons/${lessonId}/heartbeat`, {
             method: "POST",
             headers: getAuthHeaders(),
+            keepalive: Boolean(options?.keepalive),
             body: JSON.stringify({
               positionSec,
               fromSec: fromSec ?? Math.max(0, positionSec - (deltaWatchedSec ?? 15)),
@@ -1073,17 +1077,19 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               invalidateCache("/progress");
               void fetchStepAndProgression(false, true);
             }
-          } else if (isEnded && attempt < 2) {
+          } else if (isEnded && attempt < 2 && !options?.keepalive) {
             setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
           }
         } catch (err) {
-          if (isEnded && attempt < 2) {
+          if (isEnded && attempt < 2 && !options?.keepalive) {
             setTimeout(() => sendHeartbeatAttempt(attempt + 1), 1000 * (attempt + 1));
           } else {
             console.warn("Heartbeat error:", err);
           }
         } finally {
-          isHeartbeatInFlightRef.current = false;
+          if (!options?.keepalive) {
+            isHeartbeatInFlightRef.current = false;
+          }
         }
       };
 
@@ -1863,8 +1869,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         userEmail={userEmail}
                         durationSec={currentMedia.durationSec || 0}
                         initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
-                        onHeartbeat={(pos, ended, dur, delta, from, to) =>
-                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to)
+                        onHeartbeat={(pos, ended, dur, delta, from, to, options) =>
+                          sendMediaHeartbeat(currentMedia.id, pos, ended, dur, delta, from, to, options)
                         }
                         onComplete={() => handleLessonComplete(currentMedia.id, false)}
                         onVideoEnd={() => handleLessonComplete(currentMedia.id, true)}

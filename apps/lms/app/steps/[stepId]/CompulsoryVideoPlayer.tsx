@@ -18,6 +18,7 @@ export interface CompulsoryVideoPlayerProps {
     deltaSec?: number,
     fromSec?: number,
     toSec?: number,
+    options?: { keepalive?: boolean }
   ) => void;
   onComplete: () => void;
   onVideoEnd?: () => void;
@@ -419,9 +420,9 @@ export default function CompulsoryVideoPlayer({
     }
     lastValidTimeRef.current = current;
 
-    // Send dynamic periodic heartbeat with exact interval segments (faster for short clips)
+    // Send dynamic periodic heartbeat with exact interval segments (30s interval cuts server writes by 50%+)
     const now = Date.now();
-    const intervalMs = dur > 0 && dur < 60 ? Math.max(3000, Math.floor((dur * 1000) / 4)) : 15000;
+    const intervalMs = dur > 0 && dur < 60 ? Math.max(5000, Math.floor((dur * 1000) / 3)) : 30000;
     if (now - lastHeartbeatTimeRef.current >= intervalMs) {
       const fromSec = lastHeartbeatPositionRef.current;
       const toSec = current;
@@ -537,26 +538,80 @@ export default function CompulsoryVideoPlayer({
     togglePlay();
   };
 
-  // Keepalive heartbeat on tab hide or close
+  // Flush unsynced progress immediately when video pauses
+  const flushPauseHeartbeat = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const cur = video.currentTime;
+    const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
+    const fromSec = lastHeartbeatPositionRef.current;
+    const toSec = cur;
+    const delta = Math.max(0, toSec - fromSec);
+    if (delta >= 1) {
+      lastHeartbeatTimeRef.current = Date.now();
+      lastHeartbeatPositionRef.current = toSec;
+      onHeartbeat(
+        Math.floor(cur),
+        false,
+        dur > 0 ? dur : undefined,
+        Math.floor(delta),
+        Math.floor(fromSec),
+        Math.floor(toSec),
+      );
+    }
+  }, [duration, onHeartbeat]);
+
+  // Guaranteed keepalive sync on tab hide, browser close, or component unmount
   useEffect(() => {
-    const handleKeepAlive = () => {
+    const flushExitSync = (isUnload = false) => {
       const video = videoRef.current;
-      if (video && (document.visibilityState === "hidden" || !document.hasFocus())) {
-        const cur = Math.floor(video.currentTime);
-        const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
-        if (cur > 0) {
-          onHeartbeat(cur, false, dur > 0 ? dur : undefined);
-        }
+      if (!video) return;
+      const cur = Math.floor(video.currentTime);
+      const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
+      const fromSec = lastHeartbeatPositionRef.current;
+      const delta = Math.max(0, cur - fromSec);
+
+      // Instantly save to local storage for 0ms client restore
+      if (cur > 0) {
+        saveLocalVideoResume(lessonId, cur, dur);
+      }
+
+      // Flush to server with keepalive if there is uncredited watched time or page is unloading
+      if (cur > 0 && (delta >= 1 || isUnload)) {
+        lastHeartbeatTimeRef.current = Date.now();
+        lastHeartbeatPositionRef.current = cur;
+        onHeartbeat(
+          cur,
+          false,
+          dur > 0 ? dur : undefined,
+          Math.floor(delta),
+          Math.floor(fromSec),
+          cur,
+          { keepalive: true }
+        );
       }
     };
 
-    window.addEventListener("pagehide", handleKeepAlive);
-    document.addEventListener("visibilitychange", handleKeepAlive);
-    return () => {
-      window.removeEventListener("pagehide", handleKeepAlive);
-      document.removeEventListener("visibilitychange", handleKeepAlive);
+    const handlePageHide = () => flushExitSync(true);
+    const handleBeforeUnload = () => flushExitSync(true);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushExitSync(false);
+      }
     };
-  }, [duration, onHeartbeat]);
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      // Ensure any watch delta is flushed when component unmounts (e.g. user changes tabs or lessons)
+      flushExitSync(true);
+    };
+  }, [lessonId, duration, onHeartbeat]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -565,23 +620,7 @@ export default function CompulsoryVideoPlayer({
       video.play().catch(() => {});
     } else {
       video.pause();
-      const cur = video.currentTime;
-      const dur = duration > 0 ? duration : Math.floor(video.duration || 0);
-      const fromSec = lastHeartbeatPositionRef.current;
-      const toSec = cur;
-      const delta = Math.max(0, toSec - fromSec);
-      if (delta >= 1) {
-        lastHeartbeatTimeRef.current = Date.now();
-        lastHeartbeatPositionRef.current = toSec;
-        onHeartbeat(
-          Math.floor(cur),
-          false,
-          dur > 0 ? dur : undefined,
-          Math.floor(delta),
-          Math.floor(fromSec),
-          Math.floor(toSec),
-        );
-      }
+      flushPauseHeartbeat();
     }
   };
 
@@ -691,6 +730,7 @@ export default function CompulsoryVideoPlayer({
           onPause={() => {
             setIsPlaying(false);
             setShowControls(true);
+            flushPauseHeartbeat();
           }}
           onWaiting={() => setIsBuffering(true)}
           onPlaying={() => {

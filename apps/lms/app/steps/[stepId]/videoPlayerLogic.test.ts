@@ -5,6 +5,7 @@ import {
   calculateRewindTarget,
   calculateTimelineSeekTime,
   determineResumePosition,
+  isEligibleToAdvance,
 } from "./videoPlayerLogic";
 
 describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
@@ -152,6 +153,67 @@ describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
         isCompleted: false,
       });
       expect(res.shouldResume).toBe(false);
+    });
+  });
+
+  describe("isEligibleToAdvance (Advance when 30 seconds left)", () => {
+    it("returns true when lesson is already marked isCompleted", () => {
+      expect(
+        isEligibleToAdvance({
+          currentTime: 10,
+          durationSec: 542,
+          isCompleted: true,
+        })
+      ).toBe(true);
+    });
+
+    it("returns false when more than 30 seconds remain", () => {
+      // 542s total (9:02) - 500s = 42s remaining
+      expect(
+        isEligibleToAdvance({
+          currentTime: 500,
+          durationSec: 542,
+          isCompleted: false,
+        })
+      ).toBe(false);
+    });
+
+    it("returns true when 30 seconds or less remain", () => {
+      // 542s total - 512s = exactly 30s remaining
+      expect(
+        isEligibleToAdvance({
+          currentTime: 512,
+          durationSec: 542,
+          isCompleted: false,
+        })
+      ).toBe(true);
+
+      // 542s total - 525s = 17s remaining
+      expect(
+        isEligibleToAdvance({
+          currentTime: 525,
+          durationSec: 542,
+          isCompleted: false,
+        })
+      ).toBe(true);
+    });
+
+    it("handles short clips <= 30s correctly", () => {
+      expect(
+        isEligibleToAdvance({
+          currentTime: 5,
+          durationSec: 20,
+          isCompleted: false,
+        })
+      ).toBe(false);
+
+      expect(
+        isEligibleToAdvance({
+          currentTime: 19,
+          durationSec: 20,
+          isCompleted: false,
+        })
+      ).toBe(true);
     });
   });
 });

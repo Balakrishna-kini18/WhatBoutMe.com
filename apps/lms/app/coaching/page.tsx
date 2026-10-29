@@ -12,6 +12,7 @@ import {
   cancelOneOnOneRequest,
   type MyOneOnOneRequest,
 } from "../lib/api";
+import { sanitizeExternalUrl } from "../lib/auth-redirect";
 
 interface UserProfile {
   id: string;
@@ -268,9 +269,9 @@ export default function CoachingPage() {
                     </p>
                   )}
                 </div>
-                {activeRequest.session.joinUrl && (
+                {sanitizeExternalUrl(activeRequest.session.joinUrl) && (
                   <a
-                    href={activeRequest.session.joinUrl}
+                    href={sanitizeExternalUrl(activeRequest.session.joinUrl)!}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={styles.primaryBtn}

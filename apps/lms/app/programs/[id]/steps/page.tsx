@@ -23,6 +23,7 @@ import {
   type EnrolmentProgressionResponse,
   type StepProgressionItem,
 } from "../../../lib/api";
+import { sanitizeExternalUrl } from "../../../lib/auth-redirect";
 
 const Check = (
   <svg
@@ -1508,10 +1509,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 )}
 
                               {/* Actions */}
-                              {activeCoachingReq.session?.joinUrl ? (
+                              {sanitizeExternalUrl(activeCoachingReq.session?.joinUrl) ? (
                                 <div>
                                   <a
-                                    href={activeCoachingReq.session.joinUrl}
+                                    href={sanitizeExternalUrl(activeCoachingReq.session!.joinUrl)!}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className={styles.startBtn}
@@ -2257,9 +2258,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                                 <a
                                   href={
-                                    latestMission.fileUrl.startsWith("http") || latestMission.fileUrl.startsWith("data:")
-                                      ? latestMission.fileUrl
-                                      : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                    sanitizeExternalUrl(
+                                      latestMission.fileUrl && latestMission.fileUrl.startsWith("http")
+                                        ? latestMission.fileUrl
+                                        : `${API_URL}/mission-statements/${encodeURIComponent(latestMission.id)}/file`
+                                    ) || "#"
                                   }
                                   target="_blank"
                                   rel="noopener noreferrer"

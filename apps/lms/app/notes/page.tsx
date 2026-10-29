@@ -41,7 +41,7 @@ function MyNotesContent() {
     noteCounts,
   } = useNotesStore();
 
-  // Load enrolled courses and their curriculum
+  // Load enrolled courses once on initial mount
   useEffect(() => {
     let active = true;
     async function fetchEnrolled() {
@@ -56,6 +56,24 @@ function MyNotesContent() {
     return () => {
       active = false;
     };
+  }, []);
+
+  // When noteCounts updates (e.g. note added/removed), update note counts on already-loaded courses in memory
+  // without triggering duplicate network waterfall re-fetches
+  useEffect(() => {
+    if (courses.length === 0) return;
+    setCourses((prevCourses) =>
+      prevCourses.map((c) => ({
+        ...c,
+        modules: c.modules.map((m) => ({
+          ...m,
+          lessons: m.lessons.map((l) => ({
+            ...l,
+            notesCount: noteCounts.byLesson[l.lessonId] || 0,
+          })),
+        })),
+      }))
+    );
   }, [noteCounts.byLesson]);
 
   return (

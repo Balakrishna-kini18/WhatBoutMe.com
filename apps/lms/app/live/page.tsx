@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "./live.module.css";
 import { API_URL, getAuthHeaders, parseApiError } from "../lib/api";
+import { sanitizeExternalUrl } from "../lib/auth-redirect";
 import { ConfirmModal } from "../components/ui/ConfirmModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -684,8 +685,9 @@ export default function LiveSessionsPage() {
                         className={`${styles.calPill} ${isOneOnOne ? styles.calPillCoaching : styles.calPillCohort} ${isBooked ? styles.calPillBooked : ""}`}
                         title={`${evt.title} (${formatTime(new Date(evt.startTime))})`}
                         onClick={() => {
-                          if (evt.joinUrl) {
-                            window.open(evt.joinUrl, "_blank");
+                          const safeUrl = sanitizeExternalUrl(evt.joinUrl);
+                          if (safeUrl) {
+                            window.open(safeUrl, "_blank", "noopener,noreferrer");
                           }
                         }}
                       >
@@ -903,11 +905,11 @@ export default function LiveSessionsPage() {
                 {/* Card footer: join / book / recording */}
                 <div className={styles.cardFooter}>
                   {/* Session is live — show join link */}
-                  {live && s.joinUrl ? (
+                  {live && sanitizeExternalUrl(s.joinUrl) ? (
                     <a
-                      href={s.joinUrl}
+                      href={sanitizeExternalUrl(s.joinUrl)!}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className={`${styles.joinBtn} ${styles.joinBtnLive}`}
                       aria-label={`Join ${s.title} — live now`}
                     >
@@ -915,12 +917,12 @@ export default function LiveSessionsPage() {
                       <span>Join Call Now</span>
                       {Icons.arrowUpRight}
                     </a>
-                  ) : ended && s.recordingUrl ? (
+                  ) : ended && sanitizeExternalUrl(s.recordingUrl) ? (
                     /* Ended with recording */
                     <a
-                      href={s.recordingUrl}
+                      href={sanitizeExternalUrl(s.recordingUrl)!}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className={styles.recordingBtn}
                       aria-label={`Watch recording of ${s.title}`}
                     >
@@ -933,13 +935,13 @@ export default function LiveSessionsPage() {
                   ) : s.status === "CANCELLED" ? (
                     /* Cancelled session */
                     <span className={styles.statusNote} role="status">Session cancelled</span>
-                  ) : s.joinUrl ? (
+                  ) : sanitizeExternalUrl(s.joinUrl) ? (
                     /* Has join link — show join button, plus booking action if applicable */
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                       <a
-                        href={s.joinUrl}
+                        href={sanitizeExternalUrl(s.joinUrl)!}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className={styles.joinBtn}
                         aria-label={`Join ${s.title}`}
                       >
@@ -959,11 +961,11 @@ export default function LiveSessionsPage() {
                     <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
                   ) : (
                     /* Default: join link without booking */
-                    s.joinUrl ? (
+                    sanitizeExternalUrl(s.joinUrl) ? (
                       <a
-                        href={s.joinUrl}
+                        href={sanitizeExternalUrl(s.joinUrl)!}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className={styles.joinBtn}
                         aria-label={`Join ${s.title}`}
                       >

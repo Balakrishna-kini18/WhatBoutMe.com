@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useEffect, useState, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { signOutEverywhere } from "./lib/site";
+import { API_URL } from "./lib/api";
 import SidebarPromoCard from "./components/SidebarPromoCard";
 
 interface UserData {
@@ -158,7 +159,7 @@ export default function LmsSidebar() {
 
     const token = localStorage.getItem("token");
     if (token) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/auth/me`, {
+      fetch(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => (res.ok ? res.json() : null))
@@ -246,8 +247,8 @@ export default function LmsSidebar() {
     return null;
   }
 
-  const displayName = (user?.name ? user.name.split(" ")[0] : null) || "sahyadri";
-  const initial = (displayName.charAt(0) || "S").toUpperCase();
+  const displayName = (user?.name ? user.name.split(" ")[0] : null) || (user?.email ? user.email.split("@")[0] : null) || "Learner";
+  const initial = (displayName.charAt(0) || "L").toUpperCase();
 
   // Mobile Bottom Tab Bar (shown only on viewport <= 900px)
   const mobileTabs = [

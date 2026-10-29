@@ -20,7 +20,17 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
     if (typeof input === 'string') input = onThisHost(input);
     const token = localStorage.getItem('token');
     let newInit = init;
-    if (token && typeof input === 'string' && input.includes(API_URL)) {
+    let isApiCall = false;
+    if (typeof input === 'string') {
+      try {
+        const target = new URL(input, window.location.origin);
+        const apiOrigin = new URL(API_URL, window.location.origin).origin;
+        isApiCall = target.origin === apiOrigin || target.origin === window.location.origin;
+      } catch {
+        isApiCall = false;
+      }
+    }
+    if (token && isApiCall) {
       const headers = new Headers(init?.headers);
       if (!headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`);
@@ -33,7 +43,7 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
     } catch (fetchErr: any) {
       // If the API server is momentarily restarting or recompiling in watch mode,
       // attempt progressive retries before bubbling the error
-      if (typeof input === 'string' && (input.includes(':4000') || input.includes(API_URL))) {
+      if (isApiCall) {
         let lastError = fetchErr;
         let succeeded = false;
         for (const delay of [400, 800, 1500]) {
@@ -57,6 +67,7 @@ if (typeof window !== 'undefined' && !(window as any).__fetchPatched) {
     // Only for requests made with a sign-in token. A wrong password on the
     // login form is also a 401 and must reach the form untouched.
     const isSignedInRequest =
+      isApiCall &&
       Boolean(token) &&
       typeof input === 'string' &&
       !/\/auth\/(login|signup|admin-login|refresh)/.test(input);

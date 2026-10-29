@@ -170,6 +170,9 @@ export class ZoomMeetingProvider implements IMeetingProvider {
         audio: 'both',
         auto_recording: 'cloud', // Automatically record to cloud for LMS fetching
         waiting_room: true,
+        ...(params.alternativeHosts || process.env.ZOOM_ALTERNATIVE_HOSTS
+          ? { alternative_hosts: params.alternativeHosts || process.env.ZOOM_ALTERNATIVE_HOSTS }
+          : {}),
       },
     };
 

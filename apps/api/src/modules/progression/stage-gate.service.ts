@@ -17,6 +17,7 @@ import {
   LearnerStage,
   MissionStatementStatus,
   OralAssessmentStatus,
+  OneOnOneRequestStatus,
   SessionStatus,
   SessionType,
 } from '@prisma/client';
@@ -166,6 +167,7 @@ export class StageGateService {
       oneOnOneSessions,
       missionSubmissions,
       attendanceCompliance,
+      oneOnOneRequests,
     ] = await Promise.all([
       // 0. Active overrides from AuditLog
       this.prisma.auditLog?.findMany
@@ -286,8 +288,17 @@ export class StageGateService {
           thresholdUsed: programConfig?.attendanceThreshold ?? 80,
           requiredSessionCount: 0,
           attendedSessionCount: 0,
-          attendancePercentage: 100,
+          attendancePercentage: 0,
         })),
+
+      // 12. 1-on-1 coaching requests for this enrolment
+      this.prisma.oneOnOneRequest?.findMany
+        ? this.prisma.oneOnOneRequest.findMany({
+            where: { enrolmentId: enrolment.id },
+            orderBy: { createdAt: 'desc' },
+            include: { session: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     const overriddenStages = new Set<string>();
@@ -442,11 +453,30 @@ export class StageGateService {
       return isCompletedStatus || isBookingAttended || isAttendancePresent;
     });
 
+    const scheduledOneOnOne =
+      oneOnOneSessions.find((s) => s.status === SessionStatus.SCHEDULED) ||
+      (oneOnOneRequests as any[])?.find(
+        (r) =>
+          r.status === OneOnOneRequestStatus.APPROVED &&
+          r.session?.status === SessionStatus.SCHEDULED,
+      )?.session;
+
+    const pendingOneOnOneRequest = (oneOnOneRequests as any[])?.find(
+      (r) => r.status === OneOnOneRequestStatus.PENDING_APPROVAL,
+    );
+
+    const latestOneOnOneRequest = (oneOnOneRequests as any[])?.[0];
+    const isOneOnOneRejected =
+      !scheduledOneOnOne &&
+      !pendingOneOnOneRequest &&
+      latestOneOnOneRequest?.status === OneOnOneRequestStatus.REJECTED;
+
+    const hasCompletedOneOnOne = Boolean(completedOneOnOne || enrolment.oneOnOneCompletedAt);
     const stage4Met =
       stage4Overridden ||
       isCorporateTrack ||
       !isCoachingRequired ||
-      (stage4Unlocked && Boolean(completedOneOnOne));
+      (stage4Unlocked && hasCompletedOneOnOne);
     const stage4CompletedAt = stage4Met
       ? enrolment.oneOnOneCompletedAt || completedOneOnOne?.endTime || new Date()
       : null;
@@ -537,7 +567,10 @@ export class StageGateService {
         completedAt: stage3CompletedAt,
         details: {
           complianceStatus: attendanceCompliance.status,
-          attendancePercentage: attendanceCompliance.attendancePercentage,
+          attendancePercentage:
+            attendanceCompliance.requiredSessionCount === 0
+              ? 0
+              : attendanceCompliance.attendancePercentage,
           attendedSessions: attendanceCompliance.attendedSessionCount,
           requiredSessions: attendanceCompliance.requiredSessionCount,
           thresholdPercent: attendanceCompliance.thresholdUsed,
@@ -559,8 +592,26 @@ export class StageGateService {
         isOverridden: stage4Overridden,
         completedAt: stage4CompletedAt,
         details: {
-          completedSessionId: stage4Met ? (completedOneOnOne?.id ?? null) : null,
-          completedSessionTitle: stage4Met ? (completedOneOnOne?.title ?? null) : null,
+          callStatus: stage4Met || hasCompletedOneOnOne
+            ? 'COMPLETED'
+            : scheduledOneOnOne
+            ? 'SCHEDULED'
+            : pendingOneOnOneRequest
+            ? 'REQUESTED'
+            : isOneOnOneRejected
+            ? 'REJECTED'
+            : 'NOT_BOOKED',
+          isCallCompleted: hasCompletedOneOnOne,
+          isScheduled: Boolean(scheduledOneOnOne),
+          scheduledSessionId: scheduledOneOnOne?.id ?? null,
+          scheduledSessionTitle: scheduledOneOnOne?.title ?? null,
+          scheduledStartTime: scheduledOneOnOne?.startTime ?? null,
+          hasPendingRequest: Boolean(pendingOneOnOneRequest),
+          pendingRequestId: pendingOneOnOneRequest?.id ?? null,
+          requestedStart: pendingOneOnOneRequest?.requestedStart ?? null,
+          isRejected: Boolean(isOneOnOneRejected),
+          completedSessionId: (stage4Met || hasCompletedOneOnOne) ? (completedOneOnOne?.id ?? null) : null,
+          completedSessionTitle: (stage4Met || hasCompletedOneOnOne) ? (completedOneOnOne?.title ?? null) : null,
         },
         unmetPrerequisites: stage4Unlocked
           ? !stage4Met
@@ -576,7 +627,8 @@ export class StageGateService {
         completedAt: stage5CompletedAt,
         details: {
           submissionCount: missionSubmissions.length,
-          latestStatus: missionSubmissions[0]?.status ?? null,
+          latestStatus: missionSubmissions[0]?.status ?? (enrolment.missionStatementApprovedAt ? 'APPROVED' : null),
+          isMissionApproved: Boolean(approvedMission || enrolment.missionStatementApprovedAt),
         },
         unmetPrerequisites: stage5Unlocked
           ? !stage5Met

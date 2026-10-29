@@ -112,11 +112,29 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const [videoSeekTarget, setVideoSeekTarget] = useState<number | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [notesSearch, setNotesSearch] = useState("");
+  const [debouncedNotesSearch, setDebouncedNotesSearch] = useState("");
+  const [notesSort, setNotesSort] = useState<"recent" | "oldest" | "favorite">("recent");
   const [editingModalNote, setEditingModalNote] = useState<Partial<ContextualNote> | null>(null);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
 
-  // Materials state
+  // Debounce notes search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedNotesSearch(notesSearch);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [notesSearch]);
+
+  // Materials state with debouncing
   const [materialsSearch, setMaterialsSearch] = useState("");
+  const [debouncedMaterialsSearch, setDebouncedMaterialsSearch] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedMaterialsSearch(materialsSearch);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [materialsSearch]);
   const [viewerPdf, setViewerPdf] = useState<{
     isOpen: boolean;
     id: string;
@@ -612,6 +630,33 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   );
 
   const hasQuiz = Boolean(step?.quiz && step.quiz.id);
+
+  // Filtered and sorted student notes for the companion panel (debounced query)
+  const displayedNotes = useMemo(() => {
+    let list = [...notes];
+    if (debouncedNotesSearch.trim()) {
+      const q = debouncedNotesSearch.toLowerCase();
+      list = list.filter((n) => {
+        const norm = normalizeStudentNote(n);
+        return (
+          norm.noteTitle.toLowerCase().includes(q) ||
+          norm.noteContent.toLowerCase().includes(q)
+        );
+      });
+    }
+    if (notesSort === "favorite") {
+      list.sort((a, b) => {
+        const aFav = normalizeStudentNote(a).isFavorite ? 1 : 0;
+        const bFav = normalizeStudentNote(b).isFavorite ? 1 : 0;
+        return bFav - aFav;
+      });
+    } else if (notesSort === "oldest") {
+      list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    } else {
+      list.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    }
+    return list;
+  }, [notes, debouncedNotesSearch, notesSort]);
 
   // Next / Prev step links
   const stepsList: any[] = useMemo(() => {
@@ -1295,62 +1340,72 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const currentQuizQuestion: QuizQuestion = quizQuestions[activeQuizIndex] || quizQuestions[0] || defaultFallbackQuestion;
 
-  const renderLessonNavigationRow = () => (
-    <div className={styles.lessonNavigationRow}>
-      {activeLessonIndex > 0 ? (
-        <button
-          type="button"
-          onClick={() => setSelectedMediaId(videoLessons[activeLessonIndex - 1]?.id)}
-          className={styles.btnSecondaryOutline}
-        >
-          &larr; Previous Part ({videoLessons[activeLessonIndex - 1]?.title})
-        </button>
-      ) : (
-        <span />
-      )}
+  const renderLessonNavigationRow = () => {
+    const hasPrevious = activeLessonIndex > 0;
+    const prevLesson = hasPrevious ? videoLessons[activeLessonIndex - 1] : null;
+    const isCurrentWatched = Boolean(lessonProgress[currentMedia?.id]?.isCompleted);
 
-      {nextLesson ? (
+    let nextBtnNode = null;
+
+    if (activeLessonIndex < videoLessons.length - 1) {
+      // Part N -> Part N+1
+      const nextPart = videoLessons[activeLessonIndex + 1];
+      nextBtnNode = (
         <button
           type="button"
-          disabled={!lessonProgress[currentMedia?.id]?.isCompleted}
-          onClick={() => setSelectedMediaId(nextLesson.id)}
+          disabled={!isCurrentWatched}
+          onClick={() => setSelectedMediaId(nextPart.id)}
           className={styles.btnPrimaryOrange}
           style={{
-            opacity: !lessonProgress[currentMedia?.id]?.isCompleted ? 0.6 : 1,
-            cursor: !lessonProgress[currentMedia?.id]?.isCompleted ? "not-allowed" : "pointer",
+            opacity: !isCurrentWatched ? 0.6 : 1,
+            cursor: !isCurrentWatched ? "not-allowed" : "pointer",
           }}
+          title={!isCurrentWatched ? "Complete this video to unlock next part" : `Next: Part ${activeLessonIndex + 2} (${nextPart.title})`}
         >
-          Next Part ({nextLesson.title}) &rarr;
+          Next Part ({nextPart.title}) &rarr;
         </button>
-      ) : stepMaterials.length > 0 && !areAllMaterialsDone ? (
+      );
+    } else if (stepMaterials.length > 0) {
+      // Last video part -> Materials
+      nextBtnNode = (
         <button
           type="button"
+          disabled={!isCurrentWatched}
           onClick={() => setActiveTab("materials")}
           className={styles.btnPrimaryOrange}
+          style={{
+            opacity: !isCurrentWatched ? 0.6 : 1,
+            cursor: !isCurrentWatched ? "not-allowed" : "pointer",
+          }}
+          title={!isCurrentWatched ? "Complete this video to unlock materials" : "Next: Module Learning Materials"}
         >
-          Next: Learning Materials ({stepMaterials.length}) &rarr;
+          Next: Materials ({stepMaterials.length}) &rarr;
         </button>
-      ) : step?.quiz && !isQuizAlreadyPassed ? (
-        isQuizUnlocked ? (
-          <button
-            type="button"
-            onClick={() => setActiveTab("quiz")}
-            className={styles.btnPrimaryOrange}
-          >
-            Take Module Quiz &rarr;
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled
-            className={styles.btnSecondaryOutline}
-            style={{ opacity: 0.6, cursor: "not-allowed" }}
-            title="Complete all video lessons in this module to unlock the quiz"
-          >
-            🔒 Complete all parts to unlock Quiz
-          </button>
-        )
-      ) : nextStep && nextStepId ? (
+      );
+    } else if (step?.quiz && !isQuizAlreadyPassed) {
+      // Last video part & no materials -> Quiz
+      nextBtnNode = isQuizUnlocked ? (
+        <button
+          type="button"
+          onClick={() => setActiveTab("quiz")}
+          className={styles.btnPrimaryOrange}
+        >
+          Next: Module Quiz &rarr;
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled
+          className={styles.btnSecondaryOutline}
+          style={{ opacity: 0.6, cursor: "not-allowed" }}
+          title="Complete all video lessons in this module to unlock the quiz"
+        >
+          🔒 Complete all parts to unlock Quiz
+        </button>
+      );
+    } else if (nextStep && nextStepId) {
+      // Last part -> Next module
+      nextBtnNode = (
         <button
           type="button"
           disabled={!isStepCompleted && completedLessonsCount < totalLessonsCount}
@@ -1369,16 +1424,103 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             ? `🔒 Complete all parts to unlock Next Module`
             : `Next Module (${nextStep.title}) →`}
         </button>
-      ) : (
+      );
+    } else {
+      nextBtnNode = (
         <Link
           href={`/programs/${step?.programId}/steps`}
           className={styles.btnPrimaryOrange}
         >
           Course Roadmap &rarr;
         </Link>
-      )}
-    </div>
-  );
+      );
+    }
+
+    return (
+      <div className={styles.lessonNavigationRow}>
+        {hasPrevious ? (
+          <button
+            type="button"
+            onClick={() => setSelectedMediaId(prevLesson?.id)}
+            className={styles.btnSecondaryOutline}
+          >
+            &larr; Previous Part ({prevLesson?.title})
+          </button>
+        ) : (
+          <span />
+        )}
+
+        {nextBtnNode}
+      </div>
+    );
+  };
+
+  const renderMaterialsNavigationRow = () => {
+    const lastVideo = videoLessons.length > 0 ? videoLessons[videoLessons.length - 1] : null;
+
+    let nextBtnNode = null;
+    if (step?.quiz && !isQuizAlreadyPassed) {
+      nextBtnNode = isQuizUnlocked ? (
+        <button
+          type="button"
+          onClick={() => setActiveTab("quiz")}
+          className={styles.btnPrimaryOrange}
+        >
+          Next: Module Quiz &rarr;
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled
+          className={styles.btnSecondaryOutline}
+          style={{ opacity: 0.6, cursor: "not-allowed" }}
+          title="Complete all prerequisite parts to unlock the quiz"
+        >
+          🔒 Complete all parts to unlock Quiz
+        </button>
+      );
+    } else if (nextStep && nextStepId) {
+      nextBtnNode = (
+        <button
+          type="button"
+          onClick={() => router.push(`/steps/${nextStepId}`)}
+          className={styles.btnPrimaryOrange}
+        >
+          Next Module (${nextStep.title}) &rarr;
+        </button>
+      );
+    } else {
+      nextBtnNode = (
+        <Link
+          href={`/programs/${step?.programId}/steps`}
+          className={styles.btnPrimaryOrange}
+        >
+          Finish Lesson &amp; View Roadmap &rarr;
+        </Link>
+      );
+    }
+
+    return (
+      <div className={styles.lessonNavigationRow} style={{ marginTop: "1.5rem" }}>
+        {lastVideo ? (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("video");
+              setSelectedMediaId(lastVideo.id);
+            }}
+            className={styles.btnSecondaryOutline}
+          >
+            &larr; Previous Part ({lastVideo.title})
+          </button>
+        ) : (
+          <span />
+        )}
+
+        {nextBtnNode}
+      </div>
+    );
+  };
 
   // ---------------------------------------------------------------------------
   // RENDER VIEW
@@ -1410,76 +1552,123 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       </header>
 
       {/* =====================================================================
-          4-TAB LESSON WORKSPACE
+          UNIFIED SEGMENTED LESSON FLOW (Part 1 -> Part 2 -> Materials -> Quiz)
           ===================================================================== */}
       <div>
-          {/* 4-Tab Learning Tools Navigation Strip */}
-          <nav className={styles.learningToolsStrip} aria-label="Lesson Workspace Tabs">
-            <button
-              type="button"
-              onClick={() => setActiveTab("video")}
-              className={`${styles.learningTabBtn} ${activeTab === "video" ? styles.learningTabBtnActive : ""}`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-              <span>Video Lesson</span>
-              {videoLessons.length > 1 && (
-                <span className={styles.learningTabCount}>{videoLessons.length} Parts</span>
-              )}
-            </button>
+        <nav className={styles.lessonFlowStrip} aria-label="Course Lesson Flow">
+          {/* Dynamic Video Parts */}
+          {videoLessons.map((l: any, idx: number) => {
+            const isSelected = activeTab === "video" && currentMedia?.id === l.id;
+            const isDone = Boolean(lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed);
+            const isLocked = idx > 0 && !lessonProgress[videoLessons[idx - 1]?.id]?.isCompleted && !isDone;
 
-            {hasQuiz && (
+            return (
               <button
+                key={l.id}
                 type="button"
+                disabled={isLocked}
                 onClick={() => {
-                  if (isQuizUnlocked) {
-                    setActiveTab("quiz");
+                  if (!isLocked) {
+                    setActiveTab("video");
+                    setSelectedMediaId(l.id);
                   }
                 }}
-                className={`${styles.learningTabBtn} ${activeTab === "quiz" ? styles.learningTabBtnActive : ""} ${!isQuizUnlocked ? styles.learningTabBtnLocked : ""}`}
-                title={
-                  !isQuizUnlocked
-                    ? `Complete all video lessons in this module to unlock the quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
-                    : "Take Module Quiz"
-                }
+                className={`${styles.flowStepItem} ${
+                  isSelected ? styles.flowStepItemActive : ""
+                } ${isDone ? styles.flowStepItemCompleted : ""} ${
+                  isLocked ? styles.flowStepItemLocked : ""
+                }`}
+                title={isLocked ? "Complete previous parts to unlock" : `Part ${idx + 1}: ${l.title}`}
+                aria-current={isSelected ? "step" : undefined}
               >
-                {isQuizUnlocked ? (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <span className={styles.flowStepBadge}>
+                  {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
+                </span>
+                <div className={styles.flowStepText}>
+                  <span className={styles.flowStepLabel}>Part {idx + 1}</span>
+                  <span className={styles.flowStepTitle}>{l.title || "Video Lesson"}</span>
+                </div>
+                {isSelected && <span className={styles.flowStepActiveIndicator} aria-hidden="true" />}
+              </button>
+            );
+          })}
+
+          {/* Step Materials */}
+          {stepMaterials.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("materials")}
+              className={`${styles.flowStepItem} ${
+                activeTab === "materials" ? styles.flowStepItemActive : ""
+              } ${areAllMaterialsDone ? styles.flowStepItemCompleted : ""}`}
+              title={`Materials (${stepMaterials.length} items)`}
+              aria-current={activeTab === "materials" ? "step" : undefined}
+            >
+              <span className={styles.flowStepBadge}>
+                {areAllMaterialsDone ? "✓" : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                )}
+              </span>
+              <div className={styles.flowStepText}>
+                <span className={styles.flowStepLabel}>Materials</span>
+                <span className={styles.flowStepTitle}>
+                  {stepMaterials.length} {stepMaterials.length === 1 ? "Item" : "Items"}
+                </span>
+              </div>
+              {activeTab === "materials" && <span className={styles.flowStepActiveIndicator} aria-hidden="true" />}
+            </button>
+          )}
+
+          {/* Step Quiz */}
+          {hasQuiz && (
+            <button
+              type="button"
+              disabled={!isQuizUnlocked}
+              onClick={() => {
+                if (isQuizUnlocked) {
+                  setActiveTab("quiz");
+                }
+              }}
+              className={`${styles.flowStepItem} ${
+                activeTab === "quiz" ? styles.flowStepItemActive : ""
+              } ${isQuizAlreadyPassed ? styles.flowStepItemCompleted : ""} ${
+                !isQuizUnlocked ? styles.flowStepItemLocked : ""
+              }`}
+              title={
+                !isQuizUnlocked
+                  ? `Complete all parts to unlock Quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
+                  : "Module Quiz"
+              }
+              aria-current={activeTab === "quiz" ? "step" : undefined}
+            >
+              <span className={styles.flowStepBadge}>
+                {isQuizAlreadyPassed ? "✓" : !isQuizUnlocked ? "🔒" : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
                     <line x1="16" y1="13" x2="8" y2="13" />
                     <line x1="16" y1="17" x2="8" y2="17" />
                   </svg>
-                ) : (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
                 )}
-                <span>Quiz</span>
-                {quizQuestions.length > 0 && isQuizUnlocked && (
-                  <span className={styles.learningTabCount}>{quizQuestions.length}</span>
-                )}
-              </button>
-            )}
-
-            {/* Notes Tab Button - hidden per user request */}
-
-            {stepMaterials.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("materials")}
-                className={`${styles.learningTabBtn} ${activeTab === "materials" ? styles.learningTabBtnActive : ""}`}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
-                <span>Materials</span>
-                <span className={styles.learningTabCount}>{stepMaterials.length}</span>
-              </button>
-            )}
-          </nav>
+              </span>
+              <div className={styles.flowStepText}>
+                <span className={styles.flowStepLabel}>Quiz</span>
+                <span className={styles.flowStepTitle}>
+                  {isQuizAlreadyPassed
+                    ? "Passed"
+                    : quizQuestions.length > 0 && isQuizUnlocked
+                    ? `${quizQuestions.length} Questions`
+                    : !isQuizUnlocked
+                    ? "Locked"
+                    : "Assessment"}
+                </span>
+              </div>
+              {activeTab === "quiz" && <span className={styles.flowStepActiveIndicator} aria-hidden="true" />}
+            </button>
+          )}
+        </nav>
 
           {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
           {activeTab === "video" && (
@@ -1563,80 +1752,6 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     )}
                   </div>
                 </div>
-
-                {/* Multi-video parts selector (Playlist) placed BELOW the video & details card */}
-                {videoLessons.length > 1 && (
-                  <div className={styles.multiVideoPlaylistCard}>
-                    <div className={styles.multiVideoPlaylistHeader}>
-                      <div className={styles.multiVideoPlaylistHeaderLeft}>
-                        <span className={styles.multiVideoPlaylistBadge}>
-                          Module Playlist ({videoLessons.length} Parts)
-                        </span>
-                        <span className={styles.multiVideoCurrentPart}>
-                          Part {activeLessonIndex + 1} of {videoLessons.length}: {currentMedia?.title}
-                        </span>
-                      </div>
-                      <span className={styles.multiVideoCounter}>
-                        {videoLessons.filter((v: any) => lessonProgress[v.id]?.isCompleted || lessonProgress[v.id]?.viewed).length}/{videoLessons.length} Completed
-                      </span>
-                    </div>
-
-                    <div className={styles.multiVideoTrackList} role="tablist">
-                      {videoLessons.map((l: any, idx: number) => {
-                        const isSelected = currentMedia?.id === l.id;
-                        const isDone = lessonProgress[l.id]?.isCompleted || lessonProgress[l.id]?.viewed;
-                        const isLocked = idx > 0 && !lessonProgress[videoLessons[idx - 1]?.id]?.isCompleted && !isDone;
-
-                        return (
-                          <button
-                            key={l.id}
-                            type="button"
-                            role="tab"
-                            aria-selected={isSelected}
-                            disabled={isLocked}
-                            onClick={() => {
-                              if (!isLocked) {
-                                setSelectedMediaId(l.id);
-                              }
-                            }}
-                            className={`${styles.multiVideoItemBtn} ${
-                              isSelected ? styles.multiVideoItemBtnActive : ""
-                            } ${isDone ? styles.multiVideoItemBtnDone : ""} ${
-                              isLocked ? styles.multiVideoItemBtnLocked : ""
-                            }`}
-                            title={isLocked ? "Complete previous video part to unlock" : l.title}
-                          >
-                            <div className={styles.multiVideoItemLeft}>
-                              <span className={styles.multiVideoItemPartNum}>
-                                {isDone ? "✓" : isLocked ? "🔒" : `${idx + 1}`}
-                              </span>
-                              <div className={styles.multiVideoItemMeta}>
-                                <strong className={styles.multiVideoItemTitle}>
-                                  Part {idx + 1}: {l.title || "Video Lesson"}
-                                </strong>
-                                <span className={styles.multiVideoItemDuration}>
-                                  {l.durationSec ? `${Math.ceil(l.durationSec / 60)} min` : "Video"}
-                                  {isDone ? " • Completed" : isSelected ? " • Now Playing" : isLocked ? " • Ready" : " • Ready"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className={styles.multiVideoItemRight}>
-                              {isSelected ? (
-                                <span className={styles.playingTag}>Playing</span>
-                              ) : isDone ? (
-                                <span className={styles.completedTag}>Watched</span>
-                              ) : isLocked ? (
-                                <span className={styles.lockedTag}>Locked</span>
-                              ) : (
-                                <span className={styles.startTag}>Start</span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Right Column: Personal Notes Widget & About Step Card */}
@@ -1850,113 +1965,166 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     </div>
                   </div>
 
-                  {/* Saved Notes Feed (Screenshot 2 format) */}
+                  {/* Saved Notes Feed with Debounced Search & Sort */}
                   {notes.length > 0 && (
-                    <div className={styles.savedNotesFeed}>
-                      {notes.map((n) => {
-                        const norm = normalizeStudentNote(n);
-                        const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
-                        return (
-                          <article key={n.id} className={styles.savedNoteCard}>
-                            <div className={styles.savedNoteTopRow}>
-                              <div className={styles.savedNoteTopLeft}>
-                                <span className={styles.savedNoteDocIcon} aria-label="note">
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                    <polyline points="14 2 14 8 20 8" />
-                                    <line x1="16" y1="13" x2="8" y2="13" />
-                                    <line x1="16" y1="17" x2="8" y2="17" />
-                                    <polyline points="10 9 9 9 8 9" />
-                                  </svg>
-                                </span>
-                                <h5 className={styles.savedNoteTitle} title={norm.noteTitle}>
-                                  {norm.noteTitle}
-                                </h5>
-                              </div>
+                    <>
+                      <div className={styles.savedNotesHeader}>
+                        <div className={styles.savedNotesHeading}>
+                          <span>Your Notes</span>
+                          <span className={styles.savedNotesHeadingBadge}>({displayedNotes.length})</span>
+                        </div>
 
-                              <div className={styles.savedNoteTopRight}>
-                                {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
-                                    className={styles.savedNoteTimestampBtn}
-                                    title="Jump video to this timestamp"
-                                  >
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                      <circle cx="12" cy="12" r="10" />
-                                      <polyline points="12 6 12 12 16 14" />
-                                    </svg>
-                                    <span>{norm.formattedTimestamp}</span>
-                                  </button>
-                                )}
+                        <div className={styles.savedNotesControls}>
+                          <select
+                            value={notesSort}
+                            onChange={(e) => setNotesSort(e.target.value as any)}
+                            className={styles.savedNotesSortSelect}
+                            aria-label="Sort notes"
+                          >
+                            <option value="recent">Recent</option>
+                            <option value="oldest">Oldest</option>
+                            <option value="favorite">Favorites</option>
+                          </select>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleNoteFavorite(n)}
-                                  className={styles.savedNoteStarBtn}
-                                  style={{ color: norm.isFavorite ? "#f59e0b" : "#cbd5e1" }}
-                                  title={norm.isFavorite ? "Remove favorite" : "Mark as favorite"}
-                                  aria-label="Toggle favorite"
-                                >
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill={norm.isFavorite ? "#f59e0b" : "none"} stroke={norm.isFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                  </svg>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingModalNote(norm);
-                                    setIsNoteModalOpen(true);
-                                  }}
-                                  className={styles.savedNoteEditBtn}
-                                  title="Edit this note in full editor"
-                                  aria-label="Edit note"
-                                >
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                  </svg>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteNote(n.id)}
-                                  className={styles.savedNoteDeleteBtn}
-                                  title="Delete note"
-                                  aria-label="Delete note"
-                                >
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <line x1="18" y1="6" x2="6" y2="18" />
-                                    <line x1="6" y1="6" x2="18" y2="18" />
-                                  </svg>
-                                </button>
-                              </div>
-                            </div>
-
-                            <div
-                              className={styles.savedNoteBody}
-                              dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                          <div className={styles.savedNotesSearchBox}>
+                            <span className={styles.savedNotesSearchIcon}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                              </svg>
+                            </span>
+                            <input
+                              type="text"
+                              value={notesSearch}
+                              onChange={(e) => setNotesSearch(e.target.value)}
+                              placeholder="Search..."
+                              className={styles.savedNotesSearchInput}
+                              aria-label="Filter notes"
                             />
+                          </div>
+                        </div>
+                      </div>
 
-                            <div className={styles.savedNoteFooter}>
-                              <span>
-                                {n.updatedAt ? `Updated ${new Date(n.updatedAt).toLocaleDateString()}` : "Saved"}
-                              </span>
-                              {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
-                                  style={{ background: "none", border: "none", color: "#ea580c", fontSize: "0.72rem", fontWeight: 600, cursor: "pointer", padding: 0 }}
-                                >
-                                  Go to Video Player &rarr;
-                                </button>
-                              )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
+                      <div className={styles.savedNotesFeed}>
+                        {displayedNotes.length === 0 ? (
+                          <div style={{ textAlign: "center", padding: "1.25rem 0.5rem", color: "#a8a29e", fontSize: "0.82rem" }}>
+                            No notes match &ldquo;{debouncedNotesSearch}&rdquo;
+                          </div>
+                        ) : (
+                          displayedNotes.map((n, nIdx) => {
+                            const norm = normalizeStudentNote(n);
+                            const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
+                            const palette = [
+                              { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" },
+                              { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" },
+                              { bg: "#f0fdf4", color: "#16a34a", border: "#bbf7d0" },
+                              { bg: "#faf5ff", color: "#9333ea", border: "#e9d5ff" },
+                            ][nIdx % 4] ?? { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" };
+
+                            return (
+                              <article key={n.id} className={styles.savedNoteCard}>
+                                <div className={styles.savedNoteTopRow}>
+                                  <div className={styles.savedNoteTopLeft}>
+                                    <span
+                                      className={styles.savedNoteDocIconBadge}
+                                      style={{ background: palette.bg, color: palette.color, border: `1px solid ${palette.border}` }}
+                                      aria-hidden="true"
+                                    >
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                        <polyline points="14 2 14 8 20 8" />
+                                      </svg>
+                                    </span>
+                                    <h5 className={styles.savedNoteTitle} title={norm.noteTitle}>
+                                      {norm.noteTitle}
+                                    </h5>
+                                  </div>
+
+                                  <div className={styles.savedNoteTopRight}>
+                                    {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
+                                        className={styles.savedNoteTimestampBtn}
+                                        title="Jump video to this timestamp"
+                                      >
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                          <circle cx="12" cy="12" r="10" />
+                                          <polyline points="12 6 12 12 16 14" />
+                                        </svg>
+                                        <span>{norm.formattedTimestamp}</span>
+                                      </button>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleNoteFavorite(n)}
+                                      className={styles.savedNoteStarBtn}
+                                      style={{ color: norm.isFavorite ? "#f59e0b" : "#cbd5e1" }}
+                                      title={norm.isFavorite ? "Remove favorite" : "Mark as favorite"}
+                                      aria-label="Toggle favorite"
+                                    >
+                                      <svg width="15" height="15" viewBox="0 0 24 24" fill={norm.isFavorite ? "#f59e0b" : "none"} stroke={norm.isFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                      </svg>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingModalNote(norm);
+                                        setIsNoteModalOpen(true);
+                                      }}
+                                      className={styles.savedNoteEditBtn}
+                                      title="Edit this note in full editor"
+                                      aria-label="Edit note"
+                                    >
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                      </svg>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteNote(n.id)}
+                                      className={styles.savedNoteDeleteBtn}
+                                      title="Delete note"
+                                      aria-label="Delete note"
+                                    >
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <line x1="18" y1="6" x2="6" y2="18" />
+                                        <line x1="6" y1="6" x2="18" y2="18" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={styles.savedNoteBody}
+                                  dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                                />
+
+                                <div className={styles.savedNoteFooter}>
+                                  <span>
+                                    {n.updatedAt ? `Updated ${new Date(n.updatedAt).toLocaleDateString()}` : "Saved"}
+                                  </span>
+                                  {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
+                                      style={{ background: "none", border: "none", color: "#ea580c", fontSize: "0.72rem", fontWeight: 600, cursor: "pointer", padding: 0 }}
+                                    >
+                                      Go to Video &rarr;
+                                    </button>
+                                  )}
+                                </div>
+                              </article>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -2432,7 +2600,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
               <div className={styles.materialsListStack}>
                 {stepMaterials
-                  .filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase()))
+                  .filter((m) => m.title.toLowerCase().includes(debouncedMaterialsSearch.toLowerCase()))
                   .map((m) => {
                     const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
                     const isDone = Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
@@ -2604,13 +2772,16 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   </div>
                 )}
 
-                {stepMaterials.filter((m) => m.title.toLowerCase().includes(materialsSearch.toLowerCase())).length === 0 && (
+                {stepMaterials.filter((m) => m.title.toLowerCase().includes(debouncedMaterialsSearch.toLowerCase())).length === 0 && (
                   <div className={styles.emptyStateCard} style={{ padding: "2rem", textAlign: "center" }}>
                     <p style={{ margin: 0, color: "#78716a" }}>
-                      No materials found matching &ldquo;{materialsSearch}&rdquo;
+                      No materials found matching &ldquo;{debouncedMaterialsSearch}&rdquo;
                     </p>
                   </div>
                 )}
+
+                {/* Materials Navigation Row (Previous Part / Next Part) */}
+                {renderMaterialsNavigationRow()}
               </div>
             </div>
           )}

@@ -256,6 +256,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [examAttempt, setExamAttempt] = useState<ExamAttemptSummary | null>(null);
   const [coachingRequests, setCoachingRequests] = useState<CoachingRequestItem[]>([]);
   const [missionSubmissions, setMissionSubmissions] = useState<MissionSubmissionItem[]>([]);
+  const [claimedCertificate, setClaimedCertificate] = useState<any | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -318,6 +319,12 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
           skipCache: isRetry,
         }).catch(() => null);
 
+        const certsPromise = cachedFetch(`${API_URL}/certificates/mine`, {
+          headers,
+          ttlMs: 15_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
         // 2. Await progression response to obtain verified enrolmentId & step completion status
         const res = await progPromise;
 
@@ -334,105 +341,144 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         const data: EnrolmentProgressionResponse = await res.json();
         const enrolmentId = data.enrolmentId;
 
-        // 3. Immediately trigger stages evaluation with known enrolmentId
-        const stagesPromise = enrolmentId
-          ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
+        // Extract unified milestone data provided directly by the server
+        let resolvedStages: any = data.stages || null;
+        let resolvedExamConfig: ExamConfigSummary | null = (data.examConfig as any) || null;
+        let resolvedAttempt: ExamAttemptSummary | null = (data.examAttempt as any) || null;
+        let resolvedCoaching: CoachingRequestItem[] = Array.isArray(data.coachingRequests)
+          ? data.coachingRequests
+          : [];
+        let resolvedMissions: MissionSubmissionItem[] = Array.isArray(data.missionSubmissions)
+          ? data.missionSubmissions
+          : [];
+        let resolvedCertificate: any = data.certificate || null;
+
+        // Secondary fallback queries only for fields not yet included in the response
+        const fallbackTasks: Promise<any>[] = [];
+
+        if (!resolvedStages && enrolmentId) {
+          fallbackTasks.push(
+            cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
               headers,
               ttlMs: 15_000,
               skipCache: isRetry,
-            }).catch(() => null)
-          : Promise.resolve(null);
-
-        // 4. Resolve exam config and trigger attempt query if configured
-        let resolvedExamConfig: ExamConfigSummary | null = null;
-        let attemptPromise: Promise<Response | null> = Promise.resolve(null);
-
-        const examRes = await examPromise;
-        if (examRes && examRes.ok) {
-          try {
-            resolvedExamConfig = await examRes.json();
-            if (resolvedExamConfig?.id) {
-              attemptPromise = cachedFetch(`${API_URL}/exams/${resolvedExamConfig.id}/attempt`, {
-                headers,
-                ttlMs: 15_000,
-                skipCache: isRetry,
-              }).catch(() => null);
-            }
-          } catch {
-            resolvedExamConfig = null;
-          }
+            })
+              .then((r) => (r && r.ok ? r.json() : null))
+              .then((s) => {
+                if (s) resolvedStages = s;
+              })
+              .catch(() => null)
+          );
         }
 
-        // 5. Concurrently resolve secondary milestone checks with a 3.5s timeout safety boundary
-        const [stagesRes, attRes, coachingRes, missionRes] = await Promise.race([
-          Promise.all([stagesPromise, attemptPromise, coachingPromise, missionPromise]),
-          new Promise<[null, null, null, null]>((resolve) =>
-            setTimeout(() => resolve([null, null, null, null]), 3500)
-          ),
-        ]);
-
-        let resolvedStages: any = null;
-        if (stagesRes && stagesRes.ok) {
-          try {
-            resolvedStages = await stagesRes.json();
-          } catch {
-            resolvedStages = null;
-          }
+        if (!resolvedExamConfig) {
+          fallbackTasks.push(
+            examPromise
+              .then(async (er) => {
+                if (er && er.ok) {
+                  const conf = await er.json().catch(() => null);
+                  if (conf) {
+                    resolvedExamConfig = conf;
+                    if (conf.id && !resolvedAttempt) {
+                      return cachedFetch(`${API_URL}/exams/${conf.id}/attempt`, {
+                        headers,
+                        ttlMs: 15_000,
+                        skipCache: isRetry,
+                      })
+                        .then((ar) => (ar && ar.ok ? ar.json() : null))
+                        .then((att) => {
+                          if (att) resolvedAttempt = att;
+                        })
+                        .catch(() => null);
+                    }
+                  }
+                }
+              })
+              .catch(() => null)
+          );
+        } else if (resolvedExamConfig?.id && !resolvedAttempt) {
+          fallbackTasks.push(
+            cachedFetch(`${API_URL}/exams/${resolvedExamConfig.id}/attempt`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
+              .then((ar) => (ar && ar.ok ? ar.json() : null))
+              .then((att) => {
+                if (att) resolvedAttempt = att;
+              })
+              .catch(() => null)
+          );
         }
 
-        let resolvedAttempt: ExamAttemptSummary | null = null;
-        if (attRes && attRes.ok) {
-          try {
-            const attText = await attRes.text();
-            if (attText && attText.trim()) {
-              resolvedAttempt = JSON.parse(attText);
-            }
-          } catch {
-            resolvedAttempt = null;
-          }
+        if (resolvedCoaching.length === 0) {
+          fallbackTasks.push(
+            coachingPromise
+              .then((cr) => (cr && cr.ok ? cr.json() : []))
+              .then((cList) => {
+                if (Array.isArray(cList) && cList.length > 0) {
+                  resolvedCoaching = enrolmentId
+                    ? cList.filter(
+                        (r: any) =>
+                          r.enrolmentId === enrolmentId ||
+                          r.enrolment?.id === enrolmentId ||
+                          r.enrolment?.programId === id ||
+                          r.enrolment?.program?.id === id
+                      )
+                    : cList;
+                }
+              })
+              .catch(() => null)
+          );
         }
 
-        let resolvedCoaching: CoachingRequestItem[] = [];
-        if (coachingRes && coachingRes.ok) {
-          try {
-            const cList = await coachingRes.json();
-            if (Array.isArray(cList)) {
-              resolvedCoaching = enrolmentId
-                ? cList.filter(
-                    (r: any) =>
-                      r.enrolmentId === enrolmentId ||
-                      r.enrolment?.id === enrolmentId ||
-                      r.enrolment?.programId === id ||
-                      r.enrolment?.program?.id === id
-                  )
-                : cList;
-            }
-          } catch {
-            resolvedCoaching = [];
-          }
+        if (resolvedMissions.length === 0) {
+          fallbackTasks.push(
+            missionPromise
+              .then((mr) => (mr && mr.ok ? mr.json() : []))
+              .then((mList) => {
+                if (Array.isArray(mList) && mList.length > 0) {
+                  resolvedMissions = enrolmentId
+                    ? mList.filter((m: any) => m.enrolmentId === enrolmentId)
+                    : mList;
+                }
+              })
+              .catch(() => null)
+          );
         }
 
-        let resolvedMissions: MissionSubmissionItem[] = [];
-        if (missionRes && missionRes.ok) {
-          try {
-            const mList = await missionRes.json();
-            if (Array.isArray(mList)) {
-              resolvedMissions = enrolmentId
-                ? mList.filter((m: any) => m.enrolmentId === enrolmentId)
-                : mList;
-            }
-          } catch {
-            resolvedMissions = [];
-          }
+        if (!resolvedCertificate) {
+          fallbackTasks.push(
+            certsPromise
+              .then((cr) => (cr && cr.ok ? cr.json() : []))
+              .then((cList) => {
+                if (Array.isArray(cList) && cList.length > 0) {
+                  const match = cList.find(
+                    (c: any) =>
+                      (enrolmentId && c.enrolmentId === enrolmentId) ||
+                      c.programId === id ||
+                      c.enrolment?.programId === id ||
+                      c.enrolment?.id === enrolmentId
+                  );
+                  if (match) resolvedCertificate = match;
+                }
+              })
+              .catch(() => null)
+          );
         }
 
-        // 6. Atomically commit all unified learning journey states together before lifting loading
+        if (fallbackTasks.length > 0) {
+          await Promise.all(fallbackTasks);
+        }
+
+        // Atomically commit all unified learning journey states together before lifting loading
         setProgression(data);
         if (resolvedStages) setStagesEval(resolvedStages);
         if (resolvedExamConfig) setExamConfig(resolvedExamConfig);
         if (resolvedAttempt) setExamAttempt(resolvedAttempt);
         setCoachingRequests(resolvedCoaching);
         setMissionSubmissions(resolvedMissions);
+        if (resolvedCertificate) setClaimedCertificate(resolvedCertificate);
         setLoading(false);
       } catch (err: any) {
         if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch"))) {
@@ -766,11 +812,18 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const isMissionRequirementMet =
     !isMissionRequired || isMissionApproved || stage5State?.isOverridden === true;
 
+  const cert = claimedCertificate || progression?.certificate || null;
+  const isCertificateClaimed = Boolean(
+    cert && (cert.status === "ISSUED" || cert.status === "APPROVED" || cert.certificateCode || cert.id)
+  );
+  const certificateCode = cert?.certificateCode || cert?.certificateNumber || null;
+
   const isCertificateUnlocked = Boolean(
-    allStepsCompleted &&
-    isExamPassed &&
-    isCoachingRequirementMet &&
-    isMissionRequirementMet
+    isCertificateClaimed ||
+    (allStepsCompleted &&
+      isExamPassed &&
+      isCoachingRequirementMet &&
+      isMissionRequirementMet)
   );
 
   const journeyProgress = computeUnifiedJourneyProgress({
@@ -2334,57 +2387,96 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       ========================================================= */}
                   <li
                     className={`${styles.step} ${
-                      isCertificateUnlocked
+                      isCertificateClaimed
                         ? styles.stepDone
+                        : isCertificateUnlocked
+                        ? styles.stepCurrent
                         : current && current.sequence === total
                         ? styles.stepCurrent
                         : styles.stepLocked
                     }`}
                     style={{
-                      borderLeftColor: isCertificateUnlocked ? "#eab308" : undefined,
+                      borderLeftColor: isCertificateClaimed
+                        ? "#16a34a"
+                        : isCertificateUnlocked
+                        ? "#eab308"
+                        : undefined,
                     }}
                   >
                     <span
                       className={styles.marker}
                       style={{
-                        background: isCertificateUnlocked ? "linear-gradient(135deg, #eab308, #ca8a04)" : undefined,
-                        color: isCertificateUnlocked ? "#ffffff" : undefined,
-                        borderColor: isCertificateUnlocked ? "#ca8a04" : undefined,
+                        background: isCertificateClaimed
+                          ? "#16a34a"
+                          : isCertificateUnlocked
+                          ? "linear-gradient(135deg, #eab308, #ca8a04)"
+                          : undefined,
+                        color: isCertificateClaimed || isCertificateUnlocked ? "#ffffff" : undefined,
+                        borderColor: isCertificateClaimed
+                          ? "#16a34a"
+                          : isCertificateUnlocked
+                          ? "#ca8a04"
+                          : undefined,
                       }}
                       aria-hidden="true"
                     >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="6" />
-                        <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                      </svg>
+                      {isCertificateClaimed ? (
+                        Check
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="8" r="6" />
+                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                        </svg>
+                      )}
                     </span>
 
                     <div className={styles.stepBody}>
-                      <p className={styles.kicker} style={{ color: isCertificateUnlocked ? "#854d0e" : undefined }}>
-                        Final Milestone
+                      <p className={styles.kicker} style={{ color: isCertificateClaimed ? "#16a34a" : isCertificateUnlocked ? "#854d0e" : undefined }}>
+                        <span>Final Milestone</span>
+                        {isCertificateClaimed && (
+                          <span className={styles.quizPassedBadge}>✓ Issued</span>
+                        )}
                       </p>
-                      <h3 className={styles.stepTitle} style={{ color: isCertificateUnlocked ? "#854d0e" : undefined }}>
+                      <h3 className={styles.stepTitle} style={{ color: isCertificateClaimed ? undefined : isCertificateUnlocked ? "#854d0e" : undefined }}>
                         Certificate of Completion
                       </h3>
                       <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                        {isCertificateUnlocked
+                        {isCertificateClaimed
+                          ? `✓ Certificate #${certificateCode || "Issued"} has been awarded! You can view, download, or share your official credential.`
+                          : isCertificateUnlocked
                           ? "✓ All curriculum steps, Final Exam, 1-on-1 Coaching, and Mission Statement completed! Your verified certificate is ready."
                           : `Complete all ${total} steps, the 50-Mark Final Examination, 1-on-1 Coaching, and Mission Statement to unlock your official credential.`}
                       </p>
                     </div>
 
                     <div className={styles.stepActionCol}>
-                      <Link
-                        href={`/programs/${id}/certificate`}
-                        className={isCertificateUnlocked ? styles.startBtn : styles.reviewBtn}
-                        style={{
-                          background: isCertificateUnlocked ? "linear-gradient(135deg, #eab308, #ca8a04)" : undefined,
-                          borderColor: isCertificateUnlocked ? "#ca8a04" : undefined,
-                          color: isCertificateUnlocked ? "#ffffff" : undefined,
-                        }}
-                      >
-                        {isCertificateUnlocked ? "Claim Certificate" : "Check Status"}
-                      </Link>
+                      {isCertificateClaimed ? (
+                        <Link
+                          href={`/programs/${id}/certificate`}
+                          className={styles.reviewBtn}
+                        >
+                          View Certificate
+                        </Link>
+                      ) : isCertificateUnlocked ? (
+                        <Link
+                          href={`/programs/${id}/certificate`}
+                          className={styles.startBtn}
+                          style={{
+                            background: "linear-gradient(135deg, #eab308, #ca8a04)",
+                            borderColor: "#ca8a04",
+                            color: "#ffffff",
+                          }}
+                        >
+                          Claim Certificate
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/programs/${id}/certificate`}
+                          className={styles.reviewBtn}
+                        >
+                          Check Status
+                        </Link>
+                      )}
                     </div>
                   </li>
                 </ol>

@@ -878,6 +878,11 @@ export interface EnrolmentProgressionResponse {
   totalItems?: number;
   completedItems?: number;
   certificate?: any;
+  stages?: any;
+  examConfig?: any;
+  examAttempt?: any;
+  coachingRequests?: any[];
+  missionSubmissions?: any[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

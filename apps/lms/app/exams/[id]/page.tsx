@@ -1195,7 +1195,7 @@ export default function ExamPage({
               </p>
               <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
                 <Link
-                  href={`/programs/${config?.programId || paramId}/steps`}
+                  href={`/programs/${config?.programId || paramId}/steps?welcomeBack=1`}
                   style={{
                     backgroundColor: "#c97a1e",
                     color: "white",

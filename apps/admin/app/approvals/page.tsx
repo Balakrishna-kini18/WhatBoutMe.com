@@ -1571,7 +1571,7 @@ export default function ApprovalsPage() {
                     </tr>
                   ) : (
                     filteredMissions.map((m) => {
-                      const fileLink = m.fileUrl.startsWith("http")
+                      const fileLink = (m.fileUrl.startsWith("http") || m.fileUrl.startsWith("data:"))
                         ? m.fileUrl
                         : `${API_URL}/mission-statements/${m.id}/file`;
                       const sizeMb = (m.sizeBytes / (1024 * 1024)).toFixed(2);
@@ -2312,7 +2312,7 @@ export default function ApprovalsPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
               <a
                 href={
-                  previewMissionDoc.fileUrl.startsWith("http")
+                  (previewMissionDoc.fileUrl.startsWith("http") || previewMissionDoc.fileUrl.startsWith("data:"))
                     ? previewMissionDoc.fileUrl
                     : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
                 }
@@ -2368,10 +2368,13 @@ export default function ApprovalsPage() {
           }
         >
           {(() => {
-            const docFileUrl = previewMissionDoc.fileUrl.startsWith("http")
+            const isDataUri = previewMissionDoc.fileUrl.startsWith("data:");
+            const docFileUrl = (previewMissionDoc.fileUrl.startsWith("http") || isDataUri)
               ? previewMissionDoc.fileUrl
               : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
-            const isImage = (previewMissionDoc.mimeType || "").includes("image");
+            const isImage = (previewMissionDoc.mimeType || "").includes("image") ||
+              (isDataUri && previewMissionDoc.fileUrl.startsWith("data:image/")) ||
+              docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
 
             return (
               <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -2439,8 +2442,8 @@ export default function ApprovalsPage() {
                       <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff" }}>
                         Document Preview Unavailable Inline
                       </div>
-                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#a1a1aa", maxWidth: 400, lineHeight: 1.5 }}>
-                        This file format or browser environment does not support embedded inline rendering. You can open the file directly in a new browser tab or download it below.
+                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#a1a1aa", maxWidth: 440, lineHeight: 1.5 }}>
+                        The document could not be previewed inline, or was submitted as an empty/corrupted file. You can open the file in a new tab, or use &ldquo;Request Revisions&rdquo; below so the learner can re-upload their mission statement.
                       </p>
                       <a
                         href={docFileUrl}
@@ -2471,7 +2474,13 @@ export default function ApprovalsPage() {
                     <img
                       src={docFileUrl}
                       alt="Learner Mission Statement"
-                      onLoad={() => {
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+                          setPreviewLoading(false);
+                          setPreviewError(true);
+                          return;
+                        }
                         setPreviewLoading(false);
                         setPreviewError(false);
                       }}

@@ -439,7 +439,6 @@ export class StageGateService {
     const stage4Unlocked = !isSequential || (stage3Unlocked && stage3Met);
     const stage4Overridden = overriddenStages.has(LearnerStage.STAGE_4_ONE_ON_ONE);
     const completedOneOnOne = oneOnOneSessions.find((s) => {
-      const isCompletedStatus = s.status === SessionStatus.COMPLETED;
       const isBookingAttended = s.bookings.some((b) => b.status === BookingStatus.ATTENDED);
       const isAttendancePresent = s.attendances.some(
         (a) =>
@@ -450,7 +449,13 @@ export class StageGateService {
           a.status === (AttendanceStatus as any).PRESENT_LIVE ||
           a.status === (AttendanceStatus as any).PRESENT_RECORDED,
       );
-      return isCompletedStatus || isBookingAttended || isAttendancePresent;
+      // Dedicated 1-on-1 session created directly for this learner
+      const isDedicatedCompletedSession =
+        (s.sessionType === SessionType.ONE_ON_ONE || s.sessionType === SessionType.ONE_ON_ONE_WITH_RO) &&
+        (s as any).learnerId === enrolment.userId &&
+        s.status === SessionStatus.COMPLETED;
+
+      return isBookingAttended || isAttendancePresent || isDedicatedCompletedSession;
     });
 
     const scheduledOneOnOne =
@@ -471,23 +476,35 @@ export class StageGateService {
       !pendingOneOnOneRequest &&
       latestOneOnOneRequest?.status === OneOnOneRequestStatus.REJECTED;
 
+    const coachingGenuinelyCompleted = Boolean(completedOneOnOne) || stage4Overridden;
     const hasCompletedOneOnOne = Boolean(completedOneOnOne || enrolment.oneOnOneCompletedAt);
     const stage4Met =
       stage4Overridden ||
       isCorporateTrack ||
       !isCoachingRequired ||
-      (stage4Unlocked && hasCompletedOneOnOne);
-    const stage4CompletedAt = stage4Met
+      (stage4Unlocked && coachingGenuinelyCompleted);
+    const stage4CompletedAt = coachingGenuinelyCompleted
       ? enrolment.oneOnOneCompletedAt || completedOneOnOne?.endTime || new Date()
       : null;
 
-    if (stage4Met && !enrolment.oneOnOneCompletedAt && this.prisma.enrolment?.update) {
+    if (coachingGenuinelyCompleted && !enrolment.oneOnOneCompletedAt && this.prisma.enrolment?.update) {
       await this.prisma.enrolment
         .update({
           where: { id: enrolment.id },
           data: { oneOnOneCompletedAt: stage4CompletedAt },
         })
         .catch((err) => this.logger.warn(`Failed to update oneOnOneCompletedAt: ${err.message}`));
+    }
+
+    // Auto-heal: If coaching is required but was not genuinely completed, clear phantom timestamp
+    if (isCoachingRequired && !coachingGenuinelyCompleted && enrolment.oneOnOneCompletedAt && this.prisma.enrolment?.update) {
+      await this.prisma.enrolment
+        .update({
+          where: { id: enrolment.id },
+          data: { oneOnOneCompletedAt: null },
+        })
+        .catch((err) => this.logger.warn(`Failed to clear phantom oneOnOneCompletedAt: ${err.message}`));
+      enrolment.oneOnOneCompletedAt = null;
     }
 
     // ── STAGE 5: MISSION STATEMENT ───────────────────────────────────────────
@@ -497,22 +514,34 @@ export class StageGateService {
       (m) => m.status === MissionStatementStatus.APPROVED,
     );
 
+    const missionGenuinelyApproved = Boolean(approvedMission) || stage5Overridden;
     const stage5Met =
       stage5Overridden ||
       isCorporateTrack ||
       !isMissionRequired ||
-      (stage5Unlocked && Boolean(approvedMission || enrolment.missionStatementApprovedAt));
-    const stage5CompletedAt = stage5Met
+      (stage5Unlocked && missionGenuinelyApproved);
+    const stage5CompletedAt = missionGenuinelyApproved
       ? enrolment.missionStatementApprovedAt || approvedMission?.reviewedAt || new Date()
       : null;
 
-    if (stage5Met && !enrolment.missionStatementApprovedAt && this.prisma.enrolment?.update) {
+    if (missionGenuinelyApproved && !enrolment.missionStatementApprovedAt && this.prisma.enrolment?.update) {
       await this.prisma.enrolment
         .update({
           where: { id: enrolment.id },
           data: { missionStatementApprovedAt: stage5CompletedAt },
         })
         .catch((err) => this.logger.warn(`Failed to update missionStatementApprovedAt: ${err.message}`));
+    }
+
+    // Auto-heal: If mission statement is required but was not genuinely approved, clear phantom timestamp
+    if (isMissionRequired && !missionGenuinelyApproved && enrolment.missionStatementApprovedAt && this.prisma.enrolment?.update) {
+      await this.prisma.enrolment
+        .update({
+          where: { id: enrolment.id },
+          data: { missionStatementApprovedAt: null },
+        })
+        .catch((err) => this.logger.warn(`Failed to clear phantom missionStatementApprovedAt: ${err.message}`));
+      enrolment.missionStatementApprovedAt = null;
     }
 
     const stages: Record<LearnerStage, StageStatus> = {
@@ -588,11 +617,14 @@ export class StageGateService {
       [LearnerStage.STAGE_4_ONE_ON_ONE]: {
         stage: LearnerStage.STAGE_4_ONE_ON_ONE,
         isUnlocked: stage4Unlocked,
-        isCompleted: stage4Met,
+        isCompleted: isCoachingRequired ? coachingGenuinelyCompleted : stage4Met,
         isOverridden: stage4Overridden,
         completedAt: stage4CompletedAt,
         details: {
-          callStatus: stage4Met || hasCompletedOneOnOne
+          isRequired: isCoachingRequired,
+          isAttended: Boolean(completedOneOnOne),
+          isGenuinelyCompleted: coachingGenuinelyCompleted,
+          callStatus: stage4Met || coachingGenuinelyCompleted || hasCompletedOneOnOne
             ? 'COMPLETED'
             : scheduledOneOnOne
             ? 'SCHEDULED'
@@ -601,7 +633,7 @@ export class StageGateService {
             : isOneOnOneRejected
             ? 'REJECTED'
             : 'NOT_BOOKED',
-          isCallCompleted: hasCompletedOneOnOne,
+          isCallCompleted: Boolean(coachingGenuinelyCompleted || hasCompletedOneOnOne),
           isScheduled: Boolean(scheduledOneOnOne),
           scheduledSessionId: scheduledOneOnOne?.id ?? null,
           scheduledSessionTitle: scheduledOneOnOne?.title ?? null,
@@ -610,8 +642,8 @@ export class StageGateService {
           pendingRequestId: pendingOneOnOneRequest?.id ?? null,
           requestedStart: pendingOneOnOneRequest?.requestedStart ?? null,
           isRejected: Boolean(isOneOnOneRejected),
-          completedSessionId: (stage4Met || hasCompletedOneOnOne) ? (completedOneOnOne?.id ?? null) : null,
-          completedSessionTitle: (stage4Met || hasCompletedOneOnOne) ? (completedOneOnOne?.title ?? null) : null,
+          completedSessionId: (stage4Met || coachingGenuinelyCompleted || hasCompletedOneOnOne) ? (completedOneOnOne?.id ?? null) : null,
+          completedSessionTitle: (stage4Met || coachingGenuinelyCompleted || hasCompletedOneOnOne) ? (completedOneOnOne?.title ?? null) : null,
         },
         unmetPrerequisites: stage4Unlocked
           ? !stage4Met
@@ -622,10 +654,13 @@ export class StageGateService {
       [LearnerStage.STAGE_5_MISSION_STATEMENT]: {
         stage: LearnerStage.STAGE_5_MISSION_STATEMENT,
         isUnlocked: stage5Unlocked,
-        isCompleted: stage5Met,
+        isCompleted: isMissionRequired ? missionGenuinelyApproved : stage5Met,
         isOverridden: stage5Overridden,
         completedAt: stage5CompletedAt,
         details: {
+          isRequired: isMissionRequired,
+          isApproved: Boolean(approvedMission),
+          isGenuinelyCompleted: missionGenuinelyApproved,
           submissionCount: missionSubmissions.length,
           latestStatus: missionSubmissions[0]?.status ?? (enrolment.missionStatementApprovedAt ? 'APPROVED' : null),
           isMissionApproved: Boolean(approvedMission || enrolment.missionStatementApprovedAt),

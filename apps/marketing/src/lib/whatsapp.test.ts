@@ -8,6 +8,33 @@ describe("buildWhatsAppEnquiryUrl", () => {
     process.env.NEXT_PUBLIC_WHATSAPP_NUMBER = originalEnv;
   });
 
+  it("uses default WhatsApp number 7899447024 (917899447024) when env and phone are omitted", () => {
+    delete process.env.NEXT_PUBLIC_WHATSAPP_NUMBER;
+
+    const url = buildWhatsAppEnquiryUrl({
+      name: "Roweena Fan",
+      email: "fan@example.com",
+      userPhone: "+91 99999 88888",
+      message: "Hello from Bangalore",
+    });
+
+    expect(url.startsWith("https://wa.me/917899447024?text=")).toBe(true);
+  });
+
+  it("automatically prepends India country code 91 if a 10-digit Indian phone number is passed", () => {
+    delete process.env.NEXT_PUBLIC_WHATSAPP_NUMBER;
+
+    const url = buildWhatsAppEnquiryUrl({
+      phone: "7899447024",
+      name: "Test User",
+      email: "test@example.com",
+      userPhone: "+91 7899447024",
+      message: "Testing 10-digit format",
+    });
+
+    expect(url.startsWith("https://wa.me/917899447024?text=")).toBe(true);
+  });
+
   it("strips +, spaces, hyphens, and brackets from the business phone number", () => {
     const url = buildWhatsAppEnquiryUrl({
       phone: "+971 (50) 123-4567",

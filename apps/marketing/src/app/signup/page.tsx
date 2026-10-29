@@ -5,9 +5,14 @@ import Link from "next/link";
 import { ArrowRight, ArrowLeft, ShieldCheck, CheckCircle2, RefreshCw, Edit3 } from "lucide-react";
 import AuthShell from "@/components/site/AuthShell";
 import PasswordField from "@/components/site/PasswordField";
-import GoogleButton, { GOOGLE_NOT_READY } from "@/components/site/GoogleButton";
 import SearchableSelect from "@/components/site/SearchableSelect";
-import { COUNTRIES, getTimezones, canonicalizeTimezone } from "@/lib/geo-data";
+import {
+  getTimezones,
+  canonicalizeTimezone,
+  getCountryData,
+  getCountryOptions,
+  findCountryByTimezone,
+} from "@/lib/geo-data";
 import { signUp, sendSignupOtp, portalUrl, continueToPortal } from "@/lib/auth";
 import {
   buildAuthHref,
@@ -32,12 +37,22 @@ export default function SignupPage() {
   const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
 
   const timezones = useMemo(() => getTimezones(), []);
+  const countryOptions = useMemo(() => getCountryOptions(), []);
+  const currentCountryData = useMemo(() => getCountryData(country), [country]);
 
   useEffect(() => {
     try {
       const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       if (userTz) {
-        setTimezone(canonicalizeTimezone(userTz));
+        const canonicalTz = canonicalizeTimezone(userTz);
+        const detectedCountry = findCountryByTimezone(canonicalTz);
+        if (detectedCountry) {
+          setCountry(detectedCountry);
+          const cData = getCountryData(detectedCountry);
+          setTimezone(canonicalTz || cData.defaultTimezone);
+        } else {
+          setTimezone(canonicalTz);
+        }
       }
     } catch {
       // Fall back to default
@@ -59,6 +74,25 @@ export default function SignupPage() {
       continueToPortal(redirectFromUrl);
     }
   }, []);
+
+  const handleCountryChange = (newCountry: string) => {
+    setCountry(newCountry);
+    const cData = getCountryData(newCountry);
+    if (cData.defaultTimezone) {
+      setTimezone(cData.defaultTimezone);
+    }
+  };
+
+  const getNormalizedPhone = () => {
+    const clean = mobile.trim();
+    if (!clean) return undefined;
+    if (clean.startsWith("+")) return clean;
+    const dialDigits = currentCountryData.dialCode.replace("+", "");
+    if (clean.startsWith(dialDigits)) {
+      return `+${clean}`;
+    }
+    return `${currentCountryData.dialCode} ${clean}`;
+  };
 
   // Countdown timer for OTP resend
   useEffect(() => {
@@ -95,12 +129,21 @@ export default function SignupPage() {
       return;
     }
 
+    const cleanPhone = mobile.trim();
+    if (cleanPhone) {
+      const digits = cleanPhone.replace(/\D/g, "");
+      if (digits.length < 6 || digits.length > 15) {
+        setError("Please enter a valid phone number or leave it blank.");
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       await sendSignupOtp({
         name: name.trim(),
         email: email.trim(),
-        phone: mobile.trim() || undefined,
+        phone: getNormalizedPhone(),
       });
       setStep("otp");
       setResendCountdown(30);
@@ -121,7 +164,7 @@ export default function SignupPage() {
       await sendSignupOtp({
         name: name.trim(),
         email: email.trim(),
-        phone: mobile.trim() || undefined,
+        phone: getNormalizedPhone(),
       });
       setResendCountdown(30);
       setResendMessage("A new verification code has been sent to your email.");
@@ -148,7 +191,7 @@ export default function SignupPage() {
       await signUp({
         name: name.trim(),
         email: email.trim(),
-        phone: mobile.trim() || undefined,
+        phone: getNormalizedPhone(),
         country: country.trim() || undefined,
         timezone: timezone.trim() || undefined,
         password,
@@ -332,6 +375,58 @@ export default function SignupPage() {
 
       <form onSubmit={onDetailsSubmit} className="mt-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Country (First) */}
+          <div>
+            <label htmlFor="country" className="mb-1 block text-xs font-medium text-ink">
+              Country
+            </label>
+            <SearchableSelect
+              id="country"
+              value={country}
+              onChange={handleCountryChange}
+              options={countryOptions}
+              placeholder="Select Country"
+              searchPlaceholder="Search country or code..."
+              required
+            />
+          </div>
+
+          {/* Phone Number */}
+          <div>
+            <label htmlFor="mobile" className="mb-1 block text-xs font-medium text-ink">
+              Phone <span className="text-ink-soft font-normal">(optional)</span>
+            </label>
+            <div className="flex h-11 w-full items-center rounded-xl border border-transparent bg-sand transition-colors focus-within:border-gold-deep focus-within:bg-white overflow-hidden">
+              <div
+                className="flex h-full items-center gap-1.5 border-r border-line/20 bg-black/[0.03] px-3 text-xs font-medium text-ink select-none shrink-0"
+                title={`${currentCountryData.name} (${currentCountryData.dialCode})`}
+              >
+                <span className="text-base leading-none" role="img" aria-label={currentCountryData.name}>
+                  {currentCountryData.flag}
+                </span>
+                <span className="font-semibold text-ink-soft">{currentCountryData.dialCode}</span>
+              </div>
+              <input
+                id="mobile"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={mobile}
+                onChange={(e) => {
+                  let val = e.target.value;
+                  if (val.startsWith(currentCountryData.dialCode)) {
+                    val = val.slice(currentCountryData.dialCode.length).trim();
+                  } else if (val.startsWith(currentCountryData.dialCode.replace("+", ""))) {
+                    val = val.slice(currentCountryData.dialCode.replace("+", "").length).trim();
+                  }
+                  setMobile(val);
+                }}
+                placeholder={currentCountryData.placeholder}
+                className="h-full w-full bg-transparent px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-soft/50"
+              />
+            </div>
+          </div>
+
           {/* Full Name */}
           <div>
             <label htmlFor="name" className="mb-1 block text-xs font-medium text-ink">
@@ -366,57 +461,6 @@ export default function SignupPage() {
             />
           </div>
 
-          {/* Phone Number */}
-          <div>
-            <label htmlFor="mobile" className="mb-1 block text-xs font-medium text-ink">
-              Phone <span className="text-ink-soft">(optional)</span>
-            </label>
-            <input
-              id="mobile"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              pattern="[+0-9][0-9 ()\-]{6,}"
-              title="Enter your mobile number with country code, for example +91 9876543210"
-              value={mobile}
-              onChange={(e) => setMobile(e.target.value)}
-              placeholder="+91 9876543210"
-              className={INPUT_FIELD}
-            />
-          </div>
-
-          {/* Country */}
-          <div>
-            <label htmlFor="country" className="mb-1 block text-xs font-medium text-ink">
-              Country
-            </label>
-            <SearchableSelect
-              id="country"
-              value={country}
-              onChange={setCountry}
-              options={COUNTRIES}
-              placeholder="Select Country"
-              searchPlaceholder="Search country..."
-              required
-            />
-          </div>
-
-          {/* Timezone */}
-          <div>
-            <label htmlFor="timezone" className="mb-1 block text-xs font-medium text-ink">
-              Timezone
-            </label>
-            <SearchableSelect
-              id="timezone"
-              value={timezone}
-              onChange={setTimezone}
-              options={timezones}
-              placeholder="Select Timezone"
-              searchPlaceholder="Search city or timezone..."
-              required
-            />
-          </div>
-
           {/* Password */}
           <div>
             <label htmlFor="password" className="mb-1 block text-xs font-medium text-ink">
@@ -428,6 +472,25 @@ export default function SignupPage() {
               autoComplete="new-password"
               minLength={8}
               className="h-11 py-2.5 text-sm"
+            />
+          </div>
+
+          {/* Timezone */}
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <label htmlFor="timezone" className="block text-xs font-medium text-ink">
+                Timezone
+              </label>
+              <span className="text-[10px] text-ink-soft">Auto-set by country</span>
+            </div>
+            <SearchableSelect
+              id="timezone"
+              value={timezone}
+              onChange={setTimezone}
+              options={timezones}
+              placeholder="Select Timezone"
+              searchPlaceholder="Search city or timezone..."
+              required
             />
           </div>
         </div>
@@ -448,9 +511,7 @@ export default function SignupPage() {
         </button>
       </form>
 
-      <GoogleButton onClick={() => setError(GOOGLE_NOT_READY)} />
-
-      <p className="mt-3 text-center text-xs text-ink-soft">
+      <p className="mt-5 text-center text-xs text-ink-soft">
         Already have an account?{" "}
         <Link
           href={buildAuthHref("/login", activeRedirect)}

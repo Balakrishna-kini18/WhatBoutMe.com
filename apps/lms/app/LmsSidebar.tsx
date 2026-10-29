@@ -2,9 +2,11 @@
 
 import styles from "./layout.module.css";
 import Link from "next/link";
-import { useEffect, useState, useRef } from "react";
+import Image from "next/image";
+import { useEffect, useState, useCallback } from "react";
 import { usePathname } from "next/navigation";
-import { SITE_URL, signOutEverywhere, toSite } from "./lib/site";
+import { signOutEverywhere } from "./lib/site";
+import SidebarPromoCard from "./components/SidebarPromoCard";
 
 interface UserData {
   id: string;
@@ -14,22 +16,22 @@ interface UserData {
   enrolledPrograms?: { batchName: string; programTitle: string }[];
 }
 
-// Crisp inline SVGs for the sidebar icons matching the reference design
+// Crisp inline SVGs matching the reference UI design exactly
 const Icons = {
   Dashboard: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
       <polyline points="9 22 9 12 15 12 15 22"></polyline>
     </svg>
   ),
   Courses: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
     </svg>
   ),
   Notes: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
       <polyline points="14 2 14 8 20 8"></polyline>
       <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -38,7 +40,7 @@ const Icons = {
     </svg>
   ),
   Sessions: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
       <line x1="16" y1="2" x2="16" y2="6"></line>
       <line x1="8" y1="2" x2="8" y2="6"></line>
@@ -46,52 +48,55 @@ const Icons = {
     </svg>
   ),
   Attendance: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9 11l3 3L22 4"></path>
       <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
     </svg>
   ),
-  Coaching: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+  Certificates: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="7"></circle>
+      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline>
+    </svg>
+  ),
+  Events: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
       <circle cx="9" cy="7" r="4"></circle>
       <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
       <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
     </svg>
   ),
-  Mission: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-    </svg>
-  ),
-  Certificates: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="7"></circle>
-      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline>
-    </svg>
-  ),
-  Events: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"></path>
-      <path d="M13 5v2"></path>
-      <path d="M13 17v2"></path>
-      <path d="M13 11v2"></path>
+  Settings: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
     </svg>
   ),
   Logout: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
       <polyline points="16 17 21 12 16 7"></polyline>
       <line x1="21" y1="12" x2="9" y2="12"></line>
     </svg>
   ),
-  Chevron: () => (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  ChevronDown: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="6 9 12 15 18 9"></polyline>
     </svg>
   ),
+  CollapseLeft: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="15 18 9 12 15 6"></polyline>
+    </svg>
+  ),
+  CollapseRight: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  ),
   Close: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
@@ -104,8 +109,41 @@ export default function LmsSidebar() {
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
+  // Initialize collapsed preference from localStorage
+  useEffect(() => {
+    try {
+      const savedCollapsed = localStorage.getItem("wbm_sidebar_collapsed") === "true";
+      setCollapsed(savedCollapsed);
+      if (savedCollapsed) {
+        document.documentElement.setAttribute("data-sidebar-collapsed", "true");
+      } else {
+        document.documentElement.removeAttribute("data-sidebar-collapsed");
+      }
+    } catch {
+      // Fallback silently if localStorage is restricted
+    }
+  }, []);
 
+  const toggleSidebarCollapse = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("wbm_sidebar_collapsed", next ? "true" : "false");
+        if (next) {
+          document.documentElement.setAttribute("data-sidebar-collapsed", "true");
+        } else {
+          document.documentElement.removeAttribute("data-sidebar-collapsed");
+        }
+      } catch {
+        // Fallback silently
+      }
+      return next;
+    });
+  }, []);
+
+  // Sync user state from localStorage and backend
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
     if (storedUser) {
@@ -137,8 +175,6 @@ export default function LmsSidebar() {
     }
   }, [pathname]);
 
-
-
   // Reset modal state on route change
   useEffect(() => {
     setShowSignOutConfirm(false);
@@ -164,8 +200,16 @@ export default function LmsSidebar() {
         setLogoutError(null);
       }
     };
+    if (showSignOutConfirm) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showSignOutConfirm, isLoggingOut]);
 
   const openSignOutConfirm = () => {
@@ -205,12 +249,12 @@ export default function LmsSidebar() {
   const displayName = (user?.name ? user.name.split(" ")[0] : null) || "sahyadri";
   const initial = (displayName.charAt(0) || "S").toUpperCase();
 
-  // Mobile Bottom Tab Bar
+  // Mobile Bottom Tab Bar (shown only on viewport <= 900px)
   const mobileTabs = [
     { href: "/", label: "Home", icon: <Icons.Dashboard />, active: pathname === "/" },
     { href: "/courses", label: "Courses", icon: <Icons.Courses />, active: pathname === "/courses" || pathname.startsWith("/programs") || pathname.startsWith("/steps") },
     { href: "/notes", label: "Notes", icon: <Icons.Notes />, active: pathname === "/notes" },
-    { href: "/profile", label: "Profile", icon: <Icons.Chevron />, active: pathname === "/profile" },
+    { href: "/profile", label: "Profile", icon: <Icons.ChevronDown />, active: pathname === "/profile" },
   ];
 
   return (
@@ -230,128 +274,171 @@ export default function LmsSidebar() {
         ))}
       </nav>
 
-      {/* Desktop Left Sidebar (240px Fixed) */}
-      <aside className={styles.sidebar}>
-        {/* 1. Top Brand Logo: whatboutme with warm orange heart */}
-        <div className={styles.logo}>
-          <Link href="/" className={styles.brandLink} aria-label="WhatBoutMe Learner Portal">
-            <div className={styles.brandLogoWrap}>
-              <span className={styles.brandWordmark}>whatboutme</span>
-              <span className={styles.brandHeart}>🧡</span>
-            </div>
-          </Link>
+      {/* Desktop Left Sidebar */}
+      <aside
+        className={`${styles.sidebar} ${collapsed ? styles.sidebarCollapsed : ""}`}
+        aria-label="Learner Navigation Sidebar"
+      >
+        {/* Zone 1: Centered Top Brand Logo Header */}
+        <div className={styles.sidebarHeader}>
+          {collapsed ? (
+            <Link href="/" className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Home" title="WhatBoutMe">
+              <span className={styles.brandHeartOnly} aria-hidden="true">🧡</span>
+            </Link>
+          ) : (
+            <Link href="/" className={styles.brandLink} aria-label="WhatBoutMe Learner Portal">
+              <Image
+                src="/brand/logo-dark.png"
+                alt="whatboutme"
+                width={146}
+                height={20}
+                priority
+                className={styles.brandLogoImg}
+              />
+            </Link>
+          )}
+
+          <button
+            type="button"
+            onClick={toggleSidebarCollapse}
+            className={styles.sidebarCollapseBtn}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <Icons.CollapseRight /> : <Icons.CollapseLeft />}
+          </button>
         </div>
 
-        {/* 2. Integrated Profile / Avatar Section with direct link to /profile */}
-        <div style={{ position: "relative", width: "100%" }}>
+        {/* Zone 2: Learner Identity Profile Block */}
+        <div className={styles.profileSection}>
           <Link
             href="/profile"
             className={`${styles.userProfile} ${pathname === "/profile" ? styles.userProfileActive : ""}`}
-            title="My Profile"
+            title={`Signed in as ${displayName} (Learner) — Click to view profile settings`}
           >
             <div className={styles.avatarWrap}>
-              <div className={styles.avatar}>
+              <div className={styles.avatar} aria-hidden="true">
                 {initial}
               </div>
               <div className={styles.avatarMark} title="Verified learner">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </div>
             </div>
 
-            <div className={styles.userInfo}>
-              <h4 className={styles.userNameRow}>
-                <span>{displayName}</span>
-              </h4>
-              <span className={styles.userProfileSubtext}>My Profile</span>
-            </div>
+            {!collapsed && (
+              <>
+                <div className={styles.userInfo}>
+                  <h4 className={styles.userNameRow}>
+                    <span>{displayName}</span>
+                  </h4>
+                  <span className={styles.userProfileSubtext}>Learner</span>
+                </div>
+
+                <span className={styles.profileChevronDown} aria-hidden="true">
+                  <Icons.ChevronDown />
+                </span>
+              </>
+            )}
           </Link>
         </div>
 
-        {/* 3. Navigation List (My Profile is deliberately excluded per Rule 2) */}
+        {/* Zone 3: Navigation Menu */}
         <nav className={styles.navMenu} aria-label="Learner Navigation">
           {/* GROUP: LEARNING */}
           <div className={styles.navGroup}>
-            <p className={styles.navTitle}>LEARNING</p>
+            {!collapsed && <p className={styles.navTitle}>LEARNING</p>}
 
             <Link
               href="/"
               className={`${styles.navItem} ${pathname === "/" ? styles.active : ""}`}
+              title={collapsed ? "Dashboard" : undefined}
             >
               <Icons.Dashboard />
-              <span>Dashboard</span>
+              {!collapsed && <span>Dashboard</span>}
             </Link>
 
             <Link
               href="/courses"
               className={`${styles.navItem} ${pathname === "/courses" || pathname.startsWith("/programs") || pathname.startsWith("/steps") ? styles.active : ""}`}
+              title={collapsed ? "My Courses" : undefined}
             >
               <Icons.Courses />
-              <span>My Courses</span>
+              {!collapsed && <span>My Courses</span>}
             </Link>
 
             <Link
               href="/notes"
               className={`${styles.navItem} ${pathname === "/notes" || pathname.startsWith("/notes/") ? styles.active : ""}`}
+              title={collapsed ? "My Notes" : undefined}
             >
               <Icons.Notes />
-              <span>My Notes</span>
+              {!collapsed && <span>My Notes</span>}
             </Link>
 
             <Link
               href="/live"
               className={`${styles.navItem} ${pathname === "/live" || pathname.startsWith("/live/") ? styles.active : ""}`}
+              title={collapsed ? "Live Sessions" : undefined}
             >
               <Icons.Sessions />
-              <span>Live Sessions</span>
+              {!collapsed && <span>Live Sessions</span>}
             </Link>
 
             <Link
               href="/attendance"
               className={`${styles.navItem} ${pathname === "/attendance" ? styles.active : ""}`}
+              title={collapsed ? "Attendance" : undefined}
             >
               <Icons.Attendance />
-              <span>Attendance</span>
+              {!collapsed && <span>Attendance</span>}
             </Link>
 
             <Link
               href="/certificates"
               className={`${styles.navItem} ${pathname === "/certificates" || pathname.startsWith("/certificates/") ? styles.active : ""}`}
+              title={collapsed ? "Certificates" : undefined}
             >
               <Icons.Certificates />
-              <span>Certificates</span>
+              {!collapsed && <span>Certificates</span>}
             </Link>
           </div>
 
           {/* GROUP: COMMUNITY */}
           <div className={styles.navGroup}>
-            <p className={styles.navTitle}>COMMUNITY</p>
+            {!collapsed && <p className={styles.navTitle}>COMMUNITY</p>}
 
             <Link
               href="/events"
               className={`${styles.navItem} ${pathname === "/events" || pathname.startsWith("/events/") ? styles.active : ""}`}
+              title={collapsed ? "Events" : undefined}
             >
               <Icons.Events />
-              <span>Events</span>
+              {!collapsed && <span>Events</span>}
             </Link>
           </div>
 
-          {/* GROUP: WEBSITE / FOOTER */}
-          <div className={styles.navGroup} style={{ marginTop: "auto" }}>
+          {/* Zone 5: Promo Card ("Keep Learning") - Vertically centered between Events and Sign Out */}
+          <div className={styles.promoCardContainer}>
+            <SidebarPromoCard collapsed={collapsed} />
+          </div>
+
+          {/* Bottom Actions: Sign Out */}
+          <div className={styles.navGroup} style={{ marginTop: 0 }}>
             <div className={styles.navDivider} />
-            <p className={styles.navTitle} style={{ marginTop: "0.2rem" }}>WEBSITE</p>
 
             <button
               type="button"
               className={styles.sidebarSignOutBtn}
               onClick={openSignOutConfirm}
               aria-label="Sign out"
+              title={collapsed ? "Sign Out" : undefined}
             >
               <span className={styles.sidebarSignOutIcon}>
                 <Icons.Logout />
               </span>
-              <span className={styles.sidebarSignOutLabel}>Sign Out</span>
+              {!collapsed && <span className={styles.sidebarSignOutLabel}>Sign Out</span>}
             </button>
           </div>
         </nav>
@@ -374,7 +461,7 @@ export default function LmsSidebar() {
               <div className={styles.confirmIconWrap}>
                 <Icons.Logout />
               </div>
-              <div>
+              <div className={styles.confirmHeaderText}>
                 <h3 id="signout-dialog-title" className={styles.confirmModalTitle}>
                   Sign out of WhatBoutMe?
                 </h3>

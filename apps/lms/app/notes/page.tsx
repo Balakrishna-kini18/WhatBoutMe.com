@@ -8,10 +8,11 @@ import { loadAllEnrolledCourses } from '../lib/curriculumLoader';
 import { useNotesStore } from '../lib/useNotesStore';
 import { EnrolledCourse, ContextualNote } from '../types/learner-flow';
 import { getLessonPlayerUrl } from '../lib/notesAdapter';
+import NotesLoading from './loading';
 
 export default function MyNotesPage() {
   return (
-    <Suspense fallback={<div style={{ padding: '3rem', textAlign: 'center' }}>Loading your notes notebook…</div>}>
+    <Suspense fallback={<NotesLoading />}>
       <MyNotesContent />
     </Suspense>
   );
@@ -57,24 +58,12 @@ function MyNotesContent() {
     };
   }, [noteCounts.byLesson]);
 
-  if (coursesLoading && notesLoading) {
-    return (
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '2rem 1.5rem' }}>
-        <div className="skeleton" style={{ width: 220, height: 32, borderRadius: 8, marginBottom: 12 }} />
-        <div className="skeleton" style={{ width: 340, height: 18, borderRadius: 4, marginBottom: 28 }} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-          <div className="skeleton" style={{ height: 140, borderRadius: 16 }} />
-          <div className="skeleton" style={{ height: 140, borderRadius: 16 }} />
-          <div className="skeleton" style={{ height: 140, borderRadius: 16 }} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <MyNotesThreePaneExplorer
       courses={courses}
       notes={notes}
+      coursesLoading={coursesLoading}
+      notesLoading={notesLoading}
       initialCourseId={queryCourseId}
       initialModuleId={queryModuleId}
       initialLessonId={queryLessonId}

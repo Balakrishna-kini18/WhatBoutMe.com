@@ -1,46 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signOutEverywhere as leavePortal } from "../lib/site";
-import SignaturePad, { SignatureMethod } from "../agreement/SignaturePad";
 import ProfileLoading from "./loading";
+import ConfirmModal from "../components/ui/ConfirmModal";
+import ProfileHeroCard from "./components/ProfileHeroCard";
+import ProfileStatsRow from "./components/ProfileStatsRow";
+import AccountDetailsCard from "./components/AccountDetailsCard";
+import ProfileCoursesCard from "./components/ProfileCoursesCard";
+import DigitalSignatureSection, {
+  SavedSignatureState,
+} from "./components/DigitalSignatureSection";
+import ActiveDevicesSecuritySection, {
+  DeviceSession,
+} from "./components/ActiveDevicesSecuritySection";
+import { SignatureMethod } from "../agreement/SignaturePad";
 import styles from "./profile.module.css";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
-interface SavedSignatureState {
-  hasSavedSignature: boolean;
-  savedSignature: string | null;
-  savedSignatureType: "DRAWN" | "UPLOADED" | null;
-  savedSignatureUpdatedAt: string | null;
-}
 
 interface Profile {
   name: string | null;
   email: string;
   phone?: string | null;
   role: string;
-  enrolledPrograms: { programId: string; programTitle: string; batchName: string; status: string; progress?: number }[];
+  enrolledPrograms: {
+    programId: string;
+    programTitle: string;
+    batchName: string;
+    status: string;
+    progress?: number;
+  }[];
   upcomingSessions?: { id: string }[];
 }
 
-interface DeviceSession {
-  id: string;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-  deviceInfo?: {
-    browser: string;
-    os: string;
-    deviceType: 'desktop' | 'mobile' | 'tablet';
-  };
-  lastActive: string;
-  createdAt: string;
-  isCurrent: boolean;
-}
-
-/** The signed-in learner's account details and courses. */
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -55,7 +48,11 @@ export default function ProfilePage() {
   const [newSigData, setNewSigData] = useState<string | null>(null);
   const [newSigType, setNewSigType] = useState<SignatureMethod>("DRAWN");
   const [sigBusy, setSigBusy] = useState(false);
-  const [sigMessage, setSigMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [sigMessage, setSigMessage] = useState<{
+    text: string;
+    type: "success" | "error";
+  } | null>(null);
+  const [showRemoveSigConfirm, setShowRemoveSigConfirm] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -64,6 +61,7 @@ export default function ProfilePage() {
       return;
     }
     const headers = { Authorization: `Bearer ${token}` };
+
     const mePromise = fetch(`${API_URL}/auth/me`, { headers })
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null);
@@ -97,7 +95,6 @@ export default function ProfilePage() {
     window.dispatchEvent(new CustomEvent("wbm:open-signout-modal"));
   };
 
-  // ends this account's sessions on every device, then signs out here
   const signOutEverywhere = async () => {
     setBusy(true);
     try {
@@ -121,7 +118,9 @@ export default function ProfilePage() {
       if (res.ok) {
         setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       }
-    } catch (e) {}
+    } catch {
+      // Ignored
+    }
   };
 
   const handleSaveNewSignature = async () => {
@@ -159,22 +158,23 @@ export default function ProfilePage() {
         type: "success",
         text: "Digital signature saved to your profile successfully. It will be available for review in future program agreements.",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save digital signature.";
       setSigMessage({
         type: "error",
-        text: err.message || "Failed to save digital signature.",
+        text: message,
       });
     } finally {
       setSigBusy(false);
     }
   };
 
-  const handleRemoveSignature = async () => {
-    const confirmed = window.confirm(
-      "Are you sure you want to remove your saved digital signature? Previously signed agreements will remain permanent and unchanged."
-    );
-    if (!confirmed) return;
+  const handleRemoveSignatureClick = () => {
+    setShowRemoveSigConfirm(true);
+  };
 
+  const handleConfirmRemoveSignature = async () => {
     setSigBusy(true);
     setSigMessage(null);
     try {
@@ -197,14 +197,17 @@ export default function ProfilePage() {
       });
       setIsEditingSig(false);
       setNewSigData(null);
+      setShowRemoveSigConfirm(false);
       setSigMessage({
         type: "success",
         text: "Saved digital signature removed from profile. Historical signed agreements remain immutable.",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to remove signature.";
       setSigMessage({
         type: "error",
-        text: err.message || "Failed to remove signature.",
+        text: message,
       });
     } finally {
       setSigBusy(false);
@@ -212,310 +215,114 @@ export default function ProfilePage() {
   };
 
   if (loading) return <ProfileLoading />;
-  if (!profile) return <div className={styles.frame}><p className={styles.muted}>We couldn&apos;t load your profile. Please refresh the page.</p></div>;
 
-  const displayName = profile.name || "Learner";
-  const initials = (profile.name || profile.email).split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase();
-  const accountType = profile.role === "USER" ? "Learner" : profile.role.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-  const cohort = profile.enrolledPrograms[0]?.batchName;
+  if (!profile) {
+    return (
+      <div className={styles.profileContainer}>
+        <div className={styles.errorCard}>
+          <h2>We couldn&apos;t load your profile</h2>
+          <p>Please refresh the page to retrieve your learner account details.</p>
+          <button
+            type="button"
+            className={styles.heroDarkBtn}
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const stats = [
-    { label: "Courses", value: profile.enrolledPrograms.length },
-    { label: "Scheduled Meetings", value: profile.upcomingSessions?.length ?? 0 },
-    { label: "Certificates", value: certificates },
-  ];
+  const displayName = profile.name || "sahyadri";
+  const initials = (profile.name || profile.email)
+    .split(/[\s@.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase();
 
-  const details = [
-    { label: "Full Name", value: profile.name || "Not set" },
-    { label: "Email Address", value: profile.email },
-    { label: "Mobile Number", value: profile.phone || "Not set" },
-    { label: "Account Type", value: accountType },
-  ];
+  const accountType =
+    profile.role === "USER"
+      ? "Learner"
+      : profile.role
+          .replace(/_/g, " ")
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
-    <div className={styles.frame}>
-      <article className={styles.panel}>
-        <header className={styles.head}>
-          <span className={styles.avatarWrap}>
-            <span className={styles.avatar}>{initials}</span>
-            <span className={styles.mark} title="Verified learner">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
-            </span>
-          </span>
-          <div className={styles.identity}>
-            <h1>{displayName}</h1>
-            <p>{profile.email}</p>
-            <div className={styles.badges}>
-              <span className={styles.badge}>{accountType}</span>
-            </div>
-          </div>
-          <div className={styles.actions}>
-            <button type="button" onClick={signOut} className={styles.darkBtn}>Sign Out</button>
-            <button type="button" onClick={signOutEverywhere} disabled={busy} className={styles.lineBtn}>
-              {busy ? "Signing Out..." : "Sign Out of All Devices"}
-            </button>
-          </div>
-        </header>
+    <div className={styles.profileContainer}>
+      <div className={styles.profileContentStack}>
+        {/* 1. Hero Profile Header Card */}
+        <ProfileHeroCard
+          displayName={displayName}
+          email={profile.email}
+          role={profile.role}
+          initials={initials || "S"}
+          accountType={accountType}
+          onSignOut={signOut}
+          onSignOutEverywhere={signOutEverywhere}
+          isBusy={busy}
+        />
 
-        <dl className={styles.stats}>
-          {stats.map((s) => (
-            <div key={s.label}>
-              <dd>{s.value}</dd>
-              <dt>{s.label}</dt>
-            </div>
-          ))}
-        </dl>
+        {/* 2. Three Summary Metric Stats Cards */}
+        <ProfileStatsRow
+          coursesCount={profile.enrolledPrograms.length}
+          scheduledMeetingsCount={profile.upcomingSessions?.length ?? 0}
+          certificatesCount={certificates}
+        />
 
-        <div className={styles.columns}>
-          <section>
-            <h2 className={styles.sectionTitle}>Account Details</h2>
-            <dl className={styles.detailList}>
-              {details.map((d) => (
-                <div key={d.label}>
-                  <dt>{d.label}</dt>
-                  <dd>{d.value}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className={styles.note}>To change your name, email or password, contact your programme manager.</p>
-          </section>
+        {/* 3. Two-Column Grid: Account Details (Left) + My Courses (Right) */}
+        <div className={styles.twoColumnGrid}>
+          <AccountDetailsCard
+            fullName={profile.name || "Not set"}
+            email={profile.email}
+            phone={profile.phone || "Not set"}
+            accountType={accountType}
+          />
 
-          <section>
-            <h2 className={styles.sectionTitle}>My Courses</h2>
-            {profile.enrolledPrograms.length === 0 ? (
-              <p className={styles.muted}>You have not enrolled in a course yet.</p>
-            ) : (
-              <ul className={styles.courseList}>
-                {profile.enrolledPrograms.map((p) => (
-                  <li key={p.programId}>
-                    <Link href={`/programs/${p.programId}/steps`} className={styles.course}>
-                      <span className={styles.courseText}>
-                        <strong>{p.programTitle}</strong>
-                      </span>
-                      <span className={styles.courseProgress}>{p.progress ?? 0}%</span>
-                      <span className={styles.open}>Open</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <ProfileCoursesCard courses={profile.enrolledPrograms} />
         </div>
 
-        {/* Digital Signature Profile Management */}
-        <section className={styles.sigSection}>
-          <div className={styles.sigHeader}>
-            <div className={styles.sigTitleWrap}>
-              <div className={styles.sigBadge}>
-                <span className={styles.sigBadgeDot} />
-                Profile Digital Signature
-              </div>
-              <h2 className={styles.sectionTitle}>Digital Signature</h2>
-              <p className={styles.sigSubtitle}>
-                Manage your reusable digital signature for program agreements. Updating or removing this signature affects future agreements only; all historical signed records remain immutable and unchanged.
-              </p>
-            </div>
-            {!isEditingSig && savedSig?.hasSavedSignature && (
-              <div className={styles.sigBtnGroup}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditingSig(true);
-                    setSigMessage(null);
-                  }}
-                  className={styles.lineBtn}
-                >
-                  Replace Signature
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRemoveSignature}
-                  disabled={sigBusy}
-                  className={styles.revokeBtn}
-                >
-                  {sigBusy ? "Removing..." : "Remove"}
-                </button>
-              </div>
-            )}
-          </div>
+        {/* 4. Digital Signature Section */}
+        <DigitalSignatureSection
+          savedSig={savedSig}
+          isEditingSig={isEditingSig}
+          setIsEditingSig={setIsEditingSig}
+          newSigData={newSigData}
+          setNewSigData={setNewSigData}
+          setNewSigType={setNewSigType}
+          sigBusy={sigBusy}
+          sigMessage={sigMessage}
+          setSigMessage={setSigMessage}
+          handleSaveNewSignature={handleSaveNewSignature}
+          handleRemoveSignatureClick={handleRemoveSignatureClick}
+        />
 
-          {sigMessage && (
-            <div className={sigMessage.type === "success" ? styles.sigSuccessMsg : styles.sigErrorMsg}>
-              {sigMessage.text}
-            </div>
-          )}
+        {/* 5. Active Devices & Security Section */}
+        <ActiveDevicesSecuritySection
+          sessions={sessions}
+          onSignOutEverywhere={signOutEverywhere}
+          onRevokeSession={revokeSession}
+          isBusy={busy}
+        />
+      </div>
 
-          {isEditingSig ? (
-            <div className={styles.sigEditorBox}>
-              <div className={styles.sigEditorHeader}>
-                <span className={styles.sigEditorTitle}>
-                  {savedSig?.hasSavedSignature ? "Replace Digital Signature" : "Create Profile Signature"}
-                </span>
-                <span className={styles.sigMetaTag}>Future Agreements Only</span>
-              </div>
-              <SignaturePad
-                onSignatureChange={(data, method) => {
-                  setNewSigData(data);
-                  setNewSigType(method);
-                }}
-                height={160}
-              />
-              <p className={styles.sigEditorNotice}>
-                By saving, this signature will be stored securely against your learner account and offered for review in future program enrollments.
-              </p>
-              <div className={styles.sigEditorActions}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditingSig(false);
-                    setNewSigData(null);
-                  }}
-                  disabled={sigBusy}
-                  className={styles.lineBtn}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveNewSignature}
-                  disabled={sigBusy || !newSigData}
-                  className={styles.darkBtn}
-                >
-                  {sigBusy ? "Saving..." : "Save to Profile"}
-                </button>
-              </div>
-            </div>
-          ) : savedSig?.hasSavedSignature ? (
-            <div className={styles.sigCard}>
-              <div className={styles.sigPreviewRow}>
-                <div className={styles.sigImgContainer}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={savedSig.savedSignature!}
-                    alt="Learner Saved Profile Signature"
-                    className={styles.sigImg}
-                  />
-                </div>
-                <div className={styles.sigMetaWrap}>
-                  <div className={styles.sigMetaTitle}>
-                    <span>Active Profile Signature</span>
-                    <span className={styles.sigMetaTag}>
-                      {savedSig.savedSignatureType === "UPLOADED" ? "Uploaded Image" : "Drawn Signature"}
-                    </span>
-                  </div>
-                  <p className={styles.sigMetaDate}>
-                    {savedSig.savedSignatureUpdatedAt
-                      ? `Last updated: ${new Date(savedSig.savedSignatureUpdatedAt).toLocaleString()}`
-                      : "Verified on authenticated profile"}
-                  </p>
-                  <p className={styles.sigMetaNote}>
-                    Secured in private storage. When you enroll in a new program, this signature will be displayed for your explicit review and confirmation.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className={styles.sigEmptyWrap}>
-              <div className={styles.sigEmptyIcon}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-              </div>
-              <h3 className={styles.sigEmptyTitle}>No Profile Signature Saved</h3>
-              <p className={styles.sigEmptyDesc}>
-                Your signature is automatically saved here when you sign your first program agreement, or you can create one in advance.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEditingSig(true);
-                  setSigMessage(null);
-                }}
-                className={styles.darkBtn}
-              >
-                Add Digital Signature
-              </button>
-            </div>
-          )}
-        </section>
-
-        <section className={styles.deviceSection}>
-          <div className={styles.deviceHeader}>
-            <div>
-              <h2 className={styles.sectionTitle}>Active Devices &amp; Security</h2>
-              <p className={styles.policyNote}>Single Active Device Enforced (1 Device Max)</p>
-              <p className={styles.deviceSubtitle}>
-                To protect your course materials and prevent unauthorized sharing, WhatBoutMe limits each account to <strong>1 active session</strong>. Signing in on another browser or device automatically signs out previous sessions.
-              </p>
-            </div>
-            {sessions.length > 1 && (
-              <button
-                type="button"
-                onClick={signOutEverywhere}
-                disabled={busy}
-                className={styles.lineBtn}
-              >
-                Sign Out Other Devices
-              </button>
-            )}
-          </div>
-
-          <div className={styles.deviceGrid}>
-            {sessions.map((sess) => (
-              <div
-                key={sess.id}
-                className={`${styles.deviceCard} ${sess.isCurrent ? styles.deviceCardActive : ''}`}
-              >
-                <div className={styles.deviceIconWrap}>
-                  {sess.deviceInfo?.deviceType === 'mobile' ? (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-                      <line x1="12" y1="18" x2="12.01" y2="18" />
-                    </svg>
-                  ) : sess.deviceInfo?.deviceType === 'tablet' ? (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
-                      <line x1="12" y1="18" x2="12.01" y2="18" />
-                    </svg>
-                  ) : (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                      <line x1="8" y1="21" x2="16" y2="21" />
-                      <line x1="12" y1="17" x2="12" y2="21" />
-                    </svg>
-                  )}
-                </div>
-                <div className={styles.deviceInfo}>
-                  <div className={styles.deviceTitleRow}>
-                    <strong className={styles.deviceTitle}>
-                      {sess.deviceInfo?.browser || "Web Browser"} on {sess.deviceInfo?.os || "Desktop Device"}
-                    </strong>
-                    {sess.isCurrent && (
-                      <span className={styles.currentBadge}>This Device</span>
-                    )}
-                  </div>
-                  <div className={styles.deviceMeta}>
-                    <span>IP: {sess.ipAddress || "127.0.0.1"}</span>
-                    <span>•</span>
-                    <span>{sess.isCurrent ? "Active now" : `Last active ${new Date(sess.lastActive).toLocaleDateString()}`}</span>
-                  </div>
-                </div>
-                {!sess.isCurrent && (
-                  <button
-                    type="button"
-                    onClick={() => revokeSession(sess.id)}
-                    className={styles.revokeBtn}
-                    title="Revoke session"
-                  >
-                    Revoke
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      </article>
+      {/* Confirmation Dialog for Signature Revocation */}
+      <ConfirmModal
+        isOpen={showRemoveSigConfirm}
+        onClose={() => {
+          if (!sigBusy) setShowRemoveSigConfirm(false);
+        }}
+        onConfirm={handleConfirmRemoveSignature}
+        title="Remove Saved Signature"
+        message="Are you sure you want to remove your saved digital signature? Previously signed agreements will remain permanent and unchanged."
+        confirmText="Remove Signature"
+        cancelText="Cancel"
+        tone="danger"
+        isLoading={sigBusy}
+      />
     </div>
   );
 }

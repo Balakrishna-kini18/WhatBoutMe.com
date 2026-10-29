@@ -169,12 +169,12 @@ export class CertificateEligibilityService {
         } sessions), minimum threshold is ${s3.details?.thresholdPercent ?? 80}%.`,
       );
     }
-    if (!s4.isCompleted) {
+    if (s4.details?.isRequired !== false && !s4.isCompleted) {
       unmetRequirements.push(
-        'Required 1-on-1 closing call has not been completed.',
+        'Required 1-on-1 coaching session has not been completed.',
       );
     }
-    if (!s5.isCompleted) {
+    if (s5.details?.isRequired !== false && !s5.isCompleted) {
       unmetRequirements.push(
         'Handwritten mission statement has not been approved.',
       );

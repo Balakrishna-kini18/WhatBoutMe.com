@@ -44,6 +44,7 @@ export default function CourseCertificatePage({
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [certificateData, setCertificateData] = useState<any>(null);
+  const [eligibility, setEligibility] = useState<{ isEligible: boolean; unmetRequirements: string[] } | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
   useEffect(() => {
@@ -97,17 +98,31 @@ export default function CourseCertificatePage({
           setCertificateData(prog.certificate);
         }
 
-        // Auto-request certificate if completed 100% and no certificate exists yet
-        const total = prog.totalItems ?? 0;
-        const completed = prog.completedItems ?? 0;
-        if (total > 0 && completed >= total && !foundCert && !prog.certificate && prog.enrolmentId) {
-          fetch(`${API_URL}/certificates/request/${prog.enrolmentId}`, {
-            method: "POST",
+        // Fetch authoritative stage eligibility if enrolmentId is available
+        if (prog.enrolmentId) {
+          fetch(`${API_URL}/certificates/eligibility/${prog.enrolmentId}`, {
             headers: getAuthHeaders(),
           })
-            .then((res) => (res.ok ? res.json() : null))
-            .then((newCert) => {
-              if (newCert) setCertificateData(newCert);
+            .then(async (res) => {
+              if (res.ok) return res.json();
+              return null;
+            })
+            .then((elig) => {
+              if (elig) {
+                setEligibility(elig);
+                // Only auto-request if genuinely ELIGIBLE according to the 5-stage progression engine
+                if (elig.isEligible && !foundCert && !prog.certificate) {
+                  fetch(`${API_URL}/certificates/request/${prog.enrolmentId}`, {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                  })
+                    .then((res) => (res.ok ? res.json() : null))
+                    .then((newCert) => {
+                      if (newCert) setCertificateData(newCert);
+                    })
+                    .catch(() => null);
+                }
+              }
             })
             .catch(() => null);
         }
@@ -121,13 +136,14 @@ export default function CourseCertificatePage({
       });
   }, [id, router]);
 
-  // Compute remaining activities
+  // Compute remaining activities & eligibility
   const steps = progression?.steps || [];
   const totalItems = progression?.totalItems ?? 0;
   const completedItems = progression?.completedItems ?? 0;
   const activitiesLeft = Math.max(0, totalItems - completedItems);
   const progressPercent = progression ? Math.round(progression.overallProgressPercent) : 0;
-  const isCompleted = totalItems > 0 && activitiesLeft === 0;
+  const isCurriculumDone = totalItems > 0 && activitiesLeft === 0;
+  const isCompleted = isCurriculumDone && (eligibility ? eligibility.isEligible : Boolean(certificateData));
 
   // Uncompleted items list for checklist
   const uncompletedActivities: UncompletedActivity[] = [];
@@ -225,7 +241,7 @@ export default function CourseCertificatePage({
               aside,
               nav,
               header:not(article header),
-              footer,
+              footer:not(article footer):not([class*="footerRow"]),
               [class*="sidebar"],
               [class*="topbar"],
               [class*="topBar"],
@@ -233,9 +249,8 @@ export default function CourseCertificatePage({
               [class*="PushNotification"] {
                 display: none !important;
               }
-              main,
-              [class*="mainContent"],
-              [class*="appContainer"] {
+              body > div[class*="appContainer"],
+              div[class*="appContainer"] > main[class*="mainContent"] {
                 margin: 0 !important;
                 margin-left: 0 !important;
                 padding: 0 !important;
@@ -319,35 +334,99 @@ export default function CourseCertificatePage({
 
           {/* Bold Header Matching Apna College */}
           <h2 className={styles.lockedTitle}>
-            YOU HAVE TO COMPLETE {activitiesLeft} MORE ACTIVITIES
+            {activitiesLeft > 0
+              ? `YOU HAVE TO COMPLETE ${activitiesLeft} MORE ACTIVITIES`
+              : "MILESTONES PENDING FOR CERTIFICATE"}
           </h2>
 
           <p className={styles.lockedSub}>
-            Complete all lessons, video materials, and step knowledge checks in this
-            curriculum to unlock your verified Certificate of Completion.
+            {activitiesLeft > 0
+              ? "Complete all lessons, video materials, and step knowledge checks in this curriculum to unlock your verified Certificate of Completion."
+              : "You have completed all curriculum modules! Please fulfill your remaining milestones (Final Examination, 1-on-1 Coaching, and Mission Statement) to unlock your Certificate of Completion."}
           </p>
 
-          {firstIncompleteStep && (
-            <Link
-              href={`/steps/${firstIncompleteStep.stepId}`}
-              className={styles.actionBtnPrimary}
+          <Link
+            href={`/programs/${id}/steps`}
+            className={styles.actionBtnPrimary}
+          >
+            <span>
+              {activitiesLeft > 0 && firstIncompleteStep
+                ? `Resume Course: Step ${firstIncompleteStep.sequence}`
+                : "View Learning Path Milestones →"}
+            </span>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <span>Resume Course: Step {firstIncompleteStep.sequence}</span>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
+
+          {/* Unmet Milestones from Stage Gate Evaluation */}
+          {activitiesLeft === 0 && eligibility?.unmetRequirements && eligibility.unmetRequirements.length > 0 && (
+            <section className={styles.checklistCard} style={{ marginTop: "1.5rem" }}>
+              <div className={styles.checklistHeader}>
+                <h3 className={styles.checklistTitle}>
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#d97706"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>Required Milestones Checklist</span>
+                </h3>
+                <span className={styles.activitiesBadge} style={{ background: "#fef3c7", color: "#92400e", borderColor: "#fde68a" }}>
+                  {eligibility.unmetRequirements.length} Pending
+                </span>
+              </div>
+              <ul className={styles.remainingList}>
+                {eligibility.unmetRequirements.map((req, idx) => (
+                  <li key={idx} className={styles.remainingItem}>
+                    <div className={styles.itemInfo}>
+                      <div className={styles.itemTypeIcon}>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#d97706"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="10" />
+                          <line x1="12" y1="8" x2="12" y2="12" />
+                          <line x1="12" y1="16" x2="12.01" y2="16" />
+                        </svg>
+                      </div>
+                      <div className={styles.itemText}>
+                        <span className={styles.itemTitle}>{req}</span>
+                      </div>
+                    </div>
+                    <Link href={`/programs/${id}/steps`} className={styles.itemJumpBtn}>
+                      Go to Step →
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           {/* Interactive Remaining Activities Checklist */}

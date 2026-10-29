@@ -493,7 +493,7 @@ export default function Certificate({
 
           <AwardSeal className={styles.awardSeal} />
 
-          <main className={styles.certCenter}>
+          <div className={styles.certCenter}>
             <p className={styles.certLead}>THIS IS TO CERTIFY THAT</p>
 
             <h1 className={styles.recipientName}>{finalRecipient}</h1>
@@ -518,9 +518,9 @@ export default function Certificate({
             )}
 
             <p className={styles.courseDescription}>{defaultDescription}</p>
-          </main>
+          </div>
 
-          <footer className={styles.footerRow}>
+          <footer className={styles.footerRow} role="contentinfo">
             <div className={styles.signerCol}>
               <div className={styles.signatureSlot}>
                 {signatureImage ? (

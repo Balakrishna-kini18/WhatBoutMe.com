@@ -7,11 +7,11 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 0.75rem;
   width: 100%;
   max-width: 1360px;
   margin: 0 auto;
-  padding: 1.25rem 2rem 3rem;
+  padding: 0.75rem 1.25rem 2rem;
   box-sizing: border-box;
   animation: fadeIn 0.25s ease-in-out;
   color: #1c1917;
@@ -33,14 +33,26 @@
   to { transform: translateX(0); }
 }
 
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeletonPulse {
+  background: linear-gradient(90deg, #f1ece4 25%, #fcfbf8 50%, #f1ece4 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite ease-in-out;
+  display: block;
+}
+
 /* -------------------------------------------------------------------------
    HEADER & BREADCRUMBS (Consistent Learning Path format)
    ------------------------------------------------------------------------- */
 .header {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  margin-bottom: 1.25rem;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
   flex-wrap: wrap;
 }
 
@@ -229,23 +241,159 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 1.5rem;
-  padding-top: 1rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
   border-top: 1px solid #ece6dd;
 }
 
 /* -------------------------------------------------------------------------
-   SCREEN 3+: 5-TAB LEARNING WORKSPACE
+   SCREEN 3+: UNIFIED SEGMENTED LESSON FLOW (Part 1 -> Part 2 -> Materials -> Quiz)
    ------------------------------------------------------------------------- */
+.lessonFlowStrip {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 12px;
+  padding: 6px 8px;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.lessonFlowStrip::-webkit-scrollbar {
+  display: none;
+}
+
+.flowStepItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  font-family: inherit;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  position: relative;
+  user-select: none;
+}
+
+.flowStepItem:hover:not(:disabled) {
+  background: #faf8f5;
+  border-color: #fed7aa;
+}
+
+.flowStepItemActive {
+  background: #fff7ed !important;
+  border-color: #ea580c !important;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.12);
+}
+
+.flowStepItemCompleted {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.flowStepItemCompleted:hover:not(:disabled) {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.flowStepItemLocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #fafaf9;
+}
+
+.flowStepBadge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.76rem;
+  font-weight: 800;
+  background: #f3efe8;
+  color: #57534e;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.flowStepItemActive .flowStepBadge {
+  background: #ea580c;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.35);
+}
+
+.flowStepItemCompleted .flowStepBadge {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.flowStepText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.flowStepLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #78716c;
+}
+
+.flowStepItemActive .flowStepLabel {
+  color: #c2410c;
+}
+
+.flowStepItemCompleted .flowStepLabel {
+  color: #15803d;
+}
+
+.flowStepTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1c1917;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowStepItemActive .flowStepTitle {
+  color: #9a3412;
+}
+
+.flowStepActiveIndicator {
+  position: absolute;
+  bottom: 0px;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  background: #ea580c;
+  border-radius: 999px;
+}
+
 .learningToolsStrip {
   display: flex;
   align-items: center;
   gap: 6px;
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 12px;
-  padding: 0.35rem 0.5rem;
-  margin-bottom: 1.5rem;
+  border-radius: 10px;
+  padding: 0.25rem 0.4rem;
+  margin-bottom: 0.75rem;
   box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
   overflow-x: auto;
   scrollbar-width: none;
@@ -258,12 +406,12 @@
 .learningTabBtn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 0.55rem 1rem;
+  gap: 6px;
+  padding: 0.42rem 0.85rem;
   border-radius: 8px;
   background: transparent;
   border: none;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 600;
   color: #57534e;
   cursor: pointer;
@@ -301,7 +449,7 @@
 .lessonWorkspaceGrid {
   display: grid;
   grid-template-columns: 65% 35%;
-  gap: 1.5rem;
+  gap: 1rem;
   align-items: start;
 }
 
@@ -314,7 +462,7 @@
 .videoLeftColumn {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.85rem;
   min-width: 0;
 }
 
@@ -329,14 +477,14 @@
 }
 
 .videoPlayerHeader {
-  padding: 1.1rem 1.4rem;
+  padding: 0.65rem 1rem;
   background: #ffffff;
   border-bottom: 1px solid #f3efe8;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .videoHeaderLeft {
@@ -394,7 +542,7 @@
   border: none;
   border-radius: 0;
   box-shadow: none;
-  padding: 1.35rem 1.5rem 1.5rem;
+  padding: 0.85rem 1rem 1rem;
 }
 
 .lessonDetailsHeader {
@@ -475,7 +623,7 @@
 .notesRightCol {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.85rem;
   min-width: 0;
 }
 
@@ -483,7 +631,7 @@
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 14px;
-  padding: 1.25rem;
+  padding: 0.85rem 1rem;
   box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
 }
 
@@ -567,7 +715,7 @@
 .quizGrid {
   display: grid;
   grid-template-columns: 68% 32%;
-  gap: 1.5rem;
+  gap: 1rem;
   align-items: start;
 }
 
@@ -868,7 +1016,7 @@
 .materialsTabStack {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.75rem;
 }
 
 .materialsSearchCard {
@@ -909,11 +1057,11 @@
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 12px;
-  padding: 1.1rem 1.25rem;
+  padding: 0.75rem 1rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   transition: all 0.15s ease;
 }
 
@@ -996,11 +1144,11 @@
   background: #ffffff;
   border: 1px solid #ece6dd;
   border-radius: 14px;
-  padding: 1.15rem 1.25rem;
+  padding: 0.85rem 1rem;
   box-shadow: 0 2px 10px rgba(28, 25, 23, 0.04);
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.65rem;
 }
 
 .multiVideoPlaylistHeader {
@@ -1594,6 +1742,32 @@
     font-size: 0.82rem;
   }
 
+  .lessonFlowStrip {
+    padding: 4px;
+    gap: 6px;
+    margin-bottom: 0.75rem;
+  }
+
+  .flowStepItem {
+    padding: 6px 10px;
+    gap: 7px;
+  }
+
+  .flowStepBadge {
+    width: 24px;
+    height: 24px;
+    font-size: 0.72rem;
+  }
+
+  .flowStepLabel {
+    font-size: 0.68rem;
+  }
+
+  .flowStepTitle {
+    font-size: 0.78rem;
+    max-width: 100px;
+  }
+
   .learningToolsStrip {
     padding: 0.25rem 0.35rem;
     gap: 4px;
@@ -1628,6 +1802,10 @@
 }
 
 @media (max-width: 480px) {
+  .flowStepTitle {
+    max-width: 80px;
+  }
+
   .learningTabBtn {
     padding: 0.45rem 0.5rem;
     font-size: 0.74rem;
@@ -1834,6 +2012,28 @@
   color: #dc2626;
 }
 
+.pdfNextSectionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: #ea580c;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(234, 88, 12, 0.3);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.pdfNextSectionBtn:hover {
+  background: #c2410c;
+  transform: translateY(-1px);
+}
+
 .pdfModalBody {
   flex: 1;
   position: relative;
@@ -1917,4 +2117,392 @@
   height: 600px;
   width: 100%;
   background: #525659;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   RICH NOTE COMPANION (Screenshot 3 & 2 parity in /steps/[stepId])
+   ───────────────────────────────────────────────────────────────────────────── */
+.noteFormContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.noteTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.noteTitleInput {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e7e0d6;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+  background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.noteTitleInput:focus {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.12);
+}
+
+.noteStarToggleBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.noteStarToggleBtn:hover {
+  border-color: #fde68a;
+  color: #f59e0b;
+}
+
+.noteStarToggleBtnActive {
+  border-color: #fde68a !important;
+  background: #fffbeb !important;
+  color: #f59e0b !important;
+}
+
+.noteTimestampCaptureBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #ea580c;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: monospace;
+  transition: all 0.15s ease;
+}
+
+.noteTimestampCaptureBtn:hover {
+  background: #fed7aa;
+}
+
+.noteFormattingToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  background: #faf9f6;
+  border: 1px solid #ece6dd;
+  border-radius: 8px 8px 0 0;
+  border-bottom: none;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.noteToolbarLeftGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.noteFormatBtn {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.noteFormatBtn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.noteFormatBtnActive {
+  background: #ffedd5;
+  border-color: #fdba74;
+  color: #ea580c;
+  font-weight: 700;
+}
+
+.noteEditorTextarea {
+  width: 100%;
+  min-height: 82px;
+  border: 1px solid #ece6dd;
+  border-radius: 0 0 8px 8px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.85rem;
+  color: #1c1917;
+  font-family: inherit;
+  box-sizing: border-box;
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+  transition: border-color 0.15s ease;
+}
+
+.noteEditorTextarea:focus {
+  border-color: #ea580c;
+}
+
+.savedNotesFeed {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.savedNoteCard {
+  background: #ffffff;
+  border: 1px solid #ece6dd;
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.savedNoteCard:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.04);
+}
+
+.savedNoteTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.savedNoteTopLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.savedNoteDocIcon {
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.savedNoteTitle {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedNoteTopRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.savedNoteStarBtn {
+  background: none;
+  border: none;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: transform 0.1s ease;
+}
+
+.savedNoteStarBtn:hover {
+  transform: scale(1.15);
+}
+
+.savedNoteTimestampBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.savedNoteTimestampBtn:hover {
+  background: #fde68a;
+}
+
+.savedNoteBody {
+  font-size: 0.8rem;
+  color: #57534e;
+  line-height: 1.45;
+  margin: 4px 0;
+  word-break: break-word;
+}
+
+.savedNoteFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #f8fafc;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.savedNoteEditBtn {
+  background: none;
+  border: none;
+  color: #ea580c;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.savedNoteEditBtn:hover {
+  color: #c2410c;
+  text-decoration: underline;
+}
+
+.savedNoteDeleteBtn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.15s ease;
+}
+
+.savedNoteDeleteBtn:hover {
+  color: #dc2626;
+}
+
+/* Enhanced Saved Notes feed controls & tags */
+.savedNotesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 1rem;
+  margin-bottom: 0.65rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #f3efe8;
+}
+
+.savedNotesHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #1c1917;
+  margin: 0;
+}
+
+.savedNotesHeadingBadge {
+  font-size: 0.72rem;
+  color: #78716c;
+  font-weight: 600;
+}
+
+.savedNotesControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.savedNotesSortSelect {
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.savedNotesSortSelect:focus {
+  border-color: #ea580c;
+}
+
+.savedNotesSearchBox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.savedNotesSearchIcon {
+  position: absolute;
+  left: 6px;
+  pointer-events: none;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+}
+
+.savedNotesSearchInput {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 6px 3px 22px;
+  font-size: 0.72rem;
+  width: 90px;
+  background: #ffffff;
+  outline: none;
+  transition: width 0.2s ease, border-color 0.15s ease;
+  font-family: inherit;
+}
+
+.savedNotesSearchInput:focus {
+  width: 130px;
+  border-color: #ea580c;
+}
+
+.savedNoteDocIconBadge {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.78rem;
 }

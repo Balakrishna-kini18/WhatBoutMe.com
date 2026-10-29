@@ -233,6 +233,18 @@ describe("LMS Learning Path Progression Logic", () => {
       if (!pastSlot.ok) {
         expect(pastSlot.error).toContain("future date and time");
       }
+
+      const rescheduleSlot = buildCoachingRequestPayload({
+        enrolmentId: "enrol-1",
+        preferredDate: "2026-10-28",
+        preferredTime: "11:00",
+        reschedule: true,
+        now,
+      });
+      expect(rescheduleSlot.ok).toBe(true);
+      if (rescheduleSlot.ok) {
+        expect(rescheduleSlot.payload.reschedule).toBe(true);
+      }
     });
 
     it("formats human-readable slot summary for confirmation bar", () => {
@@ -377,6 +389,42 @@ describe("LMS Learning Path Progression Logic", () => {
       const [curriculumM, examM, coachingM, missionM] = progress.milestones;
       expect(curriculumM?.isCompleted).toBe(false);
       expect(curriculumM?.statusLabel).toBe("0/1 Done");
+
+      expect(examM?.isCompleted).toBe(false);
+      expect(examM?.isUnlocked).toBe(false);
+      expect(examM?.statusLabel).toBe("Locked");
+
+      expect(coachingM?.isCompleted).toBe(false);
+      expect(coachingM?.isUnlocked).toBe(false);
+      expect(coachingM?.statusLabel).toBe("Locked");
+
+      expect(missionM?.isCompleted).toBe(false);
+      expect(missionM?.isUnlocked).toBe(false);
+      expect(missionM?.statusLabel).toBe("Locked");
+    });
+
+    it("evaluates user screenshot scenario: 9 steps, 0 whole steps completed, but 15% curriculum completed", () => {
+      const progress = computeUnifiedJourneyProgress({
+        totalSteps: 9,
+        completedSteps: 0,
+        examPassed: false,
+        coachingCompleted: false,
+        missionApproved: false,
+        curriculumPercent: 15,
+      });
+
+      expect(progress.totalSteps).toBe(9);
+      expect(progress.completedSteps).toBe(0);
+      expect(progress.curriculumPercent).toBe(15);
+      expect(progress.totalMilestones).toBe(12); // 9 curriculum modules + 3 post-curriculum gates
+      expect(progress.completedMilestones).toBe(0);
+      expect(progress.overallJourneyPercent).toBe(0);
+      expect(progress.summaryLabel).toBe("0 of 12 milestones completed");
+
+      const [curriculumM, examM, coachingM, missionM] = progress.milestones;
+      expect(curriculumM?.isCompleted).toBe(false);
+      expect(curriculumM?.statusLabel).toBe("0/9 Done");
+      expect(curriculumM?.detail).toBe("0 of 9 modules completed");
 
       expect(examM?.isCompleted).toBe(false);
       expect(examM?.isUnlocked).toBe(false);

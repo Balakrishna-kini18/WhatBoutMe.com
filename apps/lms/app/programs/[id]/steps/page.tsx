@@ -16,6 +16,7 @@ import {
 import {
   API_URL,
   cachedFetch,
+  invalidateCache,
   getAuthHeaders,
   getAuthToken,
   parseApiError,
@@ -207,6 +208,7 @@ interface CoachingRequestItem {
   enrolmentId: string;
   requestedStart: string;
   requestedEnd: string;
+  learnerTimezone?: string | null;
   notes?: string | null;
   status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED" | "EXPIRED";
   decisionReason?: string | null;
@@ -217,6 +219,12 @@ interface CoachingRequestItem {
     endTime: string;
     joinUrl?: string | null;
     status?: string;
+    hostTrainer?: { id: string; name?: string | null; email?: string | null } | null;
+  } | null;
+  enrolment?: {
+    id: string;
+    programId?: string;
+    program?: { id: string; title: string } | null;
   } | null;
   createdAt: string;
 }
@@ -248,6 +256,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [examAttempt, setExamAttempt] = useState<ExamAttemptSummary | null>(null);
   const [coachingRequests, setCoachingRequests] = useState<CoachingRequestItem[]>([]);
   const [missionSubmissions, setMissionSubmissions] = useState<MissionSubmissionItem[]>([]);
+  const [claimedCertificate, setClaimedCertificate] = useState<any | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -260,29 +269,17 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const [preferredTime, setPreferredTime] = useState("10:00");
   const [coachingNotes, setCoachingNotes] = useState("");
   const [submittingCoaching, setSubmittingCoaching] = useState(false);
+  const [cancellingCoaching, setCancellingCoaching] = useState(false);
   const [coachingFeedbackMsg, setCoachingFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showRescheduleForm, setShowRescheduleForm] = useState(false);
   const [showReapplyForm, setShowReapplyForm] = useState(false);
 
   const [showMissionPanel, setShowMissionPanel] = useState(false);
+  const [showMissionReplaceForm, setShowMissionReplaceForm] = useState(false);
   const [selectedMissionFile, setSelectedMissionFile] = useState<File | null>(null);
   const [submittingMission, setSubmittingMission] = useState(false);
   const [missionFeedbackMsg, setMissionFeedbackMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [showWelcomeBackBanner, setShowWelcomeBackBanner] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const url = new URL(window.location.href);
-      if (url.searchParams.get("welcomeBack") === "1" || url.searchParams.get("welcomeBack") === "true") {
-        setShowWelcomeBackBanner(true);
-        url.searchParams.delete("welcomeBack");
-        window.history.replaceState({}, "", url.pathname + url.search);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
 
   const loadProgression = useCallback(
     async (isRetry = false) => {
@@ -296,10 +293,40 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
       try {
         const headers = getAuthHeaders();
-        const res = await cachedFetch(`${API_URL}/progression/me/${id}`, {
+
+        // 1. Concurrently initiate all primary endpoints: progression, exam config, coaching requests, and mission submissions
+        const progPromise = cachedFetch(`${API_URL}/progression/me/${id}`, {
           headers,
-          ttlMs: 20_000,
+          ttlMs: 15_000,
+          skipCache: isRetry,
         });
+
+        const examPromise = cachedFetch(`${API_URL}/programs/${id}/exam`, {
+          headers,
+          ttlMs: 30_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        const coachingPromise = cachedFetch(`${API_URL}/one-on-one/my-requests`, {
+          headers,
+          ttlMs: 15_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        const missionPromise = cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
+          headers,
+          ttlMs: 15_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        const certsPromise = cachedFetch(`${API_URL}/certificates/mine`, {
+          headers,
+          ttlMs: 15_000,
+          skipCache: isRetry,
+        }).catch(() => null);
+
+        // 2. Await progression response to obtain verified enrolmentId & step completion status
+        const res = await progPromise;
 
         if (res.status === 401) {
           router.push(`/login?portal=${encodeURIComponent(`/programs/${id}/steps`)}`);
@@ -312,90 +339,147 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         }
 
         const data: EnrolmentProgressionResponse = await res.json();
-        setProgression(data);
-
-        // Immediate UI unblock: display steps timeline, progress circle, and continue button instantly!
-        setLoading(false);
-
-        // Secondary milestone statuses: fetch in the background without blocking the primary view
         const enrolmentId = data.enrolmentId;
-        const allStepsCompleted = (data.steps || []).every((s) => s.isCompleted);
 
-        void (async () => {
-          try {
-            const [stagesRes, examRes, coachingRes, missionRes] = await Promise.all([
-              enrolmentId
-                ? cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
-                    headers,
-                    ttlMs: 30_000,
-                  }).catch(() => null)
-                : Promise.resolve(null),
-              cachedFetch(`${API_URL}/programs/${id}/exam`, {
-                headers,
-                ttlMs: 60_000,
-              }).catch(() => null),
-              cachedFetch(
-                `${API_URL}/one-on-one/my-requests${enrolmentId ? `?enrolmentId=${enrolmentId}` : ""}`,
-                { headers, ttlMs: 30_000 }
-              ).catch(() => null),
-              cachedFetch(`${API_URL}/mission-statements/my-submissions`, {
-                headers,
-                ttlMs: 30_000,
-              }).catch(() => null),
-            ]);
+        // Extract unified milestone data provided directly by the server
+        let resolvedStages: any = data.stages || null;
+        let resolvedExamConfig: ExamConfigSummary | null = (data.examConfig as any) || null;
+        let resolvedAttempt: ExamAttemptSummary | null = (data.examAttempt as any) || null;
+        let resolvedCoaching: CoachingRequestItem[] = Array.isArray(data.coachingRequests)
+          ? data.coachingRequests
+          : [];
+        let resolvedMissions: MissionSubmissionItem[] = Array.isArray(data.missionSubmissions)
+          ? data.missionSubmissions
+          : [];
+        let resolvedCertificate: any = data.certificate || null;
 
-            let stage2Unlocked = false;
-            if (stagesRes && stagesRes.ok) {
-              const sData = await stagesRes.json();
-              setStagesEval(sData);
-              stage2Unlocked = Boolean(sData?.stages?.STAGE_2_EXAM?.isUnlocked);
-            }
+        // Secondary fallback queries only for fields not yet included in the response
+        const fallbackTasks: Promise<any>[] = [];
 
-            if (examRes && examRes.ok) {
-              const eConfig: ExamConfigSummary = await examRes.json();
-              setExamConfig(eConfig);
+        if (!resolvedStages && enrolmentId) {
+          fallbackTasks.push(
+            cachedFetch(`${API_URL}/progression/enrolments/${enrolmentId}/stages`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
+              .then((r) => (r && r.ok ? r.json() : null))
+              .then((s) => {
+                if (s) resolvedStages = s;
+              })
+              .catch(() => null)
+          );
+        }
 
-              // Only query attempt if the learner is actually eligible/unlocked for the Final Exam
-              // Completely avoids running the heavy 10-second attempt query when on early steps
-              if (eConfig?.id && (allStepsCompleted || stage2Unlocked)) {
-                try {
-                  const attRes = await cachedFetch(`${API_URL}/exams/${eConfig.id}/attempt`, {
-                    headers,
-                    ttlMs: 15_000,
-                  });
-                  if (attRes && attRes.ok) {
-                    const attText = await attRes.text();
-                    if (attText) {
-                      setExamAttempt(JSON.parse(attText));
+        if (!resolvedExamConfig) {
+          fallbackTasks.push(
+            examPromise
+              .then(async (er) => {
+                if (er && er.ok) {
+                  const conf = await er.json().catch(() => null);
+                  if (conf) {
+                    resolvedExamConfig = conf;
+                    if (conf.id && !resolvedAttempt) {
+                      return cachedFetch(`${API_URL}/exams/${conf.id}/attempt`, {
+                        headers,
+                        ttlMs: 15_000,
+                        skipCache: isRetry,
+                      })
+                        .then((ar) => (ar && ar.ok ? ar.json() : null))
+                        .then((att) => {
+                          if (att) resolvedAttempt = att;
+                        })
+                        .catch(() => null);
                     }
                   }
-                } catch {
-                  // ignore
                 }
-              }
-            }
+              })
+              .catch(() => null)
+          );
+        } else if (resolvedExamConfig?.id && !resolvedAttempt) {
+          fallbackTasks.push(
+            cachedFetch(`${API_URL}/exams/${resolvedExamConfig.id}/attempt`, {
+              headers,
+              ttlMs: 15_000,
+              skipCache: isRetry,
+            })
+              .then((ar) => (ar && ar.ok ? ar.json() : null))
+              .then((att) => {
+                if (att) resolvedAttempt = att;
+              })
+              .catch(() => null)
+          );
+        }
 
-            if (coachingRes && coachingRes.ok) {
-              const cList = await coachingRes.json();
-              if (Array.isArray(cList)) {
-                setCoachingRequests(
-                  enrolmentId ? cList.filter((r: any) => r.enrolmentId === enrolmentId) : cList
-                );
-              }
-            }
+        if (resolvedCoaching.length === 0) {
+          fallbackTasks.push(
+            coachingPromise
+              .then((cr) => (cr && cr.ok ? cr.json() : []))
+              .then((cList) => {
+                if (Array.isArray(cList) && cList.length > 0) {
+                  resolvedCoaching = enrolmentId
+                    ? cList.filter(
+                        (r: any) =>
+                          r.enrolmentId === enrolmentId ||
+                          r.enrolment?.id === enrolmentId ||
+                          r.enrolment?.programId === id ||
+                          r.enrolment?.program?.id === id
+                      )
+                    : cList;
+                }
+              })
+              .catch(() => null)
+          );
+        }
 
-            if (missionRes && missionRes.ok) {
-              const mList = await missionRes.json();
-              if (Array.isArray(mList)) {
-                setMissionSubmissions(
-                  enrolmentId ? mList.filter((m: any) => m.enrolmentId === enrolmentId) : mList
-                );
-              }
-            }
-          } catch {
-            // Milestone background fetch failure does not affect primary curriculum view
-          }
-        })();
+        if (resolvedMissions.length === 0) {
+          fallbackTasks.push(
+            missionPromise
+              .then((mr) => (mr && mr.ok ? mr.json() : []))
+              .then((mList) => {
+                if (Array.isArray(mList) && mList.length > 0) {
+                  resolvedMissions = enrolmentId
+                    ? mList.filter((m: any) => m.enrolmentId === enrolmentId)
+                    : mList;
+                }
+              })
+              .catch(() => null)
+          );
+        }
+
+        if (!resolvedCertificate) {
+          fallbackTasks.push(
+            certsPromise
+              .then((cr) => (cr && cr.ok ? cr.json() : []))
+              .then((cList) => {
+                if (Array.isArray(cList) && cList.length > 0) {
+                  const match = cList.find(
+                    (c: any) =>
+                      (enrolmentId && c.enrolmentId === enrolmentId) ||
+                      c.programId === id ||
+                      c.enrolment?.programId === id ||
+                      c.enrolment?.id === enrolmentId
+                  );
+                  if (match) resolvedCertificate = match;
+                }
+              })
+              .catch(() => null)
+          );
+        }
+
+        if (fallbackTasks.length > 0) {
+          await Promise.all(fallbackTasks);
+        }
+
+        // Atomically commit all unified learning journey states together before lifting loading
+        setProgression(data);
+        if (resolvedStages) setStagesEval(resolvedStages);
+        if (resolvedExamConfig) setExamConfig(resolvedExamConfig);
+        if (resolvedAttempt) setExamAttempt(resolvedAttempt);
+        setCoachingRequests(resolvedCoaching);
+        setMissionSubmissions(resolvedMissions);
+        if (resolvedCertificate) setClaimedCertificate(resolvedCertificate);
+        setLoading(false);
       } catch (err: any) {
         if (!isRetry && (err.name === "TypeError" || err.message?.includes("fetch"))) {
           setTimeout(() => {
@@ -412,16 +496,37 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
 
   useEffect(() => {
-    loadProgression();
+    let isWelcomeBack = false;
+    if (typeof window !== "undefined") {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get("welcomeBack") === "1" || url.searchParams.get("welcomeBack") === "true") {
+          isWelcomeBack = true;
+          setShowWelcomeBackBanner(true);
+          invalidateCache("/progression");
+          invalidateCache("/exams");
+          invalidateCache("/stages");
+          invalidateCache("/certificates");
+          url.searchParams.delete("welcomeBack");
+          window.history.replaceState({}, "", url.pathname + url.search);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadProgression(isWelcomeBack);
   }, [loadProgression]);
 
   const handleBookCoaching = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingCoaching) return;
+
     const built = buildCoachingRequestPayload({
       enrolmentId: progression?.enrolmentId,
       preferredDate,
       preferredTime,
       notes: coachingNotes,
+      reschedule: showRescheduleForm,
     });
 
     if (!built.ok) {
@@ -445,6 +550,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         throw new Error(err.message);
       }
       const created = await res.json();
+      invalidateCache("/one-on-one");
+      invalidateCache("/progression");
       setCoachingRequests((prev) => [created, ...prev.filter((r) => r.id !== created.id)]);
       setCoachingNotes("");
       setShowRescheduleForm(false);
@@ -453,11 +560,112 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
         type: "ok",
         text: "1-on-1 Coaching request submitted! You will receive a meeting link once approved.",
       });
-      loadProgression(true);
+      await loadProgression(true);
     } catch (err: any) {
-      setCoachingFeedbackMsg({ type: "err", text: err.message || "Failed to submit coaching request." });
+      const errMsg = err?.message || "Failed to submit coaching request.";
+      const isConflict =
+        errMsg.toLowerCase().includes("already pending review") ||
+        errMsg.toLowerCase().includes("conflict");
+
+      if (isConflict) {
+        invalidateCache("/one-on-one");
+        let foundExisting = false;
+        try {
+          const freshRes = await cachedFetch(
+            `${API_URL}/one-on-one/my-requests${progression?.enrolmentId ? `?enrolmentId=${progression.enrolmentId}` : ""}`,
+            { headers: getAuthHeaders(), skipCache: true }
+          );
+          if (freshRes.ok) {
+            const freshList = await freshRes.json();
+            if (Array.isArray(freshList) && freshList.length > 0) {
+              const matched = progression?.enrolmentId
+                ? freshList.filter(
+                    (r: any) =>
+                      r.enrolmentId === progression.enrolmentId ||
+                      r.enrolment?.id === progression.enrolmentId ||
+                      r.enrolment?.programId === id ||
+                      r.enrolment?.program?.id === id
+                  )
+                : freshList;
+              if (matched.length > 0) {
+                setCoachingRequests(matched);
+                foundExisting = true;
+              }
+            }
+          }
+        } catch {
+          // ignore background re-fetch failure
+        }
+
+        if (!foundExisting) {
+          const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+          const reqStart = `${preferredDate}T${preferredTime}:00`;
+          const reqEnd = new Date(new Date(reqStart).getTime() + 45 * 60000).toISOString();
+          setCoachingRequests((prev) => [
+            {
+              id: `pending-${Date.now()}`,
+              enrolmentId: progression?.enrolmentId || "",
+              status: "PENDING_APPROVAL",
+              requestedStart: reqStart,
+              requestedEnd: reqEnd,
+              learnerTimezone: tz,
+              notes: coachingNotes,
+              createdAt: new Date().toISOString(),
+            },
+            ...prev,
+          ]);
+        }
+
+        setShowRescheduleForm(false);
+        setShowReapplyForm(false);
+        setCoachingFeedbackMsg({
+          type: "err",
+          text: "A 1-on-1 coaching call request is already pending review for this enrolment. Showing your current request below.",
+        });
+        await loadProgression(true);
+      } else {
+        setCoachingFeedbackMsg({ type: "err", text: errMsg });
+      }
     } finally {
       setSubmittingCoaching(false);
+    }
+  };
+
+  const handleCancelCoaching = async (requestId: string) => {
+    if (
+      !confirm(
+        "Are you sure you want to cancel this coaching session request? You will be able to select a new date and time."
+      )
+    ) {
+      return;
+    }
+    setCancellingCoaching(true);
+    try {
+      const res = await fetch(`${API_URL}/one-on-one/requests/${requestId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await parseApiError(res, "Failed to cancel coaching request");
+        throw new Error(err.message);
+      }
+      invalidateCache("/one-on-one");
+      invalidateCache("/progression");
+      setCoachingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      setShowRescheduleForm(false);
+      setShowReapplyForm(false);
+      setCoachingFeedbackMsg({
+        type: "ok",
+        text: "Coaching session request cancelled. You can now choose a new slot whenever ready.",
+      });
+      await loadProgression(true);
+    } catch (err: any) {
+      setCoachingFeedbackMsg({
+        type: "err",
+        text: err?.message || "Failed to cancel coaching request.",
+      });
+    } finally {
+      setCancellingCoaching(false);
     }
   };
 
@@ -488,12 +696,16 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       }
 
       const uploaded = await res.json();
+      invalidateCache("/mission-statements");
+      invalidateCache("/progression");
       setMissionSubmissions((prev) => [uploaded, ...prev]);
       setSelectedMissionFile(null);
+      setShowMissionReplaceForm(false);
       setMissionFeedbackMsg({
         type: "ok",
         text: "Mission Statement uploaded! Our team will review and approve your submission shortly.",
       });
+      await loadProgression(true);
     } catch (err: any) {
       setMissionFeedbackMsg({ type: "err", text: err.message || "Upload failed." });
     } finally {
@@ -504,7 +716,39 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const steps = progression?.steps || [];
   const total = steps.length;
   const done = steps.filter((s) => s.isCompleted).length;
-  const percent = progression ? Math.round(progression.overallProgressPercent) : 0;
+
+  // Robust calculation of curriculum progress with fallbacks for partial-step items & edge cases
+  const calculatedItemsTotal = steps.reduce(
+    (sum, s) => sum + (s.totalItems ?? (s.lessons?.length || 0) + (s.quiz ? 1 : 0)),
+    0
+  );
+  const calculatedItemsDone = steps.reduce(
+    (sum, s) =>
+      sum +
+      (s.completedItems ??
+        (s.lessons?.filter((l) => l.isCompleted).length || 0) + (s.quiz?.isPassed ? 1 : 0)),
+    0
+  );
+
+  const rawPercent =
+    typeof progression?.overallProgressPercent === "number" && progression.overallProgressPercent > 0
+      ? progression.overallProgressPercent
+      : typeof (progression as any)?.overallPercent === "number" && (progression as any).overallPercent > 0
+      ? (progression as any).overallPercent
+      : typeof progression?.totalItems === "number" &&
+        progression.totalItems > 0 &&
+        typeof progression.completedItems === "number" &&
+        progression.completedItems > 0
+      ? Math.floor((progression.completedItems / progression.totalItems) * 100)
+      : calculatedItemsTotal > 0 && calculatedItemsDone > 0
+      ? Math.floor((calculatedItemsDone / calculatedItemsTotal) * 100)
+      : typeof progression?.overallProgressPercent === "number"
+      ? progression.overallProgressPercent
+      : total > 0
+      ? Math.round((done / total) * 100)
+      : 0;
+
+  const percent = Math.max(0, Math.min(100, Math.round(rawPercent || 0)));
   const current = steps.find((s) => s.isUnlocked && !s.isCompleted) || steps.find((s) => s.isUnlocked);
 
   // Post-Curriculum Milestones Evaluation (Strictly Sequential unless Staff Overridden)
@@ -521,6 +765,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const examBestScore = examAttempt?.score ?? stage2State?.details?.examScore ?? null;
 
   const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
+  const stage4Details = stage4State?.details as any;
+  const isCoachingRequired = stage4Details?.isRequired !== false;
   const isCoachingUnlocked = Boolean(
     (isExamUnlocked && isExamPassed) || stage4State?.isOverridden === true
   );
@@ -532,30 +778,52 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
   const latestCoachingReq = coachingRequestsSorted[0] || null;
   const isLatestRejected = !activeCoachingReq && latestCoachingReq?.status === "REJECTED";
+
+  // Ground-truth session attendance or explicit staff audit override
+  const hasRealCompletedCoaching = Boolean(
+    (stage4Details?.completedSessionId && stage4Details?.isAttended) ||
+    stage4Details?.isGenuinelyCompleted === true ||
+    coachingRequests.some((r) => r.session?.status === "COMPLETED" || (r as any).status === "COMPLETED")
+  );
   const isCoachingCompleted = Boolean(
     stage4State?.isOverridden === true ||
-      (isCoachingUnlocked && (
-        stage4State?.isCompleted === true ||
-        Boolean(stage4State?.details?.completedSessionId) ||
-        coachingRequests.some((r) => r.session?.status === "COMPLETED")
-      ))
+    (isCoachingUnlocked && hasRealCompletedCoaching)
   );
+  const isCoachingRequirementMet =
+    !isCoachingRequired || isCoachingCompleted || stage4State?.isOverridden === true;
 
   const stage5State = stagesEval?.stages?.STAGE_5_MISSION_STATEMENT;
+  const stage5Details = stage5State?.details as any;
+  const isMissionRequired = stage5Details?.isRequired !== false;
   const isMissionUnlocked = Boolean(
-    (isCoachingUnlocked && isCoachingCompleted) || stage5State?.isOverridden === true
+    (isCoachingUnlocked && isCoachingRequirementMet) || stage5State?.isOverridden === true
   );
   const latestMission = missionSubmissions[0] || null;
+
+  // Ground-truth approved submission or explicit staff audit override
+  const hasRealApprovedMission = Boolean(
+    stage5Details?.isGenuinelyCompleted === true ||
+    missionSubmissions.some((m) => m.status === "APPROVED")
+  );
   const isMissionApproved = Boolean(
     stage5State?.isOverridden === true ||
-      (isMissionUnlocked && (
-        stage5State?.isCompleted === true ||
-        missionSubmissions.some((m) => m.status === "APPROVED")
-      ))
+    (isMissionUnlocked && hasRealApprovedMission)
   );
+  const isMissionRequirementMet =
+    !isMissionRequired || isMissionApproved || stage5State?.isOverridden === true;
+
+  const cert = claimedCertificate || progression?.certificate || null;
+  const isCertificateClaimed = Boolean(
+    cert && (cert.status === "ISSUED" || cert.status === "APPROVED" || cert.certificateCode || cert.id)
+  );
+  const certificateCode = cert?.certificateCode || cert?.certificateNumber || null;
 
   const isCertificateUnlocked = Boolean(
-    allStepsCompleted && isExamPassed && isCoachingCompleted && isMissionApproved
+    isCertificateClaimed ||
+    (allStepsCompleted &&
+      isExamPassed &&
+      isCoachingRequirementMet &&
+      isMissionRequirementMet)
   );
 
   const journeyProgress = computeUnifiedJourneyProgress({
@@ -565,12 +833,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     examScore: examBestScore,
     coachingCompleted: isCoachingCompleted,
     coachingStatus: activeCoachingReq?.status ?? latestCoachingReq?.status ?? null,
+    coachingRequired: isCoachingRequired,
     missionApproved: isMissionApproved,
     missionStatus: latestMission?.status ?? null,
+    missionRequired: isMissionRequired,
     curriculumPercent: percent,
   });
 
-  const displayPercent = journeyProgress.overallJourneyPercent;
+  const displayPercent = percent;
 
   // SVG Ring calculation: Radius = 50, Circumference = 2 * pi * 50 = ~314.16
   const RING_RADIUS = 50;
@@ -999,6 +1269,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           >
                             Declined · Reapply Available
                           </span>
+                        ) : !isCoachingRequired ? (
+                          <span
+                            className={styles.quizRequiredBadge}
+                            style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
+                          >
+                            Optional Milestone
+                          </span>
                         ) : null}
                       </p>
 
@@ -1026,35 +1303,166 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             border: "1px solid #ece4d7",
                           }}
                         >
-                          {activeCoachingReq && !showRescheduleForm ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                          {isCoachingCompleted ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
-                                <strong style={{ fontSize: "0.9rem", color: "#14110f" }}>
-                                  {activeCoachingReq.status === "APPROVED"
-                                    ? "Your 1-on-1 Coaching Call is Scheduled"
-                                    : "Your Booking Request is Pending Instructor Confirmation"}
+                                <strong style={{ fontSize: "0.98rem", color: "#166534" }}>
+                                  ✓ 1-on-1 Coaching Session Completed!
                                 </strong>
                                 <span
                                   style={{
                                     fontSize: "0.75rem",
                                     fontWeight: 700,
-                                    padding: "2px 8px",
+                                    padding: "3px 8px",
+                                    borderRadius: 6,
+                                    background: "#dcfce7",
+                                    color: "#166534",
+                                    border: "1px solid #86efac",
+                                  }}
+                                >
+                                  COMPLETED
+                                </span>
+                              </div>
+                              <div style={{ fontSize: "0.85rem", color: "#166534", lineHeight: 1.5, background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "0.75rem 0.95rem", borderRadius: 8 }}>
+                                Congratulations! You have satisfied your 1-on-1 coaching milestone with Roweena. Stage 5 (Mission Statement) is now unlocked.
+                              </div>
+                            </div>
+                          ) : activeCoachingReq && !showRescheduleForm ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "0.5rem",
+                                  paddingBottom: "0.45rem",
+                                  borderBottom: "1px solid #e7dfd3",
+                                }}
+                              >
+                                <div>
+                                  <div
+                                    style={{
+                                      fontSize: "0.74rem",
+                                      fontWeight: 700,
+                                      textTransform: "uppercase",
+                                      letterSpacing: "0.05em",
+                                      color: activeCoachingReq.status === "APPROVED" ? "#166534" : "#92400e",
+                                    }}
+                                  >
+                                    {activeCoachingReq.status === "APPROVED" ? "Confirmed Milestone" : "Stage 4 Milestone"}
+                                  </div>
+                                  <strong style={{ fontSize: "1.02rem", color: "#14110f", fontWeight: 800 }}>
+                                    {activeCoachingReq.status === "APPROVED"
+                                      ? "Your 1-on-1 Coaching Session is Scheduled"
+                                      : "Your 1-on-1 Coaching Request is Under Review"}
+                                  </strong>
+                                </div>
+                                <span
+                                  style={{
+                                    fontSize: "0.76rem",
+                                    fontWeight: 700,
+                                    padding: "3px 9px",
                                     borderRadius: 6,
                                     background: activeCoachingReq.status === "APPROVED" ? "#dcfce7" : "#fef3c7",
                                     color: activeCoachingReq.status === "APPROVED" ? "#166534" : "#92400e",
+                                    border: `1px solid ${activeCoachingReq.status === "APPROVED" ? "#86efac" : "#fde68a"}`,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.3rem",
                                   }}
                                 >
-                                  {activeCoachingReq.status.replace("_", " ")}
+                                  <span>{activeCoachingReq.status === "APPROVED" ? "✓" : "⏳"}</span>
+                                  <span>{activeCoachingReq.status.replace("_", " ")}</span>
                                 </span>
                               </div>
-                              <div style={{ fontSize: "0.84rem", color: "#4a443d" }}>
-                                <strong>Slot:</strong>{" "}
-                                {new Date(
-                                  activeCoachingReq.session?.startTime || activeCoachingReq.requestedStart
-                                ).toLocaleString(undefined, {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                })}
+
+                              <div
+                                style={{
+                                  background: activeCoachingReq.status === "APPROVED" ? "#f0fdf4" : "#ffffff",
+                                  border: `1px solid ${activeCoachingReq.status === "APPROVED" ? "#bbf7d0" : "#e6ded2"}`,
+                                  borderRadius: 10,
+                                  padding: "0.85rem 1rem",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "0.5rem",
+                                }}
+                              >
+                                <div style={{ fontSize: "0.86rem", color: "#14110f" }}>
+                                  <strong style={{ color: "#7c7267", fontWeight: 600 }}>
+                                    {activeCoachingReq.status === "APPROVED" ? "Confirmed Slot:" : "Requested Slot:"}
+                                  </strong>{" "}
+                                  <span style={{ fontWeight: 700 }}>
+                                    {new Date(
+                                      activeCoachingReq.session?.startTime || activeCoachingReq.requestedStart
+                                    ).toLocaleString(undefined, {
+                                      dateStyle: "full",
+                                      timeStyle: "short",
+                                    })}
+                                  </span>
+                                  {activeCoachingReq.learnerTimezone && (
+                                    <span style={{ fontSize: "0.76rem", color: "#6c6359", marginLeft: "0.35rem" }}>
+                                      ({activeCoachingReq.learnerTimezone})
+                                    </span>
+                                  )}
+                                </div>
+
+                                {activeCoachingReq.session?.hostTrainer?.name && (
+                                  <div style={{ fontSize: "0.84rem", color: "#14110f" }}>
+                                    <strong style={{ color: "#7c7267", fontWeight: 600 }}>Coach:</strong>{" "}
+                                    <span style={{ fontWeight: 600 }}>{activeCoachingReq.session.hostTrainer.name}</span>
+                                  </div>
+                                )}
+
+                                {activeCoachingReq.notes && (
+                                  <div
+                                    style={{
+                                      fontSize: "0.83rem",
+                                      color: "#4a443d",
+                                      background: "#faf6f0",
+                                      padding: "0.55rem 0.75rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #ede5d8",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontSize: "0.72rem",
+                                        fontWeight: 700,
+                                        color: "#7c7267",
+                                        textTransform: "uppercase",
+                                        marginBottom: "0.2rem",
+                                      }}
+                                    >
+                                      Your Reflections &amp; Questions:
+                                    </div>
+                                    <div style={{ fontStyle: "italic", color: "#2d2823", lineHeight: 1.45 }}>
+                                      &ldquo;{activeCoachingReq.notes}&rdquo;
+                                    </div>
+                                  </div>
+                                )}
+
+                                {activeCoachingReq.status === "PENDING_APPROVAL" && (
+                                  <div
+                                    style={{
+                                      fontSize: "0.82rem",
+                                      color: "#78350f",
+                                      lineHeight: 1.45,
+                                      background: "#fffbeb",
+                                      padding: "0.55rem 0.75rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #fef3c7",
+                                    }}
+                                  >
+                                    Roweena and our coaching team are reviewing your requested slot against availability. You will receive an email once approved with your Zoom invite.
+                                  </div>
+                                )}
+
+                                {activeCoachingReq.status === "APPROVED" && (
+                                  <div style={{ fontSize: "0.82rem", color: "#166534", lineHeight: 1.45 }}>
+                                    Tip: Please join 5 minutes early with your camera and microphone tested.
+                                  </div>
+                                )}
                               </div>
 
                               {/* Alert when requested slot has already passed while pending */}
@@ -1099,17 +1507,83 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </div>
                                 )}
 
-                              {activeCoachingReq.session?.joinUrl && (
+                              {/* Actions */}
+                              {activeCoachingReq.session?.joinUrl ? (
                                 <div>
                                   <a
                                     href={activeCoachingReq.session.joinUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className={styles.startBtn}
-                                    style={{ display: "inline-flex", marginTop: "0.25rem" }}
+                                    style={{ display: "inline-flex", marginTop: "0.25rem", padding: "0.55rem 1.1rem" }}
                                   >
                                     Join 1-on-1 Video Session &rarr;
                                   </a>
+                                </div>
+                              ) : activeCoachingReq.status === "PENDING_APPROVAL" &&
+                                new Date(activeCoachingReq.requestedStart).getTime() >= Date.now() ? (
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.25rem" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelCoaching(activeCoachingReq.id)}
+                                    disabled={cancellingCoaching}
+                                    style={{
+                                      padding: "0.45rem 0.9rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #fca5a5",
+                                      background: "#ffffff",
+                                      color: "#b91c1c",
+                                      fontSize: "0.8rem",
+                                      fontWeight: 600,
+                                      cursor: cancellingCoaching ? "not-allowed" : "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                  >
+                                    {cancellingCoaching ? "Cancelling..." : "✕ Cancel Request"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (
+                                        confirm(
+                                          "To choose a new slot, we will cancel your current pending request first. Would you like to proceed?"
+                                        )
+                                      ) {
+                                        handleCancelCoaching(activeCoachingReq.id);
+                                      }
+                                    }}
+                                    disabled={cancellingCoaching}
+                                    style={{
+                                      padding: "0.45rem 0.9rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #dcd5cb",
+                                      background: "#faf6f0",
+                                      color: "#14110f",
+                                      fontSize: "0.8rem",
+                                      fontWeight: 600,
+                                      cursor: cancellingCoaching ? "not-allowed" : "pointer",
+                                      transition: "all 0.15s ease",
+                                    }}
+                                  >
+                                    Change Slot / Reschedule
+                                  </button>
+                                </div>
+                              ) : null}
+
+                              {coachingFeedbackMsg && (
+                                <div
+                                  role="alert"
+                                  style={{
+                                    fontSize: "0.82rem",
+                                    fontWeight: 600,
+                                    padding: "0.55rem 0.75rem",
+                                    borderRadius: 8,
+                                    background: coachingFeedbackMsg.type === "ok" ? "#ecfdf5" : "#fef2f2",
+                                    border: coachingFeedbackMsg.type === "ok" ? "1px solid #a7f3d0" : "1px solid #fecaca",
+                                    color: coachingFeedbackMsg.type === "ok" ? "#15803d" : "#b91c1c",
+                                  }}
+                                >
+                                  {coachingFeedbackMsg.text}
                                 </div>
                               )}
                             </div>
@@ -1563,9 +2037,35 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                         ? "1px solid #a7f3d0"
                                         : "1px solid #fecaca",
                                     color: coachingFeedbackMsg.type === "ok" ? "#15803d" : "#b91c1c",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: "0.5rem",
                                   }}
                                 >
-                                  {coachingFeedbackMsg.text}
+                                  <span>{coachingFeedbackMsg.text}</span>
+                                  {coachingFeedbackMsg.text.toLowerCase().includes("already pending review") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        invalidateCache("/one-on-one");
+                                        loadProgression(true);
+                                      }}
+                                      style={{
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        padding: "3px 8px",
+                                        borderRadius: 6,
+                                        background: "#ffffff",
+                                        border: "1px solid #fca5a5",
+                                        color: "#b91c1c",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      View Pending Request &rarr;
+                                    </button>
+                                  )}
                                 </div>
                               )}
 
@@ -1608,11 +2108,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </button>
                                   <button
                                     type="submit"
-                                    disabled={submittingCoaching}
+                                    disabled={submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime}
                                     className={styles.startBtn}
-                                    style={{ cursor: "pointer" }}
+                                    style={{
+                                      cursor: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
+                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.7 : 1,
+                                    }}
                                   >
-                                    {submittingCoaching ? "Submitting..." : "Submit Booking Request"}
+                                    {submittingCoaching
+                                      ? "Submitting Booking Request..."
+                                      : Boolean(activeCoachingReq && !showRescheduleForm)
+                                      ? "Request Already Pending"
+                                      : showRescheduleForm
+                                      ? "Confirm Reschedule Slot"
+                                      : "Submit Booking Request"}
                                   </button>
                                 </div>
                               </div>
@@ -1636,6 +2145,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             ? "View Details"
                             : activeCoachingReq
                             ? "Manage Session"
+                            : !isCoachingRequired
+                            ? "Book Session (Optional)"
                             : "Book Session"}
                         </button>
                       ) : (
@@ -1682,6 +2193,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           <span className={styles.quizRequiredBadge}>Pending Review</span>
                         ) : latestMission?.status === "REJECTED" ? (
                           <span className={styles.quizRequiredBadge}>Revision Requested</span>
+                        ) : !isMissionRequired ? (
+                          <span
+                            className={styles.quizRequiredBadge}
+                            style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
+                          >
+                            Optional Milestone
+                          </span>
                         ) : null}
                       </p>
 
@@ -1736,26 +2254,45 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   </div>
                                 )}
                               </div>
-                              <a
-                                href={
-                                  latestMission.fileUrl.startsWith("http")
-                                    ? latestMission.fileUrl
-                                    : `${API_URL}/mission-statements/${latestMission.id}/file`
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={styles.reviewBtn}
-                                style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
-                              >
-                                View Uploaded File
-                              </a>
+                              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                                <a
+                                  href={
+                                    latestMission.fileUrl.startsWith("http") || latestMission.fileUrl.startsWith("data:")
+                                      ? latestMission.fileUrl
+                                      : `${API_URL}/mission-statements/${latestMission.id}/file`
+                                  }
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.reviewBtn}
+                                  style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
+                                >
+                                  View Uploaded File
+                                </a>
+                                {!isMissionApproved && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowMissionReplaceForm((prev) => !prev)}
+                                    className={styles.reviewBtn}
+                                    style={{
+                                      padding: "0.35rem 0.75rem",
+                                      fontSize: "0.78rem",
+                                      cursor: "pointer",
+                                      background: showMissionReplaceForm ? "#f5efe6" : undefined,
+                                    }}
+                                  >
+                                    {showMissionReplaceForm ? "Cancel Replacement" : "Upload Replacement Copy"}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )}
 
-                          {!isMissionApproved && latestMission?.status !== "SUBMITTED" && (
+                          {!isMissionApproved && (!latestMission || latestMission.status !== "SUBMITTED" || showMissionReplaceForm) && (
                             <form onSubmit={handleUploadMissionStatement} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                               <label style={{ fontWeight: 700, fontSize: "0.84rem", color: "#14110f" }}>
-                                Upload Handwritten Mission Statement (PDF, JPG, PNG — Max 15MB)
+                                {showMissionReplaceForm
+                                  ? `Upload Replacement Mission Statement (Will become Version #${(latestMission?.version ?? 0) + 1})`
+                                  : "Upload Handwritten Mission Statement (PDF, JPG, PNG — Max 15MB)"}
                               </label>
                               <input
                                 type="file"
@@ -1783,7 +2320,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
                                 <button
                                   type="button"
-                                  onClick={() => setShowMissionPanel(false)}
+                                  onClick={() => {
+                                    setShowMissionPanel(false);
+                                    setShowMissionReplaceForm(false);
+                                  }}
                                   className={styles.reviewBtn}
                                   style={{ cursor: "pointer" }}
                                 >
@@ -1795,7 +2335,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   className={styles.startBtn}
                                   style={{ cursor: "pointer" }}
                                 >
-                                  {submittingMission ? "Uploading..." : "Submit Mission Statement"}
+                                  {submittingMission
+                                    ? "Uploading..."
+                                    : showMissionReplaceForm
+                                    ? "Submit Replacement Copy"
+                                    : "Submit Mission Statement"}
                                 </button>
                               </div>
                             </form>
@@ -1818,6 +2362,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             ? "View Approved"
                             : latestMission?.status === "SUBMITTED"
                             ? "View Submission"
+                            : !isMissionRequired
+                            ? "Submit Statement (Optional)"
                             : "Submit Statement"}
                         </button>
                       ) : (
@@ -1841,57 +2387,96 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       ========================================================= */}
                   <li
                     className={`${styles.step} ${
-                      isCertificateUnlocked
+                      isCertificateClaimed
                         ? styles.stepDone
+                        : isCertificateUnlocked
+                        ? styles.stepCurrent
                         : current && current.sequence === total
                         ? styles.stepCurrent
                         : styles.stepLocked
                     }`}
                     style={{
-                      borderLeftColor: isCertificateUnlocked ? "#eab308" : undefined,
+                      borderLeftColor: isCertificateClaimed
+                        ? "#16a34a"
+                        : isCertificateUnlocked
+                        ? "#eab308"
+                        : undefined,
                     }}
                   >
                     <span
                       className={styles.marker}
                       style={{
-                        background: isCertificateUnlocked ? "linear-gradient(135deg, #eab308, #ca8a04)" : undefined,
-                        color: isCertificateUnlocked ? "#ffffff" : undefined,
-                        borderColor: isCertificateUnlocked ? "#ca8a04" : undefined,
+                        background: isCertificateClaimed
+                          ? "#16a34a"
+                          : isCertificateUnlocked
+                          ? "linear-gradient(135deg, #eab308, #ca8a04)"
+                          : undefined,
+                        color: isCertificateClaimed || isCertificateUnlocked ? "#ffffff" : undefined,
+                        borderColor: isCertificateClaimed
+                          ? "#16a34a"
+                          : isCertificateUnlocked
+                          ? "#ca8a04"
+                          : undefined,
                       }}
                       aria-hidden="true"
                     >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="8" r="6" />
-                        <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-                      </svg>
+                      {isCertificateClaimed ? (
+                        Check
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="8" r="6" />
+                          <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                        </svg>
+                      )}
                     </span>
 
                     <div className={styles.stepBody}>
-                      <p className={styles.kicker} style={{ color: isCertificateUnlocked ? "#854d0e" : undefined }}>
-                        Final Milestone
+                      <p className={styles.kicker} style={{ color: isCertificateClaimed ? "#16a34a" : isCertificateUnlocked ? "#854d0e" : undefined }}>
+                        <span>Final Milestone</span>
+                        {isCertificateClaimed && (
+                          <span className={styles.quizPassedBadge}>✓ Issued</span>
+                        )}
                       </p>
-                      <h3 className={styles.stepTitle} style={{ color: isCertificateUnlocked ? "#854d0e" : undefined }}>
+                      <h3 className={styles.stepTitle} style={{ color: isCertificateClaimed ? undefined : isCertificateUnlocked ? "#854d0e" : undefined }}>
                         Certificate of Completion
                       </h3>
                       <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                        {isCertificateUnlocked
+                        {isCertificateClaimed
+                          ? `✓ Certificate #${certificateCode || "Issued"} has been awarded! You can view, download, or share your official credential.`
+                          : isCertificateUnlocked
                           ? "✓ All curriculum steps, Final Exam, 1-on-1 Coaching, and Mission Statement completed! Your verified certificate is ready."
                           : `Complete all ${total} steps, the 50-Mark Final Examination, 1-on-1 Coaching, and Mission Statement to unlock your official credential.`}
                       </p>
                     </div>
 
                     <div className={styles.stepActionCol}>
-                      <Link
-                        href={`/programs/${id}/certificate`}
-                        className={isCertificateUnlocked ? styles.startBtn : styles.reviewBtn}
-                        style={{
-                          background: isCertificateUnlocked ? "linear-gradient(135deg, #eab308, #ca8a04)" : undefined,
-                          borderColor: isCertificateUnlocked ? "#ca8a04" : undefined,
-                          color: isCertificateUnlocked ? "#ffffff" : undefined,
-                        }}
-                      >
-                        {isCertificateUnlocked ? "Claim Certificate" : "Check Status"}
-                      </Link>
+                      {isCertificateClaimed ? (
+                        <Link
+                          href={`/programs/${id}/certificate`}
+                          className={styles.reviewBtn}
+                        >
+                          View Certificate
+                        </Link>
+                      ) : isCertificateUnlocked ? (
+                        <Link
+                          href={`/programs/${id}/certificate`}
+                          className={styles.startBtn}
+                          style={{
+                            background: "linear-gradient(135deg, #eab308, #ca8a04)",
+                            borderColor: "#ca8a04",
+                            color: "#ffffff",
+                          }}
+                        >
+                          Claim Certificate
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/programs/${id}/certificate`}
+                          className={styles.reviewBtn}
+                        >
+                          Check Status
+                        </Link>
+                      )}
                     </div>
                   </li>
                 </ol>

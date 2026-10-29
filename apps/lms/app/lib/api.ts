@@ -218,6 +218,9 @@ export function autoInvalidateOnMutation(url: string): void {
     "notifications",
     "checkout",
     "auth",
+    "one-on-one",
+    "coaching",
+    "mission-statements",
   ];
 
   for (const r of resources) {
@@ -227,10 +230,25 @@ export function autoInvalidateOnMutation(url: string): void {
         invalidateCache("/sessions");
         invalidateCache("/bookings");
       }
-      if (r === "progression" || r === "progress" || r === "quizzes") {
+      if (r === "one-on-one" || r === "coaching") {
+        invalidateCache("/one-on-one");
+        invalidateCache("/coaching");
         invalidateCache("/progression");
+        invalidateCache("/stages");
+        invalidateCache("/certificates");
+      }
+      if (r === "mission-statements") {
+        invalidateCache("/mission-statements");
+        invalidateCache("/progression");
+        invalidateCache("/stages");
+        invalidateCache("/certificates");
+      }
+      if (r === "progression" || r === "progress" || r === "quizzes" || r === "exams") {
+        invalidateCache("/progression");
+        invalidateCache("/stages");
         invalidateCache("/progress");
         invalidateCache("/quizzes");
+        invalidateCache("/exams");
         invalidateCache("/certificates");
         invalidateCache("/auth");
       }
@@ -240,6 +258,7 @@ export function autoInvalidateOnMutation(url: string): void {
       if (r === "agreements") {
         invalidateCache("/agreements");
         invalidateCache("/progression");
+        invalidateCache("/stages");
         invalidateCache("/auth");
       }
       break;
@@ -248,8 +267,10 @@ export function autoInvalidateOnMutation(url: string): void {
 
   if (url.includes("/complete") || url.includes("/submit")) {
     invalidateCache("/progression");
+    invalidateCache("/stages");
     invalidateCache("/progress");
     invalidateCache("/quizzes");
+    invalidateCache("/exams");
     invalidateCache("/certificates");
     invalidateCache("/auth");
   }
@@ -857,6 +878,11 @@ export interface EnrolmentProgressionResponse {
   totalItems?: number;
   completedItems?: number;
   certificate?: any;
+  stages?: any;
+  examConfig?: any;
+  examAttempt?: any;
+  coachingRequests?: any[];
+  missionSubmissions?: any[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1198,6 +1224,7 @@ export interface OneOnOneRequestDto {
   requestedEnd: string;
   learnerTimezone?: string;
   notes?: string;
+  reschedule?: boolean;
 }
 
 export interface MyOneOnOneRequest {
@@ -1235,12 +1262,20 @@ export async function createOneOnOneRequest(payload: OneOnOneRequestDto): Promis
     const err = await parseApiError(res, 'Failed to submit coaching request');
     throw new Error(err.message);
   }
+  invalidateCache("/one-on-one");
+  invalidateCache("/progression");
   return res.json();
 }
 
-export async function fetchMyOneOnOneRequests(): Promise<MyOneOnOneRequest[]> {
-  const res = await fetch(`${API_URL}/one-on-one/my-requests`, {
+export async function fetchMyOneOnOneRequests(
+  enrolmentId?: string,
+  skipCache = false
+): Promise<MyOneOnOneRequest[]> {
+  const query = enrolmentId ? `?enrolmentId=${encodeURIComponent(enrolmentId)}` : "";
+  const res = await cachedFetch(`${API_URL}/one-on-one/my-requests${query}`, {
     headers: getAuthHeaders(),
+    ttlMs: 30_000,
+    skipCache,
   });
   if (!res.ok) {
     const err = await parseApiError(res, 'Failed to fetch coaching requests');
@@ -1258,6 +1293,8 @@ export async function cancelOneOnOneRequest(id: string): Promise<MyOneOnOneReque
     const err = await parseApiError(res, 'Failed to cancel coaching request');
     throw new Error(err.message);
   }
+  invalidateCache("/one-on-one");
+  invalidateCache("/progression");
   return res.json();
 }
 

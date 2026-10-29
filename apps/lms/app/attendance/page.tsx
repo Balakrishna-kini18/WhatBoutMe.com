@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import styles from "./attendance.module.css";
 
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface MySession {
@@ -19,6 +18,7 @@ interface MySession {
   batchName: string;
   attended: boolean;
   durationMin?: number | null;
+  sessionType?: string;
 }
 
 interface Day {
@@ -30,12 +30,12 @@ interface Day {
 
 const Icons = {
   chevronLeft: (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="15 18 9 12 15 6" />
     </svg>
   ),
   chevronRight: (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
@@ -45,13 +45,56 @@ const Icons = {
     </svg>
   ),
   video: (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="m22 8-6 4 6 4V8Z" /><rect width="14" height="12" x="2" y="6" rx="2" />
     </svg>
   ),
   clock: (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  arrowLeft: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  ),
+  calendarSmall: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  ),
+  calendarGreen: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <path d="m9 16 2 2 4-4" />
+    </svg>
+  ),
+  chartOrange: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  ),
+  flamePurple: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+    </svg>
+  ),
+  userGroup: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
 };
@@ -101,11 +144,25 @@ export default function AttendancePage() {
   const [sessions, setSessions] = useState<MySession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [userName, setUserName] = useState("sahyadri");
 
   // Calendar State
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedKey, setSelectedKey] = useState("");
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("user");
+      if (raw) {
+        const u = JSON.parse(raw);
+        if (u.name) setUserName(u.name);
+        else if (u.email) setUserName(u.email.split("@")[0]);
+      }
+    } catch {
+      // fallback default
+    }
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -138,11 +195,6 @@ export default function AttendancePage() {
   }, [router]);
 
   const monthStr = today ? today.slice(0, 7) : "";
-  const summary = [
-    { label: "Days Present", value: days.length },
-    { label: "This Month", value: days.filter((d) => d.date.startsWith(monthStr)).length },
-    { label: "Current Streak", value: today ? `${streakOf(days, today)} ${streakOf(days, today) === 1 ? "day" : "days"}` : "0 days" },
-  ];
 
   // Map attendance by date
   const daysMap = new Map<string, Day>();
@@ -251,16 +303,24 @@ export default function AttendancePage() {
 
   return (
     <div className={styles.container}>
+      {/* Page Title & Helper Row */}
       <header className={styles.header}>
-        <h1 className={styles.title}>Attendance</h1>
-        <p className={styles.subtitle}>
-          A day counts when you open the portal, finish a course step or join a live session.
-        </p>
+        <Link href="/" className={styles.backLink} title="Back to Dashboard">
+          <span className={styles.backIconWrap}>{Icons.arrowLeft}</span>
+          <span className={styles.backText}>Back</span>
+        </Link>
+        <div className={styles.headerTitleGroup}>
+          <h1 className={styles.title}>Attendance</h1>
+          <div className={styles.headerBadge}>
+            <span className={styles.headerBadgeDot} aria-hidden="true" />
+            <span>A day counts when you open the portal, finish a course step or join a live session.</span>
+          </div>
+        </div>
       </header>
 
       {error && <p role="alert" className={styles.notice}>{error}</p>}
 
-      {/* 2-Column Dashboard Layout: Left Calendar, Right Stats & Selected Day */}
+      {/* 2-Column Dashboard Layout: Left Calendar, Right Stats & Today Activity */}
       <div className={styles.mainLayout}>
         {/* LEFT COLUMN: Calendar (or List History) */}
         <div className={styles.calendarColumn}>
@@ -300,14 +360,15 @@ export default function AttendancePage() {
                     onClick={() => setViewMode("calendar")}
                     className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
                   >
-                    Calendar
+                    {Icons.calendarSmall}
+                    <span>Calendar</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("list")}
                     className={styles.toggleBtn}
                   >
-                    List History
+                    <span>List History</span>
                   </button>
                 </div>
               </div>
@@ -316,62 +377,79 @@ export default function AttendancePage() {
               <div className={styles.weekHeader} role="row">
                 {WEEKDAYS.map((wd) => (
                   <div key={wd} className={styles.weekDayName} role="columnheader">
-                    {wd}
+                    {wd.toUpperCase()}
                   </div>
                 ))}
               </div>
 
               {/* 7-column Calendar Grid */}
               <div className={styles.calendarGrid} role="grid" aria-label="Monthly Attendance Calendar">
-                {calendarDays.map((cd) => (
-                  <div
-                    key={cd.dateKey}
-                    role="gridcell"
-                    tabIndex={0}
-                    aria-selected={cd.isSelected}
-                    aria-label={`${cd.date.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
-                    onClick={() => setSelectedKey(cd.dateKey)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedKey(cd.dateKey);
-                      }
-                    }}
-                    className={`${styles.dayCell} ${!cd.isCurrentMonth ? styles.otherMonth : ""} ${cd.isSelected ? styles.selectedCell : ""}`}
-                  >
-                    <div className={styles.dayHeader}>
-                      <span className={`${styles.dayNumber} ${cd.isToday ? styles.todayPill : ""}`}>
-                        {cd.dayNumber}
-                      </span>
-                    </div>
-
-                    <div className={styles.cellEvents}>
-                      {/* Attendance Badge */}
-                      {cd.dayAttendance && (
-                        <span className={styles.presentBadge} title="Attended">
-                          {Icons.check} Present
+                {calendarDays.map((cd) => {
+                  const isSelectedCell = cd.isSelected;
+                  return (
+                    <div
+                      key={cd.dateKey}
+                      role="gridcell"
+                      tabIndex={0}
+                      aria-selected={isSelectedCell}
+                      aria-label={`${cd.date.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
+                      onClick={() => setSelectedKey(cd.dateKey)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedKey(cd.dateKey);
+                        }
+                      }}
+                      className={`${styles.dayCell} ${!cd.isCurrentMonth ? styles.otherMonth : ""} ${isSelectedCell ? styles.selectedCell : ""}`}
+                    >
+                      <div className={styles.dayHeader}>
+                        <span className={isSelectedCell ? styles.selectedDayBadge : styles.dayNumber}>
+                          {cd.dayNumber}
                         </span>
-                      )}
+                      </div>
 
-                      {/* Scheduled Live Sessions */}
-                      {cd.sessions.map((s) => {
-                        const startMs = new Date(s.startTime).getTime();
-                        const endMs = new Date(s.endTime).getTime();
-                        const isLive = nowMs >= startMs - 5 * 60000 && nowMs <= endMs;
-                        return (
-                          <span
-                            key={s.id}
-                            className={`${styles.sessionPill} ${isLive ? styles.sessionPillLive : ""}`}
-                            title={`${s.title} (${timeOf(s.startTime)})`}
-                          >
-                            {Icons.video}
-                            <span>{s.title}</span>
+                      <div className={styles.cellEvents}>
+                        {/* Attendance Badge */}
+                        {cd.dayAttendance && (
+                          <span className={styles.presentBadge} title="Attended">
+                            {Icons.check} Present
                           </span>
-                        );
-                      })}
+                        )}
+
+                        {/* Scheduled Live Sessions / Coaching */}
+                        {cd.sessions.map((s) => {
+                          const isOneOnOne =
+                            s.sessionType === "ONE_ON_ONE" ||
+                            s.title?.toLowerCase().includes("1-on-1") ||
+                            s.title?.toLowerCase().includes("coaching");
+
+                          if (isOneOnOne) {
+                            return (
+                              <span
+                                key={s.id}
+                                className={isSelectedCell ? styles.sessionPillCoachingSelected : styles.sessionPillCoaching}
+                                title={`${s.title} (${timeOf(s.startTime)})`}
+                              >
+                                1-on-1 Coaching
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <span
+                              key={s.id}
+                              className={styles.sessionPillCohort}
+                              title={`${s.title} (${timeOf(s.startTime)})`}
+                            >
+                              {Icons.video}
+                              <span>{s.title}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Calendar Legend */}
@@ -381,8 +459,12 @@ export default function AttendancePage() {
                   <span>Attendance Logged (Present)</span>
                 </div>
                 <div className={styles.legendItem}>
-                  <span className={styles.legendDotSession} />
+                  <span className={styles.legendDotCohort} />
                   <span>Cohort Live Class</span>
+                </div>
+                <div className={styles.legendItem}>
+                  <span className={styles.legendDotCoaching} />
+                  <span>1-on-1 Coaching</span>
                 </div>
                 <div className={styles.legendItem}>
                   <span className={styles.legendDotToday} />
@@ -401,14 +483,15 @@ export default function AttendancePage() {
                     onClick={() => setViewMode("calendar")}
                     className={styles.toggleBtn}
                   >
-                    Calendar
+                    {Icons.calendarSmall}
+                    <span>Calendar</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("list")}
                     className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
                   >
-                    List History
+                    <span>List History</span>
                   </button>
                 </div>
               </div>
@@ -441,7 +524,7 @@ export default function AttendancePage() {
                           </p>
                           <p className={styles.listItemMeta}>{reasons.join(" · ")}</p>
                         </div>
-                        <span className={styles.badgePresent}>Present</span>
+                        <span className={styles.badgePresentPill}>Present</span>
                       </div>
                     );
                   })
@@ -473,7 +556,7 @@ export default function AttendancePage() {
                             {(session.durationMin ?? 0) > 0 ? ` · ${session.durationMin} min attended` : ""}
                           </p>
                         </div>
-                        <span className={session.attended ? styles.badgePresent : isUpcoming ? styles.badgeUpcoming : (session.durationMin ?? 0) > 0 ? styles.badgeUpcoming : styles.badgeAbsent}>
+                        <span className={session.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : (session.durationMin ?? 0) > 0 ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
                           {session.attended ? "Present" : isUpcoming ? "Upcoming" : (session.durationMin ?? 0) > 0 ? `Partial (${session.durationMin}m)` : "Absent"}
                         </span>
                       </div>
@@ -485,52 +568,96 @@ export default function AttendancePage() {
           )}
         </div>
 
-        {/* RIGHT COLUMN: Stats Card (from user screenshot) & Selected Day Inspector */}
+        {/* RIGHT COLUMN: Stats Card & Today / Selected Day Activity */}
         <aside className={styles.sidebarColumn}>
-          {/* Stats Card */}
+          {/* Card 1: Attendance Stats */}
           <div className={styles.statsCard}>
             <div className={styles.statsHeader}>
-              <h3 className={styles.statsTitle}>Attendance Stats</h3>
+              <div className={styles.statsTitleRow}>
+                <span className={styles.statsTitleIcon}>{Icons.chartOrange}</span>
+                <h3 className={styles.statsTitle}>Attendance Stats</h3>
+              </div>
+              {/* Subtle Decorative Calendar Illustration */}
+              <div className={styles.calendarIllustration} aria-hidden="true">
+                <svg width="68" height="68" viewBox="0 0 100 100" fill="none">
+                  <rect x="22" y="24" width="62" height="58" rx="12" fill="#FED7AA" fillOpacity="0.4" />
+                  <rect x="14" y="16" width="64" height="60" rx="12" fill="#FFFFFF" stroke="#FDBA74" strokeWidth="2.5" />
+                  <rect x="14" y="16" width="64" height="18" rx="12" fill="#FED7AA" />
+                  <rect x="14" y="26" width="64" height="8" fill="#FED7AA" />
+                  <circle cx="28" cy="16" r="3.5" fill="#EA580C" />
+                  <circle cx="46" cy="16" r="3.5" fill="#EA580C" />
+                  <circle cx="64" cy="16" r="3.5" fill="#EA580C" />
+                  <circle cx="28" cy="46" r="3.5" fill="#F97316" />
+                  <circle cx="46" cy="46" r="3.5" fill="#F97316" />
+                  <circle cx="64" cy="46" r="3.5" fill="#F97316" />
+                  <circle cx="28" cy="62" r="3.5" fill="#F97316" />
+                  <circle cx="46" cy="62" r="3.5" fill="#F97316" />
+                  <circle cx="64" cy="62" r="3.5" fill="#FDBA74" fillOpacity="0.4" />
+                </svg>
+              </div>
             </div>
-            <dl className={styles.statsSummaryGrid}>
-              {summary.map((item) => (
-                <div key={item.label}>
-                  <dd>{loading ? "–" : item.value}</dd>
-                  <dt>{item.label}</dt>
+
+            {/* 3 Metric Tiles Side-by-Side */}
+            <div className={styles.statsTilesRow}>
+              {/* Tile 1: Days Present */}
+              <div className={styles.statTile}>
+                <div className={styles.tileIconGreen}>{Icons.calendarGreen}</div>
+                <div className={styles.tileValue}>{loading ? "–" : days.length}</div>
+                <div className={styles.tileLabel}>Days Present</div>
+              </div>
+
+              {/* Tile 2: This Month */}
+              <div className={styles.statTile}>
+                <div className={styles.tileIconOrange}>{Icons.chartOrange}</div>
+                <div className={styles.tileValue}>
+                  {loading ? "–" : days.filter((d) => d.date.startsWith(monthStr)).length}
                 </div>
-              ))}
-            </dl>
+                <div className={styles.tileLabel}>This Month</div>
+              </div>
+
+              {/* Tile 3: Current Streak */}
+              <div className={styles.statTile}>
+                <div className={styles.tileIconPurple}>{Icons.flamePurple}</div>
+                <div className={styles.tileValue}>
+                  {loading ? "–" : today ? `${streakOf(days, today)} ${streakOf(days, today) === 1 ? "day" : "days"}` : "0 days"}
+                </div>
+                <div className={styles.tileLabel}>Current Streak</div>
+              </div>
+            </div>
           </div>
 
-          {/* Selected Day Inspector */}
+          {/* Card 2: Today / Selected Day Activity */}
           {selectedKey && selectedDateObj && (
-            <div className={styles.inspectorCard}>
-              <div className={styles.inspectorHeader}>
-                <h3 className={styles.inspectorDate}>
-                  {selectedDateObj.toLocaleDateString([], {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </h3>
+            <div className={styles.activityCard}>
+              <div className={styles.activityHeader}>
+                <div className={styles.activityDateRow}>
+                  <span className={styles.activityCalendarIcon}>{Icons.calendarSmall}</span>
+                  <h3 className={styles.activityDateTitle}>
+                    {selectedDateObj.toLocaleDateString([], {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </h3>
+                </div>
                 {selectedKey === today && (
-                  <span className={styles.todayBadge}>Today</span>
+                  <span className={styles.todayBadge}>TODAY</span>
                 )}
               </div>
 
-              <div className={styles.inspectorBody}>
-                {/* Daily Attendance Status */}
-                <div className={styles.sectionBlock}>
-                  <span className={styles.sectionLabel}>Daily Activity</span>
+              <div className={styles.activityBody}>
+                {/* Daily Activity */}
+                <div className={styles.activitySection}>
+                  <h4 className={styles.activitySectionTitle}>Daily Activity</h4>
                   {selectedDayAttendance ? (
                     <div>
-                      <span className={styles.presentBadge} style={{ fontSize: "0.75rem", padding: "3px 8px" }}>
+                      <span className={styles.activityPresentBadge}>
                         {Icons.check} Present
                       </span>
-                      <ul className={styles.activityList}>
+                      <ul className={styles.activityBulletList}>
                         {selectedReasons.map((r) => (
-                          <li key={r as string} className={styles.activityItem}>
-                            <span style={{ color: "var(--accent-primary)" }}>•</span>
+                          <li key={r as string} className={styles.activityBulletItem}>
+                            <span className={styles.activityBulletDot}>•</span>
                             <span>{r}</span>
                           </li>
                         ))}
@@ -543,38 +670,75 @@ export default function AttendancePage() {
                   )}
                 </div>
 
-                {/* Scheduled Live Sessions on this date */}
-                <div className={styles.sectionBlock}>
-                  <span className={styles.sectionLabel}>Scheduled Classes</span>
+                <div className={styles.activityDivider} />
+
+                {/* Scheduled Classes */}
+                <div className={styles.activitySection}>
+                  <h4 className={styles.activitySectionTitle}>Scheduled Classes</h4>
                   {selectedDaySessions.length > 0 ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div className={styles.sessionList}>
                       {selectedDaySessions.map((s) => {
                         const startMs = new Date(s.startTime).getTime();
                         const endMs = new Date(s.endTime).getTime();
                         const isUpcoming = endMs > nowMs;
                         const isLive = nowMs >= startMs - 5 * 60000 && nowMs <= endMs;
+                        const isOneOnOne =
+                          s.sessionType === "ONE_ON_ONE" ||
+                          s.title?.toLowerCase().includes("1-on-1") ||
+                          s.title?.toLowerCase().includes("coaching");
+
+                        const displayTitle = isOneOnOne && !s.title.toLowerCase().includes(userName.toLowerCase())
+                          ? `1-on-1 Coaching: ${userName}`
+                          : s.title;
+
+                        const sessionTypeLabel = isOneOnOne ? "1:1 Coaching" : s.programTitle || "Cohort Live Class";
+
                         return (
-                          <div key={s.id} className={styles.sessionCard}>
-                            <div className={styles.sessionCardTop}>
-                              <p className={styles.sessionCardTitle}>{s.title}</p>
-                              <span className={s.attended ? styles.badgePresent : isUpcoming ? styles.badgeUpcoming : styles.badgeAbsent} style={{ fontSize: "0.68rem" }}>
+                          <div key={s.id} className={styles.scheduledSessionBox}>
+                            <div className={styles.sessionBoxTop}>
+                              <div className={styles.sessionAvatarIcon}>
+                                {Icons.userGroup}
+                              </div>
+                              <div className={styles.sessionTitleContainer}>
+                                <p className={styles.sessionTitleText}>{displayTitle}</p>
+                              </div>
+                              <span className={s.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
                                 {s.attended ? "Present" : isUpcoming ? "Upcoming" : "Ended"}
                               </span>
                             </div>
-                            <p className={styles.sessionCardTime}>
-                              {timeOf(s.startTime)} – {timeOf(s.endTime)} · {s.programTitle}
-                            </p>
+
+                            <div className={styles.sessionMetaContainer}>
+                              <div className={styles.sessionMetaRow}>
+                                {Icons.clock}
+                                <span>{timeOf(s.startTime)} – {timeOf(s.endTime)}</span>
+                              </div>
+                              <div className={styles.sessionMetaRow}>
+                                {Icons.video}
+                                <span>{sessionTypeLabel}</span>
+                              </div>
+                            </div>
+
+                            {/* Join Button */}
                             {isUpcoming && s.joinUrl ? (
                               <a
                                 href={s.joinUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                className={styles.joinSessionBtn}
-                                style={isLive ? { background: "var(--status-error)" } : undefined}
+                                className={styles.joinNowBtn}
                               >
                                 {Icons.video}
-                                <span>{isLive ? "Join Now" : "Join Class"}</span>
+                                <span>Join Now</span>
                               </a>
+                            ) : isUpcoming ? (
+                              <button
+                                type="button"
+                                disabled
+                                className={`${styles.joinNowBtn} ${styles.joinNowBtnDisabled}`}
+                                title="Meeting link will become active before class starts"
+                              >
+                                {Icons.video}
+                                <span>Join Now</span>
+                              </button>
                             ) : s.recordingUrl ? (
                               <Link
                                 href={`/sessions/${s.id}/recording`}

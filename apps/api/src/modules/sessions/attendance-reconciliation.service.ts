@@ -183,6 +183,19 @@ export class AttendanceReconciliationService {
       sessionDurationMin = 60;
     }
 
+    // Effective session duration: If the host ended early or actual live time is shorter than scheduled,
+    // evaluate percentage against the actual live duration so learners are not penalized for early dismissals.
+    let effectiveSessionDuration = sessionDurationMin;
+    const hostEmail = (session as any).hostTrainer?.email?.toLowerCase().trim();
+    if (hostEmail) {
+      const hostRecord = aggregated.find(
+        (p) => p.participantEmail?.toLowerCase().trim() === hostEmail,
+      );
+      if (hostRecord && hostRecord.durationMin > 0 && hostRecord.durationMin < sessionDurationMin) {
+        effectiveSessionDuration = hostRecord.durationMin;
+      }
+    }
+
     // Configurable program threshold (default 75% as per Phase 1/4 requirements)
     const minAttendancePercentage =
       session.batch?.program?.minAttendancePercentage ??
@@ -253,8 +266,11 @@ export class AttendanceReconciliationService {
         matchedUserIds.add(matched.userId);
         const attendedDurationMin = participant.durationMin || 0;
         const attendancePercentage =
-          sessionDurationMin > 0 ? (attendedDurationMin / sessionDurationMin) * 100 : 0;
-        const meetsThreshold = attendancePercentage >= minAttendancePercentage;
+          effectiveSessionDuration > 0 ? (attendedDurationMin / effectiveSessionDuration) * 100 : 0;
+        const minMinutes = (session as any).minAttendanceMinutes;
+        const meetsThreshold = minMinutes && minMinutes > 0
+          ? attendedDurationMin >= minMinutes
+          : attendancePercentage >= minAttendancePercentage;
         const status = meetsThreshold ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT;
 
         matchedParticipants.push({
@@ -452,8 +468,8 @@ export class AttendanceReconciliationService {
         unmatched.session?.batch?.program?.minAttendancePercentage ?? 75;
       const minutesPresent = unmatched.minutesPresent || unmatched.durationMin || 0;
       const percentage = (minutesPresent / sessionDurationMin) * 100;
-      const meetsThreshold = percentage >= minThreshold;
-      const calculatedStatus = meetsThreshold ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT;
+      // Admin manual linking represents an explicit reconciliation action to credit attendance
+      const calculatedStatus = AttendanceStatus.PRESENT;
 
       // Upsert attendance record for the learner
       const attendance = await tx.attendance.upsert({

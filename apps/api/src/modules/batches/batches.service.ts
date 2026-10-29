@@ -91,6 +91,20 @@ export class BatchesService {
         }).catch(() => {});
       }
 
+      // Auto-expire abandoned checkouts older than 48 hours (TTL)
+      const ttlCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      if (typeof (this.prisma.enrolment as any)?.updateMany === 'function') {
+        await this.prisma.enrolment.updateMany({
+          where: {
+            status: EnrolmentStatus.PENDING_PAYMENT,
+            createdAt: { lte: ttlCutoff },
+          },
+          data: {
+            status: EnrolmentStatus.REVOKED,
+          },
+        }).catch(() => {});
+      }
+
       const batches = await this.prisma.batch.findMany({
         where,
         include: {
@@ -108,7 +122,19 @@ export class BatchesService {
             },
           },
           _count: {
-            select: { enrolments: true },
+            select: {
+              enrolments: {
+                where: {
+                  status: {
+                    in: [
+                      EnrolmentStatus.ACTIVE,
+                      EnrolmentStatus.PENDING_AGREEMENT,
+                      EnrolmentStatus.COMPLETED,
+                    ],
+                  },
+                },
+              },
+            },
           },
         },
         orderBy: { startDate: 'desc' },
@@ -129,6 +155,21 @@ export class BatchesService {
     );
 
     return this.cacheHelper.getOrSet(cacheKey, async () => {
+      // Auto-expire abandoned checkouts older than 48 hours (TTL)
+      const ttlCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      if (typeof (this.prisma.enrolment as any)?.updateMany === 'function') {
+        await this.prisma.enrolment.updateMany({
+          where: {
+            batchId: id,
+            status: EnrolmentStatus.PENDING_PAYMENT,
+            createdAt: { lte: ttlCutoff },
+          },
+          data: {
+            status: EnrolmentStatus.REVOKED,
+          },
+        }).catch(() => {});
+      }
+
       const batch = await this.prisma.batch.findUnique({
         where: { id },
         include: {
@@ -157,10 +198,25 @@ export class BatchesService {
               user: {
                 select: { id: true, name: true, email: true, role: true },
               },
+              signedAgreement: {
+                select: { id: true, status: true, signedAt: true },
+              },
             },
           },
           _count: {
-            select: { enrolments: true },
+            select: {
+              enrolments: {
+                where: {
+                  status: {
+                    in: [
+                      EnrolmentStatus.ACTIVE,
+                      EnrolmentStatus.PENDING_AGREEMENT,
+                      EnrolmentStatus.COMPLETED,
+                    ],
+                  },
+                },
+              },
+            },
           },
         },
       });
@@ -259,6 +315,13 @@ export class BatchesService {
     const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const batchStart = new Date(data.startDate);
     const batchStartDayMs = new Date(batchStart.getFullYear(), batchStart.getMonth(), batchStart.getDate()).getTime();
+    if (batchStartDayMs < todayStartMs) {
+      throw new BadRequestException('Batch Start Date cannot be in the past');
+    }
+    if (data.endDate && new Date(data.endDate).getTime() < batchStart.getTime()) {
+      throw new BadRequestException('Batch End Date must be on or after Start Date');
+    }
+
     const nowMs = now.getTime();
     const startMs = batchStart.getTime();
     const endMs = data.endDate ? new Date(data.endDate).getTime() : null;
@@ -282,6 +345,9 @@ export class BatchesService {
           managerId: data.managerId ?? null,
           startDate: new Date(data.startDate),
           endDate: data.endDate ? new Date(data.endDate) : null,
+          registrationDeadline: data.registrationDeadline
+            ? new Date(data.registrationDeadline)
+            : null,
           capacity: data.capacity,
           status: initialStatus,
           price: data.price !== undefined ? data.price : undefined,
@@ -333,6 +399,23 @@ export class BatchesService {
       });
     });
 
+    if (created && typeof this.prisma.auditLog?.create === 'function') {
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: actorId || null,
+          action: 'BATCH_CREATED',
+          entity: 'Batch',
+          entityId: created.id,
+          meta: {
+            batchName: created.name,
+            programTitle: created.program?.title,
+            capacity: created.capacity,
+            startDate: created.startDate,
+          },
+        },
+      }).catch(() => null);
+    }
+
     await this.cacheHelper.invalidateNamespace('batches');
     return this.formatBatchResponse(created!);
   }
@@ -355,7 +438,7 @@ export class BatchesService {
 
     // 2. Validate Manager if being changed
     if (data.managerId !== undefined) {
-      if (data.managerId !== null) {
+      if (data.managerId !== null && data.managerId !== '') {
         const manager = await this.prisma.user.findUnique({
           where: { id: data.managerId },
         });
@@ -377,7 +460,16 @@ export class BatchesService {
       }
 
       const enrolledCount = await this.prisma.enrolment.count({
-        where: { batchId: id, status: { not: EnrolmentStatus.REVOKED } },
+        where: {
+          batchId: id,
+          status: {
+            in: [
+              EnrolmentStatus.ACTIVE,
+              EnrolmentStatus.PENDING_AGREEMENT,
+              EnrolmentStatus.COMPLETED,
+            ],
+          },
+        },
       });
 
       if (data.capacity < enrolledCount) {
@@ -387,14 +479,27 @@ export class BatchesService {
       }
     }
 
+    // 4. Validate effective start and end dates
+    const effectiveStart = data.startDate ? new Date(data.startDate) : batch.startDate;
+    const effectiveEnd = data.endDate !== undefined
+      ? (data.endDate ? new Date(data.endDate) : null)
+      : batch.endDate;
+    if (effectiveStart && effectiveEnd && effectiveEnd.getTime() < effectiveStart.getTime()) {
+      throw new BadRequestException('Batch End Date must be on or after Start Date');
+    }
+
     const updateData: any = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.programId !== undefined) updateData.programId = data.programId;
-    if (data.managerId !== undefined) updateData.managerId = data.managerId;
+    if (data.managerId !== undefined) {
+      updateData.managerId = (data.managerId && data.managerId.trim()) ? data.managerId : null;
+    }
     if (data.startDate !== undefined)
       updateData.startDate = new Date(data.startDate);
     if (data.endDate !== undefined)
       updateData.endDate = data.endDate ? new Date(data.endDate) : null;
+    if (data.registrationDeadline !== undefined)
+      updateData.registrationDeadline = data.registrationDeadline ? new Date(data.registrationDeadline) : null;
     if (data.capacity !== undefined) updateData.capacity = data.capacity;
     if (data.price !== undefined) updateData.price = data.price;
     if (data.currency !== undefined) updateData.currency = data.currency;
@@ -443,6 +548,24 @@ export class BatchesService {
     });
 
     await this.cacheHelper.invalidateNamespace('batches');
+
+    if (updateData.status && updateData.status !== batch.status && typeof this.prisma.auditLog?.create === 'function') {
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: actorId || null,
+          action: 'BATCH_STATUS_CHANGED',
+          entity: 'Batch',
+          entityId: id,
+          meta: {
+            batchName: batch.name,
+            previousStatus: batch.status,
+            newStatus: updated.status,
+            reason: 'Batch status updated via settings',
+          },
+        },
+      }).catch(() => null);
+    }
+
     return this.formatBatchResponse(updated);
   }
 
@@ -786,13 +909,16 @@ export class BatchesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private formatBatchResponse(batch: any) {
-    // Use the filtered enrolments array length as the authoritative active count.
-    // batch._count.enrolments does NOT respect status filters applied to the include
-    // and would inflate the count with REVOKED enrolments. The enrolments array is
-    // always filtered (status ≠ REVOKED) wherever it's included, so use its length.
+    // Only confirmed, active learners occupy real batch capacity:
+    // ACTIVE, PENDING_AGREEMENT, COMPLETED.
+    // Unpaid checkouts (PENDING_PAYMENT), waitlist, and revoked do NOT consume hard capacity.
+    const confirmedStatuses = ['ACTIVE', 'PENDING_AGREEMENT', 'COMPLETED'];
     const enrolledCount = Array.isArray(batch.enrolments)
-      ? batch.enrolments.filter((e: any) => e.status !== 'REVOKED').length
+      ? batch.enrolments.filter((e: any) => confirmedStatuses.includes(e.status)).length
       : (batch._count?.enrolments ?? 0);
+    const pendingPaymentCount = Array.isArray(batch.enrolments)
+      ? batch.enrolments.filter((e: any) => e.status === 'PENDING_PAYMENT').length
+      : 0;
     const capacity = batch.capacity ?? 0;
     const remainingCapacity = Math.max(0, capacity - enrolledCount);
     const isFull = enrolledCount >= capacity;
@@ -825,14 +951,16 @@ export class BatchesService {
       manager: batch.manager,
       startDate: batch.startDate,
       endDate: batch.endDate,
+      registrationDeadline: batch.registrationDeadline ?? null,
       capacity,
-      status: computedStatus,
+      status: batch.status,
       price: (batch as any).price ?? null,
       currency: (batch as any).currency ?? null,
       priceUSD: (batch as any).priceUSD ?? null,
       priceAED: (batch as any).priceAED ?? null,
       priceINR: (batch as any).priceINR ?? null,
       enrolledCount,
+      pendingPaymentCount,
       remainingCapacity,
       isFull,
       trainers: Array.isArray(batch.trainers)

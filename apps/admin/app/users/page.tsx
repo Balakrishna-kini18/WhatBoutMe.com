@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, FormEvent, useRef } from "react";
+import { useEffect, useState, FormEvent, useRef, Suspense } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState, Pagination } from "../components";
+import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState, Pagination, SortIndicator } from "../components";
 import { apiGet } from "../lib/api";
 
 const RevokeAccessModal = dynamic(
@@ -20,8 +21,11 @@ interface UserEnrolment {
   programTitle: string | null;
   status: string;
   currentStepNumber?: number | null;
+  completedSteps?: number;
   totalSteps?: number | null;
+  progressPercent?: number;
   isStepLocked?: boolean;
+  stepLockReason?: string | null;
   stepLabel?: string | null;
   isAgreementSigned?: boolean;
   createdAt?: string | Date;
@@ -36,7 +40,9 @@ interface User {
   createdAt?: string | Date;
   progress?: string;
   currentStepNumber?: number | null;
+  completedSteps?: number;
   totalSteps?: number | null;
+  progressPercent?: number;
   currentStage?: string | null;
   stageLabel?: string | null;
   isStepLocked?: boolean;
@@ -89,6 +95,15 @@ const ROLE_CARDS = [
 ];
 
 export default function UsersPage() {
+  return (
+    <Suspense fallback={null}>
+      <UsersContent />
+    </Suspense>
+  );
+}
+
+function UsersContent() {
+  const searchParams = useSearchParams();
   const { success: toastSuccess } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -106,6 +121,24 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<"ALL" | "USER" | "MANAGER" | "ADMIN" | "SUPER_ADMIN">("ALL");
   const [selectedManagerBatchIds, setSelectedManagerBatchIds] = useState<string[]>([]);
 
+  // Status Distribution Counts
+  const activeCount = users.filter((u) => ((u as any).accountStatus || u.status || "ACTIVE").toUpperCase() === "ACTIVE").length;
+  const suspendedCount = users.filter((u) => ((u as any).accountStatus || u.status || "").toUpperCase() === "SUSPENDED").length;
+  const inactiveCount = users.filter((u) => {
+    const s = ((u as any).accountStatus || u.status || "").toUpperCase();
+    return s === "INACTIVE" || s === "DISABLED";
+  }).length;
+  const paymentPendingCount = users.filter((u) => {
+    return u.enrolments?.some((e) => e.status === "PENDING_PAYMENT" || e.stepLockReason === "PAYMENT_REQUIRED");
+  }).length;
+  const agreementRequiredCount = users.filter((u) => {
+    const isPaymentPending = u.enrolments?.some((e) => e.status === "PENDING_PAYMENT" || e.stepLockReason === "PAYMENT_REQUIRED");
+    return u.role === "USER" && !u.isAgreementSigned && !isPaymentPending;
+  }).length;
+
+  // Role Tab Counts (fetched from API)
+  const [roleCounts, setRoleCounts] = useState<Record<string, number>>({});
+
   // Interactive Column Header Sorting
   type SortField = "name" | "role" | "program" | "step" | "agreement" | "batch" | "date";
   type SortDirection = "asc" | "desc";
@@ -117,9 +150,14 @@ export default function UsersPage() {
   const [programFilter, setProgramFilter] = useState<string>("ALL");
   const [agreementFilter, setAgreementFilter] = useState<"ALL" | "SIGNED" | "PENDING">("ALL");
   const [batchFilter, setBatchFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "PAYMENT_PENDING" | "AGREEMENT_REQUIRED" | "SUSPENDED" | "INACTIVE">("ALL");
 
   // In-row Active Program Selector for Multi-Course Learners
   const [selectedProgramByUser, setSelectedProgramByUser] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setSelectedProgramByUser({});
+  }, [statusFilter, programFilter, batchFilter, agreementFilter, roleFilter]);
 
   // CSV Export State
   const [isExporting, setIsExporting] = useState(false);
@@ -165,6 +203,19 @@ export default function UsersPage() {
     fetchBatches();
     fetchPrograms();
   }, []);
+
+  // Reactively sync with URL parameters (?batchId=... & ?role=...)
+  useEffect(() => {
+    const bId = searchParams.get("batchId");
+    if (bId) {
+      setBatchFilter(bId);
+      setRoleFilter("USER");
+    }
+    const roleParam = searchParams.get("role");
+    if (roleParam && ["USER", "MANAGER", "ADMIN", "SUPER_ADMIN", "ALL"].includes(roleParam.toUpperCase())) {
+      setRoleFilter(roleParam.toUpperCase() as any);
+    }
+  }, [searchParams]);
 
   const fetchPrograms = async () => {
     try {
@@ -236,13 +287,16 @@ export default function UsersPage() {
   const fetchUsers = async (signal?: AbortSignal) => {
     try {
       const roleParam = roleFilter !== "ALL" ? `&role=${roleFilter}` : "";
-      const json = await apiGet<{ data: User[]; total: number }>(
+      const json = await apiGet<{ data: User[]; total: number; roleCounts?: Record<string, number> }>(
         `/users?page=${page}&limit=${pageSize}&search=${encodeURIComponent(search)}${roleParam}`,
         { signal, skipCache: true }
       );
       if (json) {
         setUsers(json.data || []);
         setTotalUsers(json.total || 0);
+        if (json.roleCounts) {
+          setRoleCounts(json.roleCounts);
+        }
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
@@ -269,21 +323,11 @@ export default function UsersPage() {
   };
 
   const renderSortIcon = (field: SortField) => {
-    const isActive = sortField === field;
     return (
-      <span
-        style={{
-          display: "inline-flex",
-          fontSize: "0.68rem",
-          lineHeight: 1,
-          color: isActive ? "var(--accent-primary, #c97a1e)" : "var(--text-muted, #a8a29e)",
-          fontWeight: isActive ? 800 : 400,
-          marginLeft: "4px",
-        }}
-        aria-hidden="true"
-      >
-        {isActive ? (sortDirection === "asc" ? "▲" : "▼") : "⇅"}
-      </span>
+      <SortIndicator
+        active={sortField === field}
+        order={sortDirection}
+      />
     );
   };
 
@@ -313,9 +357,41 @@ export default function UsersPage() {
     ...batches.map((b) => ({ value: b.id, label: b.name })),
   ];
 
+  const statusOptions = [
+    {
+      value: "ALL",
+      label: "All",
+    },
+    {
+      value: "ACTIVE",
+      label: "Active",
+    },
+    ...((roleFilter === "ALL" || roleFilter === "USER")
+      ? [
+          {
+            value: "PAYMENT_PENDING",
+            label: "Payment Pending",
+          },
+          {
+            value: "AGREEMENT_REQUIRED",
+            label: "Agreement Required",
+          },
+        ]
+      : []),
+    {
+      value: "SUSPENDED",
+      label: "Suspended",
+    },
+    {
+      value: "INACTIVE",
+      label: "Disabled",
+    },
+  ];
+
   const hasActiveFilters = Boolean(
     search ||
     roleFilter !== "ALL" ||
+    statusFilter !== "ALL" ||
     programFilter !== "ALL" ||
     agreementFilter !== "ALL" ||
     batchFilter !== "ALL" ||
@@ -325,46 +401,148 @@ export default function UsersPage() {
   const resetAllFilters = () => {
     setSearch("");
     setRoleFilter("ALL");
+    setStatusFilter("ALL");
     setProgramFilter("ALL");
     setAgreementFilter("ALL");
     setBatchFilter("ALL");
+    setSelectedProgramByUser({});
     setSortField(null);
     setSortDirection("asc");
     setPage(1);
   };
 
+  const isEnrolmentPaymentPending = (enr: UserEnrolment): boolean => {
+    return (
+      enr.status === "PENDING_PAYMENT" ||
+      enr.stepLockReason === "PAYMENT_REQUIRED" ||
+      enr.stepLabel === "Payment Pending"
+    );
+  };
+
+  const isEnrolmentAgreementRequired = (enr: UserEnrolment, user: User): boolean => {
+    if (isEnrolmentPaymentPending(enr)) return false;
+    return (
+      enr.stepLockReason === "AGREEMENT_REQUIRED" ||
+      enr.stepLabel === "Agreement Required" ||
+      (user.role === "USER" && !enr.isAgreementSigned)
+    );
+  };
+
+  const getMatchingEnrolments = (user: User): UserEnrolment[] => {
+    const enrolments = user.enrolments || [];
+    if (enrolments.length === 0) return [];
+
+    return enrolments.filter((enr) => {
+      // 1. Program filter
+      if (programFilter !== "ALL" && programFilter !== "NONE") {
+        const matchesProgram =
+          enr.programTitle?.toLowerCase() === programFilter.toLowerCase() ||
+          enr.programId === programFilter ||
+          enr.id === programFilter;
+        if (!matchesProgram) return false;
+      }
+
+      // 2. Batch filter
+      if (batchFilter !== "ALL" && batchFilter !== "UNASSIGNED") {
+        const matchesBatch = enr.batchId === batchFilter || enr.batchName === batchFilter;
+        if (!matchesBatch) return false;
+      } else if (batchFilter === "UNASSIGNED") {
+        const isUnassigned = !enr.batchId || !enr.batchName || enr.batchName === "Unassigned";
+        if (!isUnassigned) return false;
+      }
+
+      // 3. Status filter
+      if (statusFilter !== "ALL") {
+        if (statusFilter === "PAYMENT_PENDING") {
+          if (!isEnrolmentPaymentPending(enr)) return false;
+        } else if (statusFilter === "AGREEMENT_REQUIRED") {
+          if (!isEnrolmentAgreementRequired(enr, user)) return false;
+        } else if (statusFilter === "ACTIVE") {
+          if (isEnrolmentPaymentPending(enr) || isEnrolmentAgreementRequired(enr, user) || enr.status === "REVOKED") {
+            return false;
+          }
+        }
+      }
+
+      // 4. Agreement filter
+      if (agreementFilter === "SIGNED") {
+        const isSigned = enr.isAgreementSigned ?? user.isAgreementSigned;
+        if (!isSigned) return false;
+      } else if (agreementFilter === "PENDING") {
+        const isSigned = enr.isAgreementSigned ?? user.isAgreementSigned;
+        if (isSigned) return false;
+      }
+
+      return true;
+    });
+  };
+
+  const hasActiveEnrolmentFilter =
+    statusFilter !== "ALL" ||
+    programFilter !== "ALL" ||
+    batchFilter !== "ALL" ||
+    agreementFilter !== "ALL";
+
   // Client-side secondary filtering and sorting
   const filteredUsers = users.filter((u) => {
-    // Secondary: Program filter
+    // Role filter
+    if (roleFilter !== "ALL" && u.role !== roleFilter) return false;
+
+    // Search query
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      const matchesName = u.name?.toLowerCase().includes(q);
+      const matchesEmail = u.email?.toLowerCase().includes(q);
+      const matchesProgram = u.enrolments?.some((e) => e.programTitle?.toLowerCase().includes(q));
+      const matchesBatch =
+        u.cohort?.toLowerCase().includes(q) ||
+        u.managedBatches?.some((b) => b.name?.toLowerCase().includes(q)) ||
+        u.enrolments?.some((e) => e.batchName?.toLowerCase().includes(q));
+      if (!matchesName && !matchesEmail && !matchesProgram && !matchesBatch) return false;
+    }
+
+    // Secondary: Account Status & Progression Gates filter
+    if (statusFilter !== "ALL") {
+      const uStatus = ((u as any).accountStatus || u.status || "ACTIVE").toUpperCase();
+      if (statusFilter === "SUSPENDED") {
+        if (uStatus !== "SUSPENDED") return false;
+      } else if (statusFilter === "INACTIVE") {
+        if (uStatus !== "INACTIVE" && uStatus !== "DISABLED") return false;
+      } else if (statusFilter === "ACTIVE") {
+        if (uStatus !== "ACTIVE") return false;
+      }
+    }
+
+    // Secondary: Program filter NONE check
     if (programFilter === "NONE") {
       if (u.enrolments && u.enrolments.length > 0) return false;
-    } else if (programFilter !== "ALL") {
-      const hasProg = u.enrolments?.some((e) => e.programTitle === programFilter || e.programTitle?.toLowerCase() === programFilter.toLowerCase());
-      if (!hasProg) return false;
     }
 
-    // Secondary: Agreement filter
-    if (agreementFilter === "SIGNED") {
-      if (!u.isAgreementSigned) return false;
-    } else if (agreementFilter === "PENDING") {
-      if (u.role === "USER" && u.isAgreementSigned) return false;
-      if (u.role !== "USER") return false;
-    }
-
-    // Secondary: Batch filter
-    if (batchFilter === "UNASSIGNED") {
-      if (u.role === "MANAGER") {
+    // Secondary: Batch filter for managers
+    if (u.role === "MANAGER" && batchFilter !== "ALL") {
+      if (batchFilter === "UNASSIGNED") {
         if (u.managedBatches && u.managedBatches.length > 0) return false;
       } else {
-        if (u.cohort || u.batchId) return false;
-      }
-    } else if (batchFilter !== "ALL") {
-      if (u.role === "MANAGER") {
         const hasBatch = u.managedBatches?.some((b) => b.id === batchFilter || b.name === batchFilter);
         if (!hasBatch && u.batchId !== batchFilter) return false;
-      } else {
-        if (u.batchId !== batchFilter && u.cohort !== batchFilter) return false;
       }
+    }
+
+    // For learners when any enrolment filter is active: must have at least one matching enrolment
+    if (u.role === "USER" && hasActiveEnrolmentFilter) {
+      if (programFilter === "NONE") {
+        // handled above
+      } else {
+        const matching = getMatchingEnrolments(u);
+        if (matching.length === 0) return false;
+      }
+    }
+
+    // For non-learners: check agreement filter and specific course filters
+    if (u.role !== "USER") {
+      if (agreementFilter !== "ALL") return false;
+      if (statusFilter === "PAYMENT_PENDING" || statusFilter === "AGREEMENT_REQUIRED") return false;
+      if (programFilter !== "ALL" && programFilter !== "NONE") return false;
     }
 
     return true;
@@ -413,10 +591,10 @@ export default function UsersPage() {
     return `${day}/${month}/${year}`;
   }
 
-  const getEnrolledDate = (user: User) => {
+  const getEnrolledDate = (user: User, enr?: UserEnrolment | null) => {
     const isEnrolled = user.enrolments && user.enrolments.length > 0;
     if (!isEnrolled) return "—";
-    const rawDate = user.enrolments?.[0]?.createdAt || user.enrolledAt || user.createdAt || user.joined;
+    const rawDate = enr?.createdAt || user.enrolledAt || user.createdAt || user.joined;
     if (!rawDate) return "—";
     return formatNumericDate(rawDate);
   };
@@ -453,8 +631,9 @@ export default function UsersPage() {
             : null) ||
           (selectedProgramByUser[u.id] ? u.enrolments?.find(e => e.id === selectedProgramByUser[u.id] || e.programId === selectedProgramByUser[u.id]) : null) ||
           u.enrolments?.[0];
-        if (active?.isStepLocked) return 0;
-        return active?.currentStepNumber || u.currentStepNumber || 1;
+        if (active?.isStepLocked) return -1;
+        if (active?.stepLabel === "Certified") return 1000;
+        return active?.progressPercent ?? (active?.completedSteps ?? (u.progressPercent ?? (u.completedSteps ?? 0)));
       };
       valA = getStepVal(a);
       valB = getStepVal(b);
@@ -659,9 +838,9 @@ export default function UsersPage() {
           "Role",
           "Account Status",
           "Enrolled Programs",
-          "Unlocked Step",
-          "Agreement Status",
           "Batch",
+          "Curriculum Progress",
+          "Agreement Status",
           "Joined Date",
         ];
         rowMapper = (u) => {
@@ -944,120 +1123,119 @@ export default function UsersPage() {
       </header>
 
       {!isManager && (
-        <div className={styles.tabsContainer} role="tablist" aria-label="User directory views" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={roleFilter === "ALL"}
-            className={`${styles.tabBtn} ${roleFilter === "ALL" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setRoleFilter("ALL"); setPage(1); }}
-          >
-            All Roles
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={roleFilter === "USER"}
-            className={`${styles.tabBtn} ${roleFilter === "USER" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setRoleFilter("USER"); setPage(1); }}
-          >
-            Learners
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={roleFilter === "MANAGER"}
-            className={`${styles.tabBtn} ${roleFilter === "MANAGER" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setRoleFilter("MANAGER"); setPage(1); }}
-          >
-            Batch Managers
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={roleFilter === "ADMIN"}
-            className={`${styles.tabBtn} ${roleFilter === "ADMIN" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setRoleFilter("ADMIN"); setPage(1); }}
-          >
-            Admins
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={roleFilter === "SUPER_ADMIN"}
-            className={`${styles.tabBtn} ${roleFilter === "SUPER_ADMIN" ? styles.tabBtnActive : ""}`}
-            onClick={() => { setRoleFilter("SUPER_ADMIN"); setPage(1); }}
-          >
-            Super Admins
-          </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+          <div className={styles.tabsContainer} role="tablist" aria-label="User directory views" style={{ gap: "0.5rem", flexWrap: "wrap", margin: 0 }}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={roleFilter === "ALL"}
+              className={`${styles.tabBtn} ${roleFilter === "ALL" ? styles.tabBtnActive : ""}`}
+              onClick={() => { setRoleFilter("ALL"); setStatusFilter("ALL"); setPage(1); }}
+            >
+              All Roles {roleCounts.ALL !== undefined ? `(${roleCounts.ALL})` : ""}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={roleFilter === "USER"}
+              className={`${styles.tabBtn} ${roleFilter === "USER" ? styles.tabBtnActive : ""}`}
+              onClick={() => { setRoleFilter("USER"); setStatusFilter("ALL"); setPage(1); }}
+            >
+              Learners {roleCounts.USER !== undefined ? `(${roleCounts.USER})` : ""}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={roleFilter === "MANAGER"}
+              className={`${styles.tabBtn} ${roleFilter === "MANAGER" ? styles.tabBtnActive : ""}`}
+              onClick={() => { setRoleFilter("MANAGER"); setStatusFilter("ALL"); setPage(1); }}
+            >
+              Batch Managers {roleCounts.MANAGER !== undefined ? `(${roleCounts.MANAGER})` : ""}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={roleFilter === "ADMIN"}
+              className={`${styles.tabBtn} ${roleFilter === "ADMIN" ? styles.tabBtnActive : ""}`}
+              onClick={() => { setRoleFilter("ADMIN"); setStatusFilter("ALL"); setPage(1); }}
+            >
+              Admins {roleCounts.ADMIN !== undefined ? `(${roleCounts.ADMIN})` : ""}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={roleFilter === "SUPER_ADMIN"}
+              className={`${styles.tabBtn} ${roleFilter === "SUPER_ADMIN" ? styles.tabBtnActive : ""}`}
+              onClick={() => { setRoleFilter("SUPER_ADMIN"); setStatusFilter("ALL"); setPage(1); }}
+            >
+              Super Admins {roleCounts.SUPER_ADMIN !== undefined ? `(${roleCounts.SUPER_ADMIN})` : ""}
+            </button>
+          </div>
         </div>
       )}
 
       <section className={styles.tableSection}>
-        <div className={styles.sectionHeader} style={{ flexWrap: "wrap", gap: "0.75rem", alignItems: "center" }}>
-          <h2>
-            {roleFilter === "ALL"
-              ? "All Platform Accounts"
-              : roleFilter === "USER"
-              ? "Learners"
-              : roleFilter === "MANAGER"
-              ? "Batch Managers"
-              : roleFilter === "ADMIN"
-              ? "Administrators"
-              : "Super Administrators"}{" "}
-            ({totalUsers})
-          </h2>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-            <div className={styles.searchContainer} style={{ minWidth: "240px", flex: "1 1 240px", maxWidth: "300px" }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.4rem" }}>
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search by name or email..."
-                className={styles.searchInput}
-                value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1); }}
-              />
-            </div>
+        <div className={styles.sectionHeader} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem" }}>
+          {/* Left: Search Bar starting from the far left */}
+          <div className={styles.searchContainer} style={{ minWidth: "220px", flex: "1 1 240px", maxWidth: "320px" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.4rem" }}>
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              className={styles.searchInput}
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+            />
+          </div>
 
-            {/* Show Program filter only when relevant (ALL or USER) */}
+          {/* Right: Status Dropdown + Program Dropdown + Batch Dropdown + Agreement Dropdown + Reset */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+            {/* Status Dropdown */}
+            <CustomSelect
+              value={statusFilter}
+              onChange={(val) => { setStatusFilter(val as any); setPage(1); }}
+              options={statusOptions}
+              size="sm"
+              minWidth="145px"
+              searchable={false}
+              ariaLabel="Filter by status"
+            />
+
             {(roleFilter === "ALL" || roleFilter === "USER") && (
               <CustomSelect
                 value={programFilter}
                 onChange={(val) => { setProgramFilter(val); setPage(1); }}
                 options={programOptions}
                 size="sm"
-                minWidth="150px"
+                minWidth="140px"
                 ariaLabel="Filter by enrolled program"
               />
             )}
 
-            {/* Show Batch filter when relevant (ALL, USER, or MANAGER) */}
             {(roleFilter === "ALL" || roleFilter === "USER" || roleFilter === "MANAGER") && (
               <CustomSelect
                 value={batchFilter}
                 onChange={(val) => { setBatchFilter(val); setPage(1); }}
                 options={batchOptions}
                 size="sm"
-                minWidth="150px"
+                minWidth="140px"
                 ariaLabel="Filter by batch"
               />
             )}
 
-            {/* Show Agreement filter only when relevant (ALL or USER) */}
             {(roleFilter === "ALL" || roleFilter === "USER") && (
               <CustomSelect
                 value={agreementFilter}
                 onChange={(val) => { setAgreementFilter(val as any); setPage(1); }}
                 options={agreementOptions}
                 size="sm"
-                minWidth="140px"
+                minWidth="145px"
                 ariaLabel="Filter by agreement status"
               />
             )}
-
 
             {hasActiveFilters && (
               <button
@@ -1135,6 +1313,16 @@ export default function UsersPage() {
                       </span>
                     </th>
                     <th
+                      onClick={() => handleSort("batch")}
+                      style={{ cursor: "pointer", userSelect: "none" }}
+                      title="Click to sort by Batch"
+                      aria-sort={sortField === "batch" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                        Batch {renderSortIcon("batch")}
+                      </span>
+                    </th>
+                    <th
                       onClick={() => handleSort("step")}
                       style={{ cursor: "pointer", userSelect: "none" }}
                       title="Click to sort by Curriculum Progress"
@@ -1152,16 +1340,6 @@ export default function UsersPage() {
                     >
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
                         Agreement {renderSortIcon("agreement")}
-                      </span>
-                    </th>
-                    <th
-                      onClick={() => handleSort("batch")}
-                      style={{ cursor: "pointer", userSelect: "none" }}
-                      title="Click to sort by Batch"
-                      aria-sort={sortField === "batch" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
-                        Batch {renderSortIcon("batch")}
                       </span>
                     </th>
                     {roleFilter === "USER" && (
@@ -1233,13 +1411,60 @@ export default function UsersPage() {
                     />
                   </td>
                 </tr>
-              ) : sortedUsers.map((user) => (
+              ) : sortedUsers.map((user) => {
+                const matchingEnrolments = getMatchingEnrolments(user);
+                const availableEnrolments = hasActiveEnrolmentFilter
+                  ? (matchingEnrolments.length > 0 ? matchingEnrolments : user.enrolments || [])
+                  : (user.enrolments || []);
+
+                const activeEnrolment =
+                  (selectedProgramByUser[user.id]
+                    ? availableEnrolments.find(
+                        (e) => e.id === selectedProgramByUser[user.id] || e.programId === selectedProgramByUser[user.id]
+                      )
+                    : null) ||
+                  availableEnrolments.find((e) => e.status !== "REVOKED") ||
+                  availableEnrolments[0];
+
+                const profileHref = activeEnrolment?.id ? `/users/${user.id}?enrolmentId=${activeEnrolment.id}` : `/users/${user.id}`;
+
+                return (
                 <tr key={user.id}>
                   {/* User & Profile (Always present) */}
                   <td>
-                    <Link href={`/users/${user.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                    <Link href={profileHref} style={{ textDecoration: "none", color: "inherit" }}>
                       <div className={styles.cellUser}>
-                        <span className={styles.cellUserName}>{user.name}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span className={styles.cellUserName}>{user.name}</span>
+                          {((user as any).accountStatus === "SUSPENDED" || user.status === "SUSPENDED") && (
+                            <span style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              background: "#fee2e2",
+                              color: "#991b1b",
+                              border: "1px solid #fecaca",
+                              borderRadius: "4px",
+                              padding: "1px 5px",
+                              lineHeight: 1.2,
+                            }}>
+                              Suspended
+                            </span>
+                          )}
+                          {((user as any).accountStatus === "INACTIVE" || user.status === "INACTIVE" || user.status === "DISABLED") && (
+                            <span style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              background: "#f3f4f6",
+                              color: "#4b5563",
+                              border: "1px solid #e5e7eb",
+                              borderRadius: "4px",
+                              padding: "1px 5px",
+                              lineHeight: 1.2,
+                            }}>
+                              Disabled
+                            </span>
+                          )}
+                        </div>
                         <span className={styles.cellUserEmail}>{user.email}</span>
                       </div>
                     </Link>
@@ -1256,26 +1481,6 @@ export default function UsersPage() {
                   {(roleFilter === "ALL" || roleFilter === "USER") && (
                     <>
                       {(() => {
-                        const activeEnrolment =
-                          (programFilter !== "ALL"
-                            ? user.enrolments?.find(
-                                (e) =>
-                                  e.programTitle?.toLowerCase() === programFilter.toLowerCase() ||
-                                  e.programId === programFilter ||
-                                  e.id === programFilter
-                              )
-                            : null) ||
-                          (batchFilter !== "ALL" && batchFilter !== "UNASSIGNED"
-                            ? user.enrolments?.find((e) => e.batchId === batchFilter || e.batchName === batchFilter)
-                            : null) ||
-                          (selectedProgramByUser[user.id]
-                            ? user.enrolments?.find(
-                                (e) => e.id === selectedProgramByUser[user.id] || e.programId === selectedProgramByUser[user.id]
-                              )
-                            : null) ||
-                          user.enrolments?.find((e) => e.status !== "REVOKED") ||
-                          user.enrolments?.[0];
-
                         const hasMultipleCourses = (user.enrolments?.length || 0) > 1;
                         const otherProgramsText = hasMultipleCourses
                           ? user.enrolments!.slice(1).map((e) => e.programTitle).filter(Boolean).join(", ")
@@ -1286,28 +1491,14 @@ export default function UsersPage() {
                             {/* ENROLLED PROGRAMS */}
                             <td>
                               {user.enrolments && user.enrolments.length > 0 ? (
-                                programFilter !== "ALL" ? (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                    <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                                      {activeEnrolment?.programTitle || programFilter}
-                                    </span>
-                                    {hasMultipleCourses && (
-                                      <span
-                                        style={{ fontSize: "0.72rem", color: "var(--text-muted)", cursor: "default" }}
-                                        title={otherProgramsText}
-                                      >
-                                        +{user.enrolments.length - 1} other program{user.enrolments.length > 2 ? "s" : ""}
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : hasMultipleCourses ? (
+                                hasMultipleCourses ? (
                                   <div style={{ maxWidth: "200px" }}>
                                     <CustomSelect
                                       value={activeEnrolment?.id || ""}
                                       onChange={(val) => {
                                         setSelectedProgramByUser((prev) => ({ ...prev, [user.id]: val }));
                                       }}
-                                      options={user.enrolments.map((enr) => ({
+                                      options={availableEnrolments.map((enr) => ({
                                         value: enr.id,
                                         label: enr.programTitle || "Program",
                                       }))}
@@ -1318,14 +1509,65 @@ export default function UsersPage() {
                                       searchable={false}
                                       ariaLabel={`Select enrolled program for ${user.name}`}
                                     />
+                                    {user.enrolments.length > availableEnrolments.length && (
+                                      <span
+                                        style={{ fontSize: "0.7rem", color: "var(--text-muted)", display: "block", marginTop: "2px", cursor: "default" }}
+                                        title={`${user.enrolments.length - availableEnrolments.length} other program(s) filtered out`}
+                                      >
+                                        +{user.enrolments.length - availableEnrolments.length} other program{user.enrolments.length - availableEnrolments.length > 1 ? "s" : ""}
+                                      </span>
+                                    )}
                                   </div>
                                 ) : (
-                                  <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                                    {activeEnrolment?.programTitle || "11 Steps to You"}
-                                  </span>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                    <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                      {activeEnrolment?.programTitle || "11 Steps to You"}
+                                    </span>
+                                  </div>
                                 )
                               ) : (
                                 <span className={styles.cellTextMuted}>{user.role === "USER" ? "None" : "—"}</span>
+                              )}
+                            </td>
+
+                            {/* BATCH (Positioned right after Enrolled Programs) */}
+                            <td>
+                              {user.role === "SUPER_ADMIN" || user.role === "ADMIN" ? (
+                                <span className={styles.cellTextMuted}>—</span>
+                              ) : user.role === "MANAGER" ? (
+                                user.managedBatches && user.managedBatches.length > 0 ? (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1e3a8a" }}>
+                                      {user.managedBatches[0]?.name}
+                                    </span>
+                                    {user.managedBatches.length > 1 && (
+                                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                                        +{user.managedBatches.length - 1} more batch{user.managedBatches.length > 2 ? "es" : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
+                                )
+                              ) : (
+                                (() => {
+                                  const batchName =
+                                    activeEnrolment?.batchName && activeEnrolment.batchName !== "Unassigned"
+                                      ? activeEnrolment.batchName
+                                      : (programFilter !== "ALL" ? "Unassigned" : (user.cohort && user.cohort !== "Unassigned" ? user.cohort : "Unassigned"));
+
+                                  return (
+                                    <span className={styles.cellText}>
+                                      {batchName !== "Unassigned" ? (
+                                        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                          {batchName}
+                                        </span>
+                                      ) : (
+                                        <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
+                                      )}
+                                    </span>
+                                  );
+                                })()
                               )}
                             </td>
 
@@ -1335,6 +1577,78 @@ export default function UsersPage() {
                                 (() => {
                                   const enr = activeEnrolment;
                                   const isLocked = enr?.isStepLocked ?? user.isStepLocked;
+                                  const lockReason = enr?.stepLockReason || user.stepLockReason;
+                                  const isPaymentPending =
+                                    enr?.status === "PENDING_PAYMENT" ||
+                                    lockReason === "PAYMENT_REQUIRED" ||
+                                    enr?.stepLabel === "Payment Pending" ||
+                                    user.stageLabel === "Payment Pending";
+                                  const isAgreementPending =
+                                    !isPaymentPending &&
+                                    (lockReason === "AGREEMENT_REQUIRED" ||
+                                      enr?.stepLabel === "Agreement Required" ||
+                                      user.stageLabel === "Agreement Required" ||
+                                      (!enr?.isAgreementSigned && !user.isAgreementSigned));
+
+                                  // Payment Pending (Orange/Amber Badge)
+                                  if (isPaymentPending) {
+                                    return (
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          fontSize: "0.72rem",
+                                          fontWeight: 600,
+                                          background: "#fff7ed",
+                                          color: "#c2410c",
+                                          border: "1px solid #ffedd5",
+                                          padding: "2px 8px",
+                                          borderRadius: "100px",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                        title="Course unlocked upon payment completion"
+                                      >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                          <rect x="2" y="5" width="20" height="14" rx="2" />
+                                          <line x1="2" y1="10" x2="22" y2="10" />
+                                        </svg>
+                                        <span>Payment Pending</span>
+                                      </span>
+                                    );
+                                  }
+
+                                  // Agreement Required (Amber Badge)
+                                  if (isLocked && isAgreementPending) {
+                                    return (
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "4px",
+                                          fontSize: "0.72rem",
+                                          fontWeight: 600,
+                                          background: "#fffbeb",
+                                          color: "#b45309",
+                                          border: "1px solid #fde68a",
+                                          padding: "2px 8px",
+                                          borderRadius: "100px",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                        title="Workshop agreement must be signed before accessing Step 1"
+                                      >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                          <polyline points="14 2 14 8 20 8" />
+                                          <line x1="16" y1="13" x2="8" y2="13" />
+                                          <line x1="16" y1="17" x2="8" y2="17" />
+                                        </svg>
+                                        <span>Agreement Required</span>
+                                      </span>
+                                    );
+                                  }
+
+                                  // Administrative Lock
                                   if (isLocked) {
                                     return (
                                       <span
@@ -1349,6 +1663,7 @@ export default function UsersPage() {
                                           border: "1px solid #fecaca",
                                           padding: "2px 8px",
                                           borderRadius: "100px",
+                                          whiteSpace: "nowrap",
                                         }}
                                       >
                                         <svg
@@ -1406,11 +1721,12 @@ export default function UsersPage() {
                                     );
                                   }
 
-                                  const label = enr?.currentStepNumber
-                                    ? `Step ${enr.currentStepNumber} / ${enr.totalSteps || 11}`
-                                    : enr?.stepLabel && !enr.stepLabel.startsWith("Completed")
-                                    ? enr.stepLabel
-                                    : `Step ${user.currentStepNumber || 1} / ${user.totalSteps || 11}`;
+                                  const completedSteps = enr?.completedSteps ?? user.completedSteps ?? 0;
+                                  const totalSteps = enr?.totalSteps ?? user.totalSteps ?? 11;
+                                  const progressPercent = enr?.progressPercent ?? user.progressPercent ?? (totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0);
+                                  const label = enr?.stepLabel || `${completedSteps}/${totalSteps} Steps (${progressPercent}%)`;
+                                  const isCompleted = completedSteps === totalSteps && totalSteps > 0;
+                                  const hasStarted = completedSteps > 0 || progressPercent > 0;
 
                                   return (
                                     <span
@@ -1420,9 +1736,9 @@ export default function UsersPage() {
                                         gap: "4px",
                                         fontSize: "0.75rem",
                                         fontWeight: 700,
-                                        background: "#fef3c7",
-                                        color: "#92400e",
-                                        border: "1px solid #fde68a",
+                                        background: isCompleted ? "#dcfce7" : hasStarted ? "#eff6ff" : "#fef3c7",
+                                        color: isCompleted ? "#15803d" : hasStarted ? "#1d4ed8" : "#92400e",
+                                        border: `1px solid ${isCompleted ? "#bbf7d0" : hasStarted ? "#bfdbfe" : "#fde68a"}`,
                                         padding: "2px 8px",
                                         borderRadius: "100px",
                                         whiteSpace: "nowrap",
@@ -1492,54 +1808,13 @@ export default function UsersPage() {
                                 <span className={styles.cellTextMuted}>—</span>
                               )}
                             </td>
-
-                            {/* BATCH */}
-                            <td>
-                              {user.role === "SUPER_ADMIN" || user.role === "ADMIN" ? (
-                                <span className={styles.cellTextMuted}>—</span>
-                              ) : user.role === "MANAGER" ? (
-                                user.managedBatches && user.managedBatches.length > 0 ? (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                    <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#1e3a8a" }}>
-                                      {user.managedBatches[0]?.name}
-                                    </span>
-                                    {user.managedBatches.length > 1 && (
-                                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                                        +{user.managedBatches.length - 1} more batch{user.managedBatches.length > 2 ? "es" : ""}
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
-                                )
-                              ) : (
-                                (() => {
-                                  const batchName =
-                                    activeEnrolment?.batchName && activeEnrolment.batchName !== "Unassigned"
-                                      ? activeEnrolment.batchName
-                                      : (programFilter !== "ALL" ? "Unassigned" : (user.cohort && user.cohort !== "Unassigned" ? user.cohort : "Unassigned"));
-
-                                  return (
-                                    <span className={styles.cellText}>
-                                      {batchName !== "Unassigned" ? (
-                                        <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                                          {batchName}
-                                        </span>
-                                      ) : (
-                                        <span style={{ fontSize: "0.75rem", color: "#b45309", fontWeight: 600 }}>Unassigned</span>
-                                      )}
-                                    </span>
-                                  );
-                                })()
-                              )}
-                            </td>
                           </>
                         );
                       })()}
                       {roleFilter === "USER" && (
                         <td>
                           <span className={styles.cellTextMuted}>
-                            {getEnrolledDate(user)}
+                            {getEnrolledDate(user, activeEnrolment)}
                           </span>
                         </td>
                       )}
@@ -1621,20 +1896,16 @@ export default function UsersPage() {
                     <ActionMenu
                       ariaLabel={`Actions for ${user.name}`}
                       items={[
-                        ...(user.role === "USER"
-                          ? [
-                              {
-                                label: "View Full Profile",
-                                href: `/users/${user.id}`,
-                                icon: (
-                                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                    <circle cx="12" cy="7" r="4" />
-                                  </svg>
-                                ),
-                              },
-                            ]
-                          : []),
+                        {
+                          label: "View Profile",
+                          href: profileHref,
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                          ),
+                        },
                         ...((user.role === "USER" || user.role === "MANAGER")
                           ? [
                               {
@@ -1690,7 +1961,8 @@ export default function UsersPage() {
                     />
                   </td>
                 </tr>
-              ))}
+              );
+            })}
             </tbody>
           </table>
         </div>

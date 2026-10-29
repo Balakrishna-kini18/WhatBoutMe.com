@@ -297,55 +297,102 @@ export default function SessionAttendancePage({
   };
 
   return (
-    <div className={styles.dashboard}>
-      <header className={styles.header}>
-        <div className={styles.headerText}>
-          <div style={{ marginBottom: "8px" }}>
-            <Link
-              href={`/batches/${batchId}/sessions`}
-              style={{ textDecoration: "none", color: "var(--accent-primary, #c97a1e)", fontSize: "0.92rem", fontWeight: 600 }}
-            >
-              ← Back to Sessions
-            </Link>
-          </div>
-          <h1 className={styles.title}>
-            Attendance: {data?.session.title || "Live Session"}
-          </h1>
-          <p className={styles.subtitle}>
-            Compliance threshold: <strong>{data?.thresholdPercentage ?? 75}%</strong> of scheduled session duration (
-            {data?.session.durationMinutes ?? 60} mins).
-          </p>
-        </div>
-
-        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            className={styles.secondaryBtn}
-            onClick={handleSyncMeeting}
-            disabled={isSyncing}
-            title="Pull attendance participant report from Zoom"
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+    <div className={styles.dashboardContainer} style={{ gap: "1.25rem" }}>
+      <header className={styles.header} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: 0 }}>
+        <div>
+          <Link
+            href={`/batches/${batchId}?tab=sessions`}
+            style={{
+              textDecoration: "none",
+              color: "var(--accent-primary)",
+              fontSize: "0.84rem",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              marginBottom: "0.5rem",
+            }}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ animation: isSyncing ? "spin 1s linear infinite" : undefined }}
-            >
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <polyline points="1 20 1 14 7 14"></polyline>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-            </svg>
-            <span>{isSyncing ? "Syncing..." : "Sync Zoom Report"}</span>
-          </button>
-          <button type="button" className={styles.primaryBtn} onClick={handleExportCsv}>
-            Export Attendance (CSV)
-          </button>
+            ← Back to Batch Sessions
+          </Link>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                <h1 className={styles.title} style={{ margin: 0, fontSize: "1.45rem", fontWeight: 700 }}>
+                  Attendance: {data?.session.title || "Live Session"}
+                </h1>
+                <span
+                  style={{
+                    fontSize: "0.74rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    padding: "3px 8px",
+                    borderRadius: "4px",
+                    background: "rgba(201, 122, 30, 0.1)",
+                    color: "var(--accent-primary)",
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {data?.session.type || "GROUP_COHORT"}
+                </span>
+              </div>
+              <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-muted)" }}>
+                Compliance threshold: <strong>{data?.thresholdPercentage ?? 75}%</strong> of scheduled duration ({data?.session.durationMinutes ?? 60} mins · min {Math.round(((data?.session.durationMinutes ?? 60) * (data?.thresholdPercentage ?? 75)) / 100)}m).
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={handleShowQrModal}
+                style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                </svg>
+                <span>QR Check-In</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={handleSyncMeeting}
+                disabled={isSyncing}
+                title="Pull live attendance participant report from Zoom API"
+                style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ animation: isSyncing ? "spin 1s linear infinite" : undefined }}
+                >
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                <span>{isSyncing ? "Syncing Zoom..." : "Sync Zoom Report"}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={handleExportCsv}
+                style={{ fontSize: "0.82rem", padding: "0.45rem 0.95rem" }}
+              >
+                Export CSV
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -353,10 +400,9 @@ export default function SessionAttendancePage({
         <div
           role="status"
           style={{
-            margin: "0 0 1.5rem",
             padding: "0.85rem 1.15rem",
             borderRadius: "8px",
-            fontSize: "0.88rem",
+            fontSize: "0.86rem",
             fontWeight: 500,
             display: "flex",
             alignItems: "center",
@@ -374,7 +420,7 @@ export default function SessionAttendancePage({
               color: "#0369a1",
               fontWeight: 600,
               textDecoration: "underline",
-              fontSize: "0.85rem",
+              fontSize: "0.84rem",
               whiteSpace: "nowrap",
             }}
           >
@@ -383,50 +429,101 @@ export default function SessionAttendancePage({
         </div>
       )}
 
-      {/* Metrics Row */}
+      {/* Metrics Row: Warm Organic Cards */}
       {data && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-          <div style={{ background: "#ffffff", padding: "16px 20px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <span style={{ fontSize: "0.85rem", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Total Enrolled</span>
-            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#0f172a", marginTop: "4px" }}>{data.totalLearners}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "1rem" }}>
+          {/* Card 1: Total Enrolled */}
+          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
+                Total Enrolled
+              </span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent-primary)" }}>
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)" }}>{data.totalLearners}</div>
+            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Active learners in cohort</span>
           </div>
-          <div style={{ background: "#ffffff", padding: "16px 20px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <span style={{ fontSize: "0.85rem", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Present Learners</span>
-            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#16a34a", marginTop: "4px" }}>{data.presentCount}</div>
+
+          {/* Card 2: Present Learners */}
+          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
+                Present Learners
+              </span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#16a34a" }}>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#16a34a" }}>{data.presentCount}</div>
+            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+              {data.totalLearners > 0 ? `${Math.round((data.presentCount / data.totalLearners) * 100)}% attendance rate` : "0% attendance"}
+            </span>
           </div>
-          <div style={{ background: "#ffffff", padding: "16px 20px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <span style={{ fontSize: "0.85rem", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Absent Rate</span>
-            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#dc2626", marginTop: "4px" }}>
+
+          {/* Card 3: Absent Rate */}
+          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
+                Absent Rate
+              </span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#dc2626" }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+            </div>
+            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#dc2626" }}>
               {data.totalLearners > 0
                 ? `${Math.round(((data.totalLearners - data.presentCount) / data.totalLearners) * 100)}%`
                 : "0%"}
             </div>
+            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+              {Math.max(0, data.totalLearners - data.presentCount)} absent learners
+            </span>
           </div>
-          <div style={{ background: "#ffffff", padding: "16px 20px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <span style={{ fontSize: "0.85rem", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Provider</span>
-            <div style={{ fontSize: "1.2rem", fontWeight: 600, color: "#0284c7", marginTop: "8px" }}>
-              {data.session.meetingProvider || "ZOOM"}
+
+          {/* Card 4: Meeting Provider */}
+          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
+                Meeting Provider
+              </span>
+              <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 7px", borderRadius: "4px", background: "rgba(2, 132, 199, 0.1)", color: "#0284c7" }}>
+                LIVE
+              </span>
             </div>
+            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginTop: "4px" }}>
+              {data.session.meetingProvider || "Zoom Cloud"}
+            </div>
+            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+              Threshold: {data.thresholdPercentage}% ({Math.round(((data.session.durationMinutes || 60) * data.thresholdPercentage) / 100)}m)
+            </span>
           </div>
         </div>
       )}
 
       {errorMessage && (
-        <div style={{ padding: "12px 16px", background: "#fef2f2", color: "#991b1b", borderRadius: "6px", marginBottom: "16px" }}>
+        <div style={{ padding: "12px 16px", background: "#fef2f2", color: "#991b1b", borderRadius: "8px", border: "1px solid #fecaca", fontSize: "0.85rem" }}>
           {errorMessage}
         </div>
       )}
 
+      {/* Attendance Learners Table */}
       <section className={styles.tableSection}>
-        <div className={styles.tableWrapper}>
-          <table className={styles.adminTable}>
+        <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
+          <table className={styles.adminTable} style={{ width: "100%" }}>
             <thead>
               <tr>
-                <th style={{ minWidth: "220px" }}>Learner</th>
-                <th style={{ width: "180px", minWidth: "150px" }}>Status</th>
-                <th style={{ width: "120px", minWidth: "100px" }}>Source</th>
-                <th style={{ width: "180px", minWidth: "150px" }}>Time Present</th>
-                <th style={{ width: "140px", minWidth: "120px" }} className={styles.alignRight}>Action</th>
+                <th style={{ minWidth: "200px" }}>Learner</th>
+                <th style={{ width: "160px" }}>Status</th>
+                <th style={{ width: "120px" }}>Source</th>
+                <th style={{ width: "180px" }}>Time Present</th>
+                <th style={{ width: "130px", textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -434,11 +531,11 @@ export default function SessionAttendancePage({
                 <TableSkeleton columns={5} rows={6} />
               ) : !data || data.learners.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: "32px 16px" }}>
+                  <td colSpan={5} style={{ padding: "3rem 1rem" }}>
                     <EmptyState
                       icon="users"
                       title="No learners enrolled"
-                      description="No learners are currently assigned to this batch to mark attendance for."
+                      description="No learners are currently assigned to this batch cohort to record attendance for."
                     />
                   </td>
                 </tr>
@@ -446,36 +543,75 @@ export default function SessionAttendancePage({
                 data.learners.map((learner) => {
                   return (
                     <tr key={learner.userId}>
-                      {/* Learner Info */}
+                      {/* Learner Info with Avatar Squircle & Jump Link */}
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
-                          <span className={styles.cellUserName} style={{ fontSize: "0.92rem", fontWeight: 600 }}>
-                            {learner.name}
-                          </span>
-                          <span className={styles.cellTextMuted} style={{ fontSize: "0.8rem" }}>
-                            {learner.email}
-                          </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <div
+                            style={{
+                              width: "36px",
+                              height: "36px",
+                              borderRadius: "8px",
+                              background: "rgba(201, 122, 30, 0.12)",
+                              color: "var(--accent-primary)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontWeight: 700,
+                              fontSize: "0.85rem",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {learner.name ? learner.name.charAt(0).toUpperCase() : "U"}
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <Link
+                              href={`/users/${learner.userId}?enrolmentId=${learner.enrolmentId}`}
+                              style={{ textDecoration: "none", color: "inherit" }}
+                              title="Open student profile and progression overview"
+                            >
+                              <span style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--accent-primary)", cursor: "pointer" }}>
+                                {learner.name}
+                              </span>
+                            </Link>
+                            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                              {learner.email}
+                            </span>
+                          </div>
                         </div>
                       </td>
 
-                      {/* Status & Optional Override Note */}
+                      {/* Status & Audit Override Note */}
                       <td>
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
-                          <StatusBadge
-                            status={learner.status}
-                            tone={
+                          {(() => {
+                            const isPresent =
                               learner.status === "PRESENT" ||
                               learner.status === "PRESENT_AUTO" ||
                               learner.status === "PRESENT_MANUAL" ||
                               learner.status === "CORRECTED" ||
                               learner.status === "PRESENT_LIVE" ||
-                              learner.status === "PRESENT_RECORDED"
-                                ? "active"
-                                : learner.status === "EXCUSED"
-                                  ? "pending"
-                                  : "inactive"
-                            }
-                          />
+                              learner.status === "PRESENT_RECORDED";
+                            const isPartial = !isPresent && ((learner.minutesPresent ?? 0) > 0 || (learner.attendancePercentage ?? 0) > 0);
+
+                            return (
+                              <StatusBadge
+                                status={
+                                  isPartial
+                                    ? `Partial (${Math.round(learner.attendancePercentage)}%)`
+                                    : learner.status
+                                }
+                                tone={
+                                  isPresent
+                                    ? "active"
+                                    : learner.status === "EXCUSED"
+                                    ? "pending"
+                                    : isPartial
+                                    ? "pending"
+                                    : "inactive"
+                                }
+                              />
+                            );
+                          })()}
                           {learner.overrideReason && (
                             <span
                               style={{
@@ -483,15 +619,15 @@ export default function SessionAttendancePage({
                                 alignItems: "center",
                                 gap: "4px",
                                 fontSize: "0.72rem",
-                                color: "#475569",
-                                background: "#f8fafc",
+                                color: "var(--text-secondary)",
+                                background: "var(--background-subtle, #f8f6f0)",
                                 padding: "2px 6px",
                                 borderRadius: "4px",
                                 maxWidth: "200px",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
-                                border: "1px solid #e2e8f0",
+                                border: "1px solid var(--border-light)",
                               }}
                               title={`Audit Override Reason: ${learner.overrideReason}`}
                             >
@@ -508,44 +644,52 @@ export default function SessionAttendancePage({
                           style={{
                             fontSize: "0.74rem",
                             padding: "3px 8px",
-                            borderRadius: "12px",
+                            borderRadius: "6px",
                             fontWeight: 600,
                             background:
-                              learner.source === "AUTO"
+                              learner.source === "AUTO" || learner.source === "ZOOM_SYNC"
                                 ? "#e0f2fe"
                                 : learner.source === "QR_CHECKIN"
                                   ? "#fef3c7"
                                   : "#f3e8ff",
                             color:
-                              learner.source === "AUTO"
+                              learner.source === "AUTO" || learner.source === "ZOOM_SYNC"
                                 ? "#0369a1"
                                 : learner.source === "QR_CHECKIN"
                                   ? "#b45309"
                                   : "#7e22ce",
+                            border:
+                              learner.source === "AUTO" || learner.source === "ZOOM_SYNC"
+                                ? "1px solid #bae6fd"
+                                : learner.source === "QR_CHECKIN"
+                                  ? "1px solid #fde68a"
+                                  : "1px solid #e9d5ff",
                           }}
                         >
-                          {learner.source}
+                          {learner.source === "ZOOM_SYNC" ? "Zoom Sync" : learner.source === "QR_CHECKIN" ? "QR Check-In" : learner.source}
                         </span>
                       </td>
 
-                      {/* Time Present & Local Join/Leave Span */}
+                      {/* Time Present */}
                       <td>
                         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                           <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                            <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{learner.minutesPresent} mins</span>
-                            <span style={{ fontSize: "0.74rem", color: "#64748b" }}>
+                            <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>
+                              {learner.minutesPresent} mins
+                            </span>
+                            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
                               ({Math.round(learner.attendancePercentage)}%)
                             </span>
                           </div>
                           {(learner.liveMinutes != null || learner.recordedMinutes != null) && (
-                            <div style={{ display: "flex", gap: "6px", fontSize: "0.72rem", color: "#64748b" }}>
+                            <div style={{ display: "flex", gap: "6px", fontSize: "0.72rem", color: "var(--text-muted)" }}>
                               <span>Live: {Math.round((learner.liveMinutes ?? 0) * 10) / 10}m</span>
                               <span>•</span>
                               <span>Rec: {Math.round((learner.recordedMinutes ?? 0) * 10) / 10}m</span>
                             </div>
                           )}
                           {learner.joinTimeUtc && (
-                            <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                               {learner.leaveTimeUtc
                                 ? `${formatLocalTime(learner.joinTimeUtc)} – ${formatLocalTime(learner.leaveTimeUtc)}`
                                 : `Joined ${formatLocalTime(learner.joinTimeUtc)}`}
@@ -555,14 +699,22 @@ export default function SessionAttendancePage({
                       </td>
 
                       {/* Action */}
-                      <td className={styles.alignRight}>
+                      <td style={{ textAlign: "right" }}>
                         <button
                           type="button"
                           className={styles.secondaryBtn}
                           onClick={() => handleOpenOverride(learner)}
-                          style={{ padding: "5px 12px", fontSize: "0.8125rem", whiteSpace: "nowrap" }}
+                          style={{
+                            padding: "4px 10px",
+                            fontSize: "0.78rem",
+                            whiteSpace: "nowrap",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
                         >
-                          Edit Attendance
+                          <span>✎</span>
+                          <span>Edit</span>
                         </button>
                       </td>
                     </tr>
@@ -581,24 +733,26 @@ export default function SessionAttendancePage({
           title={`Override Attendance: ${overrideModal.learner.name}`}
           onClose={() => setOverrideModal((prev) => ({ ...prev, isOpen: false }))}
         >
-          <form onSubmit={submitOverride} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "6px" }}>
+          <form onSubmit={submitOverride} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <div className={styles.formGroup}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
                 Target Status
               </label>
-              <select
+              <CustomSelect
                 value={overrideModal.status}
-                onChange={(e) => setOverrideModal((prev) => ({ ...prev, status: e.target.value }))}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
-              >
-                <option value="PRESENT">PRESENT (Full Attendance)</option>
-                <option value="ABSENT">ABSENT</option>
-                <option value="EXCUSED">EXCUSED (Medical / Approved)</option>
-              </select>
+                onChange={(val) => setOverrideModal((prev) => ({ ...prev, status: val }))}
+                options={[
+                  { value: "PRESENT", label: "PRESENT (Full Attendance)" },
+                  { value: "ABSENT", label: "ABSENT" },
+                  { value: "EXCUSED", label: "EXCUSED (Medical / Approved)" },
+                ]}
+                fullWidth
+                ariaLabel="Target Status"
+              />
             </div>
 
-            <div>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "6px" }}>
+            <div className={styles.formGroup}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
                 Minutes Present
               </label>
               <input
@@ -607,26 +761,27 @@ export default function SessionAttendancePage({
                 max={data?.session.durationMinutes || 300}
                 value={overrideModal.minutesPresent}
                 onChange={(e) => setOverrideModal((prev) => ({ ...prev, minutesPresent: Number(e.target.value) }))}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                className={styles.formInput}
               />
             </div>
 
-            <div>
-              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "6px" }}>
+            <div className={styles.formGroup}>
+              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
                 Mandatory Audit Reason <span style={{ color: "#dc2626" }}>*</span>
               </label>
               <textarea
                 required
                 rows={3}
-                placeholder="Explain why this attendance record is being manually overridden (e.g., student joined on secondary phone device)"
+                placeholder="Explain why this attendance record is being manually overridden (e.g., student joined on secondary device or verified via recording review)"
                 value={overrideModal.reason}
                 onChange={(e) => setOverrideModal((prev) => ({ ...prev, reason: e.target.value }))}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                className={styles.formInput}
+                style={{ resize: "vertical" }}
               />
             </div>
 
             {overrideModal.error && (
-              <div style={{ color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", fontSize: "0.875rem" }}>
+              <div style={{ color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", fontSize: "0.82rem", border: "1px solid #fecaca" }}>
                 {overrideModal.error}
               </div>
             )}

@@ -1,0 +1,158 @@
+/* =========================================================================
+   WhatBoutMe Admin - Batch Management Detail
+   Theme: Warm Organic SaaS (Ivory, Sand, Deep Ink, Restrained Amber)
+   ========================================================================= */
+
+/* 1. Clean Back Navigation */
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted, #78716a);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  padding: 0.2rem 0.5rem;
+  margin-left: -0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: fit-content;
+  margin-bottom: 0;
+}
+
+.backLink:hover {
+  background: var(--bg-soft, #f5ece1);
+  color: var(--accent-primary, #c97a1e);
+}
+
+/* 2. Unified Batch Header Card */
+.headerCard {
+  background: #ffffff;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(20, 17, 15, 0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.headerIdentityRow {
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.identityLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.batchSquircle {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fdf8f0 0%, #f5ece1 100%);
+  border: 1.5px solid #e7decb;
+  color: var(--accent-primary, #c97a1e);
+  font-size: 1.125rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
+  box-shadow: 0 2px 6px rgba(201, 122, 30, 0.08);
+}
+
+.identityDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.nameStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.batchName {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary, #14110f);
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #78716a);
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.metaLabel {
+  color: var(--text-muted, #78716a);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.metaValue {
+  font-weight: 600;
+  color: var(--text-primary, #14110f);
+}
+
+.metaDot {
+  color: #d1c7b8;
+  font-size: 0.75rem;
+  user-select: none;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* 3. Skeleton Loading Shimmer */
+.skeletonShimmer {
+  background: linear-gradient(
+    90deg,
+    #f5ece1 25%,
+    #fdf8f0 37%,
+    #f5ece1 63%
+  );
+  background-size: 400% 100%;
+  animation: skeletonShimmer 1.4s ease infinite;
+  border-radius: 6px;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}

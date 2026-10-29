@@ -39,3 +39,6 @@ export type { PaginationProps } from "./Pagination";
 export { DatePicker } from "./DatePicker";
 export type { DatePickerProps } from "./DatePicker";
 
+export { SortIndicator } from "./SortIndicator";
+export type { SortIndicatorProps, SortOrder } from "./SortIndicator";
+

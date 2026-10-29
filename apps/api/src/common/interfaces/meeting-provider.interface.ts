@@ -4,6 +4,8 @@ export interface CreateMeetingParams {
   durationMinutes: number;
   timezone?: string;
   referenceId?: string; // e.g. for idempotency checking
+  hostEmail?: string;
+  alternativeHosts?: string;
 }
 
 export interface MeetingDetails {

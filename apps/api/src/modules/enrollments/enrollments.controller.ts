@@ -92,6 +92,22 @@ export class AdminEnrolmentsController {
       ? this.enrollmentsService.cancel(id, req.user)
       : this.enrollmentsService.cancel(id);
   }
+
+  @RequirePermission(Permission.ENROLMENTS_CANCEL)
+  @Post(':id/release-seat')
+  async releaseSeat(@Param('id') id: string, @Request() req?: any) {
+    return req?.user
+      ? this.enrollmentsService.cancel(id, req.user)
+      : this.enrollmentsService.cancel(id);
+  }
+
+  @RequirePermission(Permission.ENROLMENTS_UPDATE)
+  @Post(':id/resend-payment-link')
+  async resendPaymentLink(@Param('id') id: string, @Request() req?: any) {
+    return req?.user
+      ? this.enrollmentsService.resendPaymentLink(id, req.user)
+      : this.enrollmentsService.resendPaymentLink(id);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

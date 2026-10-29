@@ -301,17 +301,17 @@ describe("Revenue Page Unified Ledger & Filter Semantics", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 6. SHARED PAGINATION LOGIC (10, 30, 50 ROWS & PAGE NUMBERS)
+  // 6. SHARED PAGINATION LOGIC (10, 20, 50 ROWS & PAGE NUMBERS)
   // ─────────────────────────────────────────────────────────────────────────────
   describe("Shared Pagination Component Logic", () => {
-    it("slices correctly for pageSize 10, 30, and 50", () => {
+    it("slices correctly for pageSize 10, 20, and 50", () => {
       const total = 100;
       const items = Array.from({ length: total }, (_, i) => i + 1);
 
       // Page size 10
       expect(items.slice(0, 10)).toHaveLength(10);
-      // Page size 30
-      expect(items.slice(0, 30)).toHaveLength(30);
+      // Page size 20
+      expect(items.slice(0, 20)).toHaveLength(20);
       // Page size 50
       expect(items.slice(0, 50)).toHaveLength(50);
     });

@@ -867,6 +867,7 @@ export class ProgressionService {
           overrideReason: trimmedReason,
           overriddenById: actorId,
           overriddenAt: now,
+          ...(targetState === StepOverrideState.AUTOMATIC || targetState === StepOverrideState.MANUAL_LOCKED ? { isCompleted: false, completedAt: null } : {}),
         },
         update: {
           isUnlocked: initialIsUnlocked,
@@ -1164,25 +1165,18 @@ export class ProgressionService {
         };
       }
 
-      // D9: Grandfather lessons added after a step was already marked completed
-      const stepCompletedAt = stepProgress?.completedAt;
-      const eligibleLessons = step.lessons.filter((l: any) => {
-        if (!stepCompletedAt || !l.createdAt) return true;
-        return new Date(l.createdAt).getTime() <= new Date(stepCompletedAt).getTime();
-      });
-
-      // Check step completion criteria based on actual evidence
-      const hasLessons = eligibleLessons.length > 0;
+      // Check step completion criteria based on actual evidence of ALL published lessons
+      const hasLessons = step.lessons.length > 0;
       const allLessonsCompleted = hasLessons
-        ? eligibleLessons.every((l) => viewedLessonIds.has(l.id))
+        ? step.lessons.every((l) => viewedLessonIds.has(l.id))
         : true;
       const quizCompleted = step.quiz
         ? passedQuizIds.has(step.quiz.id)
         : true;
 
-      // A step is only completed when it was previously completed or when it has content and all requirements are genuinely fulfilled
+      // A step is completed when marked completed in DB or when all published content (lessons + quiz) is finished
       const isStepCompleted =
-        (stepProgress?.isCompleted ?? false) ||
+        Boolean(stepProgress?.isCompleted) ||
         ((hasLessons || Boolean(step.quiz)) && allLessonsCompleted && quizCompleted);
 
       const completedAt = isStepCompleted
@@ -1247,8 +1241,14 @@ export class ProgressionService {
         const isFirstStep = step.sequence === 1 || i === 0;
 
         if (!isFirstStep && !previousStepComplete) {
-          isUnlocked = false;
-          lockReason = previousStepFailureReason;
+          const wasAlreadyUnlocked = Boolean(stepProgress?.isUnlocked && stepProgress?.unlockedAt);
+          if (wasAlreadyUnlocked) {
+            isUnlocked = true;
+            lockReason = null;
+          } else {
+            isUnlocked = false;
+            lockReason = previousStepFailureReason;
+          }
         } else {
           // Prerequisites are satisfied. Check release schedule.
           if (step.releaseSchedule === ReleaseSchedule.IMMEDIATE) {

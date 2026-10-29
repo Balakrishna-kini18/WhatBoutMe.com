@@ -436,7 +436,7 @@ export class SessionsService {
       ];
     }
 
-    return this.prisma.session.findMany({
+    const sessions = await this.prisma.session.findMany({
       where,
       orderBy: { startTime: 'asc' },
       include: {
@@ -452,6 +452,13 @@ export class SessionsService {
         _count: { select: { attendances: true, bookings: true } },
       },
     });
+
+    // Security Gate: Learners must NEVER receive the Zoom hostUrl
+    if (user && (user.role === Role.USER || user.role === 'USER')) {
+      return sessions.map((s: any) => ({ ...s, hostUrl: null }));
+    }
+
+    return sessions;
   }
 
   /**
@@ -504,6 +511,11 @@ export class SessionsService {
           throw new ForbiddenException('You do not have access to this session.');
         }
       }
+    }
+
+    // Security Gate: Learners must NEVER receive the Zoom hostUrl
+    if (user && (user.role === Role.USER || user.role === 'USER')) {
+      return { ...session, hostUrl: null };
     }
 
     return session;
@@ -929,15 +941,17 @@ export class SessionsService {
       }),
       this.prisma.session.findMany({
         where: { learnerId: userId },
+        include: { hostTrainer: { select: { id: true, name: true, email: true } } },
         orderBy: { startTime: 'desc' },
       }),
     ]);
 
     const cohortSessions = enrolments.length > 0
       ? await this.prisma.session.findMany({
-          where: { batchId: { in: enrolments.map((e) => e.batchId) }, sessionType: SessionType.GROUP_COHORT },
+          where: { batchId: { in: enrolments.map((e) => e.batchId) } },
           orderBy: { startTime: 'desc' },
           include: {
+            hostTrainer: { select: { id: true, name: true, email: true } },
             attendances: { where: { enrolmentId: { in: enrolments.map((e) => e.id) } } },
           },
         })
@@ -954,6 +968,10 @@ export class SessionsService {
         id: session.id,
         title: session.title,
         sessionType: session.sessionType,
+        status: session.status,
+        capacity: session.capacity,
+        hostTrainer: session.hostTrainer ?? null,
+        batch: enrolment?.batch ? { id: session.batchId, name: enrolment.batch.name } : null,
         startTime: session.startTime,
         endTime: session.endTime,
         timezone: session.timezone,
@@ -973,6 +991,10 @@ export class SessionsService {
         id: s.id,
         title: s.title,
         sessionType: s.sessionType,
+        status: s.status,
+        capacity: s.capacity ?? 1,
+        hostTrainer: s.hostTrainer ?? null,
+        batch: null,
         startTime: s.startTime,
         endTime: s.endTime,
         timezone: s.timezone,

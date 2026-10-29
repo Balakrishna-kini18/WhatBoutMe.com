@@ -267,7 +267,7 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       // Also omit requestedEnd to verify duration-free booking defaults cleanly to +45m
       const res = await service.createRequest('user-1', {
         enrolmentId: 'enrol-1',
-        requestedStart: '2026-10-28T10:00:00.000Z',
+        requestedStart: new Date(Date.now() + 86400000).toISOString(),
         learnerTimezone: 'Asia/Calcutta',
         notes: 'Passed exam with 98%, ready for 1-on-1 coaching!',
       });

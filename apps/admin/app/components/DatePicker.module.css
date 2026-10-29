@@ -7,9 +7,9 @@
 .trigger {
   border-radius: 8px;
   border: 1px solid var(--border-light, #e7decb);
-  background: #ffffff;
+  background: var(--bg-soft, #fdfbf7);
   color: var(--text-primary, #14110f);
-  font-family: var(--font-sans);
+  font-family: inherit;
   font-weight: 500;
   cursor: pointer;
   display: flex;
@@ -20,12 +20,14 @@
   box-shadow: 0 1px 2px rgba(20, 17, 15, 0.03);
   user-select: none;
   box-sizing: border-box;
+  width: 100%;
 }
 
 .md {
-  height: 38px;
-  padding: 0 0.75rem;
-  font-size: 0.8125rem;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 0.85rem;
+  font-size: 0.88rem;
 }
 
 .sm {
@@ -35,7 +37,7 @@
 }
 
 .trigger:hover:not(:disabled) {
-  background: #fcf9f5;
+  background: #fbf6ee;
   border-color: #d6cab8;
   box-shadow: 0 2px 4px rgba(20, 17, 15, 0.05);
 }
@@ -244,6 +246,11 @@
 .dayOutside {
   color: #b8b0a5;
   font-weight: 400;
+}
+
+.dayPast:not(.daySelected):not(.dayDisabled) {
+  color: #9c9488;
+  opacity: 0.82;
 }
 
 .dayToday {

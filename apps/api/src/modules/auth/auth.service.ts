@@ -102,6 +102,7 @@ export class AuthService {
     isSuspicious?: boolean;
     reason?: string | null;
     userCountry?: string | null;
+    userRole?: string | Role | null;
   }): Promise<void> {
     if (!params.userId || !this.prisma?.loginAudit) return;
 
@@ -163,14 +164,28 @@ export class AuthService {
         }
       }
 
-      // PDF Pages 4, 5 & 13: Log successful user sign-in to immutable AuditLog for admin review and compliance
+      // Resolve user role to distinguish privileged staff from learners
+      let userRole = params.userRole;
+      if (!userRole && typeof this.prisma?.user?.findUnique === 'function') {
+        const u = await this.prisma.user.findUnique({
+          where: { id: params.userId },
+          select: { role: true },
+        }).catch(() => null);
+        userRole = u?.role;
+      }
+      const isPrivilegedStaff = userRole && userRole !== Role.USER && userRole !== 'USER';
+
+      // PDF Pages 4, 5 & 13: Log privileged staff sign-ins to immutable AuditLog for compliance and forensic accountability.
+      // Routine learner (USER) logins are safely preserved in the dedicated LoginAudit table above and excluded from AuditLog
+      // to prevent production database flooding (millions of rows/year). Security alerts (isSuspicious) remain logged above for ALL users.
       if (
+        isPrivilegedStaff &&
         !isSuspicious &&
         (params.reason === 'SUCCESS' ||
           params.reason === 'SUCCESS_SETUP_REQUIRED' ||
           params.reason === '2FA_SUCCESS')
       ) {
-        let loginDetail = 'User signed in successfully';
+        let loginDetail = 'Staff signed in successfully';
         if (params.reason === '2FA_SUCCESS') {
           loginDetail = 'Signed in with two-factor authentication';
         } else if (params.reason === 'SUCCESS_SETUP_REQUIRED') {
@@ -187,6 +202,7 @@ export class AuthService {
             ipAddress: params.ipAddress ?? null,
             userAgent: params.userAgent ?? null,
             deviceFingerprint: params.deviceFingerprint ?? null,
+            role: userRole,
             reason: loginDetail,
           },
           ip: params.ipAddress ?? null,
@@ -269,6 +285,10 @@ export class AuthService {
         userCountry: user.country,
       });
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (user.permissions?.includes('ACCOUNT_SUSPENDED')) {
+      throw new UnauthorizedException('Your account has been temporarily suspended. Please contact support.');
     }
 
     const requireVerification =
@@ -591,20 +611,6 @@ export class AuthService {
     };
     const accessToken = this.jwtService.sign(accessPayload, { expiresIn: '15m' });
 
-    if (typeof (this.prisma as any).logAction === 'function') {
-      await (this.prisma as any).logAction({
-        actorId: user.id,
-        action: 'USER_REGISTERED',
-        entity: 'User',
-        entityId: user.id,
-        meta: {
-          email: user.email,
-          country: user.country,
-          reason: 'Learner registered new account',
-        },
-      }).catch(() => {});
-    }
-
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -823,6 +829,10 @@ export class AuthService {
 
       if (!user || user.deletedAt) {
         throw new UnauthorizedException({ message: 'Invalid or expired refresh token', error: 'TOKEN_EXPIRED' });
+      }
+
+      if (user.permissions?.includes('ACCOUNT_SUSPENDED')) {
+        throw new UnauthorizedException({ message: 'Your account has been temporarily suspended', error: 'ACCOUNT_SUSPENDED' });
       }
 
       let targetSessionId = payload.sessionId;

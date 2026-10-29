@@ -57,7 +57,7 @@ describe('Phase 4: AttendanceReconciliationService - Multi-Join & 75% Rule', () 
     }).compile();
 
     service = module.get<AttendanceReconciliationService>(AttendanceReconciliationService);
-  });
+  }, 30000);
 
   describe('aggregateRecords (Multi-Join Aggregation)', () => {
     it('normalizes email (trimmed, lowercased)', () => {

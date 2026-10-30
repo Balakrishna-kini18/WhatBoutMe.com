@@ -1306,8 +1306,8 @@ export class AgreementsService {
     if (this.emailService && user?.email) {
       const recipientEmail = user.email;
       const { lmsUrl } = getAppUrls();
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: recipientEmail,
           subject: 'Agreement Signed Confirmation - WhatBoutMe',
           template: 'AgreementSignedConfirmationEmail',
@@ -1317,8 +1317,10 @@ export class AgreementsService {
             signedAt: result.signedAt ? new Date(result.signedAt).toISOString() : new Date().toISOString(),
             dashboardUrl: `${lmsUrl}/dashboard`,
           },
-        })
-        .catch((e: any) => console.warn('[AgreementsService] Agreement email error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[AgreementsService] Agreement email error:', e?.message);
+      }
     }
 
     const finalEnrolmentStatus = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT

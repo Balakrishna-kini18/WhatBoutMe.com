@@ -1604,8 +1604,8 @@ export class AuthService {
 
     if (this.emailService) {
       const firstName = user.name ? (user.name.split(' ')[0] || user.name) : (orgMembership ? 'Partner' : 'Learner');
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: user.email,
           subject: 'Reset your password - WhatBoutMe',
           template: 'PasswordResetEmail',
@@ -1613,8 +1613,10 @@ export class AuthService {
             firstName,
             resetUrl,
           },
-        })
-        .catch((e: any) => console.warn('[AuthService] Password reset email error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[AuthService] Password reset email error:', e?.message);
+      }
     }
 
     return genericResponse;

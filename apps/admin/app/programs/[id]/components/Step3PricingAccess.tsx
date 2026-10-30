@@ -1,59 +1,36 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import styles from "../curriculum.module.css";
-import { CustomSelect } from "../../../components";
+import { HelpTooltip } from "../../../components";
 
 interface Step3PricingAccessProps {
   programData: any;
-  onSaveAndContinue: (updatedPricingData: {
-    price: number;
-    currency: "USD" | "AED" | "INR";
-    priceUSD?: number;
-    priceAED?: number;
-    priceINR?: number;
-    comparePrice?: number;
-    earlyBirdPrice?: number | null;
-    earlyBirdCurrency?: "USD" | "AED" | "INR" | null;
-    earlyBirdDeadline?: string | null;
-    enrollmentType?: string;
-    accessDuration?: string;
-    targetAudience?: string;
-    dripContent?: boolean;
-    requiresApproval?: boolean;
-  }) => Promise<void>;
-  onPrevious: () => void;
+  onSave?: (updatedPricingData: any) => Promise<void>;
+  onSaveAndContinue?: (updatedPricingData: any) => Promise<void>;
+  onPrevious?: () => void;
   isSaving: boolean;
 }
 
 export default function Step3PricingAccess({
   programData,
+  onSave,
   onSaveAndContinue,
-  onPrevious,
   isSaving,
 }: Step3PricingAccessProps) {
-  // Currency & Primary Price
-  const [currency, setCurrency] = useState<"USD" | "AED" | "INR">(
-    programData?.currency || "USD"
-  );
+  // USD Tuition & Price
   const [price, setPrice] = useState<string>(
     programData?.price !== undefined && programData?.price !== null
       ? String(programData.price)
-      : "199"
-  );
-  const [comparePrice, setComparePrice] = useState<string>(
-    programData?.comparePrice ? String(programData.comparePrice) : ""
+      : "0"
   );
 
-  // Early Bird Toggle & Fields
+  // Early Bird Toggle & Fields (Standardized in USD)
   const [hasEarlyBird, setHasEarlyBird] = useState(
     Boolean(programData?.earlyBirdPrice)
   );
   const [earlyBirdPrice, setEarlyBirdPrice] = useState<string>(
     programData?.earlyBirdPrice ? String(programData.earlyBirdPrice) : ""
-  );
-  const [earlyBirdCurrency, setEarlyBirdCurrency] = useState<"USD" | "AED" | "INR">(
-    programData?.earlyBirdCurrency || programData?.currency || "USD"
   );
   const [earlyBirdDeadline, setEarlyBirdDeadline] = useState<string>(
     programData?.earlyBirdDeadline
@@ -61,104 +38,87 @@ export default function Step3PricingAccess({
       : ""
   );
 
-  // Multi-Currency Pricing Toggle & Currency Inputs
-  const [hasMultiCurrency, setHasMultiCurrency] = useState(
-    Boolean(programData?.priceUSD || programData?.priceAED || programData?.priceINR)
+  // Access & Progression Rules
+  const [sequentialProgressionEnabled, setSequentialProgressionEnabled] = useState(
+    programData?.sequentialProgressionEnabled !== false
   );
-  const [priceUSD, setPriceUSD] = useState<string>(
-    programData?.priceUSD !== undefined && programData?.priceUSD !== null
-      ? String(programData.priceUSD)
-      : currency === "USD"
-      ? String(programData?.price || 199)
-      : "199"
+  const [attendanceRequired, setAttendanceRequired] = useState(
+    programData?.attendanceRequired !== false
   );
-  const [priceAED, setPriceAED] = useState<string>(
-    programData?.priceAED !== undefined && programData?.priceAED !== null
-      ? String(programData.priceAED)
-      : currency === "AED"
-      ? String(programData?.price || 749)
-      : "749"
-  );
-  const [priceINR, setPriceINR] = useState<string>(
-    programData?.priceINR !== undefined && programData?.priceINR !== null
-      ? String(programData.priceINR)
-      : currency === "INR"
-      ? String(programData?.price || 14999)
-      : "14999"
+  const [attendanceThreshold, setAttendanceThreshold] = useState<number>(
+    programData?.attendanceThreshold !== undefined ? Number(programData.attendanceThreshold) : 80
   );
 
-  // Access Settings
-  const [enrollmentType, setEnrollmentType] = useState(
-    programData?.enrollmentType || "Paid Enrollment"
+  // Milestone Completion Criteria
+  const [requireExam, setRequireExam] = useState(
+    programData?.requireExam !== false
   );
-  const [accessDuration, setAccessDuration] = useState(
-    programData?.accessDuration || "Lifetime Access"
+  const [requireCoaching, setRequireCoaching] = useState(
+    programData?.requireCoaching !== false
   );
-  const [targetAudience, setTargetAudience] = useState(
-    programData?.targetAudience || ""
+  const [requireMissionStatement, setRequireMissionStatement] = useState(
+    programData?.requireMissionStatement !== false
   );
-  const [dripContent, setDripContent] = useState(
-    Boolean(programData?.dripContent)
-  );
-  const [requiresApproval, setRequiresApproval] = useState(
-    Boolean(programData?.requiresApproval)
+  const [hasCertificate, setHasCertificate] = useState(
+    programData?.hasCertificate !== false
   );
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sync state when programData changes
+  useEffect(() => {
+    if (programData) {
+      setPrice(programData.price !== undefined && programData.price !== null ? String(programData.price) : "0");
+      setHasEarlyBird(Boolean(programData.earlyBirdPrice));
+      setEarlyBirdPrice(programData.earlyBirdPrice ? String(programData.earlyBirdPrice) : "");
+      setEarlyBirdDeadline(programData.earlyBirdDeadline ? programData.earlyBirdDeadline.split("T")[0] : "");
+      setSequentialProgressionEnabled(programData.sequentialProgressionEnabled !== false);
+      setAttendanceRequired(programData.attendanceRequired !== false);
+      setAttendanceThreshold(programData.attendanceThreshold !== undefined ? Number(programData.attendanceThreshold) : 80);
+      setRequireExam(programData.requireExam !== false);
+      setRequireCoaching(programData.requireCoaching !== false);
+      setRequireMissionStatement(programData.requireMissionStatement !== false);
+      setHasCertificate(programData.hasCertificate !== false);
+    }
+  }, [programData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const activePrice = Number(price) || 0;
     if (activePrice < 0) {
-      setErrorMsg("Price must be a non-negative number.");
+      setErrorMsg("Tuition price must be a non-negative number.");
       return;
     }
 
     setErrorMsg(null);
-    await onSaveAndContinue({
+    const payload = {
       price: activePrice,
-      currency,
-      comparePrice: comparePrice ? Number(comparePrice) : undefined,
-      priceUSD: hasMultiCurrency ? Number(priceUSD) || 0 : undefined,
-      priceAED: hasMultiCurrency ? Number(priceAED) || 0 : undefined,
-      priceINR: hasMultiCurrency ? Number(priceINR) || 0 : undefined,
+      currency: "USD",
+      priceUSD: activePrice,
       earlyBirdPrice: hasEarlyBird && earlyBirdPrice ? Number(earlyBirdPrice) : null,
-      earlyBirdCurrency: hasEarlyBird ? earlyBirdCurrency : null,
+      earlyBirdCurrency: hasEarlyBird ? "USD" : null,
       earlyBirdDeadline: hasEarlyBird && earlyBirdDeadline ? earlyBirdDeadline : null,
-      enrollmentType,
-      accessDuration,
-      targetAudience: targetAudience.trim(),
-      dripContent,
-      requiresApproval,
-    });
+      sequentialProgressionEnabled,
+      attendanceRequired,
+      attendanceThreshold: Number(attendanceThreshold) || 80,
+      requireExam,
+      requireCoaching,
+      requireMissionStatement,
+      hasCertificate,
+    };
+
+    if (onSave) {
+      await onSave(payload);
+    } else if (onSaveAndContinue) {
+      await onSaveAndContinue(payload);
+    }
   };
 
   return (
     <section className={styles.cardSurface}>
-      {/* Screen 3 Header */}
-      <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <span>STEP 3: PRICING &amp; ACCESS</span>
-        </div>
-        <h2 className={styles.stepTitle}>Pricing &amp; Access Settings</h2>
-        <p className={styles.stepSubtitle}>
-          Configure program tuition, multi-currency rates, early-bird deadlines, and learner enrolment rules.
-        </p>
+      {/* Header */}
+      <div className={styles.cardHeaderArea} style={{ marginBottom: "1.25rem" }}>
+        <h2 className={styles.stepTitle}>Pricing &amp; Access</h2>
       </div>
 
       {errorMsg && (
@@ -168,10 +128,10 @@ export default function Step3PricingAccess({
             background: "#fef2f2",
             border: "1px solid #fecdd3",
             color: "#991b1b",
-            padding: "12px 16px",
-            borderRadius: 12,
-            fontSize: "0.88rem",
-            marginBottom: "1.5rem",
+            padding: "10px 14px",
+            borderRadius: 8,
+            fontSize: "0.85rem",
+            marginBottom: "1.25rem",
           }}
         >
           {errorMsg}
@@ -179,81 +139,52 @@ export default function Step3PricingAccess({
       )}
 
       <form onSubmit={handleSubmit}>
-        <div className={styles.pricingTwoColGrid}>
+        <div className={styles.pricingTwoColGrid} style={{ gap: "2rem" }}>
           {/* =========================================================
-              Left Card: Pricing Information
+              Left Column: Tuition & Early Bird
               ========================================================= */}
           <div className={styles.pricingCard}>
-            <h3 className={styles.pricingCardTitle}>Pricing Information</h3>
-            <p className={styles.pricingCardSubtitle}>
-              Set baseline course tuition, discounts, and regional currency conversions.
-            </p>
+            <h3 className={styles.pricingCardTitle} style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>
+              Tuition (USD)
+            </h3>
 
-            {/* Tuition / Price */}
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                <span>Tuition / Price *</span>
+            {/* Base Tuition / Price */}
+            <div className={styles.formGroup} style={{ marginBottom: "1.25rem" }}>
+              <label className={styles.formLabel} style={{ marginBottom: "0.4rem" }}>
+                <span>Course Tuition ($ USD) *</span>
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: "0.75rem" }}>
-                <CustomSelect
-                  value={currency}
-                  onChange={(val) => setCurrency(val as "USD" | "AED" | "INR")}
-                  fullWidth
-                  ariaLabel="Select Currency"
-                  options={[
-                    { value: "USD", label: "USD ($)" },
-                    { value: "AED", label: "AED (د.إ)" },
-                    { value: "INR", label: "INR (₹)" },
-                  ]}
-                />
+              <div style={{ position: "relative" }}>
+                <span
+                  style={{
+                    position: "absolute",
+                    left: "12px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontWeight: 700,
+                    color: "var(--text-secondary, #78716a)",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  $
+                </span>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   required
-                  placeholder="e.g. 199"
+                  placeholder="0 (Free)"
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   className={styles.formInput}
-                />
-              </div>
-            </div>
-
-            {/* Compare Price */}
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                <span>Compare Price (Optional)</span>
-                <span className={styles.formLabelOptional}>Shows strikethrough original price</span>
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: "0.75rem" }}>
-                <CustomSelect
-                  value={currency}
-                  onChange={(val) => setCurrency(val as "USD" | "AED" | "INR")}
-                  fullWidth
-                  ariaLabel="Compare Price Currency"
-                  options={[
-                    { value: "USD", label: "USD ($)" },
-                    { value: "AED", label: "AED (د.إ)" },
-                    { value: "INR", label: "INR (₹)" },
-                  ]}
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="e.g. 299"
-                  value={comparePrice}
-                  onChange={(e) => setComparePrice(e.target.value)}
-                  className={styles.formInput}
+                  style={{ paddingLeft: "26px" }}
                 />
               </div>
             </div>
 
             {/* Early Bird Discount Toggle */}
-            <div className={styles.settingRow}>
+            <div className={styles.settingRow} style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
               <div className={styles.settingLabelGroup}>
-                <span className={styles.settingLabelTitle}>Early Bird Discount</span>
-                <span className={styles.settingLabelDesc}>Enable early bird pricing for limited time.</span>
+                <span className={styles.settingLabelTitle}>Early Bird Pricing</span>
               </div>
               <label className={styles.toggleSwitch}>
                 <input
@@ -272,42 +203,29 @@ export default function Step3PricingAccess({
                   background: "#faf7f2",
                   border: "1px solid #ece6dd",
                   borderRadius: 10,
-                  padding: "1rem",
+                  padding: "0.9rem",
                   marginTop: "0.75rem",
                   marginBottom: "1rem",
                 }}
               >
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                   <div>
-                    <label className={styles.formLabel} style={{ fontSize: "0.8rem" }}>
-                      Early Bird Price
+                    <label className={styles.formLabel} style={{ fontSize: "0.8rem", marginBottom: "0.3rem" }}>
+                      Early Bird Price ($)
                     </label>
-                    <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: "0.5rem" }}>
-                      <CustomSelect
-                        value={earlyBirdCurrency}
-                        onChange={(val) => setEarlyBirdCurrency(val as "USD" | "AED" | "INR")}
-                        fullWidth
-                        ariaLabel="Early Bird Currency"
-                        options={[
-                          { value: "USD", label: "USD" },
-                          { value: "AED", label: "AED" },
-                          { value: "INR", label: "INR" },
-                        ]}
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="149"
-                        value={earlyBirdPrice}
-                        onChange={(e) => setEarlyBirdPrice(e.target.value)}
-                        className={styles.formInput}
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 149"
+                      value={earlyBirdPrice}
+                      onChange={(e) => setEarlyBirdPrice(e.target.value)}
+                      className={styles.formInput}
+                    />
                   </div>
 
                   <div>
-                    <label className={styles.formLabel} style={{ fontSize: "0.8rem" }}>
+                    <label className={styles.formLabel} style={{ fontSize: "0.8rem", marginBottom: "0.3rem" }}>
                       Deadline Date
                     </label>
                     <input
@@ -321,199 +239,186 @@ export default function Step3PricingAccess({
               </div>
             )}
 
-            {/* Multi-Currency Pricing Toggle */}
+            {/* Digital Workshop Consent Policy Notice */}
+            <div
+              style={{
+                marginTop: "1.5rem",
+                padding: "0.85rem 1rem",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: 10,
+                display: "flex",
+                gap: "0.65rem",
+                alignItems: "flex-start",
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              <div style={{ fontSize: "0.8rem", color: "#166534", lineHeight: 1.45 }}>
+                <strong>Digital Consent Gate:</strong> Step 1 remains strictly locked post-payment until the learner signs the agreement.
+              </div>
+            </div>
+          </div>
+
+          {/* =========================================================
+              Right Column: Access & Progression Rules
+              ========================================================= */}
+          <div className={styles.pricingCard}>
+            <h3 className={styles.pricingCardTitle} style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>
+              Progression &amp; Certification
+            </h3>
+
+            {/* Sequential Step Progression */}
             <div className={styles.settingRow}>
-              <div className={styles.settingLabelGroup}>
-                <span className={styles.settingLabelTitle}>Multi-Currency Pricing</span>
-                <span className={styles.settingLabelDesc}>Allow multiple currency (USD, AED, INR, etc.)</span>
+              <div className={styles.settingLabelGroup} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className={styles.settingLabelTitle}>Sequential Step Progression</span>
+                <HelpTooltip text="When enabled, learners must complete Step N before Step N+1 unlocks (enforcing the 11 Steps to U pedagogy)." />
               </div>
               <label className={styles.toggleSwitch}>
                 <input
                   type="checkbox"
-                  checked={hasMultiCurrency}
-                  onChange={(e) => setHasMultiCurrency(e.target.checked)}
+                  checked={sequentialProgressionEnabled}
+                  onChange={(e) => setSequentialProgressionEnabled(e.target.checked)}
                 />
                 <span className={styles.toggleSlider} />
               </label>
             </div>
 
-            {/* Multi-Currency Inputs */}
-            {hasMultiCurrency && (
+            {/* Attendance Enforcement */}
+            <div className={styles.settingRow} style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
+              <div className={styles.settingLabelGroup} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span className={styles.settingLabelTitle}>Live Session Attendance</span>
+                <HelpTooltip text="Requires learners to meet a minimum attendance percentage across scheduled live cohort sessions." />
+              </div>
+              <label className={styles.toggleSwitch}>
+                <input
+                  type="checkbox"
+                  checked={attendanceRequired}
+                  onChange={(e) => setAttendanceRequired(e.target.checked)}
+                />
+                <span className={styles.toggleSlider} />
+              </label>
+            </div>
+
+            {attendanceRequired && (
               <div
                 style={{
                   background: "#faf7f2",
                   border: "1px solid #ece6dd",
                   borderRadius: 10,
-                  padding: "1rem",
-                  marginTop: "0.75rem",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.75rem",
+                  padding: "0.85rem 1rem",
+                  marginTop: "0.65rem",
+                  marginBottom: "0.5rem",
                 }}
               >
-                <div>
-                  <label className={styles.formLabel} style={{ fontSize: "0.8rem" }}>
-                    USD ($) Rate
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="199"
-                    value={priceUSD}
-                    onChange={(e) => setPriceUSD(e.target.value)}
-                    className={styles.formInput}
-                  />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                  <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                    Minimum Threshold
+                  </span>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#d97706" }}>
+                    {attendanceThreshold}%
+                  </span>
                 </div>
-                <div>
-                  <label className={styles.formLabel} style={{ fontSize: "0.8rem" }}>
-                    AED (د.إ) Rate
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="749"
-                    value={priceAED}
-                    onChange={(e) => setPriceAED(e.target.value)}
-                    className={styles.formInput}
-                  />
-                </div>
-                <div>
-                  <label className={styles.formLabel} style={{ fontSize: "0.8rem" }}>
-                    INR (₹) Rate
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="14999"
-                    value={priceINR}
-                    onChange={(e) => setPriceINR(e.target.value)}
-                    className={styles.formInput}
-                  />
-                </div>
+                <input
+                  type="range"
+                  min="50"
+                  max="100"
+                  step="5"
+                  value={attendanceThreshold}
+                  onChange={(e) => setAttendanceThreshold(Number(e.target.value))}
+                  style={{ width: "100%", accentColor: "#d97706", cursor: "pointer" }}
+                />
               </div>
             )}
-          </div>
 
-          {/* =========================================================
-              Right Card: Access Settings
-              ========================================================= */}
-          <div className={styles.pricingCard}>
-            <h3 className={styles.pricingCardTitle}>Access Settings</h3>
-            <p className={styles.pricingCardSubtitle}>
-              Control enrolment permissions, access lifespan, and release schedules.
-            </p>
-
-            {/* Enrolment Type */}
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                <span>Enrolment Type</span>
-              </label>
-              <CustomSelect
-                value={enrollmentType}
-                onChange={setEnrollmentType}
-                fullWidth
-                ariaLabel="Select Enrolment Type"
-                options={[
-                  { value: "Paid Enrollment", label: "Paid Enrolment" },
-                  { value: "Free Enrollment", label: "Free Enrolment" },
-                  { value: "Corporate / Invite Only", label: "Corporate / Invite Only" },
-                ]}
-              />
-            </div>
-
-            {/* Access Duration */}
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                <span>Access Duration</span>
-              </label>
-              <CustomSelect
-                value={accessDuration}
-                onChange={setAccessDuration}
-                fullWidth
-                ariaLabel="Select Access Duration"
-                options={[
-                  { value: "Lifetime Access", label: "Lifetime Access" },
-                  { value: "Batch Duration", label: "Batch Duration" },
-                  { value: "Time-Limited (1 Year)", label: "Time-Limited (1 Year)" },
-                  { value: "Time-Limited (6 Months)", label: "Time-Limited (6 Months)" },
-                ]}
-              />
-            </div>
-
-            {/* Target Audience */}
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>
-                <span>Target Audience</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Students, Working Professionals"
-                value={targetAudience}
-                onChange={(e) => setTargetAudience(e.target.value)}
-                className={styles.formInput}
-              />
-            </div>
-
-            {/* Drip Content Release Toggle */}
-            <div className={styles.settingRow}>
-              <div className={styles.settingLabelGroup}>
-                <span className={styles.settingLabelTitle}>Drip Content Release</span>
-                <span className={styles.settingLabelDesc}>Release lessons gradually on a scheduled cadence.</span>
+            {/* Milestone Requirements Section */}
+            <div style={{ marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted, #78716a)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>
+                Certification Gates
               </div>
-              <label className={styles.toggleSwitch}>
-                <input
-                  type="checkbox"
-                  checked={dripContent}
-                  onChange={(e) => setDripContent(e.target.checked)}
-                />
-                <span className={styles.toggleSlider} />
-              </label>
-            </div>
 
-            {/* Requires Approval Toggle */}
-            <div className={styles.settingRow}>
-              <div className={styles.settingLabelGroup}>
-                <span className={styles.settingLabelTitle}>Requires Approval</span>
-                <span className={styles.settingLabelDesc}>Manually approve enrolments before program access.</span>
+              {/* Require Final Exam */}
+              <div className={styles.settingRow}>
+                <div className={styles.settingLabelGroup}>
+                  <span className={styles.settingLabelTitle}>Require Final Examination</span>
+                </div>
+                <label className={styles.toggleSwitch}>
+                  <input
+                    type="checkbox"
+                    checked={requireExam}
+                    onChange={(e) => setRequireExam(e.target.checked)}
+                  />
+                  <span className={styles.toggleSlider} />
+                </label>
               </div>
-              <label className={styles.toggleSwitch}>
-                <input
-                  type="checkbox"
-                  checked={requiresApproval}
-                  onChange={(e) => setRequiresApproval(e.target.checked)}
-                />
-                <span className={styles.toggleSlider} />
-              </label>
+
+              {/* Require Coaching */}
+              <div className={styles.settingRow} style={{ marginTop: "0.75rem" }}>
+                <div className={styles.settingLabelGroup}>
+                  <span className={styles.settingLabelTitle}>Require 1-on-1 Coaching Session</span>
+                </div>
+                <label className={styles.toggleSwitch}>
+                  <input
+                    type="checkbox"
+                    checked={requireCoaching}
+                    onChange={(e) => setRequireCoaching(e.target.checked)}
+                  />
+                  <span className={styles.toggleSlider} />
+                </label>
+              </div>
+
+              {/* Require Mission Statement */}
+              <div className={styles.settingRow} style={{ marginTop: "0.75rem" }}>
+                <div className={styles.settingLabelGroup}>
+                  <span className={styles.settingLabelTitle}>Require Mission Statement</span>
+                </div>
+                <label className={styles.toggleSwitch}>
+                  <input
+                    type="checkbox"
+                    checked={requireMissionStatement}
+                    onChange={(e) => setRequireMissionStatement(e.target.checked)}
+                  />
+                  <span className={styles.toggleSlider} />
+                </label>
+              </div>
+
+              {/* Has Certificate */}
+              <div className={styles.settingRow} style={{ marginTop: "0.75rem" }}>
+                <div className={styles.settingLabelGroup}>
+                  <span className={styles.settingLabelTitle}>Issue Official Certificate</span>
+                </div>
+                <label className={styles.toggleSwitch}>
+                  <input
+                    type="checkbox"
+                    checked={hasCertificate}
+                    onChange={(e) => setHasCertificate(e.target.checked)}
+                  />
+                  <span className={styles.toggleSlider} />
+                </label>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Bottom Footer: Previous on Left, Warm-Orange Save & Continue on Right */}
+        {/* Save Button */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            marginTop: "2.5rem",
-            paddingTop: "1.5rem",
-            borderTop: "1px solid #ece6dd",
+            justifyContent: "flex-end",
+            marginTop: "2rem",
+            paddingTop: "1.25rem",
+            borderTop: "1px solid var(--border-light, #ece6dd)",
           }}
         >
-          <button
-            type="button"
-            className={styles.secondaryActionBtn}
-            onClick={onPrevious}
-            disabled={isSaving}
-          >
-            &lt;- Previous
-          </button>
-
           <button
             type="submit"
             className={styles.btnPrimary}
             disabled={isSaving}
+            style={{ padding: "0.6rem 1.5rem" }}
           >
-            {isSaving ? "Saving Pricing..." : "Save & Continue ->"}
+            {isSaving ? "Saving..." : "Save Pricing & Access Settings"}
           </button>
         </div>
       </form>

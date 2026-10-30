@@ -43,7 +43,14 @@ export type WizardStep =
   | "PRICING_ACCESS"
   | "REVIEW_PUBLISH";
 
-export type ProgramTab = "DETAILS" | "MODULES" | "FINAL_EXAM" | "CERTIFICATE" | "RESOURCES" | "SETTINGS" | "ENROLMENTS" | "ANALYTICS";
+export type ProgramTab =
+  | "DETAILS"
+  | "PRICING"
+  | "STEPS"
+  | "FINAL_EXAM"
+  | "RESOURCES"
+  | "CERTIFICATE"
+  | "PUBLISH";
 
 interface Step {
   id: string;
@@ -239,7 +246,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     }
   };
 
-  // Save Step 3: Pricing & Access Settings
+  // Save Pricing & Access Settings
   const handleSavePricingAccess = async (updatedPricingData: any) => {
     setIsSaving(true);
     try {
@@ -253,6 +260,14 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         earlyBirdPrice: updatedPricingData.earlyBirdPrice !== undefined ? Number(updatedPricingData.earlyBirdPrice) : null,
         earlyBirdCurrency: updatedPricingData.earlyBirdCurrency || null,
         earlyBirdDeadline: updatedPricingData.earlyBirdDeadline ? new Date(updatedPricingData.earlyBirdDeadline).toISOString() : null,
+        deliveryMode: updatedPricingData.deliveryMode,
+        sequentialProgressionEnabled: updatedPricingData.sequentialProgressionEnabled !== undefined ? Boolean(updatedPricingData.sequentialProgressionEnabled) : undefined,
+        attendanceRequired: updatedPricingData.attendanceRequired !== undefined ? Boolean(updatedPricingData.attendanceRequired) : undefined,
+        attendanceThreshold: updatedPricingData.attendanceThreshold !== undefined ? Number(updatedPricingData.attendanceThreshold) : undefined,
+        requireExam: updatedPricingData.requireExam !== undefined ? Boolean(updatedPricingData.requireExam) : undefined,
+        requireCoaching: updatedPricingData.requireCoaching !== undefined ? Boolean(updatedPricingData.requireCoaching) : undefined,
+        requireMissionStatement: updatedPricingData.requireMissionStatement !== undefined ? Boolean(updatedPricingData.requireMissionStatement) : undefined,
+        hasCertificate: updatedPricingData.hasCertificate !== undefined ? Boolean(updatedPricingData.hasCertificate) : undefined,
       };
 
       const res = await fetch(`${API_URL}/programs/${programId}`, {
@@ -269,11 +284,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       }
 
       const updated = await res.json();
-      setProgramData((prev: any) => ({ ...prev, ...updated, ...updatedPricingData }));
+      setProgramData((prev: any) => ({ ...prev, ...updated, ...payload }));
       toast.success("Pricing and access settings saved.");
-      setWizardStep("REVIEW_PUBLISH");
     } catch (err: any) {
-      alert(err.message || "Failed to save pricing details");
+      toast.error(err.message || "Failed to save pricing details");
     } finally {
       setIsSaving(false);
     }
@@ -767,7 +781,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
                 </span>
                 <span style={{ color: "#d1c7b8" }}>•</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-                  <span style={{ color: "#78716a", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>Modules:</span>
+                  <span style={{ color: "#78716a", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>Steps:</span>
                   <span style={{ fontWeight: 600, color: "#14110f" }}>{steps.length}</span>
                 </span>
                 <span style={{ color: "#d1c7b8" }}>•</span>
@@ -804,14 +818,23 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         <button
           type="button"
           role="tab"
-          aria-selected={activeProgramTab === "MODULES"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "MODULES" ? styles.programTabBtnActive : ""}`}
+          aria-selected={activeProgramTab === "PRICING"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "PRICING" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("PRICING")}
+        >
+          Pricing &amp; Access
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeProgramTab === "STEPS"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "STEPS" ? styles.programTabBtnActive : ""}`}
           onClick={() => {
-            setActiveProgramTab("MODULES");
+            setActiveProgramTab("STEPS");
             if (wizardStep === "MODULE_PREVIEW") setWizardStep("MODULE_LIST");
           }}
         >
-          Modules &amp; Lessons
+          Steps &amp; Lessons
         </button>
         <button
           type="button"
@@ -843,57 +866,116 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         <button
           type="button"
           role="tab"
-          aria-selected={activeProgramTab === "ENROLMENTS"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "ENROLMENTS" ? styles.programTabBtnActive : ""}`}
-          onClick={() => setActiveProgramTab("ENROLMENTS")}
+          aria-selected={activeProgramTab === "PUBLISH"}
+          className={`${styles.programTabBtn} ${activeProgramTab === "PUBLISH" ? styles.programTabBtnActive : ""}`}
+          onClick={() => setActiveProgramTab("PUBLISH")}
         >
-          Enrolments
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeProgramTab === "ANALYTICS"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "ANALYTICS" ? styles.programTabBtnActive : ""}`}
-          onClick={() => setActiveProgramTab("ANALYTICS")}
-        >
-          Analytics
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeProgramTab === "SETTINGS"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "SETTINGS" ? styles.programTabBtnActive : ""}`}
-          onClick={() => {
-            setActiveProgramTab("SETTINGS");
-          }}
-        >
-          Settings &amp; Milestones
-        </button>
-
-        <button
-          type="button"
-          className={styles.previewTabBtn}
-          onClick={() => {
-            setActiveProgramTab("MODULES");
-            setWizardStep("MODULE_PREVIEW");
-          }}
-          title="Preview module as learner"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          <span>Learner Preview</span>
+          Review &amp; Publish
         </button>
       </div>
 
-      {/* Alternate Tab Views */}
+      {/* Tab Views */}
       {activeProgramTab === "DETAILS" && (
         <Step1CourseSetup
           programData={programData}
           onSaveAndContinue={handleSaveCourseSetup}
           isSaving={isSaving}
         />
+      )}
+
+      {activeProgramTab === "PRICING" && (
+        <Step3PricingAccess
+          programData={programData}
+          onSave={handleSavePricingAccess}
+          isSaving={isSaving}
+        />
+      )}
+
+      {/* Main Steps & Lessons Tab */}
+      {activeProgramTab === "STEPS" && (
+        <>
+          {(wizardStep === "MODULE_LIST" || wizardStep === "MODULE_DETAILS") && (
+            <Step2ModuleList
+              steps={steps}
+              activeModuleId={activeModuleId}
+              onSelectModule={(id) => setActiveModuleId(id)}
+              onOpenCreateModal={() => setIsCreateModuleModalOpen(true)}
+              onOpenAddLessonChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+              onOpenQuizBuilder={() => setWizardStep("QUIZ_BUILDER")}
+              onDeleteModule={handleDeleteModule}
+              onDeleteLesson={handleDeleteLesson}
+              onDeleteQuiz={handleDeleteQuiz}
+              onUpdateModule={handleUpdateModule}
+              onRefreshData={fetchProgramAndSteps}
+            />
+          )}
+
+          {/* Add Lesson (Content Type Chooser) */}
+          {wizardStep === "ADD_LESSON_CHOOSER" && activeModule && (
+            <Step5AddLessonChooser
+              moduleSequence={activeModule.sequence}
+              onCancel={() => setWizardStep("MODULE_LIST")}
+              onSelectType={handleSelectLessonType}
+            />
+          )}
+
+          {/* Add Video Lesson */}
+          {wizardStep === "ADD_VIDEO_LESSON" && activeModule && (
+            <Step6AddVideoLesson
+              moduleTitle={activeModule.title}
+              moduleId={activeModule.id}
+              onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+              onLessonSaved={() => {
+                fetchProgramAndSteps();
+                setWizardStep("MODULE_LIST");
+              }}
+              onStartBackgroundUpload={handleStartBackgroundUpload}
+            />
+          )}
+
+          {/* Add PDF Lesson */}
+          {wizardStep === "ADD_PDF_LESSON" && activeModule && (
+            <Step6AddPdfLesson
+              moduleTitle={activeModule.title}
+              moduleId={activeModule.id}
+              onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+              onLessonSaved={() => {
+                fetchProgramAndSteps();
+                setWizardStep("MODULE_LIST");
+              }}
+            />
+          )}
+
+          {/* Quiz Builder */}
+          {wizardStep === "QUIZ_BUILDER" && activeModule && (
+            <Step7QuizBuilder
+              moduleId={activeModule.id}
+              moduleTitle={activeModule.title}
+              existingQuiz={activeModule.quiz}
+              onBackToModule={() => setWizardStep("MODULE_LIST")}
+              onQuizSaved={(updatedQuiz) => {
+                if (updatedQuiz) {
+                  setSteps((prev) =>
+                    prev.map((s) =>
+                      s.id === activeModule.id
+                        ? {
+                            ...s,
+                            quiz: {
+                              ...(s.quiz || {}),
+                              ...updatedQuiz,
+                              quizPlacement: updatedQuiz.quizPlacement || s.quiz?.quizPlacement,
+                            },
+                          }
+                        : s
+                    )
+                  );
+                }
+                fetchProgramAndSteps();
+                setWizardStep("MODULE_LIST");
+              }}
+            />
+          )}
+        </>
       )}
 
       {activeProgramTab === "FINAL_EXAM" && (
@@ -923,161 +1005,14 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         />
       )}
 
-      {activeProgramTab === "SETTINGS" && (
-        <ProgramSettingsPanel
-          programId={programId}
+      {activeProgramTab === "PUBLISH" && (
+        <Step9ReviewPublish
           programData={programData}
-          onUpdateProgram={handleUpdateProgramSettings}
-          onNavigateTab={(tab) => setActiveProgramTab(tab)}
+          steps={steps}
+          onBackToModules={() => setActiveProgramTab("STEPS")}
+          onPublish={handlePublishCourse}
+          isPublishing={isSaving}
         />
-      )}
-
-      {activeProgramTab === "ENROLMENTS" && (
-        <section className={styles.cardSurface}>
-          <ProgramEnrolmentsPanel
-            programId={programId}
-            programTitle={programData?.title}
-            totalStepsCount={steps.length}
-          />
-        </section>
-      )}
-
-      {activeProgramTab === "ANALYTICS" && (
-        <section className={styles.cardSurface}>
-          <ProgramAnalyticsPanel
-            programId={programId}
-            programTitle={programData?.title}
-            steps={steps}
-          />
-        </section>
-      )}
-
-      {/* Main Modules & Curriculum Tab */}
-      {activeProgramTab === "MODULES" && (
-        <>
-          {/* 2-Column Split Curriculum Builder */}
-          {(wizardStep === "MODULE_LIST" || wizardStep === "MODULE_DETAILS") && (
-            <Step2ModuleList
-              steps={steps}
-              activeModuleId={activeModuleId}
-              onSelectModule={(id) => {
-                setActiveModuleId(id);
-              }}
-              onOpenCreateModal={() => setIsCreateModuleModalOpen(true)}
-              onOpenAddLessonChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
-              onOpenQuizBuilder={() => setWizardStep("QUIZ_BUILDER")}
-              onPreviewModule={(mod) => {
-                setActiveModuleId(mod.id);
-                setWizardStep("MODULE_PREVIEW");
-              }}
-              onDeleteModule={handleDeleteModule}
-              onDeleteLesson={handleDeleteLesson}
-              onDeleteQuiz={handleDeleteQuiz}
-              onUpdateModule={handleUpdateModule}
-              onBackToBasicDetails={() => setActiveProgramTab("DETAILS")}
-              onContinueToPricing={() => setWizardStep("PRICING_ACCESS")}
-              onOpenFinalExam={() => setActiveProgramTab("FINAL_EXAM")}
-            />
-          )}
-
-          {/* STEP 3: Dedicated 2-Column Pricing & Access */}
-          {wizardStep === "PRICING_ACCESS" && (
-            <Step3PricingAccess
-              programData={programData}
-              onSaveAndContinue={handleSavePricingAccess}
-              onPrevious={() => setWizardStep("MODULE_LIST")}
-              isSaving={isSaving}
-            />
-          )}
-
-          {/* STEP 5: Add Lesson (Content Type Chooser) */}
-          {wizardStep === "ADD_LESSON_CHOOSER" && activeModule && (
-            <Step5AddLessonChooser
-              moduleSequence={activeModule.sequence}
-              onCancel={() => setWizardStep("MODULE_LIST")}
-              onSelectType={handleSelectLessonType}
-            />
-          )}
-
-          {/* STEP 6: Add Video Lesson */}
-          {wizardStep === "ADD_VIDEO_LESSON" && activeModule && (
-            <Step6AddVideoLesson
-              moduleTitle={activeModule.title}
-              moduleId={activeModule.id}
-              onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
-              onLessonSaved={() => {
-                fetchProgramAndSteps();
-                setWizardStep("MODULE_LIST");
-              }}
-              onStartBackgroundUpload={handleStartBackgroundUpload}
-            />
-          )}
-
-          {/* STEP 6 (Alt): Add PDF Lesson */}
-          {wizardStep === "ADD_PDF_LESSON" && activeModule && (
-            <Step6AddPdfLesson
-              moduleTitle={activeModule.title}
-              moduleId={activeModule.id}
-              onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
-              onLessonSaved={() => {
-                fetchProgramAndSteps();
-                setWizardStep("MODULE_LIST");
-              }}
-            />
-          )}
-
-          {/* STEP 7: Quiz Builder */}
-          {wizardStep === "QUIZ_BUILDER" && activeModule && (
-            <Step7QuizBuilder
-              moduleId={activeModule.id}
-              moduleTitle={activeModule.title}
-              existingQuiz={activeModule.quiz}
-              onBackToModule={() => setWizardStep("MODULE_LIST")}
-              onQuizSaved={(updatedQuiz) => {
-                if (updatedQuiz) {
-                  setSteps((prev) =>
-                    prev.map((s) =>
-                      s.id === activeModule.id
-                        ? {
-                            ...s,
-                            quiz: {
-                              ...(s.quiz || {}),
-                              ...updatedQuiz,
-                              quizPlacement: updatedQuiz.quizPlacement || s.quiz?.quizPlacement,
-                            },
-                          }
-                        : s
-                    )
-                  );
-                }
-                fetchProgramAndSteps();
-                setWizardStep("MODULE_LIST");
-              }}
-            />
-          )}
-
-          {/* STEP 8: Student Module Preview (6-Screen Learner Flow) */}
-          {wizardStep === "MODULE_PREVIEW" && activeModule && (
-            <Step8ModulePreview
-              module={activeModule}
-              allModules={steps}
-              courseTitle={programData?.title}
-              onBackToEdit={() => setWizardStep("MODULE_LIST")}
-              onContinueToReview={() => setWizardStep("REVIEW_PUBLISH")}
-            />
-          )}
-
-          {/* STEP 4 / STEP 9: Final Review & Publish */}
-          {wizardStep === "REVIEW_PUBLISH" && (
-            <Step9ReviewPublish
-              programData={programData}
-              steps={steps}
-              onBackToModules={() => setWizardStep("PRICING_ACCESS")}
-              onPublish={handlePublishCourse}
-              isPublishing={isSaving}
-            />
-          )}
-        </>
       )}
 
       {/* ===================================================================

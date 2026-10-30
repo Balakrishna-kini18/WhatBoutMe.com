@@ -56,7 +56,7 @@ export default function Step6AddPdfLesson({
 
     try {
       const mediaUrl = await uploadFile(selectedFile);
-      setStatusMessage("Attaching PDF resource to module...");
+      setStatusMessage("Attaching PDF resource to step...");
 
       const res = await cachedFetch(`${API_URL}/programs/steps/${moduleId}/lessons`, {
         method: "POST",
@@ -73,7 +73,7 @@ export default function Step6AddPdfLesson({
       });
 
       if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to save PDF resource to module"));
+        throw new Error(await errorMessage(res, "Failed to save PDF resource to step"));
       }
 
       onLessonSaved();
@@ -88,21 +88,46 @@ export default function Step6AddPdfLesson({
 
   return (
     <section className={styles.cardSurface}>
+      {/* Top Back Navigation */}
+      <button
+        type="button"
+        onClick={onBackToChooser}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          color: "var(--text-muted, #78716a)",
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          padding: "0.3rem 0",
+          marginBottom: "0.75rem",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+        <span>Back to Lesson Types</span>
+      </button>
+
       {/* Header */}
-      <div className={styles.cardHeaderArea}>
+      <div className={styles.cardHeaderArea} style={{ marginBottom: "1.25rem" }}>
         <h2 className={styles.stepTitle}>Add PDF Document</h2>
       </div>
 
       {errorMsg && (
         <div
+          role="alert"
           style={{
             background: "#fee2e2",
             border: "1px solid #f87171",
             color: "#991b1b",
-            padding: "10px 16px",
-            borderRadius: 10,
-            fontSize: "0.88rem",
-            marginBottom: "1.5rem",
+            padding: "10px 14px",
+            borderRadius: 8,
+            fontSize: "0.85rem",
+            marginBottom: "1.25rem",
           }}
         >
           {errorMsg}
@@ -115,10 +140,10 @@ export default function Step6AddPdfLesson({
             background: "#fef3c7",
             border: "1px solid #fde68a",
             color: "#92400e",
-            padding: "10px 16px",
-            borderRadius: 10,
-            fontSize: "0.88rem",
-            marginBottom: "1.5rem",
+            padding: "10px 14px",
+            borderRadius: 8,
+            fontSize: "0.85rem",
+            marginBottom: "1.25rem",
           }}
         >
           {statusMessage}
@@ -126,11 +151,26 @@ export default function Step6AddPdfLesson({
       )}
 
       <form onSubmit={handleSubmit}>
-        <div className={styles.twoColLayout}>
+        <div className={styles.twoColLayout} style={{ gap: "2rem" }}>
           {/* Left Column: Dropzone */}
           <div>
-            <label className={styles.uploadCardArea}>
-              <div className={styles.uploadCloudIcon} style={{ color: "var(--accent-primary)" }}>
+            <label
+              className={styles.uploadCardArea}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "2rem 1.5rem",
+                borderRadius: 12,
+                border: "2px dashed #ded6cb",
+                background: selectedFile ? "#f0fdf4" : "#fdfbf7",
+                cursor: "pointer",
+                textAlign: "center",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <div style={{ color: "#e11d48", marginBottom: "0.75rem" }}>
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
@@ -139,10 +179,12 @@ export default function Step6AddPdfLesson({
                   <polyline points="10 9 9 9 8 9" />
                 </svg>
               </div>
-              <h3 className={styles.uploadTitle}>
+              <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 0.35rem", color: "var(--text-primary, #14110f)" }}>
                 {selectedFile ? selectedFile.name : "Upload PDF Document"}
               </h3>
-              <p className={styles.uploadHint}>Drag and drop PDF file here (PDF format up to 50MB)</p>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted, #78716a)", margin: 0 }}>
+                Drag and drop PDF file here (up to 50MB)
+              </p>
               <input
                 type="file"
                 accept="application/pdf"
@@ -152,14 +194,14 @@ export default function Step6AddPdfLesson({
               <span
                 style={{
                   display: "inline-block",
-                  marginTop: "0.75rem",
+                  marginTop: "0.85rem",
                   padding: "0.45rem 1rem",
                   background: "#ffffff",
-                  border: "1px solid var(--border-light)",
+                  border: "1px solid #d4c8b8",
                   borderRadius: 8,
                   fontSize: "0.82rem",
-                  fontWeight: 700,
-                  color: "var(--accent-primary)",
+                  fontWeight: 600,
+                  color: "var(--text-primary, #14110f)",
                 }}
               >
                 {selectedFile ? "Change PDF" : "Choose PDF File"}
@@ -167,7 +209,7 @@ export default function Step6AddPdfLesson({
             </label>
 
             {previewUrl && (
-              <div style={{ marginTop: "0.85rem", display: "flex", gap: "8px" }}>
+              <div style={{ marginTop: "0.85rem" }}>
                 <button
                   type="button"
                   onClick={() =>
@@ -204,9 +246,11 @@ export default function Step6AddPdfLesson({
 
           {/* Right Column: Metadata */}
           <div>
-            <div className={styles.formGroup}>
+            <div className={styles.formGroup} style={{ marginBottom: "1.25rem" }}>
               <label className={styles.formLabel}>
-                Document Title <span style={{ color: "#dc2626" }}>*</span>
+                <span>
+                  Document Title <span style={{ color: "#dc2626" }}>*</span>
+                </span>
               </label>
               <input
                 type="text"
@@ -218,8 +262,10 @@ export default function Step6AddPdfLesson({
               />
             </div>
 
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>Description &amp; Reading Instructions</label>
+            <div className={styles.formGroup} style={{ marginBottom: 0 }}>
+              <label className={styles.formLabel}>
+                <span>Description &amp; Reading Instructions (Optional)</span>
+              </label>
               <textarea
                 rows={4}
                 placeholder="Brief instructions on how learners should use this reference guide..."
@@ -232,20 +278,21 @@ export default function Step6AddPdfLesson({
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border-light)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2rem", paddingTop: "1.25rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
           <button
             type="button"
-            className={styles.btnBack}
+            className={styles.secondaryActionBtn}
             onClick={onBackToChooser}
             disabled={isSaving}
           >
-            &larr; Back
+            Cancel
           </button>
 
           <button
             type="submit"
             disabled={isSaving}
             className={styles.btnPrimary}
+            style={{ padding: "0.6rem 1.4rem" }}
           >
             {isSaving ? "Saving..." : "Save PDF Resource"}
           </button>

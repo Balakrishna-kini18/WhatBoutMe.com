@@ -186,6 +186,8 @@ export default function Step1CourseSetup({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
+  const [isShortDescFocused, setIsShortDescFocused] = useState(false);
 
   // Markdown Quick Formatter
   const applyMarkdownFormat = (action: "bold" | "italic" | "h2" | "bullet" | "link") => {
@@ -893,7 +895,7 @@ export default function Step1CourseSetup({
           <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
             {/* Short Description */}
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                 <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c", margin: 0 }}>
                   Short Description (Plain Text)
                 </label>
@@ -906,23 +908,30 @@ export default function Step1CourseSetup({
                 placeholder="Brief 1-2 sentence overview for catalog cards and search previews..."
                 value={shortDescription}
                 onChange={(e) => setShortDescription(e.target.value)}
+                onFocus={() => setIsShortDescFocused(true)}
+                onBlur={() => setIsShortDescFocused(false)}
                 style={{
                   width: "100%",
-                  padding: "0.65rem 0.85rem",
+                  padding: "0.7rem 0.9rem",
                   borderRadius: "8px",
-                  border: "1px solid var(--border-light, #e7decb)",
+                  border: `1px solid ${isShortDescFocused ? "var(--accent-primary, #d97706)" : "var(--border-light, #e7decb)"}`,
+                  outline: "none",
+                  boxShadow: isShortDescFocused ? "0 0 0 3px rgba(217, 119, 6, 0.12)" : "none",
+                  transition: "border-color 0.15s ease, box-shadow 0.15s ease",
                   fontSize: "0.88rem",
-                  lineHeight: 1.45,
+                  lineHeight: 1.5,
                   minHeight: "60px",
                   resize: "vertical",
                   fontFamily: "inherit",
+                  color: "#1c1917",
+                  background: "#ffffff",
                 }}
               />
             </div>
 
             {/* Full Description with Markdown & Preview Tabs */}
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "0.5rem" }}>
                 <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c", margin: 0 }}>
                   Full Description &amp; Syllabus Details
                 </label>
@@ -969,68 +978,132 @@ export default function Step1CourseSetup({
               </div>
 
               {markdownTab === "edit" ? (
-                <div>
+                <div
+                  style={{
+                    border: `1px solid ${isEditorFocused ? "var(--accent-primary, #d97706)" : "var(--border-light, #e7decb)"}`,
+                    borderRadius: "10px",
+                    background: "#ffffff",
+                    boxShadow: isEditorFocused ? "0 0 0 3px rgba(217, 119, 6, 0.12)" : "0 1px 2px rgba(0,0,0,0.02)",
+                    transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+                    overflow: "hidden",
+                  }}
+                >
                   {/* Markdown Quick Toolbar */}
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "4px",
-                      padding: "5px 8px",
+                      justifyContent: "space-between",
+                      padding: "6px 10px",
                       background: "#faf8f5",
-                      border: "1px solid var(--border-light, #ece4d7)",
-                      borderBottom: "none",
-                      borderTopLeftRadius: "8px",
-                      borderTopRightRadius: "8px",
+                      borderBottom: "1px solid var(--border-light, #ece4d7)",
                       flexWrap: "wrap",
+                      gap: "6px",
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => applyMarkdownFormat("bold")}
-                      style={{ padding: "3px 8px", fontSize: "0.75rem", fontWeight: 700, borderRadius: "4px", border: "1px solid #ebd9c4", background: "#ffffff", cursor: "pointer" }}
-                      title="Bold (**text**)"
-                    >
-                      B
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyMarkdownFormat("italic")}
-                      style={{ padding: "3px 8px", fontSize: "0.75rem", fontStyle: "italic", borderRadius: "4px", border: "1px solid #ebd9c4", background: "#ffffff", cursor: "pointer" }}
-                      title="Italic (*text*)"
-                    >
-                      I
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyMarkdownFormat("h2")}
-                      style={{ padding: "3px 8px", fontSize: "0.75rem", fontWeight: 600, borderRadius: "4px", border: "1px solid #ebd9c4", background: "#ffffff", cursor: "pointer" }}
-                      title="Heading 2 (## Heading)"
-                    >
-                      H2
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyMarkdownFormat("bullet")}
-                      style={{ padding: "3px 8px", fontSize: "0.75rem", fontWeight: 600, borderRadius: "4px", border: "1px solid #ebd9c4", background: "#ffffff", cursor: "pointer" }}
-                      title="Bullet List (- item)"
-                    >
-                      • List
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyMarkdownFormat("link")}
-                      style={{ padding: "3px 8px", fontSize: "0.75rem", fontWeight: 600, borderRadius: "4px", border: "1px solid #ebd9c4", background: "#ffffff", cursor: "pointer" }}
-                      title="Insert Link ([label](url))"
-                    >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("bold")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Bold (**text**)"
+                      >
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("italic")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontStyle: "italic",
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Italic (*text*)"
+                      >
+                        I
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("h2")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Heading 2 (## Heading)"
+                      >
+                        H2
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("bullet")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Bullet List (- item)"
+                      >
+                        • List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("link")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Insert Link ([label](url))"
+                      >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                         </svg>
                         Link
-                      </span>
-                    </button>
+                      </button>
+                    </div>
+
+                    <span style={{ fontSize: "0.72rem", color: "#a8a29e", fontWeight: 500 }}>
+                      Markdown supported
+                    </span>
                   </div>
 
                   <textarea
@@ -1039,18 +1112,22 @@ export default function Step1CourseSetup({
                     placeholder="Comprehensive program overview in Markdown format (# Headings, **bold**, - points)..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    onFocus={() => setIsEditorFocused(true)}
+                    onBlur={() => setIsEditorFocused(false)}
                     style={{
                       width: "100%",
-                      padding: "0.75rem 1rem",
-                      border: "1px solid var(--border-light, #ece4d7)",
-                      borderTopLeftRadius: 0,
-                      borderTopRightRadius: 0,
-                      borderBottomLeftRadius: "8px",
-                      borderBottomRightRadius: "8px",
-                      fontSize: "0.88rem",
-                      lineHeight: 1.5,
-                      fontFamily: "var(--font-mono, monospace)",
+                      padding: "0.85rem 1rem",
+                      border: "none",
+                      outline: "none",
+                      boxShadow: "none",
+                      fontSize: "0.92rem",
+                      lineHeight: 1.6,
+                      fontFamily: "inherit",
+                      color: "#1c1917",
                       resize: "vertical",
+                      minHeight: "150px",
+                      background: "transparent",
+                      display: "block",
                     }}
                   />
                 </div>
@@ -1061,8 +1138,8 @@ export default function Step1CourseSetup({
                     border: "1px solid var(--border-light, #ece4d7)",
                     borderRadius: "10px",
                     padding: "1rem 1.25rem",
-                    minHeight: "150px",
-                    maxHeight: "350px",
+                    minHeight: "185px",
+                    maxHeight: "380px",
                     overflowY: "auto",
                   }}
                 >

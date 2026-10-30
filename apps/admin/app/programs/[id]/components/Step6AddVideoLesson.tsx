@@ -306,33 +306,33 @@ export default function Step6AddVideoLesson({
 
   return (
     <section className={styles.cardSurface}>
-      {/* Header */}
-      <div className={styles.cardHeaderArea}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
-          <div>
-            <h2 className={styles.stepTitle}>Add Video Lesson</h2>
-          </div>
+      {/* Top Back Navigation */}
+      <button
+        type="button"
+        onClick={onBackToChooser}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          color: "var(--text-muted, #78716a)",
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          padding: "0.3rem 0",
+          marginBottom: "0.75rem",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+        <span>Back to Lesson Types</span>
+      </button>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span
-              style={{
-                fontSize: "0.78rem",
-                fontWeight: 600,
-                color: "#15803d",
-                background: "#dcfce7",
-                padding: "0.25rem 0.65rem",
-                borderRadius: 9999,
-                border: "1px solid #bbf7d0",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
-              <span></span> Simultaneous Multi-Upload Ready
-            </span>
-            <HelpTooltip text="You can select multiple large video files at once. All videos will upload concurrently in the background with animated progress tracking while you keep working." />
-          </div>
-        </div>
+      {/* Header */}
+      <div className={styles.cardHeaderArea} style={{ marginBottom: "1.25rem" }}>
+        <h2 className={styles.stepTitle}>Add Video Lesson</h2>
       </div>
 
       {errorMsg && (
@@ -658,7 +658,9 @@ export default function Step6AddVideoLesson({
             <div>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>
-                  Lesson Title <span style={{ color: "#dc2626" }}>*</span>
+                  <span>
+                    Lesson Title <span style={{ color: "#dc2626" }}>*</span>
+                  </span>
                 </label>
                 <input
                   type="text"

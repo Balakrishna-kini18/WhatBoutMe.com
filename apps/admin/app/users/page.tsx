@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState, Pagination, SortIndicator } from "../components";
-import { apiGet } from "../lib/api";
+import { apiGet, API_URL } from "../lib/api";
 
 const RevokeAccessModal = dynamic(
   () => import("../components/RevokeAccessModal").then((mod) => mod.RevokeAccessModal),
@@ -220,7 +220,7 @@ function UsersContent() {
   const fetchPrograms = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/programs`, {
+      const res = await fetch(`${API_URL}/programs`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -272,7 +272,7 @@ function UsersContent() {
   const fetchBatches = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/batches`, {
+      const res = await fetch(`${API_URL}/batches`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -973,7 +973,7 @@ function UsersContent() {
     setIsAssigningBatch(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users/${assignBatchUser.id}`, {
+      const res = await fetch(`${API_URL}/users/${assignBatchUser.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1032,8 +1032,8 @@ function UsersContent() {
     try {
       const token = localStorage.getItem("token");
       const url = editingUserId
-        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users/${editingUserId}`
-        : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/users`;
+        ? `${API_URL}/users/${editingUserId}`
+        : `${API_URL}/users`;
       const method = editingUserId ? "PATCH" : "POST";
 
       const res = await fetch(url, {
@@ -1121,6 +1121,49 @@ function UsersContent() {
           )}
         </div>
       </header>
+
+      {/* Segmented Navigation: People vs Organizations */}
+      <div
+        style={{
+          display: "flex",
+          gap: "6px",
+          background: "#e2e8f0",
+          padding: "4px",
+          borderRadius: "10px",
+          width: "fit-content",
+          marginBottom: "1.25rem",
+        }}
+      >
+        <Link
+          href="/users"
+          style={{
+            padding: "6px 16px",
+            fontSize: "0.85rem",
+            fontWeight: 700,
+            borderRadius: "7px",
+            background: "#ffffff",
+            color: "#0f172a",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+            textDecoration: "none",
+          }}
+        >
+          People (Learners & Staff)
+        </Link>
+        <Link
+          href="/users/organizations"
+          style={{
+            padding: "6px 16px",
+            fontSize: "0.85rem",
+            fontWeight: 500,
+            borderRadius: "7px",
+            background: "transparent",
+            color: "#475569",
+            textDecoration: "none",
+          }}
+        >
+          Organizations & Resellers
+        </Link>
+      </div>
 
       {!isManager && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>

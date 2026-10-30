@@ -37,12 +37,20 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
       <div className="relative mx-auto grid w-full max-w-[1320px] items-center gap-6 px-5 pt-16 sm:gap-10 sm:pt-28 md:px-10 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-12 xl:pt-32">
         <div className="xl:pb-10">
           <div {...rise(0.05)} className="rise text-center xl:text-left">
-            {/* who she is and what she does, before the story line */}
+            {/* who she is and what she does, or custom small label from CMS */}
             <p className="mb-3 text-sm text-ink-soft sm:mb-4 sm:text-base">
-              <span className="font-semibold text-ink">Roweena Britto</span>
-              <span aria-hidden="true"> · </span>
-              <span className="whitespace-nowrap">Brain Health Coach</span>{" "}
-              <span className="whitespace-nowrap">&amp; Resilience Speaker</span>
+              {content.eyebrow && content.eyebrow.trim() ? (
+                <span className="font-semibold text-gold-deep tracking-wide uppercase text-xs sm:text-sm">
+                  {content.eyebrow.trim()}
+                </span>
+              ) : (
+                <>
+                  <span className="font-semibold text-ink">Roweena Britto</span>
+                  <span aria-hidden="true"> · </span>
+                  <span className="whitespace-nowrap">Brain Health Coach</span>{" "}
+                  <span className="whitespace-nowrap">&amp; Resilience Speaker</span>
+                </>
+              )}
             </p>
             {/* capitalize: the title comes from the CMS in sentence case */}
             <h1 className="text-balance text-[2.375rem] font-bold capitalize leading-[1.02] tracking-[-0.03em] text-ink sm:text-[clamp(2.75rem,10vw,4.5rem)] xl:text-[clamp(3rem,4.4vw,4.75rem)]">
@@ -133,7 +141,11 @@ export default function Hero({ content }: { content: SiteContent["hero"] }) {
             height={1289}
             priority
             sizes="(max-width: 640px) 80vw, 420px"
-            className="absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
+            className={
+              isLocalImage(content.image)
+                ? "absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
+                : "absolute inset-0 m-auto h-[92%] w-[92%] object-contain drop-shadow-md z-10"
+            }
           />
         </div>
       </div>

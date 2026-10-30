@@ -45,6 +45,17 @@ const Icons = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
+  Organizations: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+      <path d="M6 12H4a2 2 0 0 0-2 2v8h4" />
+      <path d="M18 9h2a2 2 0 0 1 2 2v11h-4" />
+      <path d="M10 6h4" />
+      <path d="M10 10h4" />
+      <path d="M10 14h4" />
+      <path d="M10 18h4" />
+    </svg>
+  ),
   Batches: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="12 2 2 7 12 12 22 7 12 2" />
@@ -229,6 +240,15 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     keywords: ["learners", "students", "staff", "crm", "roles", "accounts"],
   },
   {
+    id: "organizations",
+    title: "Organizations & B2B Partners",
+    description: "Manage enterprise sponsors, batch slot licensing, student tracking, and billing",
+    href: "/users/organizations",
+    category: "Overview",
+    iconName: "Organizations",
+    keywords: ["organizations", "b2b", "resellers", "slots", "sponsors", "corporate", "institutes"],
+  },
+  {
     id: "batches",
     title: "Batches & Cohorts",
     description: "Active cohorts, live schedules, and class dates",
@@ -318,7 +338,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Coupons",
     keywords: ["coupons", "promo", "discount", "stripe", "vouchers", "sale", "pricing"],
   },
-  
+
   {
     id: "leads",
     title: "Enquiries (CRM & Leads)",
@@ -362,269 +382,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const { user, logout: authLogout } = useAuth();
   const [mounted, setMounted] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-  const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchShortcut, setSearchShortcut] = useState("Ctrl K");
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Notification Center & Broadcast state (Task 13)
-  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
-  const [activeNotifTab, setActiveNotifTab] = useState<'notifications' | 'emails'>('notifications');
-  const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLogsResponse>({ notifications: [], emails: [] });
-  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const notifRef = useRef<HTMLDivElement>(null);
-
-  // Web Push Opt-in & Device Registration State (Task 3)
-  const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
-  const [isRegisteringPush, setIsRegisteringPush] = useState(false);
-  const [testPushSent, setTestPushSent] = useState(false);
-
-  // Broadcast Modal State
-  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
-  const [broadcastTarget, setBroadcastTarget] = useState<'ALL' | 'BATCH' | 'USER'>('ALL');
-  const [broadcastTargetId, setBroadcastTargetId] = useState('');
-  const [broadcastTitle, setBroadcastTitle] = useState('');
-  const [broadcastMessage, setBroadcastMessage] = useState('');
-  const [broadcastLink, setBroadcastLink] = useState('');
-  const [broadcastChannels, setBroadcastChannels] = useState<('IN_APP' | 'PUSH' | 'EMAIL')[]>(['IN_APP', 'PUSH', 'EMAIL']);
-  const [batchesList, setBatchesList] = useState<{ id: string; name: string }[]>([]);
-  const [isBroadcasting, setIsBroadcasting] = useState(false);
-  const [broadcastSuccess, setBroadcastSuccess] = useState<string | null>(null);
-  const [broadcastError, setBroadcastError] = useState<string | null>(null);
-
-  const loadDeliveryLogs = async () => {
-    setIsLoadingLogs(true);
-    try {
-      const logs = await fetchDeliveryLogs(20);
-      setDeliveryLogs(logs);
-    } catch {
-      // Fallback gracefully
-    } finally {
-      setIsLoadingLogs(false);
-    }
-  };
-
-  const handleEnablePush = async () => {
-    setIsRegisteringPush(true);
-    try {
-      const res = await registerWebPushSubscription();
-      const newStatus = getPushPermissionStatus();
-      setPushStatus(newStatus);
-      if (res.success && newStatus === 'granted') {
-        await sendTestWebPushNotification(
-          'Notifications Enabled',
-          'You will now receive administrative alerts and updates.'
-        );
-      }
-    } catch (err) {
-      console.error('Push registration error:', err);
-    } finally {
-      setIsRegisteringPush(false);
-    }
-  };
-
-  const handleTestPush = async () => {
-    const ok = await sendTestWebPushNotification(
-      'WhatBoutMe Admin Test',
-      'Web Push notification delivered successfully to this device.'
-    );
-    if (ok) {
-      setTestPushSent(true);
-      setTimeout(() => setTestPushSent(false), 3000);
-    }
-  };
-
-  useEffect(() => {
-    if (notifDropdownOpen) {
-      loadDeliveryLogs();
-      if (typeof window !== 'undefined') {
-        setPushStatus(getPushPermissionStatus());
-      }
-    }
-  }, [notifDropdownOpen]);
-
-  useEffect(() => {
-    if (broadcastModalOpen) {
-      setBroadcastSuccess(null);
-      setBroadcastError(null);
-      apiGet<any>('/batches?limit=100')
-        .then((data) => {
-          const list = Array.isArray(data) ? data : (data?.batches || data?.items || []);
-          setBatchesList(list.map((b: any) => ({ id: b.id, name: b.name })));
-        })
-        .catch(() => {});
-    }
-  }, [broadcastModalOpen]);
-
-  // Set up sidebar preference, theme, and keyboard shortcuts once on mount
-  useEffect(() => {
-    setMounted(true);
-    const savedCollapsed = localStorage.getItem("admin_sidebar_collapsed");
-    if (savedCollapsed !== null) {
-      setIsCollapsed(savedCollapsed === "true");
-    }
-
-    // Ensure the interface remains consistently in light mode
-    localStorage.removeItem("admin_theme");
-    document.documentElement.classList.remove("dark");
-
-    // Platform detection for search shortcut
-    if (typeof window !== "undefined") {
-      setPushStatus(getPushPermissionStatus());
-      const isMac =
-        /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
-        /Macintosh|Mac OS X/.test(navigator.userAgent);
-      if (isMac) {
-        setSearchShortcut("⌘K");
-      }
-    }
-  }, []);
-
-  // Keyboard shortcut for command palette (Ctrl+K / Cmd+K) and Escape handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setSearchModalOpen((prev) => !prev);
-      }
-      if (e.key === "Escape") {
-        setSearchModalOpen(false);
-        setUserDropdownOpen(false);
-        setNotifDropdownOpen(false);
-        if (!isLoggingOut) {
-          setShowSignOutConfirm(false);
-          setLogoutError(null);
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isLoggingOut]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setUserDropdownOpen(false);
-      }
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setNotifDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    setMobileMenuOpen(false);
-    setUserDropdownOpen(false);
-    setNotifDropdownOpen(false);
-    setShowSignOutConfirm(false);
-    setIsLoggingOut(false);
-    setLogoutError(null);
-  }, [pathname]);
-
-  const handleSendBroadcast = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!broadcastTitle.trim() || !broadcastMessage.trim()) {
-      setBroadcastError("Title and message are required.");
-      return;
-    }
-    if (broadcastChannels.length === 0) {
-      setBroadcastError("Select at least one delivery channel.");
-      return;
-    }
-    if (broadcastTarget === "BATCH" && !broadcastTargetId) {
-      setBroadcastError("Please select a target batch.");
-      return;
-    }
-    if (broadcastTarget === "USER" && !broadcastTargetId.trim()) {
-      setBroadcastError("Please enter a learner User ID or Email.");
-      return;
-    }
-
-    setIsBroadcasting(true);
-    setBroadcastError(null);
-    setBroadcastSuccess(null);
-
-    try {
-      const res = await broadcastNotification({
-        target: broadcastTarget,
-        targetId: broadcastTargetId || undefined,
-        title: broadcastTitle.trim(),
-        message: broadcastMessage.trim(),
-        link: broadcastLink.trim() || undefined,
-        channels: broadcastChannels,
-      });
-
-      setBroadcastSuccess(
-        `Broadcast sent successfully to ${res.recipientsCount} recipient(s)! (${res.inAppSent} in-app, ${res.pushSent} push, ${res.emailSent} emails)`
-      );
-      loadDeliveryLogs();
-      setTimeout(() => {
-        setBroadcastModalOpen(false);
-        setBroadcastTitle("");
-        setBroadcastMessage("");
-        setBroadcastLink("");
-        setBroadcastSuccess(null);
-      }, 2500);
-    } catch (err: any) {
-      setBroadcastError(err.message || "Failed to broadcast notification");
-    } finally {
-      setIsBroadcasting(false);
-    }
-  };
-
-  const toggleCollapsed = () => {
-    setIsCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem("admin_sidebar_collapsed", String(next));
-      return next;
-    });
-  };
-
-  const openSignOutConfirm = () => {
-    setUserDropdownOpen(false);
-    setLogoutError(null);
-    setShowSignOutConfirm(true);
-  };
-
-  const closeSignOutConfirm = () => {
-    if (isLoggingOut) return;
-    setShowSignOutConfirm(false);
-    setLogoutError(null);
-  };
-
-  const handleConfirmSignOut = async () => {
-    if (isLoggingOut) return;
-    try {
-      setIsLoggingOut(true);
-      setLogoutError(null);
-      setShowSignOutConfirm(false);
-      setUserDropdownOpen(false);
-      await authLogout();
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
-    } catch (err) {
-      setIsLoggingOut(false);
-      setLogoutError(err instanceof Error ? err.message : "Failed to sign out. Please try again.");
-    }
-  };
-
-  if (pathname === "/login") {
-    return <>{children}</>;
-  }
-
-  // If client is mounted and has no session token on protected route, redirect to login
   const effectiveUser: UserData | null =
-    user || (typeof window !== "undefined" ? (() => {
+    user || (mounted && typeof window !== "undefined" ? (() => {
       try {
         const raw = localStorage.getItem("user");
         return raw ? JSON.parse(raw) : null;
@@ -633,852 +393,1213 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       }
     })() : null);
 
-  if (mounted && !effectiveUser && typeof window !== "undefined" && !localStorage.getItem("token")) {
-    window.location.href = "/login";
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FBF8F4" }}>
-        <p style={{ color: "#78716A", fontSize: "0.9rem" }}>Redirecting to sign in…</p>
-      </div>
-    );
-  }
+  const isOrgAccount = Boolean(
+    (effectiveUser as any)?.isOrgUser ||
+    (effectiveUser as any)?.organizationId ||
+    (effectiveUser as any)?.organization ||
+    (effectiveUser as any)?.orgRole
+  );
+  const isPlatformAdmin = Boolean(
+    effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN"
+  );
+  const isOrgUser = Boolean(
+    !isPlatformAdmin && (isOrgAccount || effectiveUser?.role === "USER" || !effectiveUser?.role)
+  );
+  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || null;
+  const orgName = ((effectiveUser as any)?.organization?.name || "Organization Partner");
+  const homeHref = mounted && !isPlatformAdmin && orgId ? `/users/organizations/${orgId}` : "/";
 
-  const userName = effectiveUser?.name ? effectiveUser.name : "Administrator";
-  const formatRole = (role?: string) => {
-    if (!role) return "Admin";
-    switch (role) {
-      case "SUPER_ADMIN":
-        return "Super Admin";
-      case "ADMIN":
-        return "Admin";
-      case "TEACHER":
-        return "Teacher";
-      case "MANAGER":
-        return "Manager";
-      default:
-        return role.charAt(0) + role.slice(1).toLowerCase();
-    }
-  };
-  const userRole = effectiveUser?.role ? formatRole(effectiveUser.role) : "Admin";
-  const userEmail = effectiveUser?.email ? effectiveUser.email : "admin@whatboutme.com";
+      const [isCollapsed, setIsCollapsed] = useState(false);
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+      const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+      const [searchModalOpen, setSearchModalOpen] = useState(false);
+      const [searchQuery, setSearchQuery] = useState("");
+      const [searchShortcut, setSearchShortcut] = useState("Ctrl K");
+      const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+      const [isLoggingOut, setIsLoggingOut] = useState(false);
+      const [logoutError, setLogoutError] = useState<string | null>(null);
+      const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const isManager = Boolean(effectiveUser?.role === "MANAGER" || effectiveUser?.role === "TEACHER");
+      // Notification Center & Broadcast state (Task 13)
+      const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
+      const [activeNotifTab, setActiveNotifTab] = useState<'notifications' | 'emails'>('notifications');
+      const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLogsResponse>({ notifications: [], emails: [] });
+      const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+      const notifRef = useRef<HTMLDivElement>(null);
 
-  const hasPermission = (perm: string) => {
-    const currentUser = effectiveUser;
-    if (!currentUser) {
-      // If token exists in localStorage, grant default access during hydration rather than hiding menus
-      if (typeof window !== "undefined" && localStorage.getItem("token")) {
-        return true;
-      }
-      return !mounted;
-    }
+      // Web Push Opt-in & Device Registration State (Task 3)
+      const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
+      const [isRegisteringPush, setIsRegisteringPush] = useState(false);
+      const [testPushSent, setTestPushSent] = useState(false);
 
-    if (currentUser.role === "SUPER_ADMIN") return true;
+      // Broadcast Modal State
+      const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+      const [broadcastTarget, setBroadcastTarget] = useState<'ALL' | 'BATCH' | 'USER'>('ALL');
+      const [broadcastTargetId, setBroadcastTargetId] = useState('');
+      const [broadcastTitle, setBroadcastTitle] = useState('');
+      const [broadcastMessage, setBroadcastMessage] = useState('');
+      const [broadcastLink, setBroadcastLink] = useState('');
+      const [broadcastChannels, setBroadcastChannels] = useState<('IN_APP' | 'PUSH' | 'EMAIL')[]>(['IN_APP', 'PUSH', 'EMAIL']);
+      const [batchesList, setBatchesList] = useState<{ id: string; name: string }[]>([]);
+      const [isBroadcasting, setIsBroadcasting] = useState(false);
+      const [broadcastSuccess, setBroadcastSuccess] = useState<string | null>(null);
+      const [broadcastError, setBroadcastError] = useState<string | null>(null);
 
-    // Strict Manager Isolation per PDF specification (Page 3-4):
-    // Managers are restricted to assigned batches, live sessions, and attendance.
-    // They cannot access finance/revenue, global marketing/website, CRM leads, or curriculum authoring.
-    if (currentUser.role === "MANAGER" || currentUser.role === "TEACHER") {
-      if (
-        perm === "view_finance" ||
-        perm === "manage_coupons" ||
-        perm === "manage_website" ||
-        perm === "manage_curriculum"
-      ) {
-        return false;
-      }
-      if (
-        perm === "view_users" ||
-        perm === "view_batches" ||
-        perm === "manage_operations" ||
-        perm === "all"
-      ) {
-        return true;
-      }
-      return false;
-    }
+      const loadDeliveryLogs = async () => {
+        setIsLoadingLogs(true);
+        try {
+          if (!isPlatformAdmin) {
+            // Scoped to partner/user notifications only (never leak global emails/other students)
+            const myNotifs = await apiGet<any[]>('/notifications/mine?limit=20');
+            setDeliveryLogs({
+              notifications: (myNotifs || []).map((n: any) => ({
+                id: n.id,
+                title: n.title || n.type,
+                message: n.message,
+                recipient: effectiveUser?.email || '',
+                recipientName: effectiveUser?.name || null,
+                userTimezone: (effectiveUser as any)?.timezone || 'UTC',
+                channel: n.channel,
+                deliveryStatus: n.deliveryStatus || 'DELIVERED',
+                createdAtUtc: n.createdAt,
+                sentAtUtc: n.sentAt || n.createdAt,
+                readAtUtc: n.readAt,
+              })),
+              emails: [],
+            });
+          } else {
+            const logs = await fetchDeliveryLogs(20);
+            setDeliveryLogs(logs);
+          }
+        } catch {
+          // Fallback gracefully
+        } finally {
+          setIsLoadingLogs(false);
+        }
+      };
 
-    // Admin role handling
-    if (!currentUser.permissions || currentUser.permissions.length === 0) return true;
-    switch (perm) {
-      case "view_users":
-        return currentUser.permissions.includes("users:read") || currentUser.permissions.includes("users:read_assigned");
-      case "view_batches":
-        return currentUser.permissions.includes("batches:read") || currentUser.permissions.includes("batches:read_assigned");
-      case "manage_curriculum":
-        return currentUser.permissions.includes("programs:read") || currentUser.permissions.includes("programs:create");
-      case "manage_website":
-        return currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN";
-      case "view_finance":
-        return currentUser.permissions.includes("payments:read") || currentUser.permissions.includes("invoices:read");
-      case "manage_coupons":
-        return currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN";
-      case "manage_operations":
-        return currentUser.permissions.includes("sessions:read") || currentUser.permissions.includes("certificates:read");
-      case "super_admin_only":
-        return currentUser.role === "SUPER_ADMIN";
-      default:
-        return true;
-    }
-  };
-
-  const navGroups = [
-    {
-      title: "OVERVIEW",
-      permission: true,
-      items: [
-        { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
-        { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
-        { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
-        { label: "Revenue", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
-        { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
-        { label: "Audit Logs", href: "/audit-logs", icon: <Icons.Approvals />, perm: "super_admin_only" },
-      ],
-    },
-    {
-      title: "CURRICULUM",
-      permission: hasPermission("manage_curriculum"),
-      items: [
-        { label: "Programs", href: "/programs", icon: <Icons.Programs />, perm: "manage_curriculum" },
-        { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
-        { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
-        { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
-        { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Approvals />, perm: "manage_operations" },
-        { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
-      ],
-    },
-    {
-      title: "COMMUNICATION",
-      permission: hasPermission("manage_operations"),
-      items: [
-        { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
-        { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
-        { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Events />, perm: "manage_operations" },
-      ],
-    },
-    {
-      title: "WEBSITE",
-      permission: hasPermission("manage_website"),
-      items: [
-        { label: "Website Content", href: "/website", icon: <Icons.WebsiteContent />, perm: "manage_website" },
-      ],
-    },
-  ];
-
-  return (
-    <div className={`${styles.appContainer} ${isCollapsed ? styles.collapsed : ""}`}>
-      {/* Mobile Drawer Backdrop */}
-      {mobileMenuOpen && (
-        <div className={styles.mobileBackdrop} onClick={() => setMobileMenuOpen(false)} />
-      )}
-
-      {/* Admin Sidebar */}
-      <aside className={`${styles.sidebar} ${mobileMenuOpen ? styles.mobileOpen : ""}`}>
-        {/* Brand Header */}
-        <div className={styles.logoArea}>
-          <Link href="/" className={styles.brandLink} aria-label="WhatBoutMe Admin Home">
-            <div className={styles.brandLogoWrap}>
-              <Image
-                src="/brand/logo-dark.png"
-                alt="whatboutme"
-                width={168}
-                height={22.5}
-                priority
-                className={styles.brandLogoImg}
-              />
-            </div>
-          </Link>
-
-          <Link href="/" className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Admin Home" title="WhatBoutMe Admin">
-            <Image
-              src="/brand/icon.png"
-              alt="whatboutme"
-              width={22}
-              height={22}
-              priority
-              className={styles.brandIconImg}
-            />
-          </Link>
-
-          <button
-            type="button"
-            className={styles.collapseToggle}
-            onClick={toggleCollapsed}
-            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {isCollapsed ? <Icons.ChevronRight /> : <Icons.ChevronLeft />}
-          </button>
-        </div>
-
-        {/* Navigation Menu */}
-        <nav className={styles.navMenu}>
-          {navGroups.map((group) => {
-            if (group.permission === false) return null;
-            const filteredItems = group.items.filter((item) => item.perm === "all" || hasPermission(item.perm));
-            if (filteredItems.length === 0) return null;
-
-            return (
-              <div key={group.title} className={styles.navGroup}>
-                <p className={styles.navTitle}>{group.title}</p>
-                {filteredItems.map((item) => {
-                  const isActive = item.href === "/"
-                    ? pathname === "/"
-                    : pathname === item.href || pathname.startsWith(item.href + "/");
-
-                  return (
-                    <Link
-                      key={item.label}
-                      href={item.href}
-                      className={`${styles.navItem} ${isActive ? styles.active : ""}`}
-                      title={isCollapsed ? item.label : undefined}
-                      aria-current={isActive ? "page" : undefined}
-                    >
-                      <span className={styles.navIcon}>{item.icon}</span>
-                      <span className={styles.navLabel}>{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
+      const handleEnablePush = async () => {
+        setIsRegisteringPush(true);
+        try {
+          const res = await registerWebPushSubscription();
+          const newStatus = getPushPermissionStatus();
+          setPushStatus(newStatus);
+          if (res.success && newStatus === 'granted') {
+            await sendTestWebPushNotification(
+              'Notifications Enabled',
+              'You will now receive administrative alerts and updates.'
             );
-          })}
-        </nav>
+          }
+        } catch (err) {
+          console.error('Push registration error:', err);
+        } finally {
+          setIsRegisteringPush(false);
+        }
+      };
 
-        {/* Sidebar Footer with Sign Out */}
-        <div className={styles.sidebarFooter}>
-          <button
-            type="button"
-            className={styles.sidebarSignOutBtn}
-            onClick={openSignOutConfirm}
-            title={isCollapsed ? "Sign out" : undefined}
-            aria-label="Sign out"
-          >
-            <span className={styles.sidebarSignOutIcon}>
-              <Icons.Logout />
-            </span>
-            <span className={styles.sidebarSignOutLabel}>Sign out</span>
-          </button>
-        </div>
-      </aside>
+      const handleTestPush = async () => {
+        const ok = await sendTestWebPushNotification(
+          'WhatBoutMe Admin Test',
+          'Web Push notification delivered successfully to this device.'
+        );
+        if (ok) {
+          setTestPushSent(true);
+          setTimeout(() => setTestPushSent(false), 3000);
+        }
+      };
 
-      {/* Main Content Area */}
-      <div className={styles.mainWrapper}>
-        {/* Top Bar Header */}
-        <header className={styles.topbar}>
-          <div className={styles.topbarLeft}>
-            {/* Mobile Menu Button */}
-            <button
-              type="button"
-              className={styles.mobileMenuBtn}
-              onClick={() => setMobileMenuOpen(true)}
-              aria-label="Open navigation menu"
-            >
-              <Icons.Menu />
-            </button>
+      useEffect(() => {
+        if (notifDropdownOpen) {
+          loadDeliveryLogs();
+          if (typeof window !== 'undefined') {
+            setPushStatus(getPushPermissionStatus());
+          }
+        }
+      }, [notifDropdownOpen]);
 
-            {/* Integrated Search Input */}
-            <div
-              className={styles.searchContainer}
-              onClick={() => setSearchModalOpen(true)}
-              role="search"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSearchModalOpen(true);
-                }
-              }}
-              aria-label={`Quick search (press ${searchShortcut} to open)`}
-            >
-              <span className={styles.searchIcon}><Icons.Search /></span>
-              <input
-                type="text"
-                readOnly
-                placeholder="Search users, batches, programs..."
-                className={styles.searchInput}
-                tabIndex={-1}
-              />
-              <div className={styles.searchShortcut} aria-hidden="true">
-                <kbd className={styles.keycap}>{searchShortcut}</kbd>
-              </div>
-            </div>
+      useEffect(() => {
+        if (broadcastModalOpen) {
+          setBroadcastSuccess(null);
+          setBroadcastError(null);
+          apiGet<any>('/batches?limit=100')
+            .then((data) => {
+              const list = Array.isArray(data) ? data : (data?.batches || data?.items || []);
+              setBatchesList(list.map((b: any) => ({ id: b.id, name: b.name })));
+            })
+            .catch(() => { });
+        }
+      }, [broadcastModalOpen]);
+
+      // Set up sidebar preference, theme, and keyboard shortcuts once on mount
+      useEffect(() => {
+        setMounted(true);
+        const savedCollapsed = localStorage.getItem("admin_sidebar_collapsed");
+        if (savedCollapsed !== null) {
+          setIsCollapsed(savedCollapsed === "true");
+        }
+
+        // Ensure the interface remains consistently in light mode
+        localStorage.removeItem("admin_theme");
+        document.documentElement.classList.remove("dark");
+
+        // Platform detection for search shortcut
+        if (typeof window !== "undefined") {
+          setPushStatus(getPushPermissionStatus());
+          const isMac =
+            /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
+            /Macintosh|Mac OS X/.test(navigator.userAgent);
+          if (isMac) {
+            setSearchShortcut("⌘K");
+          }
+        }
+      }, []);
+
+      // Keyboard shortcut for command palette (Ctrl+K / Cmd+K) and Escape handler
+      useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+            e.preventDefault();
+            setSearchModalOpen((prev) => !prev);
+          }
+          if (e.key === "Escape") {
+            setSearchModalOpen(false);
+            setUserDropdownOpen(false);
+            setNotifDropdownOpen(false);
+            if (!isLoggingOut) {
+              setShowSignOutConfirm(false);
+              setLogoutError(null);
+            }
+          }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+      }, [isLoggingOut]);
+
+      // Close dropdown on outside click
+      useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+          if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+            setUserDropdownOpen(false);
+          }
+          if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+            setNotifDropdownOpen(false);
+          }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+      }, []);
+
+      useEffect(() => {
+        setMobileMenuOpen(false);
+        setUserDropdownOpen(false);
+        setNotifDropdownOpen(false);
+        setShowSignOutConfirm(false);
+        setIsLoggingOut(false);
+        setLogoutError(null);
+      }, [pathname]);
+
+      // Protect routes: Organization users can only view their own workspace
+      useEffect(() => {
+        if (mounted && !isPlatformAdmin && orgId) {
+          if (pathname === "/login" || pathname === "/reset-password") return;
+          if (!pathname.startsWith(`/users/organizations/${orgId}`)) {
+            router.replace(`/users/organizations/${orgId}`);
+          }
+        }
+      }, [mounted, isOrgUser, orgId, pathname, router]);
+
+      const handleSendBroadcast = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!broadcastTitle.trim() || !broadcastMessage.trim()) {
+          setBroadcastError("Title and message are required.");
+          return;
+        }
+        if (broadcastChannels.length === 0) {
+          setBroadcastError("Select at least one delivery channel.");
+          return;
+        }
+        if (broadcastTarget === "BATCH" && !broadcastTargetId) {
+          setBroadcastError("Please select a target batch.");
+          return;
+        }
+        if (broadcastTarget === "USER" && !broadcastTargetId.trim()) {
+          setBroadcastError("Please enter a learner User ID or Email.");
+          return;
+        }
+
+        setIsBroadcasting(true);
+        setBroadcastError(null);
+        setBroadcastSuccess(null);
+
+        try {
+          const res = await broadcastNotification({
+            target: broadcastTarget,
+            targetId: broadcastTargetId || undefined,
+            title: broadcastTitle.trim(),
+            message: broadcastMessage.trim(),
+            link: broadcastLink.trim() || undefined,
+            channels: broadcastChannels,
+          });
+
+          setBroadcastSuccess(
+            `Broadcast sent successfully to ${res.recipientsCount} recipient(s)! (${res.inAppSent} in-app, ${res.pushSent} push, ${res.emailSent} emails)`
+          );
+          loadDeliveryLogs();
+          setTimeout(() => {
+            setBroadcastModalOpen(false);
+            setBroadcastTitle("");
+            setBroadcastMessage("");
+            setBroadcastLink("");
+            setBroadcastSuccess(null);
+          }, 2500);
+        } catch (err: any) {
+          setBroadcastError(err.message || "Failed to broadcast notification");
+        } finally {
+          setIsBroadcasting(false);
+        }
+      };
+
+      const toggleCollapsed = () => {
+        setIsCollapsed((prev) => {
+          const next = !prev;
+          localStorage.setItem("admin_sidebar_collapsed", String(next));
+          return next;
+        });
+      };
+
+      const openSignOutConfirm = () => {
+        setUserDropdownOpen(false);
+        setLogoutError(null);
+        setShowSignOutConfirm(true);
+      };
+
+      const closeSignOutConfirm = () => {
+        if (isLoggingOut) return;
+        setShowSignOutConfirm(false);
+        setLogoutError(null);
+      };
+
+      const handleConfirmSignOut = async () => {
+        if (isLoggingOut) return;
+        try {
+          setIsLoggingOut(true);
+          setLogoutError(null);
+          setShowSignOutConfirm(false);
+          setUserDropdownOpen(false);
+          await authLogout();
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
+          }
+        } catch (err) {
+          setIsLoggingOut(false);
+          setLogoutError(err instanceof Error ? err.message : "Failed to sign out. Please try again.");
+        }
+      };
+
+      if (pathname === "/login" || pathname === "/reset-password") {
+        return <>{children}</>;
+      }
+
+      // If client is mounted and has no session token on protected route, redirect to login
+      if (mounted && !effectiveUser && typeof window !== "undefined" && !localStorage.getItem("token")) {
+        window.location.href = "/login";
+        return (
+          <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#FBF8F4" }}>
+            <p style={{ color: "#78716A", fontSize: "0.9rem" }}>Redirecting to sign in…</p>
           </div>
+        );
+      }
 
-          {/* Topbar Actions */}
-          <div className={styles.topbarActions}>
-            <div style={{ position: "relative" }} ref={notifRef}>
+      const userName = mounted && effectiveUser?.name ? effectiveUser.name : "Administrator";
+      const formatRole = (role?: string) => {
+        if (!role) return "Admin";
+        switch (role) {
+          case "SUPER_ADMIN":
+            return "Super Admin";
+          case "ADMIN":
+            return "Admin";
+          case "TEACHER":
+            return "Teacher";
+          case "MANAGER":
+            return "Manager";
+          default:
+            return role.charAt(0) + role.slice(1).toLowerCase();
+        }
+      };
+      const isOrgOwner = mounted && Boolean(
+        (effectiveUser as any)?.orgRole === "OWNER" ||
+        (effectiveUser as any)?.organization?.role === "OWNER" ||
+        (effectiveUser as any)?.title?.toLowerCase()?.includes("owner") ||
+        (effectiveUser as any)?.name?.toLowerCase()?.includes("shrada") ||
+        (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+      );
+      const isOrgMember = mounted && Boolean(
+        isOrgOwner ||
+        (effectiveUser as any)?.isOrgUser ||
+        (effectiveUser as any)?.organizationId ||
+        (effectiveUser as any)?.organization
+      );
+      const userRole = isOrgOwner
+        ? "Organization Owner"
+        : isOrgMember
+          ? "Partner Admin"
+          : (mounted && effectiveUser?.role ? formatRole(effectiveUser.role) : "Admin");
+      const userEmail = mounted && effectiveUser?.email ? effectiveUser.email : "admin@whatboutme.com";
+
+      const isManager = Boolean(effectiveUser?.role === "MANAGER" || effectiveUser?.role === "TEACHER");
+
+      const hasPermission = (perm: string) => {
+        if (!mounted) return true;
+        const currentUser = effectiveUser;
+        if (!currentUser) {
+          // If token exists in localStorage, grant default access during hydration rather than hiding menus
+          if (typeof window !== "undefined" && localStorage.getItem("token")) {
+            return true;
+          }
+          return true;
+        }
+
+        if (currentUser.role === "SUPER_ADMIN") return true;
+
+        // Strict Manager Isolation per PDF specification (Page 3-4):
+        // Managers are restricted to assigned batches, live sessions, and attendance.
+        // They cannot access finance/revenue, global marketing/website, CRM leads, or curriculum authoring.
+        if (currentUser.role === "MANAGER" || currentUser.role === "TEACHER") {
+          if (
+            perm === "view_finance" ||
+            perm === "manage_coupons" ||
+            perm === "manage_website" ||
+            perm === "manage_curriculum"
+          ) {
+            return false;
+          }
+          if (
+            perm === "view_users" ||
+            perm === "view_batches" ||
+            perm === "manage_operations" ||
+            perm === "all"
+          ) {
+            return true;
+          }
+          return false;
+        }
+
+        // Admin role handling
+        if (!currentUser.permissions || currentUser.permissions.length === 0) return true;
+        switch (perm) {
+          case "view_users":
+            return currentUser.permissions.includes("users:read") || currentUser.permissions.includes("users:read_assigned");
+          case "view_batches":
+            return currentUser.permissions.includes("batches:read") || currentUser.permissions.includes("batches:read_assigned");
+          case "manage_curriculum":
+            return currentUser.permissions.includes("programs:read") || currentUser.permissions.includes("programs:create");
+          case "manage_website":
+            return currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN";
+          case "view_finance":
+            return currentUser.permissions.includes("payments:read") || currentUser.permissions.includes("invoices:read");
+          case "manage_coupons":
+            return currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN";
+          case "manage_operations":
+            return currentUser.permissions.includes("sessions:read") || currentUser.permissions.includes("certificates:read");
+          case "super_admin_only":
+            return currentUser.role === "SUPER_ADMIN";
+          default:
+            return true;
+        }
+      };
+
+      const navGroups = [
+        {
+          title: "OVERVIEW",
+          permission: true,
+          items: [
+            { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
+            { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
+            { label: "Organizations", href: "/users/organizations", icon: <Icons.Organizations />, perm: "view_users" },
+            { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
+            { label: "Revenue", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
+            { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
+            { label: "Audit Logs", href: "/audit-logs", icon: <Icons.Approvals />, perm: "super_admin_only" },
+          ],
+        },
+        {
+          title: "CURRICULUM",
+          permission: hasPermission("manage_curriculum"),
+          items: [
+            { label: "Programs", href: "/programs", icon: <Icons.Programs />, perm: "manage_curriculum" },
+            { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
+            { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
+            { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
+            { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Approvals />, perm: "manage_operations" },
+            { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
+          ],
+        },
+        {
+          title: "COMMUNICATION",
+          permission: hasPermission("manage_operations"),
+          items: [
+            { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
+            { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
+            { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Events />, perm: "manage_operations" },
+          ],
+        },
+        {
+          title: "WEBSITE",
+          permission: hasPermission("manage_website"),
+          items: [
+            { label: "Website Content", href: "/website", icon: <Icons.WebsiteContent />, perm: "manage_website" },
+          ],
+        },
+      ];
+
+      // Scoped navigation for Organization Partners
+      const orgNavGroups = orgId
+        ? [
+          {
+            title: "ORGANIZATION WORKSPACE",
+            permission: true,
+            items: [
+              { label: "Partner Dashboard", href: `/users/organizations/${orgId}`, icon: <Icons.Organizations />, perm: "all" },
+              { label: "Students & Progress", href: `/users/organizations/${orgId}?tab=students`, icon: <Icons.Users />, perm: "all" },
+              { label: "Batch Slot Pools", href: `/users/organizations/${orgId}?tab=pools`, icon: <Icons.Batches />, perm: "all" },
+              { label: "Invoices & Billing", href: `/users/organizations/${orgId}?tab=billing`, icon: <Icons.Analytics />, perm: "all" },
+            ],
+          },
+        ]
+        : [
+          {
+            title: "ORGANIZATION WORKSPACE",
+            permission: true,
+            items: [
+              { label: "My Organization", href: `/users/organizations`, icon: <Icons.Organizations />, perm: "all" },
+            ],
+          },
+        ];
+
+      const effectiveNavGroups = isPlatformAdmin ? navGroups : orgNavGroups;
+
+      return (
+        <div className={`${styles.appContainer} ${isCollapsed ? styles.collapsed : ""}`}>
+          {/* Mobile Drawer Backdrop */}
+          {mobileMenuOpen && (
+            <div className={styles.mobileBackdrop} onClick={() => setMobileMenuOpen(false)} />
+          )}
+
+          {/* Admin Sidebar */}
+          <aside className={`${styles.sidebar} ${mobileMenuOpen ? styles.mobileOpen : ""}`}>
+            {/* Brand Header */}
+            <div className={styles.logoArea}>
+              <Link href={homeHref} className={styles.brandLink} aria-label="WhatBoutMe Admin Home" suppressHydrationWarning>
+                <div className={styles.brandLogoWrap}>
+                  <Image
+                    src="/brand/logo-dark.png"
+                    alt="whatboutme"
+                    width={168}
+                    height={22.5}
+                    priority
+                    className={styles.brandLogoImg}
+                  />
+                </div>
+              </Link>
+
+              <Link href={homeHref} className={styles.brandLinkCollapsed} aria-label="WhatBoutMe Admin Home" title="WhatBoutMe Admin" suppressHydrationWarning>
+                <Image
+                  src="/brand/icon.png"
+                  alt="whatboutme"
+                  width={22}
+                  height={22}
+                  priority
+                  className={styles.brandIconImg}
+                />
+              </Link>
+
               <button
                 type="button"
-                className={styles.iconBtn}
-                title="Notifications & Broadcast"
-                aria-label="Notifications & Broadcast"
-                onClick={() => {
-                  setNotifDropdownOpen(!notifDropdownOpen);
-                  setUserDropdownOpen(false);
-                }}
+                className={styles.collapseToggle}
+                onClick={toggleCollapsed}
+                title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
-                <Icons.Bell />
-                <span className={styles.notificationDot} />
+                {isCollapsed ? <Icons.ChevronRight /> : <Icons.ChevronLeft />}
               </button>
+            </div>
 
-              {/* Notification Center Flyout */}
-              {notifDropdownOpen && (
-                <div className={styles.notifDropdown} role="dialog" aria-label="Notifications Center">
-                  <div className={styles.notifHeader}>
-                    <h4 className={styles.notifTitle}>Notifications &amp; Logs</h4>
-                    <button
-                      type="button"
-                      className={styles.broadcastActionBtn}
-                      onClick={() => {
-                        setNotifDropdownOpen(false);
-                        setBroadcastModalOpen(true);
-                      }}
-                    >
-                      <Icons.Megaphone />
-                      <span>Broadcast</span>
-                    </button>
+        {/* Navigation Menu */}
+        <nav className={styles.navMenu} suppressHydrationWarning>
+          {mounted ? (
+            effectiveNavGroups.map((group) => {
+              if (group.permission === false) return null;
+              const filteredItems = group.items.filter((item) => item.perm === "all" || hasPermission(item.perm));
+              if (filteredItems.length === 0) return null;
+
+              return (
+                <div key={group.title} className={styles.navGroup}>
+                  <p className={styles.navTitle} suppressHydrationWarning>{group.title}</p>
+                  {filteredItems.map((item) => {
+                    const isActive = item.href === "/"
+                      ? pathname === "/"
+                      : pathname === item.href || pathname.startsWith(item.href + "/");
+
+                    return (
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        className={`${styles.navItem} ${isActive ? styles.active : ""}`}
+                        title={isCollapsed ? item.label : undefined}
+                        aria-current={isActive ? "page" : undefined}
+                      >
+                        <span className={styles.navIcon}>{item.icon}</span>
+                        <span className={styles.navLabel}>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })
+          ) : null}
+        </nav>
+
+                {/* Sidebar Footer with Sign Out */ }
+                <div className={styles.sidebarFooter}>
+                  <button
+                    type="button"
+                    className={styles.sidebarSignOutBtn}
+                    onClick={openSignOutConfirm}
+                    title={isCollapsed ? "Sign out" : undefined}
+                    aria-label="Sign out"
+                  >
+                    <span className={styles.sidebarSignOutIcon}>
+                      <Icons.Logout />
+                    </span>
+                    <span className={styles.sidebarSignOutLabel}>Sign out</span>
+                  </button>
+                </div>
+      </aside>
+
+          {/* Main Content Area */}
+          <div className={styles.mainWrapper}>
+            {/* Top Bar Header */}
+            <header className={styles.topbar}>
+              <div className={styles.topbarLeft}>
+                {/* Mobile Menu Button */}
+                <button
+                  type="button"
+                  className={styles.mobileMenuBtn}
+                  onClick={() => setMobileMenuOpen(true)}
+                  aria-label="Open navigation menu"
+                >
+                  <Icons.Menu />
+                </button>
+
+                {/* Integrated Search Input */}
+                <div
+                  className={styles.searchContainer}
+                  onClick={() => setSearchModalOpen(true)}
+                  role="search"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSearchModalOpen(true);
+                    }
+                  }}
+                  aria-label={`Quick search (press ${searchShortcut} to open)`}
+                >
+                  <span className={styles.searchIcon}><Icons.Search /></span>
+                  <input
+                    type="text"
+                    readOnly
+                    placeholder="Search users, batches, programs..."
+                    className={styles.searchInput}
+                    tabIndex={-1}
+                  />
+                  <div className={styles.searchShortcut} aria-hidden="true">
+                    <kbd className={styles.keycap}>{searchShortcut}</kbd>
                   </div>
+                </div>
+              </div>
 
-                  {/* Web Push Status Bar */}
-                  <div className={styles.pushStatusBar}>
-                    <div className={styles.pushStatusLeft}>
-                      <span
-                        className={styles.pushStatusDot}
-                        style={{
-                          background:
-                            pushStatus === "granted"
-                              ? "#10b981"
+              {/* Topbar Actions */}
+              <div className={styles.topbarActions}>
+                <div style={{ position: "relative" }} ref={notifRef}>
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    title="Notifications & Broadcast"
+                    aria-label="Notifications & Broadcast"
+                    onClick={() => {
+                      setNotifDropdownOpen(!notifDropdownOpen);
+                      setUserDropdownOpen(false);
+                    }}
+                  >
+                    <Icons.Bell />
+                    <span className={styles.notificationDot} />
+                  </button>
+
+                  {/* Notification Center Flyout */}
+                  {notifDropdownOpen && (
+                    <div className={styles.notifDropdown} role="dialog" aria-label="Notifications Center">
+                      <div className={styles.notifHeader}>
+                        <h4 className={styles.notifTitle}>
+                          {isPlatformAdmin ? "Notifications & Logs" : "Notifications"}
+                        </h4>
+                        {isPlatformAdmin && (
+                          <button
+                            type="button"
+                            className={styles.broadcastActionBtn}
+                            onClick={() => {
+                              setNotifDropdownOpen(false);
+                              setBroadcastModalOpen(true);
+                            }}
+                          >
+                            <Icons.Megaphone />
+                            <span>Broadcast</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Web Push Status Bar */}
+                      <div className={styles.pushStatusBar}>
+                        <div className={styles.pushStatusLeft}>
+                          <span
+                            className={styles.pushStatusDot}
+                            style={{
+                              background:
+                                pushStatus === "granted"
+                                  ? "#10b981"
+                                  : pushStatus === "denied"
+                                    ? "#ef4444"
+                                    : "#f59e0b",
+                            }}
+                          />
+                          <span className={styles.pushStatusText}>
+                            {pushStatus === "granted"
+                              ? "Web Push: Active"
                               : pushStatus === "denied"
-                              ? "#ef4444"
-                              : "#f59e0b",
-                        }}
-                      />
-                      <span className={styles.pushStatusText}>
-                        {pushStatus === "granted"
-                          ? "Web Push: Active"
-                          : pushStatus === "denied"
-                          ? "Web Push: Blocked"
-                          : pushStatus === "unsupported"
-                          ? "Web Push: Unsupported"
-                          : "Web Push: Inactive"}
-                      </span>
-                    </div>
+                                ? "Web Push: Blocked"
+                                : pushStatus === "unsupported"
+                                  ? "Web Push: Unsupported"
+                                  : "Web Push: Inactive"}
+                          </span>
+                        </div>
 
-                    <div className={styles.pushStatusActions}>
-                      {pushStatus === "granted" ? (
+                        <div className={styles.pushStatusActions}>
+                          {pushStatus === "granted" ? (
+                            <button
+                              type="button"
+                              className={styles.testPushBtn}
+                              onClick={handleTestPush}
+                              title="Trigger a test browser push alert to this device"
+                            >
+                              {testPushSent ? "Sent! ✓" : "Test Push"}
+                            </button>
+                          ) : pushStatus !== "unsupported" && pushStatus !== "denied" ? (
+                            <button
+                              type="button"
+                              className={styles.enablePushBtn}
+                              onClick={handleEnablePush}
+                              disabled={isRegisteringPush}
+                            >
+                              {isRegisteringPush ? "Enabling..." : "Enable Push"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {/* Tabs - Only Platform Staff have global Email Delivery Logs */}
+                      {isPlatformAdmin ? (
+                        <div className={styles.notifTabs}>
+                          <button
+                            type="button"
+                            className={`${styles.notifTabBtn} ${activeNotifTab === "notifications" ? styles.notifTabBtnActive : ""}`}
+                            onClick={() => setActiveNotifTab("notifications")}
+                          >
+                            In-App / Push ({deliveryLogs.notifications.length})
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.notifTabBtn} ${activeNotifTab === "emails" ? styles.notifTabBtnActive : ""}`}
+                            onClick={() => setActiveNotifTab("emails")}
+                          >
+                            Emails ({deliveryLogs.emails.length})
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {/* Content List */}
+                      <div className={styles.notifList}>
+                        {isLoadingLogs ? (
+                          <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                            Loading delivery logs...
+                          </div>
+                        ) : activeNotifTab === "notifications" ? (
+                          deliveryLogs.notifications.length === 0 ? (
+                            <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                              No notifications logged yet.
+                            </div>
+                          ) : (
+                            deliveryLogs.notifications.map((n) => (
+                              <div key={n.id} className={styles.notifItem}>
+                                <div className={styles.notifItemHeader}>
+                                  <h5 className={styles.notifItemTitle}>{n.title}</h5>
+                                  <StatusBadge status={n.deliveryStatus} />
+                                </div>
+                                <p className={styles.notifItemRecipient}>
+                                  {isPlatformAdmin ? `To: ${n.recipientName ? `${n.recipientName} (${n.recipient})` : n.recipient}` : n.message}
+                                </p>
+                                <div className={styles.notifItemMeta}>
+                                  <span className={styles.channelTag}>{n.channel}</span>
+                                  <span>{formatWhenInTz(n.createdAtUtc, n.createdAtUtc, n.userTimezone || "UTC")}</span>
+                                </div>
+                              </div>
+                            ))
+                          )
+                        ) : (
+                          deliveryLogs.emails.length === 0 ? (
+                            <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
+                              No email dispatch logs found.
+                            </div>
+                          ) : (
+                            deliveryLogs.emails.map((e) => (
+                              <div key={e.id} className={styles.notifItem}>
+                                <div className={styles.notifItemHeader}>
+                                  <h5 className={styles.notifItemTitle}>{e.subject}</h5>
+                                  <StatusBadge status={e.status} />
+                                </div>
+                                <p className={styles.notifItemRecipient}>To: {e.to}</p>
+                                <div className={styles.notifItemMeta}>
+                                  <span className={styles.channelTag}>{e.template || "EMAIL"}</span>
+                                  <span>{new Date(e.createdAtUtc).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                                </div>
+                              </div>
+                            ))
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.headerDivider} aria-hidden="true" />
+
+                {/* User Profile Trigger */}
+                <div className={styles.profileContainer} ref={dropdownRef}>
+                  <button
+                    type="button"
+                    className={`${styles.userProfile} ${userDropdownOpen ? styles.userProfileOpen : ""}`}
+                    onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                    aria-expanded={userDropdownOpen}
+                    aria-haspopup="true"
+                    aria-label={`User menu for ${userName}`}
+                    suppressHydrationWarning
+                  >
+                    <div className={styles.avatar} aria-hidden="true">
+                      <Icons.User />
+                    </div>
+                    <div className={styles.userInfo}>
+                      <span className={styles.userName} suppressHydrationWarning>{userName}</span>
+                      <span className={styles.userRole} suppressHydrationWarning>{userRole}</span>
+                    </div>
+                    <span className={styles.userChevron}><Icons.ChevronDown /></span>
+                  </button>
+
+                  {/* User Dropdown */}
+                  {userDropdownOpen && (
+                    <div className={styles.userDropdown} role="menu">
+                      <div className={styles.dropdownHeader}>
+                        <p className={styles.dropdownName} suppressHydrationWarning>{userName}</p>
+                        <p className={styles.dropdownEmail} suppressHydrationWarning>{userEmail}</p>
+                        <span className={styles.dropdownRoleBadge} suppressHydrationWarning>{userRole}</span>
+                      </div>
+                      <div className={styles.dropdownDivider} />
+                      <button
+                        type="button"
+                        className={`${styles.dropdownItem} ${styles.dropdownSignOut}`}
+                        onClick={openSignOutConfirm}
+                        role="menuitem"
+                      >
+                        <span className={styles.dropdownItemIcon}><Icons.Logout /></span> Sign Out
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </header>
+
+            {/* Page Inner Content */}
+            <main className={styles.mainContent}>
+              <div className={styles.contentInner}>
+                {children}
+              </div>
+            </main>
+          </div>
+
+          {/* Interactive Command Palette / Search Modal */}
+          {searchModalOpen && (
+            <div className={styles.searchModalOverlay} onClick={() => setSearchModalOpen(false)}>
+              <div className={styles.searchModalBox} onClick={(e) => e.stopPropagation()}>
+                <div className={styles.modalSearchInputWrap}>
+                  <span className={styles.modalSearchIcon}><Icons.Search /></span>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Search users, batches, programs, revenue..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={styles.modalSearchInput}
+                  />
+                  <button
+                    type="button"
+                    className={styles.modalCloseBtn}
+                    onClick={() => {
+                      setSearchModalOpen(false);
+                      setSearchQuery("");
+                    }}
+                    title="Close search (Esc)"
+                    aria-label="Close search"
+                  >
+                    <Icons.Close />
+                  </button>
+                </div>
+                <div className={styles.modalSearchResults}>
+                  {(() => {
+                    const q = searchQuery.toLowerCase().trim();
+                    const allowedSearchItems = SEARCH_ITEMS.filter((item) => {
+                      if (item.category === "Website") return hasPermission("manage_website");
+                      if (item.id === "revenue") return hasPermission("view_finance");
+                      if (item.category === "Curriculum" && (item.id === "programs" || item.id === "quizzes")) {
+                        return hasPermission("manage_curriculum");
+                      }
+                      if (item.id === "leads") return hasPermission("manage_website");
+                      return true;
+                    });
+                    const filtered = q === ""
+                      ? allowedSearchItems.slice(0, 5)
+                      : allowedSearchItems.filter((item) => (
+                        item.title.toLowerCase().includes(q) ||
+                        item.description.toLowerCase().includes(q) ||
+                        item.category.toLowerCase().includes(q) ||
+                        item.keywords.some((kw) => kw.includes(q))
+                      ));
+
+                    return (
+                      <>
+                        <p className={styles.modalSectionLabel}>
+                          {q === "" ? "QUICK NAVIGATION" : `RESULTS (${filtered.length})`}
+                        </p>
+                        {filtered.length === 0 ? (
+                          <div className={styles.modalNoResults}>
+                            <p>No admin pages found matching &ldquo;{searchQuery}&rdquo;</p>
+                            <span>Try searching for users, batches, curriculum, finance, or website</span>
+                          </div>
+                        ) : (
+                          <div className={styles.modalQuickLinks}>
+                            {filtered.map((item) => {
+                              const IconComp = Icons[item.iconName];
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  className={styles.modalQuickItem}
+                                  onClick={() => {
+                                    router.push(item.href);
+                                    setSearchModalOpen(false);
+                                    setSearchQuery("");
+                                  }}
+                                >
+                                  <span className={styles.modalQuickIcon}><IconComp /></span>
+                                  <div className={styles.modalQuickDetails}>
+                                    <div className={styles.modalQuickTitleRow}>
+                                      <strong>{item.title}</strong>
+                                      <span className={styles.modalQuickCategory}>{item.category}</span>
+                                    </div>
+                                    <span>{item.description}</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sign Out Confirmation Modal */}
+          {showSignOutConfirm && (
+            <div
+              className={styles.confirmModalOverlay}
+              onClick={closeSignOutConfirm}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="signout-dialog-title"
+            >
+              <div className={styles.confirmModalBox} onClick={(e) => e.stopPropagation()}>
+                <div className={styles.confirmHeader}>
+                  <div className={styles.confirmIconWrap} aria-hidden="true">
+                    <Icons.Logout />
+                  </div>
+                  <div className={styles.confirmHeaderText}>
+                    <h2 id="signout-dialog-title" className={styles.confirmTitle}>Sign out?</h2>
+                    <p className={styles.confirmMessage}>
+                      Are you sure you want to sign out of your WhatBoutMe admin account?
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.modalCloseBtn}
+                    onClick={closeSignOutConfirm}
+                    disabled={isLoggingOut}
+                    aria-label="Cancel and close dialog"
+                    title="Close (Esc)"
+                  >
+                    <Icons.Close />
+                  </button>
+                </div>
+
+                {logoutError && (
+                  <div className={styles.confirmError} role="alert">
+                    {logoutError}
+                  </div>
+                )}
+
+                <div className={styles.confirmActions}>
+                  <button
+                    type="button"
+                    className={styles.confirmCancelBtn}
+                    onClick={closeSignOutConfirm}
+                    disabled={isLoggingOut}
+                    autoFocus
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.confirmDangerBtn}
+                    onClick={handleConfirmSignOut}
+                    disabled={isLoggingOut}
+                  >
+                    {isLoggingOut ? "Signing out..." : "Sign out"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Broadcast Announcement Modal */}
+          {broadcastModalOpen && (
+            <Modal
+              isOpen={broadcastModalOpen}
+              onClose={() => setBroadcastModalOpen(false)}
+              title="Broadcast Announcement"
+              subtitle="Send push, in-app, or email notifications to learners across WhatBoutMe."
+              maxWidth="560px"
+            >
+              <form onSubmit={handleSendBroadcast}>
+                {broadcastSuccess && (
+                  <div style={{ padding: "12px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", color: "#166534", fontSize: "0.8125rem", marginBottom: "16px" }}>
+                    {broadcastSuccess}
+                  </div>
+                )}
+                {broadcastError && (
+                  <div style={{ padding: "12px 16px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", color: "#991b1b", fontSize: "0.8125rem", marginBottom: "16px" }}>
+                    {broadcastError}
+                  </div>
+                )}
+
+                <div className={styles.broadcastFormGroup}>
+                  <label className={styles.broadcastLabel}>Target Audience</label>
+                  <select
+                    className={styles.broadcastSelect}
+                    value={broadcastTarget}
+                    onChange={(e) => {
+                      setBroadcastTarget(e.target.value as any);
+                      setBroadcastTargetId("");
+                    }}
+                  >
+                    {!isManager && <option value="ALL">All Learners (Global Broadcast)</option>}
+                    <option value="BATCH">Specific Cohort Batch</option>
+                    <option value="USER">Specific Individual Learner</option>
+                  </select>
+                </div>
+
+                {broadcastTarget === "BATCH" && (
+                  <div className={styles.broadcastFormGroup}>
+                    <label className={styles.broadcastLabel}>Select Batch</label>
+                    <select
+                      className={styles.broadcastSelect}
+                      value={broadcastTargetId}
+                      onChange={(e) => setBroadcastTargetId(e.target.value)}
+                      required
+                    >
+                      <option value="">-- Choose an active batch --</option>
+                      {batchesList.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {broadcastTarget === "USER" && (
+                  <div className={styles.broadcastFormGroup}>
+                    <label className={styles.broadcastLabel}>Learner User ID</label>
+                    <input
+                      type="text"
+                      className={styles.broadcastInput}
+                      placeholder="Enter learner UUID (e.g. 1a2b3c...)"
+                      value={broadcastTargetId}
+                      onChange={(e) => setBroadcastTargetId(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
+
+                <div className={styles.broadcastFormGroup}>
+                  <label className={styles.broadcastLabel}>Notification Channels</label>
+                  <div className={styles.channelsGrid}>
+                    <label className={styles.channelCheckboxLabel}>
+                      <input
+                        type="checkbox"
+                        checked={broadcastChannels.includes("IN_APP")}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBroadcastChannels([...broadcastChannels, "IN_APP"]);
+                          } else {
+                            setBroadcastChannels(broadcastChannels.filter((c) => c !== "IN_APP"));
+                          }
+                        }}
+                        style={{ accentColor: "#e06d28" }}
+                      />
+                      <span>In-App Alert (Learner Portal Dashboard &amp; Bell)</span>
+                    </label>
+                    <label className={styles.channelCheckboxLabel}>
+                      <input
+                        type="checkbox"
+                        checked={broadcastChannels.includes("PUSH")}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBroadcastChannels([...broadcastChannels, "PUSH"]);
+                          } else {
+                            setBroadcastChannels(broadcastChannels.filter((c) => c !== "PUSH"));
+                          }
+                        }}
+                        style={{ accentColor: "#e06d28" }}
+                      />
+                      <span>Browser &amp; Mobile Web Push Notification</span>
+                      {pushStatus === "granted" && (
                         <button
                           type="button"
-                          className={styles.testPushBtn}
-                          onClick={handleTestPush}
-                          title="Trigger a test browser push alert to this device"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleTestPush();
+                          }}
+                          style={{
+                            marginLeft: "auto",
+                            background: "#f3f4f6",
+                            border: "1px solid #d1d5db",
+                            borderRadius: "4px",
+                            padding: "2px 8px",
+                            fontSize: "0.6875rem",
+                            fontWeight: 600,
+                            color: "#374151",
+                            cursor: "pointer",
+                          }}
+                          title="Send a sample test push to verify browser alert"
                         >
                           {testPushSent ? "Sent! ✓" : "Test Push"}
                         </button>
-                      ) : pushStatus !== "unsupported" && pushStatus !== "denied" ? (
-                        <button
-                          type="button"
-                          className={styles.enablePushBtn}
-                          onClick={handleEnablePush}
-                          disabled={isRegisteringPush}
-                        >
-                          {isRegisteringPush ? "Enabling..." : "Enable Push"}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Tabs */}
-                  <div className={styles.notifTabs}>
-                    <button
-                      type="button"
-                      className={`${styles.notifTabBtn} ${activeNotifTab === "notifications" ? styles.notifTabBtnActive : ""}`}
-                      onClick={() => setActiveNotifTab("notifications")}
-                    >
-                      In-App / Push ({deliveryLogs.notifications.length})
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.notifTabBtn} ${activeNotifTab === "emails" ? styles.notifTabBtnActive : ""}`}
-                      onClick={() => setActiveNotifTab("emails")}
-                    >
-                      Emails ({deliveryLogs.emails.length})
-                    </button>
-                  </div>
-
-                  {/* Content List */}
-                  <div className={styles.notifList}>
-                    {isLoadingLogs ? (
-                      <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                        Loading delivery logs...
-                      </div>
-                    ) : activeNotifTab === "notifications" ? (
-                      deliveryLogs.notifications.length === 0 ? (
-                        <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                          No notifications logged yet.
-                        </div>
-                      ) : (
-                        deliveryLogs.notifications.map((n) => (
-                          <div key={n.id} className={styles.notifItem}>
-                            <div className={styles.notifItemHeader}>
-                              <h5 className={styles.notifItemTitle}>{n.title}</h5>
-                              <StatusBadge status={n.deliveryStatus} />
-                            </div>
-                            <p className={styles.notifItemRecipient}>
-                              To: {n.recipientName ? `${n.recipientName} (${n.recipient})` : n.recipient}
-                            </p>
-                            <div className={styles.notifItemMeta}>
-                              <span className={styles.channelTag}>{n.channel}</span>
-                              <span>{formatWhenInTz(n.createdAtUtc, n.createdAtUtc, n.userTimezone || "UTC")}</span>
-                            </div>
-                          </div>
-                        ))
-                      )
-                    ) : (
-                      deliveryLogs.emails.length === 0 ? (
-                        <div style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.8125rem" }}>
-                          No email dispatch logs found.
-                        </div>
-                      ) : (
-                        deliveryLogs.emails.map((e) => (
-                          <div key={e.id} className={styles.notifItem}>
-                            <div className={styles.notifItemHeader}>
-                              <h5 className={styles.notifItemTitle}>{e.subject}</h5>
-                              <StatusBadge status={e.status} />
-                            </div>
-                            <p className={styles.notifItemRecipient}>To: {e.to}</p>
-                            <div className={styles.notifItemMeta}>
-                              <span className={styles.channelTag}>{e.template || "EMAIL"}</span>
-                              <span>{new Date(e.createdAtUtc).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                            </div>
-                          </div>
-                        ))
-                      )
-                    )}
+                      )}
+                    </label>
+                    <label className={styles.channelCheckboxLabel}>
+                      <input
+                        type="checkbox"
+                        checked={broadcastChannels.includes("EMAIL")}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBroadcastChannels([...broadcastChannels, "EMAIL"]);
+                          } else {
+                            setBroadcastChannels(broadcastChannels.filter((c) => c !== "EMAIL"));
+                          }
+                        }}
+                        style={{ accentColor: "#e06d28" }}
+                      />
+                      <span>Branded Email Announcement Dispatch</span>
+                    </label>
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div className={styles.headerDivider} aria-hidden="true" />
-
-            {/* User Profile Trigger */}
-            <div className={styles.profileContainer} ref={dropdownRef}>
-              <button
-                type="button"
-                className={`${styles.userProfile} ${userDropdownOpen ? styles.userProfileOpen : ""}`}
-                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                aria-expanded={userDropdownOpen}
-                aria-haspopup="true"
-                aria-label={`User menu for ${userName}`}
-                suppressHydrationWarning
-              >
-                <div className={styles.avatar} aria-hidden="true">
-                  <Icons.User />
+                <div className={styles.broadcastFormGroup}>
+                  <label className={styles.broadcastLabel}>Announcement Title</label>
+                  <input
+                    type="text"
+                    className={styles.broadcastInput}
+                    placeholder="e.g. Schedule Update: Live Session Rescheduled to 3 PM UTC"
+                    value={broadcastTitle}
+                    onChange={(e) => setBroadcastTitle(e.target.value)}
+                    maxLength={140}
+                    required
+                  />
                 </div>
-                <div className={styles.userInfo}>
-                  <span className={styles.userName} suppressHydrationWarning>{userName}</span>
-                  <span className={styles.userRole} suppressHydrationWarning>{userRole}</span>
-                </div>
-                <span className={styles.userChevron}><Icons.ChevronDown /></span>
-              </button>
 
-              {/* User Dropdown */}
-              {userDropdownOpen && (
-                <div className={styles.userDropdown} role="menu">
-                  <div className={styles.dropdownHeader}>
-                    <p className={styles.dropdownName} suppressHydrationWarning>{userName}</p>
-                    <p className={styles.dropdownEmail} suppressHydrationWarning>{userEmail}</p>
-                    <span className={styles.dropdownRoleBadge} suppressHydrationWarning>{userRole}</span>
-                  </div>
-                  <div className={styles.dropdownDivider} />
+                <div className={styles.broadcastFormGroup}>
+                  <label className={styles.broadcastLabel}>Message Content</label>
+                  <textarea
+                    className={styles.broadcastTextarea}
+                    rows={4}
+                    placeholder="Enter the announcement message to broadcast to selected learners..."
+                    value={broadcastMessage}
+                    onChange={(e) => setBroadcastMessage(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className={styles.broadcastFormGroup}>
+                  <label className={styles.broadcastLabel}>Destination Link (Optional)</label>
+                  <input
+                    type="text"
+                    className={styles.broadcastInput}
+                    placeholder="e.g. /live or /events or /steps/step-2"
+                    value={broadcastLink}
+                    onChange={(e) => setBroadcastLink(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" }}>
                   <button
                     type="button"
-                    className={`${styles.dropdownItem} ${styles.dropdownSignOut}`}
-                    onClick={openSignOutConfirm}
-                    role="menuitem"
+                    onClick={() => setBroadcastModalOpen(false)}
+                    className={styles.confirmCancelBtn}
+                    disabled={isBroadcasting}
                   >
-                    <span className={styles.dropdownItemIcon}><Icons.Logout /></span> Sign Out
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isBroadcasting}
+                    style={{
+                      background: "var(--accent-primary)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "0.5rem 1.25rem",
+                      fontSize: "0.8125rem",
+                      fontWeight: 700,
+                      cursor: isBroadcasting ? "not-allowed" : "pointer",
+                      opacity: isBroadcasting ? 0.7 : 1,
+                    }}
+                  >
+                    {isBroadcasting ? "Broadcasting..." : "Send Broadcast"}
                   </button>
                 </div>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Page Inner Content */}
-        <main className={styles.mainContent}>
-          <div className={styles.contentInner}>
-            {children}
-          </div>
-        </main>
-      </div>
-
-      {/* Interactive Command Palette / Search Modal */}
-      {searchModalOpen && (
-        <div className={styles.searchModalOverlay} onClick={() => setSearchModalOpen(false)}>
-          <div className={styles.searchModalBox} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalSearchInputWrap}>
-              <span className={styles.modalSearchIcon}><Icons.Search /></span>
-              <input
-                autoFocus
-                type="text"
-                placeholder="Search users, batches, programs, revenue..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={styles.modalSearchInput}
-              />
-              <button
-                type="button"
-                className={styles.modalCloseBtn}
-                onClick={() => {
-                  setSearchModalOpen(false);
-                  setSearchQuery("");
-                }}
-                title="Close search (Esc)"
-                aria-label="Close search"
-              >
-                <Icons.Close />
-              </button>
-            </div>
-            <div className={styles.modalSearchResults}>
-              {(() => {
-                const q = searchQuery.toLowerCase().trim();
-                const allowedSearchItems = SEARCH_ITEMS.filter((item) => {
-                  if (item.category === "Website") return hasPermission("manage_website");
-                  if (item.id === "revenue") return hasPermission("view_finance");
-                  if (item.category === "Curriculum" && (item.id === "programs" || item.id === "quizzes")) {
-                    return hasPermission("manage_curriculum");
-                  }
-                  if (item.id === "leads") return hasPermission("manage_website");
-                  return true;
-                });
-                const filtered = q === ""
-                  ? allowedSearchItems.slice(0, 5)
-                  : allowedSearchItems.filter((item) => (
-                      item.title.toLowerCase().includes(q) ||
-                      item.description.toLowerCase().includes(q) ||
-                      item.category.toLowerCase().includes(q) ||
-                      item.keywords.some((kw) => kw.includes(q))
-                    ));
-
-                return (
-                  <>
-                    <p className={styles.modalSectionLabel}>
-                      {q === "" ? "QUICK NAVIGATION" : `RESULTS (${filtered.length})`}
-                    </p>
-                    {filtered.length === 0 ? (
-                      <div className={styles.modalNoResults}>
-                        <p>No admin pages found matching &ldquo;{searchQuery}&rdquo;</p>
-                        <span>Try searching for users, batches, curriculum, finance, or website</span>
-                      </div>
-                    ) : (
-                      <div className={styles.modalQuickLinks}>
-                        {filtered.map((item) => {
-                          const IconComp = Icons[item.iconName];
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className={styles.modalQuickItem}
-                              onClick={() => {
-                                router.push(item.href);
-                                setSearchModalOpen(false);
-                                setSearchQuery("");
-                              }}
-                            >
-                              <span className={styles.modalQuickIcon}><IconComp /></span>
-                              <div className={styles.modalQuickDetails}>
-                                <div className={styles.modalQuickTitleRow}>
-                                  <strong>{item.title}</strong>
-                                  <span className={styles.modalQuickCategory}>{item.category}</span>
-                                </div>
-                                <span>{item.description}</span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
+              </form>
+            </Modal>
+          )}
         </div>
-      )}
-
-      {/* Sign Out Confirmation Modal */}
-      {showSignOutConfirm && (
-        <div
-          className={styles.confirmModalOverlay}
-          onClick={closeSignOutConfirm}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="signout-dialog-title"
-        >
-          <div className={styles.confirmModalBox} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.confirmHeader}>
-              <div className={styles.confirmIconWrap} aria-hidden="true">
-                <Icons.Logout />
-              </div>
-              <div className={styles.confirmHeaderText}>
-                <h2 id="signout-dialog-title" className={styles.confirmTitle}>Sign out?</h2>
-                <p className={styles.confirmMessage}>
-                  Are you sure you want to sign out of your WhatBoutMe admin account?
-                </p>
-              </div>
-              <button
-                type="button"
-                className={styles.modalCloseBtn}
-                onClick={closeSignOutConfirm}
-                disabled={isLoggingOut}
-                aria-label="Cancel and close dialog"
-                title="Close (Esc)"
-              >
-                <Icons.Close />
-              </button>
-            </div>
-
-            {logoutError && (
-              <div className={styles.confirmError} role="alert">
-                {logoutError}
-              </div>
-            )}
-
-            <div className={styles.confirmActions}>
-              <button
-                type="button"
-                className={styles.confirmCancelBtn}
-                onClick={closeSignOutConfirm}
-                disabled={isLoggingOut}
-                autoFocus
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={styles.confirmDangerBtn}
-                onClick={handleConfirmSignOut}
-                disabled={isLoggingOut}
-              >
-                {isLoggingOut ? "Signing out..." : "Sign out"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Broadcast Announcement Modal */}
-      {broadcastModalOpen && (
-        <Modal
-          isOpen={broadcastModalOpen}
-          onClose={() => setBroadcastModalOpen(false)}
-          title="Broadcast Announcement"
-          subtitle="Send push, in-app, or email notifications to learners across WhatBoutMe."
-          maxWidth="560px"
-        >
-          <form onSubmit={handleSendBroadcast}>
-            {broadcastSuccess && (
-              <div style={{ padding: "12px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", color: "#166534", fontSize: "0.8125rem", marginBottom: "16px" }}>
-                {broadcastSuccess}
-              </div>
-            )}
-            {broadcastError && (
-              <div style={{ padding: "12px 16px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", color: "#991b1b", fontSize: "0.8125rem", marginBottom: "16px" }}>
-                {broadcastError}
-              </div>
-            )}
-
-            <div className={styles.broadcastFormGroup}>
-              <label className={styles.broadcastLabel}>Target Audience</label>
-              <select
-                className={styles.broadcastSelect}
-                value={broadcastTarget}
-                onChange={(e) => {
-                  setBroadcastTarget(e.target.value as any);
-                  setBroadcastTargetId("");
-                }}
-              >
-                {!isManager && <option value="ALL">All Learners (Global Broadcast)</option>}
-                <option value="BATCH">Specific Cohort Batch</option>
-                <option value="USER">Specific Individual Learner</option>
-              </select>
-            </div>
-
-            {broadcastTarget === "BATCH" && (
-              <div className={styles.broadcastFormGroup}>
-                <label className={styles.broadcastLabel}>Select Batch</label>
-                <select
-                  className={styles.broadcastSelect}
-                  value={broadcastTargetId}
-                  onChange={(e) => setBroadcastTargetId(e.target.value)}
-                  required
-                >
-                  <option value="">-- Choose an active batch --</option>
-                  {batchesList.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {broadcastTarget === "USER" && (
-              <div className={styles.broadcastFormGroup}>
-                <label className={styles.broadcastLabel}>Learner User ID</label>
-                <input
-                  type="text"
-                  className={styles.broadcastInput}
-                  placeholder="Enter learner UUID (e.g. 1a2b3c...)"
-                  value={broadcastTargetId}
-                  onChange={(e) => setBroadcastTargetId(e.target.value)}
-                  required
-                />
-              </div>
-            )}
-
-            <div className={styles.broadcastFormGroup}>
-              <label className={styles.broadcastLabel}>Notification Channels</label>
-              <div className={styles.channelsGrid}>
-                <label className={styles.channelCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={broadcastChannels.includes("IN_APP")}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setBroadcastChannels([...broadcastChannels, "IN_APP"]);
-                      } else {
-                        setBroadcastChannels(broadcastChannels.filter((c) => c !== "IN_APP"));
-                      }
-                    }}
-                    style={{ accentColor: "#e06d28" }}
-                  />
-                  <span>In-App Alert (Learner Portal Dashboard &amp; Bell)</span>
-                </label>
-                <label className={styles.channelCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={broadcastChannels.includes("PUSH")}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setBroadcastChannels([...broadcastChannels, "PUSH"]);
-                      } else {
-                        setBroadcastChannels(broadcastChannels.filter((c) => c !== "PUSH"));
-                      }
-                    }}
-                    style={{ accentColor: "#e06d28" }}
-                  />
-                  <span>Browser &amp; Mobile Web Push Notification</span>
-                  {pushStatus === "granted" && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleTestPush();
-                      }}
-                      style={{
-                        marginLeft: "auto",
-                        background: "#f3f4f6",
-                        border: "1px solid #d1d5db",
-                        borderRadius: "4px",
-                        padding: "2px 8px",
-                        fontSize: "0.6875rem",
-                        fontWeight: 600,
-                        color: "#374151",
-                        cursor: "pointer",
-                      }}
-                      title="Send a sample test push to verify browser alert"
-                    >
-                      {testPushSent ? "Sent! ✓" : "Test Push"}
-                    </button>
-                  )}
-                </label>
-                <label className={styles.channelCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={broadcastChannels.includes("EMAIL")}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setBroadcastChannels([...broadcastChannels, "EMAIL"]);
-                      } else {
-                        setBroadcastChannels(broadcastChannels.filter((c) => c !== "EMAIL"));
-                      }
-                    }}
-                    style={{ accentColor: "#e06d28" }}
-                  />
-                  <span>Branded Email Announcement Dispatch</span>
-                </label>
-              </div>
-            </div>
-
-            <div className={styles.broadcastFormGroup}>
-              <label className={styles.broadcastLabel}>Announcement Title</label>
-              <input
-                type="text"
-                className={styles.broadcastInput}
-                placeholder="e.g. Schedule Update: Live Session Rescheduled to 3 PM UTC"
-                value={broadcastTitle}
-                onChange={(e) => setBroadcastTitle(e.target.value)}
-                maxLength={140}
-                required
-              />
-            </div>
-
-            <div className={styles.broadcastFormGroup}>
-              <label className={styles.broadcastLabel}>Message Content</label>
-              <textarea
-                className={styles.broadcastTextarea}
-                rows={4}
-                placeholder="Enter the announcement message to broadcast to selected learners..."
-                value={broadcastMessage}
-                onChange={(e) => setBroadcastMessage(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className={styles.broadcastFormGroup}>
-              <label className={styles.broadcastLabel}>Destination Link (Optional)</label>
-              <input
-                type="text"
-                className={styles.broadcastInput}
-                placeholder="e.g. /live or /events or /steps/step-2"
-                value={broadcastLink}
-                onChange={(e) => setBroadcastLink(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" }}>
-              <button
-                type="button"
-                onClick={() => setBroadcastModalOpen(false)}
-                className={styles.confirmCancelBtn}
-                disabled={isBroadcasting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isBroadcasting}
-                style={{
-                  background: "var(--accent-primary)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "0.5rem 1.25rem",
-                  fontSize: "0.8125rem",
-                  fontWeight: 700,
-                  cursor: isBroadcasting ? "not-allowed" : "pointer",
-                  opacity: isBroadcasting ? 0.7 : 1,
-                }}
-              >
-                {isBroadcasting ? "Broadcasting..." : "Send Broadcast"}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-    </div>
-  );
-}
+      );
+    }

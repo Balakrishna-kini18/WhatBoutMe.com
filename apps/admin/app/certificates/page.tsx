@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { API_URL, errorMessage } from "../lib/api";
+import { API_URL, getMarketingUrl, errorMessage } from "../lib/api";
 import styles from "../page.module.css";
 import { StatusBadge, TableSkeleton, EmptyState } from "../components";
 
@@ -247,7 +247,7 @@ export default function CertificatesQueue() {
                           <span>PDF</span>
                         </button>
                         <a
-                          href={`${process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000"}/verify/${cert.certificateCode || cert.id}`}
+                          href={`${getMarketingUrl()}/verify/${cert.certificateCode || cert.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className={styles.secondaryBtnSmall}
@@ -259,7 +259,7 @@ export default function CertificatesQueue() {
                           href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(
                             `${cert.enrolment?.batch?.program?.title || "Accredited"} Certification`
                           )}&organizationName=whatboutme&issueYear=${new Date(cert.issueDate || cert.createdAt).getFullYear()}&issueMonth=${new Date(cert.issueDate || cert.createdAt).getMonth() + 1}&certUrl=${encodeURIComponent(
-                            `${process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000"}/verify/${cert.certificateCode || cert.id}`
+                            `${getMarketingUrl()}/verify/${cert.certificateCode || cert.id}`
                           )}&certId=${encodeURIComponent(cert.certificateCode || cert.id)}`}
                           target="_blank"
                           rel="noopener noreferrer"

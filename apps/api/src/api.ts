@@ -1,3 +1,4 @@
+import { isAllowedCorsOrigin } from './common/config/cors.config.js';
 let cachedServer: any;
 
 // Helper: write a JSON response using raw Node http primitives.
@@ -109,13 +110,7 @@ async function bootstrapServer() {
 
       nestApp.enableCors({
         origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-          if (!origin) return callback(null, true);
-          if (
-            allowedOrigins.includes(origin) ||
-            /^http:\/\/localhost:[0-9]+$/.test(origin) ||
-            /^http:\/\/127\.0\.0\.1:[0-9]+$/.test(origin) ||
-            /\.vercel\.app$/.test(origin) // <-- Automatically allow ALL Vercel domains (preview & production)
-          ) {
+          if (isAllowedCorsOrigin(origin, allowedOrigins)) {
             return callback(null, true);
           }
           return callback(new Error('Not allowed by CORS'));
@@ -124,7 +119,7 @@ async function bootstrapServer() {
       });
 
       // Raw body parser for file uploads (PDF, DOCX, images, videos, audios)
-      const rawUploadParser = express.raw({ type: () => true, limit: '25mb' });
+      const rawUploadParser = express.raw({ type: () => true, limit: '250mb' });
       const corpHeader = (_req: any, res: any, next: any) => {
         res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
         next();
@@ -132,8 +127,8 @@ async function bootstrapServer() {
       nestApp.use('/uploads', corpHeader, rawUploadParser);
       nestApp.use('/api/uploads', corpHeader, rawUploadParser);
 
-      nestApp.use(express.json({ limit: '10mb' }));
-      nestApp.use(express.urlencoded({ limit: '10mb', extended: true }));
+      nestApp.use(express.json({ limit: '50mb' }));
+      nestApp.use(express.urlencoded({ limit: '50mb', extended: true }));
 
       nestApp.useGlobalPipes(
         new ValidationPipe({

@@ -12,6 +12,11 @@ export interface UserData {
   role: string;
   permissions?: string[];
   avatar?: string | null;
+  isOrgUser?: boolean;
+  organizationId?: string | null;
+  organization?: any;
+  orgRole?: string | null;
+  timezone?: string | null;
 }
 
 export interface AuthContextType {
@@ -240,8 +245,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // In-memory SWR verification tracker: prevents redundant /auth/me network calls on navigation
-  const lastVerifiedAtRef = useRef<number>(user ? Date.now() : 0);
+  const lastVerifiedAtRef = useRef<number>(0);
   const isVerifyingRef = useRef<boolean>(false);
+  const userRef = useRef<UserData | null>(user);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const login = useCallback(
     (session: { access_token: string; refresh_token?: string; user: UserData }) => {
@@ -275,7 +285,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
 
       // Synchronously hydrate from localStorage if in-memory user state is null
-      let currentUser = user;
+      let currentUser = userRef.current || user;
       if (!currentUser) {
         const cached = getInitialUser();
         if (cached) {
@@ -304,10 +314,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         if (res.ok) {
           const verifiedUser: UserData = await res.json();
           lastVerifiedAtRef.current = Date.now();
-          const existing = currentUser || getInitialUser();
+          const existing = userRef.current || currentUser || getInitialUser();
           const mergedUser: UserData = {
             ...existing,
             ...verifiedUser,
+            role: verifiedUser.role,
+            isOrgUser: verifiedUser.isOrgUser,
+            organizationId: verifiedUser.organizationId,
+            organization: verifiedUser.organization,
+            orgRole: (verifiedUser as any).orgRole,
             permissions: verifiedUser.permissions || existing?.permissions || [],
           };
           setUser(mergedUser);
@@ -330,6 +345,11 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                 const mergedUser: UserData = {
                   ...existing,
                   ...verifiedUser,
+                  role: verifiedUser.role,
+                  isOrgUser: verifiedUser.isOrgUser,
+                  organizationId: verifiedUser.organizationId,
+                  organization: verifiedUser.organization,
+                  orgRole: (verifiedUser as any).orgRole,
                   permissions: verifiedUser.permissions || existing?.permissions || [],
                 };
                 setUser(mergedUser);
@@ -364,7 +384,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
       return currentUser;
     },
-    [pathname, router, user]
+    [pathname]
   );
 
   const logout = useCallback(async () => {
@@ -416,7 +436,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     // Background SWR revalidation (only runs if last check > 60s ago)
     revalidateUser(false);
-  }, [pathname, revalidateUser, router, token, user]);
+  }, [pathname, revalidateUser]);
 
   const contextValue: AuthContextType = {
     user,

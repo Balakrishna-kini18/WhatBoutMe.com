@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Body,
   Controller,
@@ -344,7 +345,7 @@ export class CheckoutController {
     const batch = existing.batch;
 
     if (this.emailService && user && program) {
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const { lmsUrl } = getAppUrls();
       const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
 
       // 1. Payment Confirmation Email

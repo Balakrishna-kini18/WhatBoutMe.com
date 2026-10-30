@@ -23,7 +23,7 @@ export const SessionScheduledEmail = ({
   date = 'Today',
   time = '10:00 AM',
   joinUrl = 'https://whatboutme.com/live',
-  lmsLiveUrl = 'http://localhost:3003/live',
+  lmsLiveUrl = process.env.NODE_ENV === 'production' ? 'https://learn.whatboutme.com/live' : 'http://localhost:3003/live',
 }: SessionScheduledEmailProps) => {
   return (
     <WhatBoutMeEmailLayout

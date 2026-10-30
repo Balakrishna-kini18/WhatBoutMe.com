@@ -103,7 +103,15 @@
 .formSide {
   display: flex;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding: 2rem 1.25rem;
+}
+
+.formSide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* auto margins centre the form yet let a tall one scroll from its top */
@@ -130,6 +138,38 @@
   text-align: center;
   color: var(--text-secondary);
   font-size: 0.9375rem;
+}
+
+.typeSwitcher {
+  display: flex;
+  background: #f1ede6;
+  padding: 4px;
+  border-radius: 12px;
+  margin: 1.5rem 0 0.5rem;
+  border: 1px solid #e5dfd5;
+}
+
+.typeTab {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: #78716c;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.typeTabActive {
+  background: #ffffff;
+  color: #1c1917;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .form {

@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   NotFoundException,
@@ -1202,7 +1203,7 @@ export class SessionsService {
         return;
       }
 
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const { lmsUrl } = getAppUrls();
       const programTitle = batch?.program?.title || 'Course';
       const batchName = batch?.name || 'Cohort';
       const hostName = session.hostTrainer?.name || 'Your Trainer';
@@ -1672,7 +1673,7 @@ export class SessionsService {
           select: { name: true, email: true },
         });
         if (learner?.email) {
-          const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+          const { lmsUrl } = getAppUrls();
           this.emailService
             .sendTemplateEmail({
               to: learner.email,

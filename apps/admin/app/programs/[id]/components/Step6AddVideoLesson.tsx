@@ -44,6 +44,18 @@ export default function Step6AddVideoLesson({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const MAX_VIDEO_SIZE = 250 * 1024 * 1024; // 250MB
+    if (file.size > MAX_VIDEO_SIZE) {
+      setErrorMsg(
+        `Selected video is ${(file.size / (1024 * 1024)).toFixed(1)}MB, which exceeds the 250MB direct upload limit. For larger files, please provide a direct video URL below.`
+      );
+      e.target.value = "";
+      setSelectedFile(null);
+      setVideoPreviewUrl(null);
+      return;
+    }
+
+    setErrorMsg(null);
     setSelectedFile(file);
     const localUrl = URL.createObjectURL(file);
     setVideoPreviewUrl(localUrl);
@@ -268,7 +280,7 @@ export default function Step6AddVideoLesson({
               <h3 className={styles.uploadTitle}>
                 {selectedFile ? selectedFile.name : "Upload Video Lecture"}
               </h3>
-              <p className={styles.uploadHint}>Drag and drop your video file here (MP4, MOV, WebM - Max 2GB)</p>
+              <p className={styles.uploadHint}>Drag and drop your video file here (MP4, MOV, WebM - Max 250MB)</p>
               <input
                 type="file"
                 accept="video/*"

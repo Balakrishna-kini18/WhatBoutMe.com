@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   formatTime,
   validateSeek,
@@ -8,9 +8,42 @@ import {
   isEligibleToAdvance,
   getQualityTransformedUrl,
   VIDEO_QUALITY_OPTIONS,
+  saveLocalVideoAudioPreferences,
+  getLocalVideoAudioPreferences,
 } from "./videoPlayerLogic";
 
+class MemoryStorage {
+  private store = new Map<string, string>();
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+  clear(): void {
+    this.store.clear();
+  }
+}
+
 describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
+  const mockStorage = new MemoryStorage();
+
+  beforeEach(() => {
+    mockStorage.clear();
+    Object.defineProperty(globalThis, "window", {
+      value: { localStorage: mockStorage },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      value: mockStorage,
+      writable: true,
+      configurable: true,
+    });
+  });
   describe("formatTime", () => {
     it("handles zero and positive seconds correctly", () => {
       expect(formatTime(0)).toBe("00:00");
@@ -269,6 +302,40 @@ describe("CompulsoryVideoPlayer Logic & Edge Cases", () => {
       expect(transformed).toContain("quality=720p");
       expect(transformed).toContain("h=720");
       expect(transformed).toContain("token=abc");
+    });
+  });
+
+  describe("saveLocalVideoAudioPreferences and getLocalVideoAudioPreferences", () => {
+    it("returns default preferences when nothing is stored", () => {
+      localStorage.clear();
+      expect(getLocalVideoAudioPreferences()).toEqual({
+        isMuted: false,
+        volume: 1,
+        playbackSpeed: 1,
+      });
+    });
+
+    it("persists and retrieves mute, volume, and speed across lessons", () => {
+      localStorage.clear();
+      saveLocalVideoAudioPreferences({ isMuted: true, volume: 0 });
+      const prefs = getLocalVideoAudioPreferences();
+      expect(prefs.isMuted).toBe(true);
+      expect(prefs.volume).toBe(0);
+      expect(prefs.playbackSpeed).toBe(1);
+
+      saveLocalVideoAudioPreferences({ playbackSpeed: 2 });
+      const updatedPrefs = getLocalVideoAudioPreferences();
+      expect(updatedPrefs.isMuted).toBe(true);
+      expect(updatedPrefs.volume).toBe(0);
+      expect(updatedPrefs.playbackSpeed).toBe(2);
+    });
+
+    it("clamps volume safely between 0 and 1", () => {
+      saveLocalVideoAudioPreferences({ volume: 1.5 });
+      expect(getLocalVideoAudioPreferences().volume).toBe(1);
+
+      saveLocalVideoAudioPreferences({ volume: -0.2 });
+      expect(getLocalVideoAudioPreferences().volume).toBe(0);
     });
   });
 });

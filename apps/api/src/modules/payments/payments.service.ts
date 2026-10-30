@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   NotFoundException,
@@ -483,7 +484,7 @@ export class PaymentsService {
 
       // Send Emails
       if (this.emailService && enrolment.user?.email) {
-        const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+        const { lmsUrl } = getAppUrls();
         this.emailService
           .sendTemplateEmail({
             to: enrolment.user.email,

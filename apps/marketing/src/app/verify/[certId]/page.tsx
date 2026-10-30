@@ -36,6 +36,7 @@ interface VerificationResult {
   issueDate: string;
   validityState: "VALID" | "REVOKED";
   cpdHours?: number | null;
+  organizationName?: string | null;
   linkedInParameters?: {
     certName: string;
     organizationId: string;
@@ -163,6 +164,18 @@ export default async function VerifyCertificatePage({
                 </div>
                 <span className="font-medium text-ink text-sm">{formattedDate}</span>
               </div>
+
+              {certData.organizationName && (
+                <div className="flex items-center justify-between border-b border-border-warm/40 pb-3">
+                  <div className="flex items-center gap-2 text-ink/60 text-sm">
+                    <Building className="w-4 h-4" />
+                    <span>Sponsored Cohort</span>
+                  </div>
+                  <span className="font-semibold text-ink text-sm">
+                    {certData.organizationName}
+                  </span>
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-ink/60 text-sm">Status</span>

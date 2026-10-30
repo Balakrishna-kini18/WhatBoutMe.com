@@ -100,9 +100,12 @@
 
 .metaContainer {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  margin-top: 0.15rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #78716a);
 }
 
 .metaRow {
@@ -121,12 +124,28 @@
   white-space: nowrap;
 }
 
+.metaItem:not(:last-child)::after {
+  content: "•";
+  margin-left: 0.65rem;
+  color: #d1c7b8;
+  font-size: 0.75rem;
+  user-select: none;
+}
+
 .metaItemWrap {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  flex-wrap: wrap;
+  white-space: nowrap;
   max-width: 100%;
+}
+
+.metaItemWrap:not(:last-child)::after {
+  content: "•";
+  margin-left: 0.65rem;
+  color: #d1c7b8;
+  font-size: 0.75rem;
+  user-select: none;
 }
 
 .metaLabel {
@@ -177,4 +196,32 @@
   100% {
     background-position: 0 50%;
   }
+}
+
+/* 4. Responsive Fixed Cohort Table (No Horizontal Scroll on Desktop) */
+.cohortTableWrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-light, #e7decb);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.cohortTable {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.cohortTable th {
+  padding: 0.7rem 0.5rem !important;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cohortTable td {
+  padding: 0.75rem 0.5rem !important;
+  font-size: 0.82rem;
+  vertical-align: middle;
 }

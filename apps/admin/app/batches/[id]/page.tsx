@@ -17,6 +17,12 @@ import {
   cachedFetch,
   apiGet,
   invalidateCache,
+  fetchOneOnOneRequests,
+  approveOneOnOneRequest,
+  rejectOneOnOneRequest,
+  fetchMissionStatements,
+  rejectMissionStatement,
+  approveMissionStatement,
 } from "../../lib/api";
 import {
   getTimezoneOptions,
@@ -30,6 +36,7 @@ import {
   CustomSelect,
   ConfirmDialog,
   InputDialog,
+  Modal,
   ActionMenu,
   useToast,
   TableSkeleton,
@@ -67,7 +74,7 @@ interface EnrolledLearner {
 interface BatchSession {
   id: string;
   title: string;
-  sessionType: "GROUP_COHORT" | "ONE_ON_ONE";
+  sessionType: "GROUP_COHORT" | "ONE_ON_ONE" | string;
   capacity: number;
   meetingProvider?: string | null;
   durationMinutes?: number | null;
@@ -79,6 +86,7 @@ interface BatchSession {
   recordingUrl: string | null;
   quizId: string | null;
   hostTrainer?: { id: string; name: string; email: string } | null;
+  isRequired?: boolean;
   _count?: { attendances?: number; bookings?: number };
 }
 
@@ -146,8 +154,47 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
   // Mission Statement Approval Modal State
   const [missionModalLearner, setMissionModalLearner] = useState<EnrolledLearner | null>(null);
+  const [missionSubmission, setMissionSubmission] = useState<any | null>(null);
+  const [isLoadingMissionDoc, setIsLoadingMissionDoc] = useState(false);
   const [missionFeedback, setMissionFeedback] = useState("");
   const [isApprovingMission, setIsApprovingMission] = useState(false);
+
+  // 1-on-1 Coaching Modal State
+  const [coachingModalLearner, setCoachingModalLearner] = useState<EnrolledLearner | null>(null);
+  const [coachingRequest, setCoachingRequest] = useState<any | null>(null);
+  const [isLoadingCoaching, setIsLoadingCoaching] = useState(false);
+  const [actingCoaching, setActingCoaching] = useState(false);
+
+  const openMissionModal = async (learner: EnrolledLearner) => {
+    setMissionModalLearner(learner);
+    setMissionFeedback("");
+    setIsLoadingMissionDoc(true);
+    try {
+      const list = await fetchMissionStatements();
+      const found = list.find((m: any) => m.enrolmentId === learner.id || m.userId === learner.userId);
+      setMissionSubmission(found || null);
+    } catch (err) {
+      console.warn("Could not load mission statement document:", err);
+      setMissionSubmission(null);
+    } finally {
+      setIsLoadingMissionDoc(false);
+    }
+  };
+
+  const openCoachingModal = async (learner: EnrolledLearner) => {
+    setCoachingModalLearner(learner);
+    setIsLoadingCoaching(true);
+    try {
+      const reqs = await fetchOneOnOneRequests();
+      const found = reqs.find((r: any) => r.enrolmentId === learner.id || r.userId === learner.userId);
+      setCoachingRequest(found || null);
+    } catch (err) {
+      console.warn("Could not load coaching request:", err);
+      setCoachingRequest(null);
+    } finally {
+      setIsLoadingCoaching(false);
+    }
+  };
 
   // Tab 2: Sessions State
   const [sessions, setSessions] = useState<BatchSession[]>([]);
@@ -201,6 +248,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   };
 
   // Tab 3: Broadcast State
+  const [broadcastTarget, setBroadcastTarget] = useState<"ALL_BATCH" | "INDIVIDUAL">("ALL_BATCH");
+  const [selectedLearnerUserId, setSelectedLearnerUserId] = useState<string>("");
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [broadcastInApp, setBroadcastInApp] = useState(true);
@@ -213,6 +262,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     sentAt: string;
     recipientCount: number;
     channels: string[];
+    targetLabel?: string;
   }>>([]);
 
   // Batch Settings Modal State
@@ -255,9 +305,72 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     const period = h >= 12 ? "PM" : "AM";
     const displayH = h % 12 === 0 ? 12 : h % 12;
     const displayM = m < 10 ? `0${m}` : m;
-    const context = h >= 5 && h < 12 ? "Morning" : h >= 12 && h < 17 ? "Afternoon" : "Evening";
-    return `🕒 ${displayH}:${displayM} ${period} (${context})`;
+    return `${displayH}:${displayM} ${period}`;
   }, []);
+
+  // Derived 12-hour parts from sessionWallTime for easy 12-hr AM/PM editing
+  const { timeHour12, timeMinute, timeAmPm } = useMemo(() => {
+    if (!sessionWallTime || !sessionWallTime.includes(":")) {
+      return { timeHour12: "07", timeMinute: "00", timeAmPm: "PM" as "AM" | "PM" };
+    }
+    const [hStr, mStr] = sessionWallTime.split(":");
+    let h = parseInt(hStr || "0", 10);
+    const m = parseInt(mStr || "0", 10) || 0;
+    if (isNaN(h)) h = 19;
+    const period: "AM" | "PM" = h >= 12 ? "PM" : "AM";
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    const h12Str = displayH < 10 ? `0${displayH}` : String(displayH);
+    const minStr = m < 10 ? `0${m}` : String(m);
+    return { timeHour12: h12Str, timeMinute: minStr, timeAmPm: period };
+  }, [sessionWallTime]);
+
+  const setTimeHour = (hStr: string) => {
+    let hNum = parseInt(hStr, 10);
+    if (isNaN(hNum)) hNum = 12;
+    if (timeAmPm === "PM" && hNum < 12) hNum += 12;
+    if (timeAmPm === "AM" && hNum === 12) hNum = 0;
+    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
+    setSessionWallTime(`${h24}:${timeMinute}`);
+  };
+
+  const setTimeMinute = (mStr: string) => {
+    let hNum = parseInt(timeHour12, 10);
+    if (isNaN(hNum)) hNum = 12;
+    if (timeAmPm === "PM" && hNum < 12) hNum += 12;
+    if (timeAmPm === "AM" && hNum === 12) hNum = 0;
+    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
+    const normM = mStr.length === 1 ? `0${mStr}` : mStr;
+    setSessionWallTime(`${h24}:${normM}`);
+  };
+
+  const setTimeAmPm = (ampm: "AM" | "PM") => {
+    let hNum = parseInt(timeHour12, 10);
+    if (isNaN(hNum)) hNum = 12;
+    if (ampm === "PM" && hNum < 12) hNum += 12;
+    if (ampm === "AM" && hNum === 12) hNum = 0;
+    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
+    setSessionWallTime(`${h24}:${timeMinute}`);
+  };
+
+  // Calculated session end time based on start time + duration minutes
+  const sessionEndTimeFormatted = useMemo(() => {
+    if (!sessionWallTime || !sessionWallTime.includes(":")) return "";
+    const [hStr, mStr] = sessionWallTime.split(":");
+    const h = parseInt(hStr || "0", 10);
+    const m = parseInt(mStr || "0", 10);
+    if (isNaN(h) || isNaN(m)) return "";
+
+    const durationNum = parseInt(sessionDurationMinutes, 10) || 60;
+    const totalMinutes = h * 60 + m + durationNum;
+    const endH24 = Math.floor(totalMinutes / 60) % 24;
+    const endM = totalMinutes % 60;
+
+    const period = endH24 >= 12 ? "PM" : "AM";
+    const displayH = endH24 % 12 === 0 ? 12 : endH24 % 12;
+    const displayM = endM < 10 ? `0${endM}` : String(endM);
+
+    return `${displayH}:${displayM} ${period}`;
+  }, [sessionWallTime, sessionDurationMinutes]);
 
   // Initial Data Fetch
   const loadBatchData = useCallback(async () => {
@@ -300,25 +413,46 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   }, [batchId]);
 
-  // Fetch 5-Stage Progression for learners in parallel
+  // Fetch 5-Stage Progression for batch in 1 single optimized API call
   const fetchLearnerStages = async (learnerList: EnrolledLearner[]) => {
-    const updated = [...learnerList];
-    for (let i = 0; i < updated.length; i++) {
-      const enrolment = updated[i];
-      if (!enrolment) continue;
-      try {
-        const stagesRes = await apiGet<any>(`/progression/enrolments/${enrolment.id}/stages`).catch(() => null);
-        if (stagesRes?.stages) {
-          updated[i] = {
-            ...enrolment,
-            stages: stagesRes.stages,
-          };
-        }
-      } catch {
-        // Soft fail per learner
+    try {
+      const batchStagesRes = await apiGet<Record<string, any>>(`/progression/batches/${batchId}/stages`).catch(() => null);
+      if (batchStagesRes && typeof batchStagesRes === "object") {
+        setLearners((prev) =>
+          prev.map((l) => (batchStagesRes[l.id]?.stages ? { ...l, stages: batchStagesRes[l.id].stages } : l))
+        );
+        return;
       }
+    } catch (err) {
+      console.warn("Batch progression endpoint fallback:", err);
     }
-    setLearners(updated);
+
+    const targets = learnerList.filter(
+      (l) => l.status !== "PENDING_PAYMENT" && l.status !== "PENDING_AGREEMENT" && !l.stages
+    );
+    if (targets.length === 0) return;
+
+    try {
+      const results = await Promise.allSettled(
+        targets.map(async (enrolment) => {
+          const stagesRes = await apiGet<any>(`/progression/enrolments/${enrolment.id}/stages`).catch(() => null);
+          return { id: enrolment.id, stages: stagesRes?.stages || null };
+        })
+      );
+
+      const stagesMap = new Map<string, any>();
+      for (const res of results) {
+        if (res.status === "fulfilled" && res.value?.stages) {
+          stagesMap.set(res.value.id, res.value.stages);
+        }
+      }
+
+      setLearners((prev) =>
+        prev.map((l) => (stagesMap.has(l.id) ? { ...l, stages: stagesMap.get(l.id) } : l))
+      );
+    } catch (err) {
+      console.warn("Could not load learner stages:", err);
+    }
   };
 
   // Load Sessions for Tab 2
@@ -785,9 +919,17 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       return;
     }
 
+    if (broadcastTarget === "INDIVIDUAL" && !selectedLearnerUserId) {
+      toastError("Please select an individual learner from the batch.");
+      return;
+    }
+
     setIsSendingBroadcast(true);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const isIndividual = broadcastTarget === "INDIVIDUAL";
+      const targetUser = isIndividual ? confirmedLearners.find((l) => l.userId === selectedLearnerUserId) : null;
+
       const res = await fetch(`${API_URL}/notifications/broadcast`, {
         method: "POST",
         headers: {
@@ -795,8 +937,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          target: "BATCH",
-          targetId: batchId,
+          target: isIndividual ? "USER" : "BATCH",
+          targetId: isIndividual ? selectedLearnerUserId : batchId,
           title: broadcastTitle.trim(),
           message: broadcastMessage.trim(),
           channels,
@@ -804,18 +946,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       });
 
       if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to send batch broadcast."));
+        throw new Error(await errorMessage(res, "Failed to send broadcast announcement."));
       }
 
-      toastSuccess(`Announcement broadcast sent to ${learners.length} batch learner(s).`);
+      const count = isIndividual ? 1 : confirmedLearners.length;
+      toastSuccess(
+        isIndividual
+          ? `Announcement successfully sent to ${targetUser?.user?.name || "learner"}.`
+          : `Announcement broadcast dispatched to ${count} batch learner(s).`
+      );
+
       setBroadcastHistory((prev) => [
         {
           id: `bcast-${Date.now()}`,
           title: broadcastTitle.trim(),
           message: broadcastMessage.trim(),
           sentAt: new Date().toISOString(),
-          recipientCount: learners.length,
+          recipientCount: count,
           channels,
+          targetLabel: isIndividual ? (targetUser?.user?.name || "Individual Learner") : `All in ${batch?.name}`,
         },
         ...prev,
       ]);
@@ -1020,91 +1169,75 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 <StatusBadge status={batch?.status || "ACTIVE"} />
               </div>
 
-              {/* Clean 2-Row Sub-Metadata Layout for Optimal Responsiveness */}
+              {/* Responsive Single-Row Sub-Metadata Layout (Keeps each Label:Value locked together) */}
               <div className={batchStyles.metaContainer}>
-                {/* Row 1: Course / Academic Context */}
-                <div className={batchStyles.metaRow}>
-                  <span className={batchStyles.metaItemWrap}>
-                    <span className={batchStyles.metaLabel}>Program:</span>
-                    <span
-                      className={batchStyles.metaValue}
-                      style={{ wordBreak: "break-word" }}
-                      title={batch?.program?.title || "—"}
-                    >
-                      {batch?.program?.title || "—"}
+                <span className={batchStyles.metaItemWrap} title={batch?.program?.title || "—"}>
+                  <span className={batchStyles.metaLabel}>Program:</span>
+                  <span className={batchStyles.metaValue} style={{ maxWidth: "340px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {batch?.program?.title || "—"}
+                  </span>
+                </span>
+
+                <span className={batchStyles.metaItem}>
+                  <span className={batchStyles.metaLabel}>Manager:</span>
+                  <span
+                    className={batchStyles.metaValue}
+                    style={{
+                      color:
+                        batch?.manager?.name && batch.manager.name !== "Unassigned"
+                          ? "var(--text-primary)"
+                          : "var(--text-muted)",
+                      fontStyle:
+                        batch?.manager?.name && batch.manager.name !== "Unassigned"
+                          ? "normal"
+                          : "italic",
+                    }}
+                  >
+                    {batch?.manager?.name || "Unassigned"}
+                  </span>
+                </span>
+
+                <span className={batchStyles.metaItem}>
+                  <span className={batchStyles.metaLabel}>Schedule:</span>
+                  <span className={batchStyles.metaValue}>{scheduleDisplay}</span>
+                </span>
+
+                <span className={batchStyles.metaItem}>
+                  <span className={batchStyles.metaLabel}>Capacity:</span>
+                  <span className={batchStyles.metaValue}>
+                    <span style={{ color: "var(--accent-primary)" }}>
+                      {confirmedLearners.length}
+                    </span>
+                    <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                      {" "}/ {batch?.capacity && batch.capacity < 9000 ? `${batch.capacity} Learners` : "Open Capacity"}
                     </span>
                   </span>
+                </span>
 
-                  <span className={batchStyles.metaDot}>•</span>
-
-                  <span className={batchStyles.metaItem}>
-                    <span className={batchStyles.metaLabel}>Manager:</span>
-                    <span
-                      className={batchStyles.metaValue}
-                      style={{
-                        color:
-                          batch?.manager?.name && batch.manager.name !== "Unassigned"
-                            ? "var(--text-primary)"
-                            : "var(--text-muted)",
-                        fontStyle:
-                          batch?.manager?.name && batch.manager.name !== "Unassigned"
-                            ? "normal"
-                            : "italic",
-                      }}
-                    >
-                      {batch?.manager?.name || "Unassigned"}
+                <span className={batchStyles.metaItem}>
+                  <span className={batchStyles.metaLabel}>Registration:</span>
+                  <span
+                    className={batchStyles.metaValue}
+                    style={{
+                      color:
+                        batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline)
+                          ? "#dc2626"
+                          : "#166534",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {batch?.registrationDeadline
+                      ? new Date() > new Date(batch.registrationDeadline)
+                        ? `Closed (${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })})`
+                        : `Until ${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : "Open (Auto)"}
+                  </span>
+                  {batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline) && (
+                    <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: 400, marginLeft: "0.25rem" }}>
+                      (Next cohort)
                     </span>
-                  </span>
-                </div>
-
-                {/* Row 2: Operational Schedule, Capacity & Registration */}
-                <div className={batchStyles.metaRow}>
-                  <span className={batchStyles.metaItem}>
-                    <span className={batchStyles.metaLabel}>Schedule:</span>
-                    <span className={batchStyles.metaValue}>{scheduleDisplay}</span>
-                  </span>
-
-                  <span className={batchStyles.metaDot}>•</span>
-
-                  <span className={batchStyles.metaItem}>
-                    <span className={batchStyles.metaLabel}>Capacity:</span>
-                    <span className={batchStyles.metaValue}>
-                      <span style={{ color: "var(--accent-primary)" }}>
-                        {confirmedLearners.length}
-                      </span>
-                      <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
-                        {" "}/ {batch?.capacity && batch.capacity < 9000 ? `${batch.capacity} Learners` : "Open Capacity"}
-                      </span>
-                    </span>
-                  </span>
-
-                  <span className={batchStyles.metaDot}>•</span>
-
-                  <span className={batchStyles.metaItem}>
-                    <span className={batchStyles.metaLabel}>Registration:</span>
-                    <span
-                      className={batchStyles.metaValue}
-                      style={{
-                        color:
-                          batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline)
-                            ? "#dc2626"
-                            : "#166534",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {batch?.registrationDeadline
-                        ? new Date() > new Date(batch.registrationDeadline)
-                          ? `Closed (${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })})`
-                          : `Until ${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                        : "Open (Auto)"}
-                    </span>
-                    {batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline) && (
-                      <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: 400, marginLeft: "0.25rem" }}>
-                        (New signups directed to upcoming batch)
-                      </span>
-                    )}
-                  </span>
-                </div>
+                  )}
+                </span>
               </div>
             </div>
           </div>
@@ -1188,8 +1321,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             </svg>
             <span>Broadcast</span>
           </button>
-
-
         </div>
       </div>
 
@@ -1206,7 +1337,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               alignItems: "center",
               flexWrap: "wrap",
               gap: "0.75rem",
-              padding: "1rem 1rem 0",
+              padding: 0,
+              marginBottom: "1rem",
             }}
           >
             {/* Search & Filter Group */}
@@ -1278,13 +1410,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             </div>
           </div>
 
-          <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
-            <table className={styles.adminTable} style={{ width: "100%" }}>
+          <div className={batchStyles.cohortTableWrapper}>
+            <table className={`${styles.adminTable} ${batchStyles.cohortTable}`}>
               <thead>
                 <tr>
                   <th
                     onClick={() => handleLearnerSort("name")}
-                    style={{ minWidth: "150px", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "21%", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1294,7 +1426,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </th>
                   <th
                     onClick={() => handleLearnerSort("status")}
-                    style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "status" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1304,7 +1436,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </th>
                   <th
                     onClick={() => handleLearnerSort("stage1")}
-                    style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "stage1" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1314,7 +1446,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </th>
                   <th
                     onClick={() => handleLearnerSort("stage2")}
-                    style={{ width: "80px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "9%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "stage2" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1324,7 +1456,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </th>
                   <th
                     onClick={() => handleLearnerSort("stage3")}
-                    style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "stage3" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1334,7 +1466,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </th>
                   <th
                     onClick={() => handleLearnerSort("stage4")}
-                    style={{ width: "85px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "stage4" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1344,7 +1476,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </th>
                   <th
                     onClick={() => handleLearnerSort("stage5")}
-                    style={{ width: "140px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    style={{ width: "13%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
                     aria-sort={learnerSortField === "stage5" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
                   >
                     <div style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1352,7 +1484,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       <SortIndicator active={learnerSortField === "stage5"} order={learnerSortOrder} />
                     </div>
                   </th>
-                  <th style={{ width: "95px", textAlign: "right", whiteSpace: "nowrap" }}>Action</th>
+                  <th style={{ width: "13%", textAlign: "right", whiteSpace: "nowrap" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1384,13 +1516,41 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     const s4 = learner.stages?.STAGE_4_ONE_ON_ONE;
                     const s5 = learner.stages?.STAGE_5_MISSION_STATEMENT;
 
-                    const isMissionPending = s5?.details?.status === "SUBMITTED" || (!s5?.isCompleted && s4?.isCompleted);
-                    const isCertified = Boolean(s5?.isCompleted || learner.status === "COMPLETED");
+                    const isPendingAgreement = learner.status === "PENDING_AGREEMENT";
+                    const isStagesLoading = !learner.stages && !isPendingAgreement;
+
+                    const isMissionApproved = Boolean(s5?.isCompleted || (s5?.details ? (s5.details as any).latestStatus === "APPROVED" : false));
+                    const isMissionSubmitted = !isMissionApproved && Boolean(
+                      (s5?.details as any)?.latestStatus === "SUBMITTED" ||
+                      (s5?.details as any)?.status === "SUBMITTED" ||
+                      Boolean((s5?.details as any)?.submissionCount && Number((s5?.details as any)?.submissionCount) > 0)
+                    );
+                    const isCertified = Boolean(isMissionApproved || learner.status === "COMPLETED");
+
+                    const curriculumPct = s1?.isCompleted
+                      ? 100
+                      : s1?.details?.totalSteps && s1.details.totalSteps > 0
+                      ? Math.round(((s1.details.completedSteps || 0) / s1.details.totalSteps) * 100)
+                      : ((learner as any).progress ?? 0);
+
+                    const bestExamScore = (s2?.details as any)?.bestScore ?? (s2?.details as any)?.examScore ?? null;
+                    const examPassMark = (s2?.details as any)?.passMark ?? 75;
+                    const isExamPassed = Boolean(s2?.isCompleted || (s2?.details as any)?.examPassed || (bestExamScore !== null && bestExamScore >= examPassMark));
+
+                    const requiredCohortSessionsCount = sessions.filter(
+                      (s) =>
+                        s.isRequired !== false &&
+                        s.status !== "CANCELLED" &&
+                        s.sessionType !== "ONE_ON_ONE" &&
+                        (s.sessionType as string) !== "ONE_ON_ONE_WITH_RO"
+                    ).length;
 
                     const attendedSessionsCount = s3?.details?.attendedSessions ?? 0;
-                    const requiredSessionsCount = s3?.details?.requiredSessions ?? 0;
+                    const requiredSessionsCount = s3?.details?.requiredSessions !== undefined
+                      ? Number(s3.details.requiredSessions)
+                      : requiredCohortSessionsCount;
                     const thresholdPercent = s3?.details?.thresholdPercent ?? 80;
-                    const hasZeroSessions = requiredSessionsCount === 0;
+                    const hasZeroSessions = requiredCohortSessionsCount === 0 && requiredSessionsCount === 0;
 
                     const attendancePct = hasZeroSessions
                       ? 0
@@ -1425,18 +1585,40 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
                     return (
                       <tr key={learner.id}>
-                        {/* Learner Info */}
-                        <td>
+                        {/* Learner Info (Truncated on desktop to prevent horizontal scroll) */}
+                        <td style={{ overflow: "hidden" }}>
                           <Link
                             href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
-                            style={{ textDecoration: "none", color: "inherit" }}
-                            title="Open full student profile & progression card"
+                            style={{ textDecoration: "none", color: "inherit", display: "block", overflow: "hidden" }}
+                            title={`${learner.user?.name || "Learner"} (${learner.user?.email || ""})`}
                           >
-                            <div className={styles.cellUser}>
-                              <span className={styles.cellUserName} style={{ color: "var(--accent-primary)", cursor: "pointer" }}>
-                                {learner.user?.name}
+                            <div style={{ overflow: "hidden" }}>
+                              <span
+                                style={{
+                                  color: "var(--accent-primary)",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                  display: "block",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  fontSize: "0.85rem",
+                                }}
+                              >
+                                {learner.user?.name || "Learner"}
                               </span>
-                              <span className={styles.cellUserEmail}>{learner.user?.email}</span>
+                              <span
+                                style={{
+                                  color: "var(--text-muted)",
+                                  fontSize: "0.74rem",
+                                  display: "block",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {learner.user?.email || "—"}
+                              </span>
                             </div>
                           </Link>
                         </td>
@@ -1446,66 +1628,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                           <StatusBadge status={isCertified ? "CERTIFIED" : learner.status} />
                         </td>
 
-                        {/* Stage 1: Curriculum */}
+                        {/* Stage 1: Curriculum (Overall progress % or Completed badge when 100%) */}
                         <td>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.74rem",
-                              fontWeight: 600,
-                              background: s1?.isCompleted ? "#dcfce7" : "#fef3c7",
-                              color: s1?.isCompleted ? "#15803d" : "#b45309",
-                            }}
-                          >
-                            {s1?.isCompleted ? "Completed" : "In Progress"}
-                          </span>
-                        </td>
-
-                        {/* Stage 2: Exam */}
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.74rem",
-                              fontWeight: 600,
-                              background: s2?.isCompleted ? "#dcfce7" : "#fef3c7",
-                              color: s2?.isCompleted ? "#15803d" : "#b45309",
-                            }}
-                          >
-                            {s2?.isCompleted ? "Passed" : "Pending"}
-                          </span>
-                        </td>
-
-                        {/* Stage 3: Live Attendance */}
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.74rem",
-                              fontWeight: 600,
-                              background: isAttendanceSatisfied ? "#dcfce7" : "#fef3c7",
-                              color: isAttendanceSatisfied ? "#15803d" : "#b45309",
-                              border: isAttendanceSatisfied ? "1px solid #bbf7d0" : "1px solid #fde68a",
-                            }}
-                            title={
-                              hasZeroSessions
-                                ? `0/0 live sessions attended (0% vs ${thresholdPercent}% required — No live sessions scheduled yet)`
-                                : `${attendedSessionsCount}/${requiredSessionsCount} live sessions attended (${attendanceDisplayText} vs ${thresholdPercent}% required)`
-                            }
-                          >
-                            {attendanceDisplayText}
-                          </span>
-                        </td>
-
-                        {/* Stage 4: 1:1 Session */}
-                        <td>
-                          {isCallCompleted ? (
+                          {isPendingAgreement ? (
                             <span
                               style={{
                                 display: "inline-block",
@@ -1513,15 +1638,36 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 borderRadius: "4px",
                                 fontSize: "0.74rem",
                                 fontWeight: 600,
+                                background: "#fffbeb",
+                                color: "#b45309",
+                                border: "1px solid #fde68a",
+                              }}
+                              title="Digital workshop consent & agreement is pending signature. Learning path is locked."
+                            >
+                              Agreement Pending
+                            </span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "45px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : curriculumPct >= 100 || s1?.isCompleted ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
                                 background: "#dcfce7",
                                 color: "#15803d",
                                 border: "1px solid #bbf7d0",
                               }}
-                              title="1-on-1 coaching call attended and completed"
+                              title="Curriculum 100% completed"
                             >
                               Completed
                             </span>
-                          ) : isCallScheduled ? (
+                          ) : (
                             <span
                               style={{
                                 display: "inline-block",
@@ -1529,39 +1675,199 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 borderRadius: "4px",
                                 fontSize: "0.74rem",
                                 fontWeight: 600,
+                                background: curriculumPct > 0 ? "#fef3c7" : "#f3f4f6",
+                                color: curriculumPct > 0 ? "#b45309" : "#6b7280",
+                                border: curriculumPct > 0 ? "1px solid #fde68a" : "1px solid #e5e7eb",
+                              }}
+                              title={`Curriculum Progress: ${curriculumPct}%`}
+                            >
+                              {curriculumPct}%
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 2: Exam (Best score with green badge if >= pass mark, red badge if < pass mark, neutral Pending if not taken) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "52px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : bestExamScore !== null && bestExamScore !== undefined ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: isExamPassed ? "#dcfce7" : "#fee2e2",
+                                color: isExamPassed ? "#15803d" : "#dc2626",
+                                border: isExamPassed ? "1px solid #bbf7d0" : "1px solid #fca5a5",
+                              }}
+                              title={
+                                isExamPassed
+                                  ? `Passed final exam with score ${bestExamScore}% (Pass mark: ${examPassMark}%)`
+                                  : `Final exam score ${bestExamScore}% is below required passing mark (${examPassMark}%)`
+                              }
+                            >
+                              {bestExamScore}%
+                            </span>
+                          ) : isExamPassed ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                              }}
+                            >
+                              Passed
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#f3f4f6",
+                                color: "#9ca3af",
+                                border: "1px solid #e5e7eb",
+                              }}
+                              title="Final exam not attempted yet"
+                            >
+                              Pending
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 3: Live Attendance (Green if >= threshold, Red if < threshold, neutral if 0 sessions scheduled) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "45px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : hasZeroSessions ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#f3f4f6",
+                                color: "#6b7280",
+                                border: "1px solid #e5e7eb",
+                              }}
+                              title="No live cohort sessions scheduled yet for this batch"
+                            >
+                              0%
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#dcfce7" : "#fee2e2",
+                                color: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#15803d" : "#dc2626",
+                                border: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "1px solid #bbf7d0" : "1px solid #fca5a5",
+                              }}
+                              title={`${attendedSessionsCount}/${requiredSessionsCount} live sessions attended (${attendanceDisplayText} vs ${thresholdPercent}% required)`}
+                            >
+                              {attendanceDisplayText}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 4: 1:1 Session (Interactive In-Batch Management) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "65px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : isCallCompleted ? (
+                            <span
+                              onClick={() => openCoachingModal(learner)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                                cursor: "pointer",
+                              }}
+                              title="1-on-1 coaching call attended and completed. Click to view details."
+                            >
+                              <span>Completed</span>
+                              <span>✓</span>
+                            </span>
+                          ) : isCallScheduled ? (
+                            <button
+                              type="button"
+                              onClick={() => openCoachingModal(learner)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
                                 background: "#eff6ff",
                                 color: "#1d4ed8",
                                 border: "1px solid #bfdbfe",
+                                cursor: "pointer",
                               }}
-                              title={
-                                s4?.details?.scheduledStartTime
-                                  ? `1-on-1 coaching call scheduled for ${new Date(s4.details.scheduledStartTime).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
-                                  : "1-on-1 coaching call is scheduled"
-                              }
+                              title="1-on-1 coaching call is scheduled. Click to view Zoom link or complete session."
                             >
-                              Scheduled
-                            </span>
+                              <span>Scheduled</span>
+                              <span style={{ fontSize: "0.68rem" }}>⚙</span>
+                            </button>
                           ) : isCallRequested ? (
-                            <Link
-                              href="/approvals?tab=coaching"
+                            <button
+                              type="button"
+                              onClick={() => openCoachingModal(learner)}
                               style={{
-                                background: "rgba(201, 122, 30, 0.1)",
-                                border: "1px solid var(--accent-primary)",
-                                color: "var(--accent-primary)",
+                                background: "#fef3c7",
+                                border: "1px solid #fde68a",
+                                color: "#b45309",
                                 fontSize: "0.72rem",
                                 fontWeight: 700,
                                 padding: "2px 8px",
                                 borderRadius: "4px",
-                                textDecoration: "none",
+                                cursor: "pointer",
                                 display: "inline-flex",
                                 alignItems: "center",
-                                gap: "2px",
+                                gap: "3px",
                                 whiteSpace: "nowrap",
                               }}
-                              title="1-on-1 coaching request submitted. Click to review, approve or decline in Approvals hub"
+                              title="Learner requested 1-on-1 slot. Click to approve or reject directly."
                             >
-                              Review &amp; Approve ↗
-                            </Link>
+                              <span>Review Slot</span>
+                              <span style={{ fontSize: "0.68rem" }}>↗</span>
+                            </button>
                           ) : isCallRejected ? (
                             <span
                               style={{
@@ -1597,40 +1903,57 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                           )}
                         </td>
 
-                        {/* Stage 5: Mission Statement */}
+                        {/* Stage 5: Mission Statement (Not Submitted -> Submitted -> Approved) */}
                         <td>
-                          {s5?.isCompleted ? (
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "75px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : isMissionApproved ? (
                             <span
+                              onClick={() => openMissionModal(learner)}
                               style={{
-                                display: "inline-block",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
                                 padding: "2px 8px",
                                 borderRadius: "4px",
                                 fontSize: "0.74rem",
-                                fontWeight: 600,
+                                fontWeight: 700,
                                 background: "#dcfce7",
                                 color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                                cursor: "pointer",
                               }}
-                              title="Mission Statement Approved — Learner Certified"
+                              title="Mission Statement Approved — Learner Certified. Click to view submission details."
                             >
-                              Approved
+                              <span>Approved</span>
+                              <span>✓</span>
                             </span>
-                          ) : isMissionPending ? (
+                          ) : isMissionSubmitted ? (
                             <button
                               type="button"
-                              onClick={() => setMissionModalLearner(learner)}
+                              onClick={() => openMissionModal(learner)}
                               style={{
-                                background: "rgba(201, 122, 30, 0.1)",
-                                border: "1px solid var(--accent-primary)",
-                                color: "var(--accent-primary)",
+                                background: "#fef3c7",
+                                border: "1px solid #fde68a",
+                                color: "#b45309",
                                 fontSize: "0.72rem",
                                 fontWeight: 700,
                                 padding: "2px 8px",
                                 borderRadius: "4px",
                                 cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
                               }}
-                              title="Click to review and approve mission statement"
+                              title="Learner uploaded handwritten mission statement. Click to read document and approve."
                             >
-                              Review &amp; Approve ↗
+                              <span>Submitted</span>
+                              <span style={{ fontSize: "0.68rem" }}>↗</span>
                             </button>
                           ) : (
                             <span
@@ -1642,7 +1965,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 fontWeight: 600,
                                 background: "#f3f4f6",
                                 color: "#9ca3af",
+                                border: "1px solid #e5e7eb",
                               }}
+                              title="Learner has not uploaded handwritten mission statement yet"
                             >
                               Not Submitted
                             </span>
@@ -1650,28 +1975,28 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         </td>
 
                         {/* Action: View Profile */}
-                        <td style={{ textAlign: "right" }}>
+                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                           <Link
                             href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
                             className={styles.secondaryBtn}
                             style={{
-                              fontSize: "0.76rem",
-                              padding: "0.3rem 0.65rem",
+                              fontSize: "0.74rem",
+                              padding: "0.26rem 0.55rem",
                               textDecoration: "none",
                               display: "inline-flex",
                               alignItems: "center",
-                              gap: "5px",
+                              gap: "4px",
                               fontWeight: 600,
                               whiteSpace: "nowrap",
                             }}
                             title="Open full student profile & progression card"
                           >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                               <circle cx="12" cy="7" r="4" />
                             </svg>
                             <span>View Profile</span>
-                            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>↗</span>
+                            <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>↗</span>
                           </Link>
                         </td>
                       </tr>
@@ -1708,26 +2033,26 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
-              padding: "0.75rem 1rem",
-              margin: "1rem 1rem 0",
+              gap: "10px",
+              padding: "0.65rem 1rem",
               background: "#fffbeb",
-              border: "1px solid #fef3c7",
+              border: "1px solid #fde68a",
+              borderLeft: "4px solid #f59e0b",
               borderRadius: "8px",
-              fontSize: "0.82rem",
+              fontSize: "0.84rem",
               color: "#92400e",
+              lineHeight: 1.45,
+              marginBottom: "1rem",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>
-                These students started enrollment or signed the agreement but have not completed payment. They do not consume batch capacity. Unpaid checkouts older than 48 hours are automatically revoked.
-              </span>
-            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>
+              <strong>Note:</strong> Learners in awaiting payment have not completed checkout and do not consume batch capacity. Unpaid checkouts older than 48 hours are automatically revoked.
+            </span>
           </div>
 
           <div
@@ -1738,7 +2063,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               alignItems: "center",
               flexWrap: "wrap",
               gap: "0.75rem",
-              padding: "1rem 1rem 0",
+              padding: 0,
+              marginBottom: "1rem",
             }}
           >
             <div className={styles.searchContainer} style={{ minWidth: "320px", maxWidth: "420px", width: "340px" }}>
@@ -2297,24 +2623,68 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          TAB 3: BROADCAST ANNOUNCEMENTS TO BATCH
+          TAB 4: BROADCAST ANNOUNCEMENTS TO BATCH & INDIVIDUAL LEARNERS
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "broadcast" && (
-        <section className={styles.tableSection} style={{ padding: "1.75rem" }}>
-          <div style={{ maxWidth: "680px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "0 0 0.5rem" }}>
-              Targeted Batch Announcement
-            </h2>
-            <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", margin: "0 0 1.5rem", lineHeight: 1.5 }}>
-              Send an announcement directly to the <strong>{learners.length} active learners</strong> enrolled in {batch?.name}. Notifications are delivered to their in-app bell and sent to their email.
-            </p>
+        <section className={styles.tableSection} style={{ padding: "2.5rem 1rem", display: "flex", justifyContent: "center" }}>
+          <div style={{ width: "100%", maxWidth: "620px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.75rem", boxShadow: "0 1px 4px rgba(0,0,0,0.03)" }}>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: "0 0 0.35rem", color: "var(--text-primary)" }}>
+                Batch Announcement Dispatch
+              </h2>
+              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                Send official announcements to confirmed learners enrolled in <strong>{batch?.name}</strong>.
+              </p>
+            </div>
 
             <form onSubmit={handleSendBroadcast} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              {/* Audience Targeting */}
               <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Announcement Title *</label>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Recipient Audience</label>
+                <div style={{ display: "flex", gap: "1.25rem", marginTop: "6px", flexWrap: "wrap" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="bcastTarget"
+                      checked={broadcastTarget === "ALL_BATCH"}
+                      onChange={() => setBroadcastTarget("ALL_BATCH")}
+                      style={{ accentColor: "var(--accent-primary)" }}
+                    />
+                    <span>All Confirmed Learners in Batch ({confirmedLearners.length})</span>
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="bcastTarget"
+                      checked={broadcastTarget === "INDIVIDUAL"}
+                      onChange={() => setBroadcastTarget("INDIVIDUAL")}
+                      style={{ accentColor: "var(--accent-primary)" }}
+                    />
+                    <span>Individual Learner</span>
+                  </label>
+                </div>
+              </div>
+
+              {broadcastTarget === "INDIVIDUAL" && (
+                <div className={styles.formGroup}>
+                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Select Learner *</label>
+                  <CustomSelect
+                    value={selectedLearnerUserId}
+                    onChange={(val) => setSelectedLearnerUserId(val)}
+                    options={confirmedLearners.map((l) => ({
+                      value: l.userId,
+                      label: `${l.user?.name || "Learner"} (${l.user?.email || "—"})`,
+                    }))}
+                    placeholder="Choose a learner from this batch..."
+                  />
+                </div>
+              )}
+
+              <div className={styles.formGroup}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Announcement Subject *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Workshop Rescheduled: Tomorrow at 7:30 PM GST"
+                  placeholder="e.g. Schedule Update: Live Session tomorrow at 7:30 PM GST"
                   value={broadcastTitle}
                   onChange={(e) => setBroadcastTitle(e.target.value)}
                   className={styles.formInput}
@@ -2325,7 +2695,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <div className={styles.formGroup}>
                 <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Message Content *</label>
                 <textarea
-                  placeholder="Write your announcement message, Zoom update, or preparation instructions for the batch..."
+                  placeholder="Write your announcement details, workshop updates, or preparation instructions..."
                   value={broadcastMessage}
                   onChange={(e) => setBroadcastMessage(e.target.value)}
                   className={styles.formInput}
@@ -2360,7 +2730,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       onChange={(e) => setBroadcastInApp(e.target.checked)}
                       style={{ accentColor: "var(--accent-primary)" }}
                     />
-                    <span style={{ fontWeight: broadcastInApp ? 600 : 500 }}>🔔 In-App Notification Bell</span>
+                    <span style={{ fontWeight: broadcastInApp ? 600 : 500 }}>In-App Notification</span>
                   </label>
                   <label
                     style={{
@@ -2382,33 +2752,38 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       onChange={(e) => setBroadcastEmail(e.target.checked)}
                       style={{ accentColor: "var(--accent-primary)" }}
                     />
-                    <span style={{ fontWeight: broadcastEmail ? 600 : 500 }}>✉️ Direct Email Dispatch</span>
+                    <span style={{ fontWeight: broadcastEmail ? 600 : 500 }}>Email Notification</span>
                   </label>
                 </div>
+                {broadcastInApp && broadcastEmail && (
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "6px" }}>
+                    Notice: Learners will receive an in-app notification advising them that a complete copy has been sent to their registered email.
+                  </div>
+                )}
               </div>
 
               <div style={{ paddingTop: "0.5rem" }}>
                 <button
                   type="submit"
                   className={styles.primaryBtn}
-                  disabled={isSendingBroadcast || learners.length === 0}
+                  disabled={
+                    isSendingBroadcast ||
+                    (broadcastTarget === "ALL_BATCH" ? confirmedLearners.length === 0 : !selectedLearnerUserId)
+                  }
                   style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
                 >
-                  {isSendingBroadcast ? (
-                    "Broadcasting..."
-                  ) : (
-                    <>
-                      <span>Send Announcement to All {learners.length} Learners</span>
-                      <span>✈</span>
-                    </>
-                  )}
+                  {isSendingBroadcast
+                    ? "Dispatching Announcement..."
+                    : broadcastTarget === "INDIVIDUAL"
+                    ? "Send Announcement to Selected Learner"
+                    : `Send Announcement to Batch (${confirmedLearners.length} Learners)`}
                 </button>
               </div>
             </form>
 
             {broadcastHistory.length > 0 && (
               <div style={{ marginTop: "2.5rem", borderTop: "1px solid var(--border-light)", paddingTop: "1.5rem" }}>
-                <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem" }}>Sent in this Session</h3>
+                <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem" }}>Dispatched in this Session</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                   {broadcastHistory.map((item) => (
                     <div
@@ -2420,18 +2795,20 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         borderRadius: "8px",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                        <strong style={{ fontSize: "0.9rem" }}>{item.title}</strong>
-                        <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                          {new Date(item.sentAt).toLocaleTimeString()}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.25rem" }}>
+                        <strong style={{ fontSize: "0.88rem" }}>{item.title}</strong>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          {new Date(item.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
-                      <p style={{ margin: "0 0 6px", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                      <p style={{ margin: "0 0 0.5rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
                         {item.message}
                       </p>
-                      <span style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 600 }}>
-                        ✓ Delivered to {item.recipientCount} recipient(s) via {item.channels.join(" + ")}
-                      </span>
+                      <div style={{ display: "flex", gap: "0.5rem", fontSize: "0.72rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
+                        <span>Target: {item.targetLabel || `${item.recipientCount} recipient(s)`}</span>
+                        <span>•</span>
+                        <span>Channels: {item.channels.join(", ")}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2440,6 +2817,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           </div>
         </section>
       )}
+
+
 
       {/* ─────────────────────────────────────────────────────────────────────────
           MODAL: ASSIGN LEARNER TO BATCH
@@ -2565,70 +2944,93 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       placeholder="Select session date"
                     />
                   </div>
+
+                  {/* Clean 24-Hour Start Time Picker */}
                   <div className={styles.formGroup}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                       <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
                         Start Time (24h) *
                       </label>
-                      {sessionWallTime && (
-                        <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
-                          {format24To12(sessionWallTime)}
+                      <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 700 }}>
+                        {sessionWallTime ? `${format24To12(sessionWallTime)} (${sessionWallTime})` : ""}
+                      </span>
+                    </div>
+
+                    <input
+                      type="time"
+                      value={sessionWallTime}
+                      onChange={(e) => setSessionWallTime(e.target.value)}
+                      className={styles.formInput}
+                      style={{ width: "100%", height: "38px", fontSize: "0.88rem", fontWeight: 600 }}
+                      required
+                      aria-label="Start Time in 24-hour format"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem", alignItems: "flex-start" }}>
+                  {/* Duration Field with End Time Calculation */}
+                  <div className={styles.formGroup}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Duration (Minutes) *</label>
+                      {sessionEndTimeFormatted && (
+                        <span style={{ fontSize: "0.75rem", color: "var(--accent-primary, #c97a1e)", fontWeight: 700 }}>
+                          Ends at {sessionEndTimeFormatted}
                         </span>
                       )}
                     </div>
                     <input
-                      type="text"
-                      placeholder="19:00 (HH:MM)"
-                      value={sessionWallTime}
-                      onChange={(e) => setSessionWallTime(e.target.value)}
-                      className={styles.formInput}
-                      required
-                    />
-                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}>
-                      {["10:00", "14:00", "18:00", "19:00", "20:00"].map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => setSessionWallTime(t)}
-                          style={{
-                            background: sessionWallTime === t ? "var(--accent-primary)" : "var(--surface)",
-                            color: sessionWallTime === t ? "#fff" : "var(--text-secondary)",
-                            border: "1px solid var(--border-light)",
-                            borderRadius: "4px",
-                            padding: "1px 6px",
-                            fontSize: "0.7rem",
-                            cursor: "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Duration (Minutes)</label>
-                    <input
                       type="number"
                       min={15}
-                      step={15}
+                      max={360}
+                      step={5}
                       value={sessionDurationMinutes}
                       onChange={(e) => setSessionDurationMinutes(e.target.value)}
                       className={styles.formInput}
+                      style={{ width: "100%", height: "38px" }}
+                      required
                     />
                   </div>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Timezone</label>
+
+                  <div className={styles.formGroup} style={{ minWidth: 0 }}>
+                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "4px" }}>Timezone *</label>
                     <CustomSelect
                       value={selectedTz}
                       onChange={setSelectedTz}
                       options={tzOptions}
                       fullWidth
+                      menuMaxHeight="200px"
                       ariaLabel="Timezone"
                     />
+                  </div>
+                </div>
+
+                {/* Scheduled Session Window Summary */}
+                <div
+                  style={{
+                    background: "#fdf8f0",
+                    border: "1px solid #ebdccb",
+                    borderRadius: "8px",
+                    padding: "0.7rem 0.9rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontSize: "0.82rem",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <div>
+                    <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.035em", fontWeight: 600, display: "block" }}>
+                      Session Window
+                    </span>
+                    <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>
+                      {format24To12(sessionWallTime)} – {sessionEndTimeFormatted || "..."}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ display: "inline-block", background: "#f5ece1", color: "#8a5814", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: 700 }}>
+                      {sessionDurationMinutes || 60} mins · {selectedTz.split("/")[1]?.replace(/_/g, " ") || selectedTz}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2655,29 +3057,73 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          MODAL: MISSION STATEMENT REVIEW & CERTIFICATE APPROVAL
+          MODAL: MISSION STATEMENT REVIEW & CERTIFICATE APPROVAL (IN-MODAL PREVIEW & REVISION)
           ───────────────────────────────────────────────────────────────────────── */}
       {missionModalLearner && (
-        <div className={styles.modalOverlay} onClick={() => setMissionModalLearner(null)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
-            <div className={styles.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>
-                Mission Statement Review: {missionModalLearner.user.name}
-              </h3>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setMissionModalLearner(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <div className={styles.modalBody} style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
-                Review the learner's submitted manifesto or graduation requirement. Approving marks Stage 5 satisfied and awards their Certificate of Completion.
-              </p>
+        <Modal
+          isOpen={true}
+          onClose={() => setMissionModalLearner(null)}
+          title={`Mission Statement Review — ${missionModalLearner.user.name}`}
+          maxWidth="780px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", padding: "0.5rem 0" }}>
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              Inspect the handwritten personal mission statement uploaded by <strong>{missionModalLearner.user.name}</strong>. Approving awards their verified Certificate of Completion.
+            </p>
 
+            {isLoadingMissionDoc ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                Loading uploaded mission statement file...
+              </div>
+            ) : missionSubmission ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", fontSize: "0.82rem", background: "#fdfbf7", border: "1px solid #ebdccb", padding: "8px 12px", borderRadius: "6px" }}>
+                  <div>
+                    <strong>Version:</strong> v{missionSubmission.version} • <strong>Uploaded:</strong> {new Date(missionSubmission.createdAt).toLocaleString()}
+                    {missionSubmission.sizeBytes ? ` • ${(missionSubmission.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : ""}
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <a
+                      href={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "var(--accent-primary)", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      Open Full Tab ↗
+                    </a>
+                  </div>
+                </div>
+
+                {/* In-Modal Visual Document Viewer */}
+                <div
+                  style={{
+                    width: "100%",
+                    minHeight: "350px",
+                    maxHeight: "55vh",
+                    overflow: "auto",
+                    background: "#22201e",
+                    borderRadius: "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {(missionSubmission.mimeType || "").includes("image") || missionSubmission.fileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) ? (
+                    <img
+                      src={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
+                      alt="Mission Statement Preview"
+                      style={{ maxWidth: "100%", maxHeight: "52vh", objectFit: "contain", borderRadius: 4 }}
+                    />
+                  ) : (
+                    <iframe
+                      src={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
+                      title="Mission Statement Document Preview"
+                      style={{ width: "100%", height: "420px", border: "none", borderRadius: 4 }}
+                    />
+                  )}
+                </div>
+              </div>
+            ) : (
               <div
                 style={{
                   padding: "1rem",
@@ -2693,19 +3139,20 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 {missionModalLearner.stages?.STAGE_5_MISSION_STATEMENT?.details?.submissionText ||
                   "Learner has fulfilled their required written commitment and graduation milestones for this program."}
               </div>
+            )}
 
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Coach Approval Feedback (Optional)</label>
-                <textarea
-                  placeholder="Add personalized congratulatory feedback for the student..."
-                  value={missionFeedback}
-                  onChange={(e) => setMissionFeedback(e.target.value)}
-                  className={styles.formInput}
-                  rows={3}
-                />
-              </div>
+            <div className={styles.formGroup}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Coach Approval or Revision Feedback</label>
+              <textarea
+                placeholder="Add personalized congratulatory feedback or revision guidance for the student..."
+                value={missionFeedback}
+                onChange={(e) => setMissionFeedback(e.target.value)}
+                className={styles.formInput}
+                rows={3}
+              />
             </div>
-            <div className={styles.modalFooter}>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "0.5rem" }}>
               <button
                 type="button"
                 className={styles.secondaryBtn}
@@ -2714,10 +3161,51 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               >
                 Cancel
               </button>
+              {missionSubmission && missionSubmission.status === "SUBMITTED" && (
+                <button
+                  type="button"
+                  className={styles.dangerBtnSmall}
+                  disabled={isApprovingMission}
+                  onClick={async () => {
+                    const reason = missionFeedback.trim() || prompt("Enter revision feedback for the learner:") || "";
+                    if (!reason.trim()) return;
+                    setIsApprovingMission(true);
+                    try {
+                      await rejectMissionStatement(missionSubmission.id, reason.trim());
+                      toastSuccess(`Revision requested for ${missionModalLearner.user.name}.`);
+                      setMissionModalLearner(null);
+                      await loadBatchData();
+                    } catch (err: any) {
+                      toastError(err.message || "Failed to request revision.");
+                    } finally {
+                      setIsApprovingMission(false);
+                    }
+                  }}
+                  style={{ padding: "0.45rem 0.85rem", fontSize: "0.82rem" }}
+                >
+                  Request Revision
+                </button>
+              )}
               <button
                 type="button"
                 className={styles.primaryBtn}
-                onClick={handleApproveMission}
+                onClick={async () => {
+                  if (missionSubmission?.id) {
+                    setIsApprovingMission(true);
+                    try {
+                      await approveMissionStatement(missionSubmission.id);
+                      toastSuccess(`Mission statement approved for ${missionModalLearner.user.name}. Certificate issued!`);
+                      setMissionModalLearner(null);
+                      await loadBatchData();
+                    } catch (err: any) {
+                      toastError(err.message || "Failed to approve mission statement.");
+                    } finally {
+                      setIsApprovingMission(false);
+                    }
+                  } else {
+                    await handleApproveMission();
+                  }
+                }}
                 disabled={isApprovingMission}
                 style={{ background: "#16a34a", borderColor: "#16a34a" }}
               >
@@ -2725,7 +3213,185 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────
+          MODAL: 1-ON-1 COACHING CALL IN-BATCH ACTIONS (APPROVE / REJECT / COMPLETE)
+          ───────────────────────────────────────────────────────────────────────── */}
+      {coachingModalLearner && (
+        <Modal
+          isOpen={true}
+          onClose={() => setCoachingModalLearner(null)}
+          title={`1-on-1 Coaching Consultation — ${coachingModalLearner.user.name}`}
+          maxWidth="640px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", padding: "0.5rem 0" }}>
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              Manage 1-on-1 closing consultation slot, meeting links, and milestone completion for <strong>{coachingModalLearner.user.name}</strong>.
+            </p>
+
+            {isLoadingCoaching ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                Loading coaching consultation record...
+              </div>
+            ) : coachingRequest ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", background: "var(--bg-card-muted, #fdfbf7)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Requested Slot</span>
+                    <div style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-primary)", marginTop: "2px" }}>
+                      {formatWhenInTz(coachingRequest.requestedStart, coachingRequest.requestedEnd, selectedTz)}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      Learner TZ: {coachingRequest.learnerTimezone || "UTC"}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Status</span>
+                    <div style={{ marginTop: "4px" }}>
+                      <StatusBadge status={coachingRequest.status} />
+                    </div>
+                  </div>
+                </div>
+
+                {coachingRequest.notes && (
+                  <div style={{ background: "#ffffff", padding: "0.85rem 1rem", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Breakthroughs &amp; Reflections</span>
+                    <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-primary)", fontStyle: "italic", lineHeight: 1.5 }}>
+                      "{coachingRequest.notes}"
+                    </p>
+                  </div>
+                )}
+
+                {coachingRequest.session?.joinUrl && (
+                  <div style={{ padding: "0.85rem 1rem", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontSize: "0.75rem", color: "#166534", fontWeight: 700, textTransform: "uppercase" }}>Zoom Meeting Configured</span>
+                      <div style={{ fontSize: "0.82rem", color: "#15803d", marginTop: "2px" }}>
+                        Host: {coachingRequest.session?.hostTrainer?.name || "Roweena Britto"}
+                      </div>
+                    </div>
+                    <a
+                      href={coachingRequest.session.joinUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#0284c7", fontWeight: 700, fontSize: "0.85rem", textDecoration: "underline" }}
+                    >
+                      Join Call ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: "1.25rem", background: "var(--bg-card-muted, #fdfbf7)", borderRadius: "8px", border: "1px solid var(--border-light)", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                No active 1-on-1 coaching booking request found on record for this learner.
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "0.5rem" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setCoachingModalLearner(null)}
+                disabled={actingCoaching}
+              >
+                Close
+              </button>
+
+              {coachingRequest && coachingRequest.status === "PENDING_APPROVAL" && (
+                <>
+                  <button
+                    type="button"
+                    className={styles.dangerBtnSmall}
+                    disabled={actingCoaching}
+                    onClick={async () => {
+                      const reason = prompt("Enter rejection reason for learner:") || "";
+                      if (!reason.trim()) return;
+                      setActingCoaching(true);
+                      try {
+                        await rejectOneOnOneRequest(coachingRequest.id, reason.trim());
+                        toastSuccess("1:1 Call booking request rejected.");
+                        setCoachingModalLearner(null);
+                        await loadBatchData();
+                      } catch (err: any) {
+                        toastError(err.message || "Failed to reject request");
+                      } finally {
+                        setActingCoaching(false);
+                      }
+                    }}
+                    style={{ padding: "0.45rem 0.85rem", fontSize: "0.82rem" }}
+                  >
+                    Reject Request
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.primaryBtn}
+                    disabled={actingCoaching}
+                    onClick={async () => {
+                      setActingCoaching(true);
+                      try {
+                        await approveOneOnOneRequest(coachingRequest.id, {
+                          startTime: coachingRequest.requestedStart,
+                          endTime: coachingRequest.requestedEnd,
+                        });
+                        toastSuccess("1:1 Call booking approved with Zoom meeting link!");
+                        setCoachingModalLearner(null);
+                        await loadBatchData();
+                      } catch (err: any) {
+                        toastError(err.message || "Failed to approve slot");
+                      } finally {
+                        setActingCoaching(false);
+                      }
+                    }}
+                    style={{ background: "#15803d", borderColor: "#15803d" }}
+                  >
+                    {actingCoaching ? "Approving..." : "Approve & Schedule Slot ✓"}
+                  </button>
+                </>
+              )}
+
+              {((coachingRequest && coachingRequest.status === "APPROVED") || (coachingModalLearner.stages?.STAGE_4_ONE_ON_ONE?.details as any)?.isScheduled) && !coachingModalLearner.stages?.STAGE_4_ONE_ON_ONE?.isCompleted && (
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  disabled={actingCoaching}
+                  onClick={async () => {
+                    const sessionId = coachingRequest?.sessionId || coachingRequest?.session?.id;
+                    if (!sessionId) {
+                      toastError("No active session ID found to mark completed.");
+                      return;
+                    }
+                    setActingCoaching(true);
+                    try {
+                      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                      const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+                        method: "PATCH",
+                        headers: {
+                          "Content-Type": "application/json",
+                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        body: JSON.stringify({ status: "COMPLETED" }),
+                      });
+                      if (!res.ok) throw new Error(await errorMessage(res, "Failed to complete session"));
+                      toastSuccess("1:1 Call marked completed! Stage 5 unlocked for student.");
+                      setCoachingModalLearner(null);
+                      await loadBatchData();
+                    } catch (err: any) {
+                      toastError(err.message || "Failed to mark call completed");
+                    } finally {
+                      setActingCoaching(false);
+                    }
+                  }}
+                  style={{ background: "#15803d", borderColor: "#15803d" }}
+                >
+                  {actingCoaching ? "Completing..." : "Mark Session Completed ✓"}
+                </button>
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
       {/* ─────────────────────────────────────────────────────────────────────────
           MODAL: BATCH SETTINGS (SIMILAR TO CREATE BATCH POPUP)

@@ -63,6 +63,7 @@ export function CustomSelect({
     left: number;
     width: number;
     openUpwards: boolean;
+    effectiveMaxHeight: number;
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -116,10 +117,15 @@ export function CustomSelect({
 
     const rect = button.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
     const parsedMaxH = parseInt(menuMaxHeight, 10) || 380;
     const estimatedHeight = Math.min(options.length * 36 + (isSearchable ? 52 : 12), parsedMaxH);
     const openUpwards =
-      spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
+      spaceBelow < estimatedHeight + 20 && spaceAbove > spaceBelow;
+
+    const effectiveMaxHeight = openUpwards
+      ? Math.min(parsedMaxH, Math.max(120, spaceAbove - 24))
+      : Math.min(parsedMaxH, Math.max(120, spaceBelow - 24));
 
     const triggerWidth = rect.width;
     const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : triggerWidth;
@@ -133,6 +139,7 @@ export function CustomSelect({
         left,
         width: triggerWidth,
         openUpwards: true,
+        effectiveMaxHeight,
       });
     } else {
       const top = rect.bottom + 4;
@@ -141,6 +148,7 @@ export function CustomSelect({
         left,
         width: triggerWidth,
         openUpwards: false,
+        effectiveMaxHeight,
       });
     }
 
@@ -333,7 +341,7 @@ export function CustomSelect({
               minWidth: menuMinWidth || `${menuPos.width}px`,
               width: "max-content",
               maxWidth: "min(480px, calc(100vw - 24px))",
-              maxHeight: menuMaxHeight,
+              maxHeight: `${menuPos.effectiveMaxHeight}px`,
             }}
             role="listbox"
             aria-label={ariaLabel || displayLabel}

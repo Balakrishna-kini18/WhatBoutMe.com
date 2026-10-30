@@ -1782,9 +1782,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 borderRadius: "4px",
                                 fontSize: "0.74rem",
                                 fontWeight: 700,
-                                background: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#dcfce7" : "#fee2e2",
-                                color: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#15803d" : "#dc2626",
-                                border: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "1px solid #bbf7d0" : "1px solid #fca5a5",
+                                background: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#dcfce7" : (attendedSessionsCount === 0 || attendancePct === 0) ? "#f3f4f6" : "#fee2e2",
+                                color: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#15803d" : (attendedSessionsCount === 0 || attendancePct === 0) ? "#6b7280" : "#dc2626",
+                                border: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "1px solid #bbf7d0" : (attendedSessionsCount === 0 || attendancePct === 0) ? "1px solid #e5e7eb" : "1px solid #fca5a5",
                               }}
                               title={`${attendedSessionsCount}/${requiredSessionsCount} live sessions attended (${attendanceDisplayText} vs ${thresholdPercent}% required)`}
                             >

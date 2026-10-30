@@ -110,6 +110,81 @@ const MissionIcon = (
   </svg>
 );
 
+function getMilestoneGlyph(id: string) {
+  if (id === "exam") {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M9 11l3 3L22 4" />
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+    );
+  }
+  if (id === "coaching") {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    );
+  }
+  if (id === "mission") {
+    return (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+      </svg>
+    );
+  }
+  // curriculum modules
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  );
+}
+
 const ArrowLeft = (
   <svg
     width="15"
@@ -1031,7 +1106,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       <div className={styles.stepActionCol}>
                         <div
                           className="skeleton"
-                          style={{ width: 92, height: 34, borderRadius: 8, flexShrink: 0 }}
+                          style={{ width: 140, height: 38, borderRadius: 8, flexShrink: 0 }}
                         />
                       </div>
                     </li>
@@ -1156,27 +1231,27 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     </span>
 
                     <div className={styles.stepBody}>
-                      <p className={styles.kicker}>
-                        <span>Final Examination · {examConfig?.questionCount ?? 50} Marks</span>
-                        {stage2State?.isOverridden && (
-                          <span className={styles.overrideBadge}>Staff Override</span>
-                        )}
-                        {isExamPassed && (
-                          <span className={styles.quizPassedBadge}>
-                            ✓ Passed{examBestScore !== null ? ` (${examBestScore}%)` : ""}
-                          </span>
-                        )}
-                      </p>
+                      {(stage2State?.isOverridden || isExamPassed) && (
+                        <p className={styles.kicker}>
+                          {stage2State?.isOverridden && (
+                            <span className={styles.overrideBadge}>Staff Override</span>
+                          )}
+                          {isExamPassed && (
+                            <span className={styles.quizPassedBadge}>
+                              ✓ Passed{examBestScore !== null ? ` (${examBestScore}%)` : ""}
+                            </span>
+                          )}
+                        </p>
+                      )}
 
                       <h3 className={styles.stepTitle}>
-                        {examConfig?.title || "Final Comprehensive Examination (50 Marks)"}
+                        <strong>Final Examination · {examConfig?.questionCount ?? 50} Questions</strong>
                       </h3>
 
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
-                        <strong>{examConfig?.questionCount ?? 50} Questions ({examConfig?.questionCount ?? 50} Marks)</strong>{" "}
-                        randomly shuffled from the 70-question examination pool · Pass Mark:{" "}
-                        <strong>{examConfig?.passMark ?? 75}%</strong> · Time Limit:{" "}
-                        <strong>{examConfig?.timeLimitMin ?? 90} mins</strong>
+                        {isExamPassed
+                          ? `Passed with ${examBestScore !== null ? `${examBestScore}%` : "success"}. Examination completed.`
+                          : `${examConfig?.questionCount ?? 50} Questions · Pass Mark: ${examConfig?.passMark ?? 75}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins`}
                       </p>
 
                       {!isExamUnlocked && (
@@ -1241,44 +1316,51 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     </span>
 
                     <div className={styles.stepBody}>
-                      <p className={styles.kicker}>
-                        <span>Post-Exam Milestone · 1-on-1 Coaching</span>
-                        {stage4State?.isOverridden && (
-                          <span className={styles.overrideBadge}>Staff Override</span>
-                        )}
-                        {isCoachingCompleted ? (
-                          <span className={styles.quizPassedBadge}>✓ Session Completed</span>
-                        ) : activeCoachingReq?.status === "APPROVED" ? (
-                          <span className={styles.quizPassedBadge}>✓ Scheduled</span>
-                        ) : activeCoachingReq?.status === "PENDING_APPROVAL" ? (
-                          <span className={styles.quizRequiredBadge}>Pending Approval</span>
-                        ) : isLatestRejected ? (
-                          <span
-                            className={styles.quizRequiredBadge}
-                            style={{ background: "#fee2e2", color: "#991b1b", borderColor: "#fca5a5" }}
-                          >
-                            Declined · Reapply Available
-                          </span>
-                        ) : !isCoachingRequired ? (
-                          <span
-                            className={styles.quizRequiredBadge}
-                            style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
-                          >
-                            Optional Milestone
-                          </span>
-                        ) : null}
-                      </p>
+                      {(stage4State?.isOverridden || isCoachingCompleted || activeCoachingReq || !isCoachingRequired) && (
+                        <p className={styles.kicker}>
+                          {stage4State?.isOverridden && (
+                            <span className={styles.overrideBadge}>Staff Override</span>
+                          )}
+                          {isCoachingCompleted ? (
+                            <span className={styles.quizPassedBadge}>✓ Session Completed</span>
+                          ) : activeCoachingReq?.status === "APPROVED" ? (
+                            <span className={styles.quizPassedBadge}>✓ Scheduled</span>
+                          ) : activeCoachingReq?.status === "PENDING_APPROVAL" ? (
+                            <span className={styles.quizRequiredBadge}>Pending Approval</span>
+                          ) : isLatestRejected ? (
+                            <span
+                              className={styles.quizRequiredBadge}
+                              style={{ background: "#fee2e2", color: "#991b1b", borderColor: "#fca5a5" }}
+                            >
+                              Declined · Reapply Available
+                            </span>
+                          ) : !isCoachingRequired ? (
+                            <span
+                              className={styles.quizRequiredBadge}
+                              style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
+                            >
+                              Optional Milestone
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
 
-                      <h3 className={styles.stepTitle}>1-on-1 Coaching Session</h3>
+                      <h3 className={styles.stepTitle}>Book 1-on-1 Call</h3>
 
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
-                        Dedicated 1-on-1 coaching session with Roweena or your batch trainer to review your breakthroughs and prepare for your Mission Statement.
+                        {isCoachingCompleted
+                          ? "Coaching session completed with your trainer."
+                          : activeCoachingReq?.status === "APPROVED"
+                          ? "Session scheduled. Join at your confirmed time."
+                          : activeCoachingReq?.status === "PENDING_APPROVAL"
+                          ? "Booking request submitted. Awaiting confirmation."
+                          : "1-on-1 coaching session with your trainer."}
                       </p>
 
                       {!isCoachingUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
-                          <span>Requires passing the {examConfig?.questionCount ?? 50}-Mark Final Examination</span>
+                          <span>Requires passing the Final Examination</span>
                         </div>
                       )}
 
@@ -1314,7 +1396,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 </span>
                               </div>
                               <div style={{ fontSize: "0.85rem", color: "#166534", lineHeight: 1.5, background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "0.75rem 0.95rem", borderRadius: 8 }}>
-                                Congratulations! You have satisfied your 1-on-1 coaching milestone with Roweena. Stage 5 (Mission Statement) is now unlocked.
+                                Coaching session completed. Mission Statement is now unlocked.
                               </div>
                             </div>
                           ) : activeCoachingReq && !showRescheduleForm ? (
@@ -1362,7 +1444,16 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                     gap: "0.3rem",
                                   }}
                                 >
-                                  <span>{activeCoachingReq.status === "APPROVED" ? "✓" : "⏳"}</span>
+                                  {activeCoachingReq.status === "APPROVED" ? (
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                  ) : (
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <circle cx="12" cy="12" r="10" />
+                                      <polyline points="12 6 12 12 16 14" />
+                                    </svg>
+                                  )}
                                   <span>{activeCoachingReq.status.replace("_", " ")}</span>
                                 </span>
                               </div>
@@ -2135,8 +2226,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             ? "View Details"
                             : activeCoachingReq
                             ? "Manage Session"
-                            : !isCoachingRequired
-                            ? "Book Session (Optional)"
                             : "Book Session"}
                         </button>
                       ) : (
@@ -2172,37 +2261,42 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     </span>
 
                     <div className={styles.stepBody}>
-                      <p className={styles.kicker}>
-                        <span>Final Requirement · Personal Commitment</span>
-                        {stage5State?.isOverridden && (
-                          <span className={styles.overrideBadge}>Staff Override</span>
-                        )}
-                        {isMissionApproved ? (
-                          <span className={styles.quizPassedBadge}>✓ Approved</span>
-                        ) : latestMission?.status === "SUBMITTED" ? (
-                          <span className={styles.quizRequiredBadge}>Pending Review</span>
-                        ) : latestMission?.status === "REJECTED" ? (
-                          <span className={styles.quizRequiredBadge}>Revision Requested</span>
-                        ) : !isMissionRequired ? (
-                          <span
-                            className={styles.quizRequiredBadge}
-                            style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
-                          >
-                            Optional Milestone
-                          </span>
-                        ) : null}
-                      </p>
+                      {(stage5State?.isOverridden || isMissionApproved || latestMission || !isMissionRequired) && (
+                        <p className={styles.kicker}>
+                          {stage5State?.isOverridden && (
+                            <span className={styles.overrideBadge}>Staff Override</span>
+                          )}
+                          {isMissionApproved ? (
+                            <span className={styles.quizPassedBadge}>✓ Approved</span>
+                          ) : latestMission?.status === "SUBMITTED" ? (
+                            <span className={styles.quizRequiredBadge}>Pending Review</span>
+                          ) : latestMission?.status === "REJECTED" ? (
+                            <span className={styles.quizRequiredBadge}>Revision Requested</span>
+                          ) : !isMissionRequired ? (
+                            <span
+                              className={styles.quizRequiredBadge}
+                              style={{ background: "#f3f4f6", color: "#4b5563", borderColor: "#e5e7eb" }}
+                            >
+                              Optional Milestone
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
 
                       <h3 className={styles.stepTitle}>Mission Statement</h3>
 
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
-                        Upload your handwritten &amp; signed personal Mission Statement (PDF, JPG, or PNG) to complete your transformation journey.
+                        {isMissionApproved
+                          ? "Mission Statement verified and approved."
+                          : latestMission?.status === "SUBMITTED"
+                          ? "Under review by your coach."
+                          : "Upload your signed personal Mission Statement."}
                       </p>
 
                       {!isMissionUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
-                          <span>Requires completing the 1-on-1 Coaching Session</span>
+                          <span>Requires completing the 1-on-1 Call</span>
                         </div>
                       )}
 
@@ -2354,8 +2448,6 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             ? "View Approved"
                             : latestMission?.status === "SUBMITTED"
                             ? "View Submission"
-                            : !isMissionRequired
-                            ? "Submit Statement (Optional)"
                             : "Submit Statement"}
                         </button>
                       ) : (
@@ -2423,21 +2515,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                     </span>
 
                     <div className={styles.stepBody}>
-                      <p className={styles.kicker} style={{ color: isCertificateClaimed ? "#16a34a" : isCertificateUnlocked ? "#854d0e" : undefined }}>
-                        <span>Final Milestone</span>
-                        {isCertificateClaimed && (
+                      {isCertificateClaimed && (
+                        <p className={styles.kicker} style={{ color: "#16a34a" }}>
                           <span className={styles.quizPassedBadge}>✓ Issued</span>
-                        )}
-                      </p>
+                        </p>
+                      )}
                       <h3 className={styles.stepTitle} style={{ color: isCertificateClaimed ? undefined : isCertificateUnlocked ? "#854d0e" : undefined }}>
                         Certificate of Completion
                       </h3>
                       <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-muted)" }}>
                         {isCertificateClaimed
-                          ? `✓ Certificate #${certificateCode || "Issued"} has been awarded! You can view, download, or share your official credential.`
+                          ? `Certificate #${certificateCode || "Issued"} awarded.`
                           : isCertificateUnlocked
-                          ? "✓ All curriculum steps, Final Exam, 1-on-1 Coaching, and Mission Statement completed! Your verified certificate is ready."
-                          : `Complete all ${total} steps, the 50-Mark Final Examination, 1-on-1 Coaching, and Mission Statement to unlock your official credential.`}
+                          ? "All requirements completed. Your certificate is ready to claim."
+                          : "Unlocks after completing all modules and milestones."}
                       </p>
                     </div>
 
@@ -2548,9 +2639,30 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                   <div style={{ width: "100%", borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: "0.65rem", display: "flex", flexDirection: "column", gap: "0.4rem", textAlign: "left", fontSize: "0.8rem" }}>
                     {journeyProgress.milestones.map((m) => (
                       <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: m.isCompleted ? "#166534" : "var(--text-secondary)" }}>
-                          <span style={{ fontWeight: 700 }}>{m.isCompleted ? "✓" : m.isUnlocked ? "⏳" : "🔒"}</span>
-                          <span style={{ fontSize: "0.78rem" }}>{m.title}</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: m.isCompleted ? "#166534" : "var(--text-secondary)" }}>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: "20px",
+                              height: "20px",
+                              borderRadius: "5px",
+                              background: m.isCompleted ? "#dcfce7" : m.isUnlocked ? "#fef3c7" : "#f1f5f9",
+                              color: m.isCompleted ? "#166534" : m.isUnlocked ? "#d97706" : "#94a3b8",
+                              flexShrink: 0,
+                            }}
+                            aria-hidden="true"
+                          >
+                            {m.isCompleted ? (
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            ) : (
+                              getMilestoneGlyph(m.id)
+                            )}
+                          </span>
+                          <span style={{ fontSize: "0.78rem", fontWeight: m.isUnlocked ? 600 : 500 }}>{m.title}</span>
                         </span>
                         <span style={{
                           fontSize: "0.72rem",

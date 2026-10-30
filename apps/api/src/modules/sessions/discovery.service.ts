@@ -79,7 +79,7 @@ export class DiscoveryService {
     @Optional() @Inject(CALENDAR_PROVIDER) private readonly calendarProvider?: ICalendarProvider,
     @Optional() @Inject(MEETING_PROVIDER) private readonly meetingProvider?: IMeetingProvider,
     @Optional() private readonly emailService?: EmailService,
-  ) {}
+  ) { }
 
   /**
    * Calculates available 15-minute discovery slots for a given date across Roweena's unified schedule:
@@ -373,50 +373,50 @@ export class DiscoveryService {
           },
         });
 
-      // 4. Update Lead Record if leadId is passed, or create lead if direct booking
-      if (dto.leadId) {
-        const existingLead = await tx.lead.findUnique({ where: { id: dto.leadId } });
-        if (existingLead) {
-          await tx.lead.update({
-            where: { id: dto.leadId },
+        // 4. Update Lead Record if leadId is passed, or create lead if direct booking
+        if (dto.leadId) {
+          const existingLead = await tx.lead.findUnique({ where: { id: dto.leadId } });
+          if (existingLead) {
+            await tx.lead.update({
+              where: { id: dto.leadId },
+              data: {
+                status: LeadStatus.CONTACTED,
+                message: [
+                  existingLead.message,
+                  `📅 Discovery Call Scheduled: ${slotStart.toISOString()} | Zoom: ${zoomJoinUrl}`,
+                ]
+                  .filter(Boolean)
+                  .join('\n\n'),
+              },
+            });
+          }
+        } else {
+          const newLead = await tx.lead.create({
             data: {
+              name: prospectName,
+              email: prospectEmail,
+              phone: dto.phone.trim(),
               status: LeadStatus.CONTACTED,
               message: [
-                existingLead.message,
+                `Course Inquiry: ${courseTitle} (ID: ${dto.courseId || 'N/A'})`,
                 `📅 Discovery Call Scheduled: ${slotStart.toISOString()} | Zoom: ${zoomJoinUrl}`,
+                dto.notes ? dto.notes.trim() : null,
               ]
                 .filter(Boolean)
                 .join('\n\n'),
             },
           });
+          dto.leadId = newLead.id;
         }
-      } else {
-        const newLead = await tx.lead.create({
-          data: {
-            name: prospectName,
-            email: prospectEmail,
-            phone: dto.phone.trim(),
-            status: LeadStatus.CONTACTED,
-            message: [
-              `Course Inquiry: ${courseTitle} (ID: ${dto.courseId || 'N/A'})`,
-              `📅 Discovery Call Scheduled: ${slotStart.toISOString()} | Zoom: ${zoomJoinUrl}`,
-              dto.notes ? dto.notes.trim() : null,
-            ]
-              .filter(Boolean)
-              .join('\n\n'),
-          },
-        });
-        dto.leadId = newLead.id;
-      }
 
-      return {
-        session,
-        user,
-        courseTitle,
-        zoomJoinUrl,
-        zoomHostUrl,
-      };
-    }, {
+        return {
+          session,
+          user,
+          courseTitle,
+          zoomJoinUrl,
+          zoomHostUrl,
+        };
+      }, {
       maxWait: 15000,
       timeout: 30000,
     });
@@ -483,49 +483,51 @@ export class DiscoveryService {
 
     // Send confirmation emails
     if (this.emailService) {
-      // Prospect confirmation email
-      this.emailService
-        .sendTemplateEmail({
-          to: prospectEmail,
-          subject: `Confirmed: 15-Minute Discovery Call with Roweena Kini`,
-          template: 'LeadEnquiryNotificationEmail',
-          props: {
-            name: prospectName,
-            email: prospectEmail,
-            phone: dto.phone,
-            message:
-              `Your 1-to-1 Discovery Call with Roweena has been confirmed!\n\n` +
-              `📅 Date: ${dateFormatted}\n` +
-              `⏰ Your Local Time: ${timeLocal} (${tz})\n` +
-              `🇦🇪 Dubai Time: ${timeGst}\n` +
-              `🇮🇳 India Time: ${timeIst}\n\n` +
-              `🔗 Zoom Join Link: ${result.zoomJoinUrl}\n\n` +
-              `Please join 2 minutes before your scheduled start time. We look forward to speaking with you!`,
-          },
-        })
-        .catch((e: any) => this.logger.warn(`Prospect email dispatch warning: ${e?.message}`));
+      await Promise.allSettled([
+        // Prospect confirmation email
+        this.emailService
+          .sendTemplateEmail({
+            to: prospectEmail,
+            subject: `Confirmed: 15-Minute Discovery Call with Roweena Kini`,
+            template: 'LeadEnquiryNotificationEmail',
+            props: {
+              name: prospectName,
+              email: prospectEmail,
+              phone: dto.phone,
+              message:
+                `Your 1-to-1 Discovery Call with Roweena has been confirmed!\n\n` +
+                `📅 Date: ${dateFormatted}\n` +
+                `⏰ Your Local Time: ${timeLocal} (${tz})\n` +
+                `🇦🇪 Dubai Time: ${timeGst}\n` +
+                `🇮🇳 India Time: ${timeIst}\n\n` +
+                `🔗 Zoom Join Link: ${result.zoomJoinUrl}\n\n` +
+                `Please join 2 minutes before your scheduled start time. We look forward to speaking with you!`,
+            },
+          })
+          .catch((e: any) => this.logger.warn(`Prospect email dispatch warning: ${e?.message}`)),
 
-      // Roweena notification email
-      this.emailService
-        .sendTemplateEmail({
-          to: hostEmail,
-          subject: `New 15-Min Discovery Call: ${prospectName} (${result.courseTitle})`,
-          template: 'LeadEnquiryNotificationEmail',
-          props: {
-            name: prospectName,
-            email: prospectEmail,
-            phone: dto.phone,
-            message:
-              `A prospect has booked a 15-minute discovery consultation:\n\n` +
-              `Lead ID: ${dto.leadId || 'N/A'}\n` +
-              `Course: ${result.courseTitle}\n` +
-              `Date: ${dateFormatted}\n` +
-              `GST: ${timeGst}\n` +
-              `IST: ${timeIst}\n` +
-              `Zoom: ${result.zoomJoinUrl}`,
-          },
-        })
-        .catch((e: any) => this.logger.warn(`Host email dispatch warning: ${e?.message}`));
+        // Roweena notification email
+        this.emailService
+          .sendTemplateEmail({
+            to: hostEmail,
+            subject: `New 15-Min Discovery Call: ${prospectName} (${result.courseTitle})`,
+            template: 'LeadEnquiryNotificationEmail',
+            props: {
+              name: prospectName,
+              email: prospectEmail,
+              phone: dto.phone,
+              message:
+                `A prospect has booked a 15-minute discovery consultation:\n\n` +
+                `Lead ID: ${dto.leadId || 'N/A'}\n` +
+                `Course: ${result.courseTitle}\n` +
+                `Date: ${dateFormatted}\n` +
+                `GST: ${timeGst}\n` +
+                `IST: ${timeIst}\n` +
+                `Zoom: ${result.zoomJoinUrl}`,
+            },
+          })
+          .catch((e: any) => this.logger.warn(`Host email dispatch warning: ${e?.message}`)),
+      ]);
     }
 
     return {

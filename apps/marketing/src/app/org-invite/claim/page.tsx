@@ -1,0 +1,302 @@
+"use client";
+
+import { useState, useEffect, type FormEvent, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import {
+  CheckCircle2,
+  Building2,
+  ArrowRight,
+  ShieldCheck,
+  Ticket,
+  Lock,
+} from "lucide-react";
+import Nav from "@/components/site/Nav";
+import Footer from "@/components/site/Footer";
+import SmoothScroll from "@/components/site/SmoothScroll";
+import { API_BASE_URL, LMS_URL } from "@/lib/api";
+
+export default function OrgInviteClaimPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrgInviteClaimContent />
+    </Suspense>
+  );
+}
+
+function OrgInviteClaimContent() {
+  const searchParams = useSearchParams();
+  const initialCode = searchParams?.get("code") || searchParams?.get("voucher") || "";
+
+  const [code, setCode] = useState(initialCode);
+  const [token, setToken] = useState<string | null>(null);
+
+  // Auth / Registration state
+  const [isNewUser, setIsNewUser] = useState(true);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [claimResult, setClaimResult] = useState<any>(null);
+
+  // Check if token exists in localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storedToken = localStorage.getItem("token") || localStorage.getItem("accessToken");
+      if (storedToken) setToken(storedToken);
+    }
+  }, []);
+
+  const handleClaim = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!code.trim()) {
+      setError("Please enter a valid voucher code or invitation token.");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      let activeToken = token;
+
+      // 1. If user is not signed in, create account or sign in first
+      if (!activeToken) {
+        if (isNewUser) {
+          // Quick register
+          const registerRes = await fetch(`${API_BASE_URL}/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fullName,
+              email,
+              password,
+            }),
+          });
+
+          if (!registerRes.ok) {
+            const errData = await registerRes.json().catch(() => ({}));
+            throw new Error(errData.message || "Failed to create account. Please try signing in if you already have an account.");
+          }
+
+          const regData = await registerRes.json();
+          activeToken = regData.accessToken || regData.token;
+          if (activeToken) {
+            localStorage.setItem("token", activeToken);
+            setToken(activeToken);
+          }
+        } else {
+          // Quick login
+          const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+
+          if (!loginRes.ok) {
+            const errData = await loginRes.json().catch(() => ({}));
+            throw new Error(errData.message || "Invalid credentials. Please verify your email and password.");
+          }
+
+          const loginData = await loginRes.json();
+          activeToken = loginData.accessToken || loginData.token;
+          if (activeToken) {
+            localStorage.setItem("token", activeToken);
+            setToken(activeToken);
+          }
+        }
+      }
+
+      if (!activeToken) {
+        throw new Error("Authentication failed. Please sign in to activate your sponsored seat.");
+      }
+
+      // 2. Claim the seat
+      const claimRes = await fetch(`${API_BASE_URL}/org/claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeToken}`,
+        },
+        body: JSON.stringify({ tokenOrCode: code.trim() }),
+      });
+
+      if (!claimRes.ok) {
+        const errData = await claimRes.json().catch(() => ({}));
+        throw new Error(errData.message || "Failed to redeem slot. The voucher may already be claimed or expired.");
+      }
+
+      const result = await claimRes.json();
+      setClaimResult(result);
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred during claim redemption.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <main className="relative min-h-screen bg-cream text-ink">
+      <SmoothScroll />
+      <Nav />
+
+      <section className="relative pt-28 pb-20 sm:pt-36 sm:pb-28">
+        <div className="mx-auto max-w-[1000px] px-5 md:px-10">
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gold/15 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-gold-deep border border-gold/30">
+              <Ticket className="h-3.5 w-3.5" />
+              Institutional Seat Redemption
+            </span>
+            <h1 className="mt-4 text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+              Claim Your Sponsored Batch Seat
+            </h1>
+            <p className="mt-3 text-sm text-ink-soft sm:text-base leading-relaxed">
+              If your university, employer, or training partner has provided you with a WhatBoutMe voucher code, enter it below to activate your enrollment.
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-lg rounded-3xl border border-line bg-white p-6 sm:p-10 shadow-sm">
+            {claimResult ? (
+              <div className="text-center py-4">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 mb-4">
+                  <CheckCircle2 className="h-8 w-8" />
+                </div>
+
+                <h2 className="text-2xl font-bold text-ink">Seat Successfully Activated!</h2>
+                <p className="mt-2 text-sm text-ink-soft leading-relaxed">
+                  Your seat for <strong>{claimResult.enrolment?.program?.title || "WhatBoutMe Program"}</strong> has been officially confirmed.
+                </p>
+
+                <div className="mt-6 rounded-2xl bg-cream/70 border border-line p-5 text-left text-xs leading-relaxed space-y-2">
+                  <div className="font-bold text-ink text-sm mb-2 flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-gold-deep" />
+                    Next Step: Digital Consent Agreement
+                  </div>
+                  <p className="text-ink-soft">
+                    To maintain strict academic integrity, <strong>Step 1</strong> will unlock immediately once you complete and e-sign your digital workshop consent agreement.
+                  </p>
+                </div>
+
+                <div className="mt-8">
+                  <a
+                    href={`${LMS_URL}/agreement`}
+                    className="inline-flex items-center justify-center gap-2 w-full rounded-full bg-gold py-3.5 text-sm font-bold text-ink transition-all hover:bg-gold-deep hover:text-white"
+                  >
+                    Proceed to Digital Agreement
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleClaim} className="space-y-4">
+                {error && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-xs text-rose-700">
+                    ⚠ {error}
+                  </div>
+                )}
+
+                {/* Voucher Code Input */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-ink mb-1.5">
+                    Voucher Code / Invite Token *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. WBM-SLOT-ABCD-1234"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    className="w-full rounded-xl border border-line bg-cream/50 px-4 py-3 text-center text-base font-mono font-bold tracking-wider text-ink uppercase outline-none focus:border-gold-deep focus:bg-white"
+                  />
+                  <span className="block text-[11px] text-ink-soft mt-1">
+                    Format: WBM-SLOT-XXXX-XXXX (Provided by your organization)
+                  </span>
+                </div>
+
+                {/* Identity / Authentication Fields (if not signed in) */}
+                {!token && (
+                  <div className="pt-4 border-t border-line/70 space-y-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-semibold text-ink">Learner Account</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsNewUser(!isNewUser)}
+                        className="text-xs font-bold text-gold-deep hover:underline"
+                      >
+                        {isNewUser ? "Already have an account? Sign In" : "Need an account? Sign Up"}
+                      </button>
+                    </div>
+
+                    {isNewUser && (
+                      <div>
+                        <label className="block text-xs font-medium text-ink-soft mb-1">
+                          Full Name *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Your official full name"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gold-deep"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-medium text-ink-soft mb-1">
+                        Email Address *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="yourname@organization.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gold-deep"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-ink-soft mb-1">
+                        Password *
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gold-deep"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {token && (
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    <span>Signed in. Your account is ready to attach this sponsored seat.</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full rounded-full bg-gold py-3.5 text-sm font-bold text-ink shadow-sm transition-all hover:bg-gold-deep hover:text-white disabled:opacity-60 mt-4"
+                >
+                  {isLoading ? "Validating & Claiming Seat..." : "Redeem Voucher & Activate Seat"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <Footer />
+    </main>
+  );
+}
+

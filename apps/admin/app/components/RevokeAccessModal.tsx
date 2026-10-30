@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "./Toast";
+import { API_URL } from "../lib/api";
 import styles from "./RevokeAccessModal.module.css";
 
 export interface UserEnrolment {
@@ -91,7 +92,7 @@ export function RevokeAccessModal({
 
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+      const apiUrl = API_URL;
 
       const res = await fetch(`${apiUrl}/users/${user.id}/revoke-access`, {
         method: "POST",

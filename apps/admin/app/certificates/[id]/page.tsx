@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { CertificateDetails } from "../Certificate";
 import styles from "../Certificate.module.css";
-import { API_URL } from "../../lib/api";
+import { API_URL, getMarketingUrl } from "../../lib/api";
 
 const Certificate = dynamic(() => import("../Certificate"), { ssr: false });
 
@@ -58,7 +58,7 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
   }
 
   const certCode = details.number || id;
-  const marketingBase = process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000";
+  const marketingBase = getMarketingUrl();
   const verifyUrl = `${marketingBase}/verify/${encodeURIComponent(certCode)}`;
   const issueDateObj = details.issuedAt ? new Date(details.issuedAt) : new Date();
   const linkedInUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(

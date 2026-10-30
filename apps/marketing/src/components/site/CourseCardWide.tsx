@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
+import { stripFormatting } from "./FormattedText";
 
 /** Landscape course card: photo left, details right. Used on the courses page. */
 export default function CourseCardWide({ course }: { course: Course }) {
@@ -37,7 +38,7 @@ export default function CourseCardWide({ course }: { course: Course }) {
         )}
         <span className="mt-2 block flex-1">
           <span className="line-clamp-2 text-sm leading-relaxed text-ink-soft">
-            {course.body}
+            {stripFormatting(course.body)}
           </span>
         </span>
         <span className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4">

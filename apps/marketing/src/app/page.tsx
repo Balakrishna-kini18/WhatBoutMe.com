@@ -27,7 +27,7 @@ export default async function Home() {
       <Offerings />
       <VideoBanner />
       <Programme />
-      <AboutTeaser />
+      <AboutTeaser image={content.about.image} />
       <HomeGallery />
       <GalleryTeaser />
       <Testimonials testimonials={content.testimonials} />

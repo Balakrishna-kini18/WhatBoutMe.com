@@ -71,11 +71,25 @@ export default async function Footer() {
           </nav>
 
           <ul className="space-y-1 text-sm sm:space-y-1.5 sm:text-[15px]">
-            <li>
-              <a href={`mailto:${contact.email}`} className={LINK}>
-                {contact.email}
-              </a>
-            </li>
+            {contact.email && (
+              <li>
+                <a href={`mailto:${contact.email}`} className={LINK}>
+                  {contact.email}
+                </a>
+              </li>
+            )}
+            {contact.social && (
+              <li>
+                <a
+                  href={contact.social.startsWith('http') ? contact.social : `https://${contact.social}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={LINK}
+                >
+                  {contact.social}
+                </a>
+              </li>
+            )}
           </ul>
         </div>
 

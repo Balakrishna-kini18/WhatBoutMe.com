@@ -240,7 +240,10 @@ export default function LearnerDashboardPage() {
       completedLessons,
       image:
         courseImages[idx % courseImages.length] || "/brand/course-learning.webp",
-      route: `/programs/${p.programId}/steps`,
+      route:
+        p.status === "PENDING_AGREEMENT"
+          ? `/agreement?programId=${p.programId}&enrolmentId=${p.enrolmentId}`
+          : `/courses`,
     };
   });
 

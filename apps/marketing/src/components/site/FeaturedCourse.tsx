@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import EnrolLink from "./EnrolLink";
+import { stripFormatting } from "./FormattedText";
 import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
 
 /**
@@ -44,7 +45,7 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
           <p className="mt-2 text-sm text-ink-soft">{facts.join(" · ")}</p>
         )}
         {course.body && (
-          <p className="mt-4 line-clamp-2 max-w-xl leading-relaxed text-ink-soft">{course.body}</p>
+          <p className="mt-4 line-clamp-2 max-w-xl leading-relaxed text-ink-soft">{stripFormatting(course.body)}</p>
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">

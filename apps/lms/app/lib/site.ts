@@ -1,4 +1,4 @@
-import { onThisHost } from "./host";
+import { getMarketingUrl } from "./host";
 import { clearEnrollmentIntent, sanitizeReturnUrl } from "./auth-redirect";
 
 /**
@@ -6,7 +6,7 @@ import { clearEnrollmentIntent, sanitizeReturnUrl } from "./auth-redirect";
  * website, which hands the session over to /sso. These build the website
  * addresses the portal sends people to.
  */
-export const SITE_URL = onThisHost(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3001");
+export const SITE_URL = getMarketingUrl();
 
 /**
  * Click handler for a link to the website that is rendered on the server.
@@ -16,7 +16,7 @@ export const SITE_URL = onThisHost(process.env.NEXT_PUBLIC_SITE_URL || "http://l
  */
 export const toSite = (path = "") => (e: { preventDefault(): void }) => {
   e.preventDefault();
-  const base = onThisHost(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3001");
+  const base = getMarketingUrl();
   window.location.assign(`${base}${path}`);
 };
 

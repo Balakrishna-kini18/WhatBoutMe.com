@@ -4,9 +4,7 @@ import { useEffect, useState, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
 import { Modal, CustomSelect, ConfirmDialog, useToast, TableSkeleton } from "../../../../../components";
-import { errorMessage as extractErrorMessage } from "../../../../../lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { errorMessage as extractErrorMessage, API_URL } from "../../../../../lib/api";
 
 interface UnmatchedItem {
   id: string;

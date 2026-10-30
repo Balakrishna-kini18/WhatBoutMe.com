@@ -32,7 +32,11 @@ export default function Facilitator({ image }: { image: string }) {
               priority
               quality={80}
               sizes="(max-width: 640px) 80vw, 400px"
-              className="absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
+              className={
+                isLocalImage(image)
+                  ? "absolute left-1/2 top-0 h-[165%] w-auto max-w-none -translate-x-1/2"
+                  : "absolute inset-0 m-auto h-[92%] w-[92%] object-contain drop-shadow-md z-10"
+              }
             />
           </div>
         </div>

@@ -69,7 +69,7 @@ const list = <T,>(saved: unknown, fallback: T[]): T[] =>
   Array.isArray(saved) && saved.length > 0 ? (saved as T[]) : fallback;
 
 // fetched at most once every REFRESH_MS; the last good answer is reused on failure
-const REFRESH_MS = 15_000;
+const REFRESH_MS = 2_000;
 let cached: { content: SiteContent; at: number } | null = null;
 let refreshing: Promise<SiteContent> | null = null;
 let failedAt = 0;
@@ -90,7 +90,7 @@ export async function getSiteContent(): Promise<SiteContent> {
 async function fetchSiteContent(): Promise<SiteContent> {
   try {
     const res = await fetch(`${API_BASE_URL}/site-content`, {
-      next: { revalidate: 60, tags: ['website'] },
+      cache: 'no-store',
       signal: AbortSignal.timeout(4000),
     });
     if (res.ok) {

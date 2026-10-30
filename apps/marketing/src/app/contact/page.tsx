@@ -5,7 +5,7 @@ import Nav from "@/components/site/Nav";
 import Footer from "@/components/site/Footer";
 import ContactForm from "@/components/site/ContactForm";
 import { CONTACT } from "@/lib/content";
-import { getSiteContent } from "@/lib/siteContent";
+import { getSiteContent, isLocalImage } from "@/lib/siteContent";
 
 export const metadata: Metadata = {
   title: "Let's Talk — whatboutme",
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ContactPage() {
-  const { contact } = await getSiteContent();
+  const { contact, about } = await getSiteContent();
 
   return (
     <main className="relative min-h-screen bg-cream text-ink">
@@ -43,6 +43,21 @@ export default async function ContactPage() {
                   </a>
                 </dd>
               </div>
+              {contact.social && (
+                <div>
+                  <dt className="text-sm text-ink-soft">Social</dt>
+                  <dd className="mt-1.5">
+                    <a
+                      href={contact.social.startsWith("http") ? contact.social : `https://${contact.social}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-lg font-medium transition-colors hover:text-gold-deep"
+                    >
+                      {contact.social}
+                    </a>
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt className="text-sm text-ink-soft">Enquiries & Consultations</dt>
                 <dd className="mt-1.5 text-sm text-ink-soft leading-relaxed">
@@ -61,7 +76,8 @@ export default async function ContactPage() {
             <figure className="mt-10 hidden max-w-xs lg:block">
               <div className="relative aspect-[4/5] overflow-hidden rounded-[2rem] border border-[#cbb797]">
                 <Image
-                  src="/site/gallery/roweena-05.webp"
+                  src={about.image || "/site/gallery/roweena-05.webp"}
+                  unoptimized={!isLocalImage(about.image || "/site/gallery/roweena-05.webp")}
                   alt="Roweena Britto, Brain Health Coach"
                   fill
                   loading="lazy"

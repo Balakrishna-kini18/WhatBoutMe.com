@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   BadRequestException,
   ConflictException,
@@ -1248,38 +1249,70 @@ export class AgreementsService {
         });
       }
 
-      // Transition enrolment from PENDING_AGREEMENT to ACTIVE
-      if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT) {
-        const batch = enrolment.batchId
-          ? await tx.batch.findUnique({
-              where: { id: enrolment.batchId },
-              include: {
-                _count: {
-                  select: {
-                    enrolments: {
-                      where: {
-                        id: { not: enrolment.id },
-                        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+      // Transition enrolment from PENDING_AGREEMENT to ACTIVE/WAITLIST & update Org Seat consumption
+      const isOrgSponsored = (enrolment as any).fundingSource === 'ORG_SPONSORED';
+      if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT || isOrgSponsored) {
+        let nextStatus: EnrolmentStatus | undefined;
+        if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT) {
+          const batch = enrolment.batchId
+            ? await tx.batch.findUnique({
+                where: { id: enrolment.batchId },
+                include: {
+                  _count: {
+                    select: {
+                      enrolments: {
+                        where: {
+                          id: { not: enrolment.id },
+                          status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                        },
                       },
                     },
                   },
                 },
-              },
-            })
-          : null;
+              })
+            : null;
 
-        const occupied = batch?._count?.enrolments ?? 0;
-        const capacity = batch?.capacity ?? 50;
-        const isFull = occupied >= capacity;
-        const isDeadlinePassed = batch?.registrationDeadline
-          ? new Date() > new Date(batch.registrationDeadline)
-          : false;
+          const occupied = batch?._count?.enrolments ?? 0;
+          const capacity = batch?.capacity ?? 50;
+          const isFull = occupied >= capacity;
+          const isDeadlinePassed = batch?.registrationDeadline
+            ? new Date() > new Date(batch.registrationDeadline)
+            : false;
 
-        const nextStatus = (isFull || isDeadlinePassed) ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE;
+          nextStatus = (isFull || isDeadlinePassed) ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE;
+        }
+
         await tx.enrolment.update({
           where: { id: enrolment.id },
-          data: { status: nextStatus },
+          data: {
+            ...(nextStatus ? { status: nextStatus } : {}),
+            ...(isOrgSponsored ? { orgDataSharingConsentedAt: signingTimestamp } : {}),
+          },
         });
+      }
+
+      // Transition linked numbered Organization Seat to CONSUMED (locks slot from revocation)
+      if ((tx as any).seat) {
+        const linkedSeat = await (tx as any).seat.findFirst({
+          where: { enrolmentId: enrolment.id },
+        });
+        if (linkedSeat && linkedSeat.status !== 'CONSUMED') {
+          await (tx as any).seat.update({
+            where: { id: linkedSeat.id },
+            data: {
+              status: 'CONSUMED',
+              consumedAt: signingTimestamp,
+            },
+          });
+          if ((tx as any).seatPool) {
+            await (tx as any).seatPool.update({
+              where: { id: linkedSeat.seatPoolId },
+              data: {
+                seatsConsumed: { increment: 1 },
+              },
+            });
+          }
+        }
       }
 
       // Create immutable audit log (D1-042)
@@ -1335,9 +1368,9 @@ export class AgreementsService {
 
     if (this.emailService && user?.email) {
       const recipientEmail = user.email;
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
-      this.emailService
-        .sendTemplateEmail({
+      const { lmsUrl } = getAppUrls();
+      try {
+        await this.emailService.sendTemplateEmail({
           to: recipientEmail,
           subject: 'Agreement Signed Confirmation - WhatBoutMe',
           template: 'AgreementSignedConfirmationEmail',
@@ -1347,8 +1380,10 @@ export class AgreementsService {
             signedAt: result.signedAt ? new Date(result.signedAt).toISOString() : new Date().toISOString(),
             dashboardUrl: `${lmsUrl}/dashboard`,
           },
-        })
-        .catch((e: any) => console.warn('[AgreementsService] Agreement email error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[AgreementsService] Agreement email error:', e?.message);
+      }
     }
 
     const finalEnrolmentStatus = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT

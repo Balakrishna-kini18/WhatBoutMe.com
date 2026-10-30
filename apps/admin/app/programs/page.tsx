@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "../page.module.css";
 import pstyles from "./programs.module.css";
-import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
-import { uploadFile, cachedFetch } from "../lib/api";
+import { formatCourseInfo, parseCourseInfo, stripFormatting } from "./courseInfo";
+import { uploadFile, cachedFetch, API_URL, getLmsUrl } from "../lib/api";
 import {
   CustomSelect,
   ActionMenu,
@@ -18,12 +18,6 @@ import {
   MediaPreviewModal,
   type MediaPreviewConfig,
 } from "../components";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" && window.location.hostname.endsWith(".vercel.app")
-    ? "https://what-bout-me-com.vercel.app"
-    : "http://localhost:4000");
 
 interface Program {
   id: string;
@@ -693,14 +687,14 @@ export default function ProgramsPage() {
 
                 {/* Card Content Body */}
                 <div className={pstyles.cardBody}>
-                  <h3 className={pstyles.cardTitle}>
+<h3 className={pstyles.cardTitle}>
                     <Link href={`/programs/${prog.id}`} className={pstyles.cardTitleLink}>
                       {prog.title}
                     </Link>
                   </h3>
 
                   <p className={pstyles.cardSummary}>
-                    {info.summary || "Complete program with modules, video lectures, and assessments."}
+                    {stripFormatting(info.summary) || "Complete program with modules, video lectures, and assessments."}
                   </p>
 
                   {/* Program Asset Pill Counters */}
@@ -790,7 +784,7 @@ export default function ProgramsPage() {
                         },
                         {
                           label: "Preview on LMS",
-                          href: `http://localhost:3000/programs/${prog.id}/steps`,
+                          href: `${getLmsUrl()}/programs/${prog.id}/steps`,
                           icon: (
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -985,7 +979,7 @@ export default function ProgramsPage() {
                 <div style={{ background: "#faf8f5", border: "1px solid #ebd9c4", borderRadius: 10, padding: "0.85rem" }}>
                   <span style={{ fontSize: "0.72rem", color: "#78716a", fontWeight: 600, textTransform: "uppercase" }}>Price</span>
                   <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#b45309" }}>
-                    {quickViewProgram.price ? `$${quickViewProgram.price.toLocaleString()}` : "Free"}
+                    {quickViewProgram.price ? `${quickViewProgram.price.toLocaleString()}` : "Free"}
                   </div>
                 </div>
               </div>

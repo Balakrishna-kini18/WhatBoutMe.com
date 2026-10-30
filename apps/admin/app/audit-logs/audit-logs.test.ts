@@ -46,7 +46,8 @@ describe("Compliance & System Audit Logs Specification", () => {
       expect(periodValues).toContain("CUSTOM");
 
       const today = calculatePeriodDates("TODAY");
-      const nowStr = new Date().toISOString().slice(0, 10);
+      const d = new Date();
+      const nowStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       expect(today.startDate).toBe(nowStr);
       expect(today.endDate).toBe(nowStr);
 

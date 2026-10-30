@@ -183,7 +183,7 @@ export default function Step6AddPdfLesson({
                 {selectedFile ? selectedFile.name : "Upload PDF Document"}
               </h3>
               <p style={{ fontSize: "0.8rem", color: "var(--text-muted, #78716a)", margin: 0 }}>
-                Drag and drop PDF file here (up to 50MB)
+                Drag and drop PDF file here (PDF format up to 100MB)
               </p>
               <input
                 type="file"

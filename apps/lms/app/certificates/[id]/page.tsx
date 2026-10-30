@@ -17,7 +17,8 @@ const Certificate = dynamic(() => import("../Certificate"), {
   ),
 });
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { API_URL } from "../../lib/api";
+import { getMarketingUrl } from "../../lib/host";
 
 interface ExtendedCertDetails extends CertificateDetails {
   id: string;
@@ -134,7 +135,7 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
   }
 
   const certCode = details.code || details.number || id;
-  const marketingBase = process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3000";
+  const marketingBase = getMarketingUrl();
   const verifyUrl = `${marketingBase}/verify/${certCode}`;
   const issueDateObj = details.issuedAt ? new Date(details.issuedAt) : new Date();
   const linkedInUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(

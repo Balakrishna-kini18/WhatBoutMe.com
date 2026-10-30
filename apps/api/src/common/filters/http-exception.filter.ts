@@ -47,6 +47,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
+      if (
+        (exception as any).type === 'entity.too.large' ||
+        (exception as any).status === 413 ||
+        exception.message?.toLowerCase().includes('entity too large')
+      ) {
+        status = HttpStatus.PAYLOAD_TOO_LARGE;
+        code = 'PAYLOAD_TOO_LARGE';
+        message = 'The uploaded file exceeds the allowed size limit. Please upload a smaller file or compress it.';
+      }
     }
 
     let reason: string | undefined;

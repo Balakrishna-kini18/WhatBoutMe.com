@@ -32,6 +32,7 @@ import { CouponsModule } from './modules/coupons/coupons.module.js';
 import { EventsModule } from './modules/events/events.module.js';
 import { GalleryModule } from './modules/gallery/gallery.module.js';
 import { PaymentsModule } from './modules/payments/payments.module.js';
+import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { NotesModule } from './modules/notes/notes.module.js';
 import { MissionStatementsModule } from './modules/mission-statements/mission-statements.module.js';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -108,6 +109,7 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
     EventsModule,
     GalleryModule,
     PaymentsModule,
+    OrganizationsModule,
     NotesModule,
     MissionStatementsModule,
   ],

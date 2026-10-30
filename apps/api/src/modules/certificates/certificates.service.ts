@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   NotFoundException,
@@ -478,9 +479,9 @@ export class CertificatesService {
           include: { user: true, program: true },
         });
         if (enrolment?.user?.email) {
-          const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
-          this.emailService
-            .sendTemplateEmail({
+          const { lmsUrl, marketingUrl } = getAppUrls();
+          try {
+            await this.emailService.sendTemplateEmail({
               to: enrolment.user.email,
               subject: `Certificate Issued: ${enrolment.program?.title || 'Program'}`,
               template: 'CertificateIssuedEmail',
@@ -489,10 +490,12 @@ export class CertificatesService {
                 programName: enrolment.program?.title || 'Course',
                 issueDate: now.toLocaleDateString(),
                 certificateUrl: issuedCert.pdfUrl || `${lmsUrl}/certificates/${issuedCert.id}`,
-                verificationUrl: `${lmsUrl}/verify/${code}`,
+                verificationUrl: `${marketingUrl}/verify/${code}`,
               },
-            })
-            .catch((e: any) => this.logger.warn(`Failed to send certificate email: ${e.message}`));
+            });
+          } catch (e: any) {
+            this.logger.warn(`Failed to send certificate email: ${e.message}`);
+          }
         }
       } catch (err: any) {
         this.logger.warn(`Failed to process certificate email: ${err.message}`);
@@ -522,6 +525,7 @@ export class CertificatesService {
               user: { select: { name: true } },
               signedAgreement: { select: { typedName: true } },
               program: { select: { title: true } },
+              organization: { select: { name: true } },
             },
           },
         },
@@ -554,6 +558,7 @@ export class CertificatesService {
         issueDate: issueDate.toISOString(),
         validityState: certificate.revokedAt ? 'REVOKED' : 'VALID',
         cpdHours: certificate.cpdHours,
+        organizationName: (certificate.enrolment as any)?.organization?.name || null,
         linkedInParameters: {
           certName: `${certificate.enrolment.program.title} Certification`,
           organizationId: 'whatboutme',

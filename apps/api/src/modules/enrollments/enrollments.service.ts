@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -46,6 +47,45 @@ export class EnrollmentsService {
     private readonly cacheHelper: CacheHelperService,
     @Optional() private readonly emailService?: EmailService,
   ) {}
+
+  /**
+   * Single-Count Batch Slot Reservation Formula:
+   * Occupied Seats = Individual Confirmed Enrolments + Active Org Pool Seats + Active Checkout Hold Org Seats
+   */
+  async getBatchOccupiedSeats(batchId: string, tx: any = this.prisma): Promise<number> {
+    const individualEnrolments = await tx.enrolment.count({
+      where: {
+        batchId,
+        status: { in: [...CAPACITY_OCCUPYING_STATUSES] },
+        OR: [
+          { fundingSource: 'SELF_PAID' },
+          { fundingSource: 'ADMIN_COMP' },
+        ],
+      },
+    });
+
+    const activePools = await tx.seatPool.findMany({
+      where: {
+        batchId,
+        status: { in: ['ACTIVE', 'ACTIVE_UNPAID'] },
+      },
+      select: { totalSeats: true },
+    });
+    const activeOrgSeats = activePools.reduce((sum: number, p: any) => sum + p.totalSeats, 0);
+
+    const holdPools = await tx.seatPool.findMany({
+      where: {
+        batchId,
+        status: 'PENDING_PAYMENT',
+        paymentExpiresAt: { gt: new Date() },
+      },
+      select: { totalSeats: true },
+    });
+    const holdOrgSeats = holdPools.reduce((sum: number, p: any) => sum + p.totalSeats, 0);
+
+    return individualEnrolments + activeOrgSeats + holdOrgSeats;
+  }
+
 
   // ─────────────────────────────────────────────────────────────────────────────
   // 1. ENROLMENT CREATION (ADMIN / SYSTEM)
@@ -150,13 +190,8 @@ export class EnrollmentsService {
         throw new BadRequestException('Learner is already enrolled in this batch');
       }
 
-      // Count currently occupied seats in the locked batch
-      const occupiedSeats = await tx.enrolment.count({
-        where: {
-          batchId: dto.batchId,
-          status: { in: [...CAPACITY_OCCUPYING_STATUSES] },
-        },
-      });
+      // Count currently occupied seats using Single-Count Reservation formula
+      const occupiedSeats = await this.getBatchOccupiedSeats(dto.batchId, tx);
 
       const isFull = occupiedSeats >= batch.capacity;
       const isDeadlinePassed = batch.registrationDeadline
@@ -343,12 +378,7 @@ export class EnrollmentsService {
           ) {
             // Check capacity before moving out of waitlist
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${enrolment.batchId}))`;
-            const occupiedSeats = await tx.enrolment.count({
-              where: {
-                batchId: enrolment.batchId,
-                status: { in: [...CAPACITY_OCCUPYING_STATUSES] },
-              },
-            });
+            const occupiedSeats = await this.getBatchOccupiedSeats(enrolment.batchId, tx);
             if (occupiedSeats >= enrolment.batch.capacity) {
               throw new BadRequestException(
                 'Cannot move learner from WAITLIST into active status: batch is at full capacity',
@@ -447,13 +477,8 @@ export class EnrollmentsService {
         );
       }
 
-      // Check current capacity
-      const occupiedSeats = await tx.enrolment.count({
-        where: {
-          batchId,
-          status: { in: [...CAPACITY_OCCUPYING_STATUSES] },
-        },
-      });
+      // Check current capacity using Single-Count Reservation formula
+      const occupiedSeats = await this.getBatchOccupiedSeats(batchId, tx);
 
       if (occupiedSeats >= batch.capacity) {
         throw new BadRequestException(
@@ -583,12 +608,7 @@ export class EnrollmentsService {
       // Lock destination batch
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.destinationBatchId}))`;
 
-      const occupiedInDest = await tx.enrolment.count({
-        where: {
-          batchId: dto.destinationBatchId,
-          status: { in: [...CAPACITY_OCCUPYING_STATUSES] },
-        },
-      });
+      const occupiedInDest = await this.getBatchOccupiedSeats(dto.destinationBatchId, tx);
 
       const destIsFull = occupiedInDest >= destinationBatch.capacity;
 
@@ -767,7 +787,7 @@ export class EnrollmentsService {
       );
     }
 
-    const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+    const { lmsUrl } = getAppUrls();
     const checkoutUrl = `${lmsUrl}/checkout?programId=${enrolment.programId}&enrolmentId=${enrolment.id}&batchId=${enrolment.batchId}`;
     const currency = (enrolment.program.currency || 'USD') as 'USD' | 'AED' | 'INR';
     const currencySymbol = currency === 'INR' ? '₹' : currency === 'AED' ? 'AED ' : '$';

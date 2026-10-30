@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   UnauthorizedException,
@@ -496,11 +497,11 @@ export class AuthService {
     });
 
     if (this.emailService) {
-      const lmsUrl = process.env.NEXT_PUBLIC_LMS_URL || 'http://localhost:3003';
+      const { lmsUrl } = getAppUrls();
       const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
       // 1. Send Welcome Email
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: user.email,
           subject: 'Welcome to WhatBoutMe!',
           template: 'SignupWelcomeEmail',
@@ -508,14 +509,16 @@ export class AuthService {
             firstName,
             loginUrl: `${lmsUrl}/login`,
           },
-        })
-        .catch((e: any) => console.warn('[AuthService] Welcome email error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[AuthService] Welcome email error:', e?.message);
+      }
 
       // 2. Only send link verification email if not already verified via OTP
       if (!user.emailVerifiedAt) {
         const verificationUrl = `${lmsUrl}/verify-email?token=${verificationToken}`;
-        this.emailService
-          .sendTemplateEmail({
+        try {
+          await this.emailService.sendTemplateEmail({
             to: user.email,
             subject: 'Verify your email address - WhatBoutMe',
             template: 'EmailVerificationEmail',
@@ -523,8 +526,10 @@ export class AuthService {
               firstName,
               verificationUrl,
             },
-          })
-          .catch((e: any) => console.warn('[AuthService] Verification email error:', e?.message));
+          });
+        } catch (e: any) {
+          console.warn('[AuthService] Verification email error:', e?.message);
+        }
       }
     }
 
@@ -678,44 +683,96 @@ export class AuthService {
   /**
    * Admin login: only ADMIN / SUPER_ADMIN / MANAGER roles can log in here.
    */
-  async adminLogin(email: string, password: string, metadata?: DeviceSessionMetadata) {
+  async adminLogin(
+    email: string,
+    password: string,
+    metadata?: DeviceSessionMetadata,
+    loginType?: string,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
 
-    if (!user || !user.passwordHash) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
-
-    // Enforce role-based access: only admin roles can use admin login
     const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER];
-    if (!adminRoles.includes(user.role)) {
-      await this.recordLoginAudit({
-        userId: user.id,
-        ipAddress: metadata?.ipAddress,
-        userAgent: metadata?.userAgent,
-        country: metadata?.country,
-        deviceFingerprint: metadata?.deviceFingerprint,
-        isSuspicious: true,
-        reason: 'INSUFFICIENT_PERMISSIONS',
-        userCountry: user.country,
-      });
-      throw new UnauthorizedException('Insufficient permissions for admin access');
-    }
+    const isPlatformAdmin = user ? adminRoles.includes(user.role) : false;
 
-    const passwordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordValid) {
-      await this.recordLoginAudit({
-        userId: user.id,
-        ipAddress: metadata?.ipAddress,
-        userAgent: metadata?.userAgent,
-        country: metadata?.country,
-        deviceFingerprint: metadata?.deviceFingerprint,
-        isSuspicious: true,
-        reason: 'INVALID_PASSWORD',
-        userCountry: user.country,
-      });
-      throw new UnauthorizedException('Invalid email or password');
+    const orgMembership = user
+      ? await this.prisma.organizationMember.findFirst({
+          where: { userId: user.id },
+          include: {
+            organization: true,
+          },
+        })
+      : null;
+
+    const isOrgPortal = loginType === 'organization';
+
+    if (isOrgPortal) {
+      // For organization partners: if account doesn't exist, tell them clearly
+      if (!user || !orgMembership) {
+        throw new UnauthorizedException('No organization is found for this email address');
+      }
+
+      if (
+        orgMembership.organization.status === 'SUSPENDED' ||
+        orgMembership.organization.status === 'ARCHIVED'
+      ) {
+        throw new UnauthorizedException(
+          `This organization workspace is currently ${orgMembership.organization.status.toLowerCase()}. Please contact WhatBoutMe administration.`,
+        );
+      }
+
+      if (!user.passwordHash) {
+        throw new UnauthorizedException('Please set up your organization password using the invite link sent to your email');
+      }
+
+      const passwordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordValid) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: 'INVALID_PASSWORD',
+          userCountry: user.country,
+        });
+        throw new UnauthorizedException('Invalid email or password');
+      }
+    } else {
+      if (!user || !user.passwordHash) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      if (!isPlatformAdmin && !orgMembership) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: 'INSUFFICIENT_PERMISSIONS',
+          userCountry: user.country,
+        });
+        throw new UnauthorizedException('No organization is found for this email address');
+      }
+
+      const passwordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordValid) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: 'INVALID_PASSWORD',
+          userCountry: user.country,
+        });
+        throw new UnauthorizedException('Invalid email or password');
+      }
     }
 
     // If SUPER_ADMIN or ADMIN and 2FA is enabled: DO NOT create a session yet!
@@ -792,6 +849,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        isOrgUser: !isPlatformAdmin && Boolean(orgMembership),
+        organizationId: orgMembership?.organizationId || null,
+        organization: orgMembership ? { id: orgMembership.organization.id, name: orgMembership.organization.name, orgCode: orgMembership.organization.orgCode, role: orgMembership.role, isAuthorizedReseller: orgMembership.organization.isAuthorizedReseller } : null,
+        orgRole: orgMembership?.role || null,
         permissions: Array.from(new Set([
           ...(user.permissions || []),
           ...getRolePermissions(user.role)
@@ -976,50 +1037,65 @@ export class AuthService {
     return this.cacheHelper.getOrSet(
       cacheKey,
       async () => {
-        // the two lookups do not depend on each other, so they run together
-        const [user, sessions] = await Promise.all([this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        role: true,
-        permissions: true,
-        companyId: true,
-        country: true,
-        timezone: true,
-        createdAt: true,
-        enrolments: {
-          select: {
-            id: true,
-            status: true,
-            batchId: true,
-            curriculumCompletedAt: true,
-            currentStage: true,
-            missionStatementApprovedAt: true,
-            examPassedAt: true,
-            oneOnOneCompletedAt: true,
-            batch: {
-              select: {
-                name: true, status: true, programId: true,
-                program: { select: { title: true, status: true } }
+        // the lookups do not depend on each other, so they run together
+        const [user, sessions, orgMembership] = await Promise.all([
+          this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              phone: true,
+              role: true,
+              permissions: true,
+              companyId: true,
+              country: true,
+              timezone: true,
+              createdAt: true,
+              enrolments: {
+                select: {
+                  id: true,
+                  status: true,
+                  batchId: true,
+                  curriculumCompletedAt: true,
+                  currentStage: true,
+                  missionStatementApprovedAt: true,
+                  examPassedAt: true,
+                  oneOnOneCompletedAt: true,
+                  batch: {
+                    select: {
+                      name: true, status: true, programId: true,
+                      program: { select: { title: true, status: true } }
+                    }
+                  }
+                }
               }
             }
-          }
-        }
-      }
-    }),
-      // upcoming sessions of every batch the user is in
-      this.prisma.session.findMany({
-        where: {
-          batch: { enrolments: { some: { userId } } },
-          endTime: { gt: new Date() }, // Only future or ongoing sessions
-        },
-        orderBy: { startTime: 'asc' },
-        take: 5,
-      }),
-    ]);
+          }),
+          // upcoming sessions of every batch the user is in
+          this.prisma.session.findMany({
+            where: {
+              batch: { enrolments: { some: { userId } } },
+              endTime: { gt: new Date() }, // Only future or ongoing sessions
+            },
+            orderBy: { startTime: 'asc' },
+            take: 5,
+          }),
+          this.prisma.organizationMember ? this.prisma.organizationMember.findFirst({
+            where: { userId },
+            include: {
+              organization: {
+                select: {
+                  id: true,
+                  name: true,
+                  orgCode: true,
+                  status: true,
+                  orgType: true,
+                },
+              },
+            },
+          }) : Promise.resolve(null),
+        ]);
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -1169,6 +1245,10 @@ export class AuthService {
       };
     });
 
+    const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER];
+    const isPlatformAdmin = adminRoles.includes(user.role);
+    const isOrgUser = !isPlatformAdmin && Boolean(orgMembership);
+
     return {
       id: user.id,
       email: user.email,
@@ -1177,6 +1257,10 @@ export class AuthService {
       companyId: user.companyId,
       country: user.country,
       timezone: user.timezone,
+      isOrgUser,
+      organizationId: orgMembership?.organizationId || null,
+      organization: orgMembership?.organization || null,
+      orgRole: orgMembership?.role || null,
       enrolledPrograms,
       upcomingSessions: sessions,
     };
@@ -1506,12 +1590,26 @@ export class AuthService {
       },
     });
 
+    const orgMembership = this.prisma.organizationMember
+      ? await this.prisma.organizationMember.findFirst({
+          where: { userId: user.id },
+        })
+      : null;
+    const isStaffOrOrg = Boolean(
+      orgMembership ||
+      user.role === Role.SUPER_ADMIN ||
+      user.role === Role.ADMIN ||
+      user.role === Role.MANAGER ||
+      user.role === Role.TEACHER,
+    );
+    const { adminUrl, lmsUrl } = getAppUrls();
+    const baseUrl = isStaffOrOrg ? adminUrl : lmsUrl;
+    const resetUrl = `${baseUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
+
     if (this.emailService) {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3001';
-      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Learner';
-      const resetUrl = `${siteUrl}/reset-password?token=${rawToken}`;
-      this.emailService
-        .sendTemplateEmail({
+      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : (orgMembership ? 'Partner' : 'Learner');
+      try {
+        await this.emailService.sendTemplateEmail({
           to: user.email,
           subject: 'Reset your password - WhatBoutMe',
           template: 'PasswordResetEmail',
@@ -1519,11 +1617,70 @@ export class AuthService {
             firstName,
             resetUrl,
           },
-        })
-        .catch((e: any) => console.warn('[AuthService] Password reset email error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[AuthService] Password reset email error:', e?.message);
+      }
     }
 
     return genericResponse;
+  }
+
+  /**
+   * Password Reset Verify Token: Validates token without consuming it,
+   * returning whether it is valid and the associated user's email and name.
+   */
+  async verifyPasswordResetToken(token: string) {
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      return { valid: false, error: 'Reset token is missing or malformed.' };
+    }
+
+    const tokenHash = createHash('sha256').update(token.trim()).digest('hex');
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { token: tokenHash },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            deletedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!resetToken) {
+      return { valid: false, error: 'Invalid or unknown reset link.' };
+    }
+
+    if (resetToken.usedAt !== null) {
+      return {
+        valid: false,
+        used: true,
+        email: resetToken.user?.email || null,
+        error: 'This password setup link has already been used. Please request a new one.',
+      };
+    }
+
+    if (resetToken.expiresAt <= new Date()) {
+      return {
+        valid: false,
+        expired: true,
+        email: resetToken.user?.email || null,
+        error: 'This password setup link has expired. Please request a new one.',
+      };
+    }
+
+    if (!resetToken.user || resetToken.user.deletedAt !== null) {
+      return { valid: false, error: 'Associated user account could not be found.' };
+    }
+
+    return {
+      valid: true,
+      email: resetToken.user.email,
+      name: resetToken.user.name,
+    };
   }
 
   /**

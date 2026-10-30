@@ -126,9 +126,10 @@ export const MIN_COURSES = 4;
  * Courses shown on the website: the active programs managed dynamically
  * in the database via the admin portal.
  */
-// The API rate-limits requests, so programs are fetched at most once every
-// REFRESH_MS and the last good answer is reused if a later fetch fails.
-const REFRESH_MS = 15_000;
+// In development, refresh almost immediately (1s) so admin changes reflect instantly.
+// In production, programs are cached for 15s to keep the site fast and rate-limit safe.
+const isDev = process.env.NODE_ENV === "development";
+const REFRESH_MS = isDev ? 1_000 : 15_000;
 let cached: { programs: Program[]; at: number } | null = null;
 let refreshing: Promise<Program[]> | null = null;
 let failedAt = 0;
@@ -140,21 +141,21 @@ let failedAt = 0;
  * timeout, not one per page.
  */
 async function getActivePrograms(): Promise<Program[]> {
-  const fresh = cached && Date.now() - cached.at < REFRESH_MS;
-  const backingOff = Date.now() - failedAt < REFRESH_MS;
+  const fresh = !isDev && cached && Date.now() - cached.at < REFRESH_MS;
+  const backingOff = Date.now() - failedAt < (isDev ? 2_000 : REFRESH_MS);
   if (!fresh && !backingOff && !refreshing) {
     refreshing = fetchActivePrograms().finally(() => {
       refreshing = null;
     });
   }
-  if (cached) return cached.programs;
-  return refreshing ?? [];
+  if (!isDev && cached) return cached.programs;
+  return refreshing ?? cached?.programs ?? [];
 }
 
 async function fetchActivePrograms(): Promise<Program[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/programs`, {
-      next: { revalidate: 60, tags: ['programs'] },
+      next: { revalidate: isDev ? 1 : 15, tags: ['programs'] },
       signal: AbortSignal.timeout(4000),
     });
     if (res.ok) {

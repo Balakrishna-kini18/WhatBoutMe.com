@@ -15,6 +15,8 @@ import {
   Code2,
 } from "lucide-react";
 
+import { API_BASE_URL, ADMIN_URL, LMS_URL } from "@/lib/api";
+
 interface StatusData {
   backend: boolean;
   statusResponse: any;
@@ -123,7 +125,7 @@ export default function StatusDashboard() {
   const services = [
     {
       name: "Main Web Application",
-      url: "http://localhost:3000",
+      url: typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || "https://whatboutme.com"),
       description: "Frontend Next.js marketing and course platform",
       port: 3000,
       icon: Code2,
@@ -132,7 +134,7 @@ export default function StatusDashboard() {
     },
     {
       name: "Core Backend API",
-      url: "http://localhost:4000",
+      url: API_BASE_URL,
       description: "NestJS core API connected to Neon PostgreSQL",
       port: 4000,
       icon: Server,
@@ -141,7 +143,7 @@ export default function StatusDashboard() {
     },
     {
       name: "Learner Portal (LMS)",
-      url: "http://localhost:3003",
+      url: LMS_URL,
       description: "Student portal for video lessons, quizzes, certificates",
       port: 3003,
       icon: GraduationCap,
@@ -150,7 +152,7 @@ export default function StatusDashboard() {
     },
     {
       name: "Admin Dashboard",
-      url: "http://localhost:3002",
+      url: ADMIN_URL,
       description: "Admin & manager portal for cohorts, revenue, invoices",
       port: 3002,
       icon: LayoutDashboard,

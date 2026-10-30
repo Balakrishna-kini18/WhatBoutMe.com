@@ -949,7 +949,13 @@ export class SessionsService {
 
     const cohortSessions = enrolments.length > 0
       ? await this.prisma.session.findMany({
-          where: { batchId: { in: enrolments.map((e) => e.batchId) } },
+          where: {
+            batchId: { in: enrolments.map((e) => e.batchId) },
+            OR: [
+              { sessionType: { not: 'ONE_ON_ONE' } },
+              { learnerId: userId },
+            ],
+          },
           orderBy: { startTime: 'desc' },
           include: {
             hostTrainer: { select: { id: true, name: true, email: true } },
@@ -1674,8 +1680,8 @@ export class SessionsService {
         });
         if (learner?.email) {
           const { lmsUrl } = getAppUrls();
-          this.emailService
-            .sendTemplateEmail({
+          try {
+            await this.emailService.sendTemplateEmail({
               to: learner.email,
               subject: `Session Booking Confirmed: ${session.title}`,
               template: 'SessionBookingConfirmationEmail',
@@ -1687,8 +1693,10 @@ export class SessionsService {
                 time: new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 joinUrl: session.joinUrl || `${lmsUrl}/sessions/${sessionId}`,
               },
-            })
-            .catch((e: any) => this.logger.warn(`Failed to send session booking email: ${e.message}`));
+            });
+          } catch (e: any) {
+            this.logger.warn(`Failed to send session booking email: ${e?.message}`);
+          }
         }
       } catch (err: any) {
         this.logger.warn(`Failed to process session booking email: ${err.message}`);

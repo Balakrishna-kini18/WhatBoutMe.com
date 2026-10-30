@@ -6,7 +6,7 @@ import pstyles from "./programs.module.css";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { formatCourseInfo, parseCourseInfo } from "./courseInfo";
+import { formatCourseInfo, parseCourseInfo, stripFormatting } from "./courseInfo";
 import { uploadFile, cachedFetch, API_URL, getLmsUrl } from "../lib/api";
 import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
 
@@ -599,7 +599,7 @@ export default function ProgramsPage() {
                 <div className={pstyles.cardBody}>
                   <h3 className={pstyles.cardTitle}>{prog.title}</h3>
                   <p className={pstyles.cardDescription}>
-                    {info.summary || "No course summary provided yet."}
+                    {stripFormatting(info.summary) || "No course summary provided yet."}
                   </p>
 
                   {/* Metadata Chips */}
@@ -796,7 +796,7 @@ export default function ProgramsPage() {
 
                   {/* 1-Line Summary */}
                   <p className={pstyles.cardSummary}>
-                    {info.summary || "No course summary provided yet. Open curriculum studio to add syllabus."}
+                    {stripFormatting(info.summary) || "No course summary provided yet. Open curriculum studio to add syllabus."}
                   </p>
 
                   {/* Metadata Row: Modules, Duration, Enrolments */}

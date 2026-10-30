@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import styles from "../../../login/auth.module.css";
 import { API_URL } from "../../../lib/api";
+import { stripFormatting } from "../../../lib/courseInfo";
 
 interface TokenData {
   valid: boolean;
@@ -371,7 +372,7 @@ export default function LeadCheckoutPage({
 
               {data.program.description && (
                 <p style={{ fontSize: "0.82rem", color: "#78716A", margin: "1rem 0 0", lineHeight: 1.45, borderTop: "1px solid #EFEAE2", paddingTop: "0.75rem" }}>
-                  {data.program.description}
+                  {stripFormatting(data.program.description)}
                 </p>
               )}
             </div>

@@ -502,23 +502,25 @@ export class OneOnOneService {
     );
 
     // 3. Send confirmation email asynchronously after transaction commits
-    this.emailService
-      .sendTemplateEmail({
-        to: request.user.email,
-        subject: `Confirmed: 1-on-1 Coaching Session Scheduled`,
-        template: 'SessionReminderEmail',
-        props: {
-          firstName: request.user.name?.split(' ')[0] || 'Learner',
-          sessionTitle,
-          timeframe: 'Scheduled',
-          date: startTime.toDateString(),
-          time: `${startTime.toTimeString().slice(0, 5)} (${request.learnerTimezone || 'UTC'})`,
-          joinUrl,
-        },
-      })
-      .catch((emailErr: any) => {
-        this.logger.warn(`Could not send 1-on-1 confirmation email: ${emailErr.message}`);
-      });
+    if (this.emailService && request.user?.email) {
+      try {
+        await this.emailService.sendTemplateEmail({
+          to: request.user.email,
+          subject: `Confirmed: 1-on-1 Coaching Session Scheduled`,
+          template: 'SessionReminderEmail',
+          props: {
+            firstName: request.user.name?.split(' ')[0] || 'Learner',
+            sessionTitle,
+            timeframe: 'Scheduled',
+            date: startTime.toDateString(),
+            time: `${startTime.toTimeString().slice(0, 5)} (${request.learnerTimezone || 'UTC'})`,
+            joinUrl,
+          },
+        });
+      } catch (emailErr: any) {
+        this.logger.warn(`Could not send 1-on-1 confirmation email: ${emailErr?.message}`);
+      }
+    }
 
     this.logger.log(`Approved 1-on-1 request ${requestId} with session ${updatedRequest.sessionId}`);
     return updatedRequest;

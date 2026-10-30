@@ -389,8 +389,8 @@ export class OrganizationsService {
 
     // Dispatch welcome email asynchronously if requested
     if (resetUrl && this.emailService) {
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: targetEmail,
           subject: `Welcome to WhatBoutMe Partner Portal — Set Up Your Account (${org.name})`,
           template: 'PasswordResetEmail',
@@ -398,10 +398,10 @@ export class OrganizationsService {
             firstName: targetName.split(' ')[0] || targetName,
             resetUrl,
           },
-        })
-        .catch((err: any) =>
-          console.warn('[OrganizationsService] Failed to send partner welcome email:', err?.message),
-        );
+        });
+      } catch (err: any) {
+        console.warn('[OrganizationsService] Failed to send partner welcome email:', err?.message);
+      }
     }
 
     return {

@@ -130,8 +130,8 @@ export class LeadsController {
 
       if (this.emailService) {
         const adminEmail = process.env.SMTP_USER || 'admin@whatboutme.com';
-        this.emailService
-          .sendTemplateEmail({
+        try {
+          await this.emailService.sendTemplateEmail({
             to: adminEmail,
             subject: `New General Inquiry: ${body.name}`,
             template: 'LeadEnquiryNotificationEmail',
@@ -141,8 +141,10 @@ export class LeadsController {
               phone: body.phone,
               message: `[General Inquiry]\n\n${body.message || ''}`,
             },
-          })
-          .catch((e: any) => console.warn('[LeadsController] General inquiry email error:', e?.message));
+          });
+        } catch (e: any) {
+          console.warn('[LeadsController] General inquiry email error:', e?.message);
+        }
       }
 
       // Also persist Lead in CRM table so admin sees it in apps/admin/app/leads/page.tsx
@@ -193,8 +195,8 @@ export class LeadsController {
 
     if (this.emailService) {
       const adminEmail = process.env.SMTP_USER || 'admin@whatboutme.com';
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: adminEmail,
           subject: `New Course Inquiry Lead: ${body.name}`,
           template: 'LeadEnquiryNotificationEmail',
@@ -204,8 +206,10 @@ export class LeadsController {
             phone: body.phone,
             message: messageText,
           },
-        })
-        .catch((e: any) => console.warn('[LeadsController] Lead email notification error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[LeadsController] Lead email notification error:', e?.message);
+      }
     }
 
     return { id: lead.id, status: lead.status, success: true, triggerDiscoveryCall: true, inquiryType: 'COURSE' };
@@ -517,14 +521,14 @@ export class LeadsController {
         : Promise.resolve(),
     ]);
 
-    // 10. Email Payment Link to Prospect (Asynchronous non-blocking dispatch so Admin UI responds immediately)
+    // 10. Email Payment Link to Prospect (Awaited with try/catch to ensure delivery on Vercel Serverless)
     let emailSent = false;
     if (this.emailService) {
       const currencySymbol = currency === 'INR' ? '₹' : currency === 'AED' ? 'AED ' : '$';
       const formattedAmount = `${currencySymbol}${amount.toLocaleString()}`;
 
-      this.emailService
-        .sendEmail({
+      try {
+        await this.emailService.sendEmail({
           to: lead.email,
           subject: `Complete Your Enrolment: ${program.title} — WhatBoutMe`,
           html: `
@@ -563,15 +567,12 @@ export class LeadsController {
             </div>
           `,
           text: `Hi ${lead.name},\n\nYour course enrolment for ${program.title} is ready!\nTuition: ${formattedAmount} ${currency}\n\nComplete checkout here:\n${checkoutUrl}\n\nWhatBoutMe Team`,
-        })
-        .then(() => {
-          this.logger.log(`[convertAndSendLink] Successfully dispatched checkout email to ${lead.email}`);
-        })
-        .catch((err: any) => {
-          this.logger.warn(`[convertAndSendLink] Async email delivery warning for ${lead.email}: ${err?.message}`);
         });
-
-      emailSent = true;
+        emailSent = true;
+        this.logger.log(`[convertAndSendLink] Successfully dispatched checkout email to ${lead.email}`);
+      } catch (err: any) {
+        this.logger.warn(`[convertAndSendLink] Email delivery warning for ${lead.email}: ${err?.message}`);
+      }
     }
 
     return {

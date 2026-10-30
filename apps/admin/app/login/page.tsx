@@ -108,7 +108,7 @@ export default function AdminLogin() {
       const res = await fetch(`${API_URL}/auth/admin-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password, loginType }),
       });
       const data = await res.json().catch(() => null);
 
@@ -150,7 +150,16 @@ export default function AdminLogin() {
           setError("Authentication response missing access token");
         }
       } else {
-        setError(data?.error?.message || data?.message || "Invalid credentials");
+        const rawMsg = data?.error?.message || data?.message || "Invalid credentials";
+        if (
+          loginType === "organization" &&
+          (rawMsg.toLowerCase().includes("insufficient permissions") ||
+           rawMsg.toLowerCase().includes("no organization"))
+        ) {
+          setError("No organization is found for this email address");
+        } else {
+          setError(rawMsg);
+        }
       }
     } catch {
       setError("Failed to connect to server");
@@ -536,38 +545,6 @@ export default function AdminLogin() {
                       <path d="m12 5 7 7-7 7" />
                     </svg>
                   </button>
-
-                  {loginType === "organization" && (
-                    <div style={{ marginTop: "1.25rem", textAlign: "center", borderTop: "1px solid #f1ede6", paddingTop: "1rem" }}>
-                      <p style={{ margin: "0 0 0.5rem", fontSize: "0.8125rem", color: "var(--text-secondary)" }}>
-                        Need to set or reset your organization password?
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleOpenForgotPassword}
-                        style={{
-                          background: "transparent",
-                          border: "1px solid #e5dfd5",
-                          borderRadius: "0.5rem",
-                          padding: "0.5rem 0.875rem",
-                          color: "var(--text-primary)",
-                          fontSize: "0.8125rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          transition: "all 0.2s ease",
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                        </svg>
-                        Reset Organization Password &rarr;
-                      </button>
-                    </div>
-                  )}
                 </form>
 
                 {/* demo accounts for staff only */}

@@ -121,6 +121,69 @@ export interface VideoResumeData {
   updatedAt: number;
 }
 
+export interface VideoAudioPreferences {
+  isMuted: boolean;
+  volume: number;
+  playbackSpeed: number;
+}
+
+const DEFAULT_AUDIO_PREFS: VideoAudioPreferences = {
+  isMuted: false,
+  volume: 1,
+  playbackSpeed: 1,
+};
+
+/**
+ * Persists learner's audio and speed preferences across videos and lessons
+ */
+export function saveLocalVideoAudioPreferences(
+  prefs: Partial<VideoAudioPreferences>
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    const existing = getLocalVideoAudioPreferences();
+    const updated: VideoAudioPreferences = {
+      isMuted: prefs.isMuted !== undefined ? Boolean(prefs.isMuted) : existing.isMuted,
+      volume:
+        prefs.volume !== undefined && Number.isFinite(prefs.volume)
+          ? Math.max(0, Math.min(1, prefs.volume))
+          : existing.volume,
+      playbackSpeed:
+        prefs.playbackSpeed !== undefined && Number.isFinite(prefs.playbackSpeed)
+          ? prefs.playbackSpeed
+          : existing.playbackSpeed,
+    };
+    localStorage.setItem("wbm_video_audio_prefs", JSON.stringify(updated));
+  } catch {
+    // quota or privacy mode safe
+  }
+}
+
+/**
+ * Retrieves persisted audio preferences for seamless multi-part video playback
+ */
+export function getLocalVideoAudioPreferences(): VideoAudioPreferences {
+  if (typeof window === "undefined") return { ...DEFAULT_AUDIO_PREFS };
+  try {
+    const raw = localStorage.getItem("wbm_video_audio_prefs");
+    if (!raw) return { ...DEFAULT_AUDIO_PREFS };
+    const parsed = JSON.parse(raw);
+    return {
+      isMuted: Boolean(parsed?.isMuted),
+      volume:
+        typeof parsed?.volume === "number" && Number.isFinite(parsed.volume)
+          ? Math.max(0, Math.min(1, parsed.volume))
+          : DEFAULT_AUDIO_PREFS.volume,
+      playbackSpeed:
+        typeof parsed?.playbackSpeed === "number" && Number.isFinite(parsed.playbackSpeed)
+          ? parsed.playbackSpeed
+          : DEFAULT_AUDIO_PREFS.playbackSpeed,
+    };
+  } catch {
+    return { ...DEFAULT_AUDIO_PREFS };
+  }
+}
+
 /**
  * Persists current video watch position to localStorage for 0ms instant resume
  */

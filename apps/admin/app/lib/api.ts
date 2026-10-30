@@ -808,6 +808,9 @@ export function apiDelete<T = any>(
 
 /** The API wraps errors as { error: { code, message } }. */
 export async function errorMessage(res: Response, fallback: string): Promise<string> {
+  if (res.status === 413) {
+    return "The uploaded file exceeds the allowed upload limit. Please choose a smaller file or compress it before uploading.";
+  }
   const data = await res.json().catch(() => null);
   const raw = data?.error?.message ?? data?.message;
   return (Array.isArray(raw) ? raw.join(", ") : raw) || `${fallback} (error ${res.status}).`;
@@ -815,6 +818,13 @@ export async function errorMessage(res: Response, fallback: string): Promise<str
 
 /** Uploads an image or PDF and returns its public address. */
 export async function uploadFile(file: File): Promise<string> {
+  const maxBytes = 250 * 1024 * 1024; // 250MB max limit
+  if (file.size > maxBytes) {
+    throw new Error(
+      `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the maximum upload limit of 250 MB. Please compress or optimize the file.`
+    );
+  }
+
   const mimeType =
     file.type ||
     (/\.pdf$/i.test(file.name)

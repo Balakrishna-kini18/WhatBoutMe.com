@@ -36,6 +36,10 @@ interface OrganizationItem {
   assignedSlots: number;
   consumedSlots: number;
   availableSlots: number;
+  pendingApprovalCount?: number;
+  pendingPaymentCount?: number;
+  pendingSlots?: number;
+  pendingBatchNames?: string[];
   activeBatchesCount: number;
   revenueByCurrency: Record<string, number>;
   membersCount: number;
@@ -72,6 +76,11 @@ function OrganizationsContent() {
   const toast = useToast();
   const router = useRouter();
   const { user } = useAuth();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const effectiveUser = user || (typeof window !== "undefined" ? (() => {
     try {
@@ -86,19 +95,16 @@ function OrganizationsContent() {
     (effectiveUser as any)?.isOrgUser ||
     (effectiveUser as any)?.organizationId ||
     (effectiveUser as any)?.organization ||
-    (effectiveUser as any)?.orgRole ||
-    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+    (effectiveUser as any)?.orgRole
   );
   const isPlatformAdmin = Boolean(
-    !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
+    effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN"
   );
-  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
+  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || null;
 
   useEffect(() => {
     if (!isPlatformAdmin && orgId) {
       router.replace(`/users/organizations/${orgId}`);
-    } else if (!isPlatformAdmin) {
-      router.replace("/login");
     }
   }, [isPlatformAdmin, orgId, router]);
   const [organizations, setOrganizations] = useState<OrganizationItem[]>([]);
@@ -282,10 +288,49 @@ function OrganizationsContent() {
   const totalSlotsUtilized = organizations.reduce((sum, o) => sum + (o.assignedSlots + o.consumedSlots), 0);
   const totalActiveBatches = organizations.reduce((sum, o) => sum + o.activeBatchesCount, 0);
 
-  if (!isPlatformAdmin) {
+  if (!mounted) {
     return (
-      <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
-        <p style={{ fontWeight: 600, fontSize: "1rem" }}>Redirecting to your organization workspace...</p>
+      <div className={styles.dashboard}>
+        <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
+          <p style={{ fontWeight: 600, fontSize: "1rem" }}>Loading organizations...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isPlatformAdmin) {
+    if (orgId) {
+      return (
+        <div className={styles.dashboard}>
+          <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
+            <p style={{ fontWeight: 600, fontSize: "1rem" }}>Redirecting to your organization workspace...</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className={styles.dashboard}>
+        <div style={{ maxWidth: 560, margin: "4rem auto", textAlign: "center" }}>
+          <EmptyState
+            icon="Building"
+            title="You are not part of an organization"
+            description="Your account is not currently linked to an active organization workspace. If your organization was recently deleted or you require partner access, please contact WhatBoutMe administration."
+            actionLabel="Return to Home"
+            actionHref="/"
+          />
+          <div style={{ marginTop: "1rem" }}>
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => {
+                localStorage.clear();
+                window.location.href = "/login";
+              }}
+            >
+              Sign Out / Switch Account
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -637,12 +682,57 @@ function OrganizationsContent() {
                             }}
                           />
                         </div>
+                        {(org.pendingPaymentCount || 0) > 0 && (
+                          <div style={{ marginTop: "6px" }}>
+                            <span
+                              style={{
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                color: "#b45309",
+                                background: "#fef3c7",
+                                padding: "2px 7px",
+                                borderRadius: "4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span>💳</span> {org.pendingSlots} slots pending payment
+                            </span>
+                          </div>
+                        )}
+                        {(org.pendingApprovalCount || 0) > 0 && (
+                          <div style={{ marginTop: "6px" }}>
+                            <span
+                              style={{
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                color: "#1d4ed8",
+                                background: "#eff6ff",
+                                padding: "2px 7px",
+                                borderRadius: "4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <span>⏳</span> {org.pendingSlots} slots pending review
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Active Batches */}
                       <td style={{ padding: "14px 18px", color: "#334155" }}>
                         {org.activeBatchesCount > 0 ? (
                           <span style={{ fontWeight: 600 }}>{org.activeBatchesCount} batches</span>
+                        ) : org.pendingBatchNames && org.pendingBatchNames.length > 0 ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: "#92400e" }}>{org.pendingBatchNames[0]}</div>
+                            <div style={{ fontSize: "0.72rem", color: "#b45309", fontWeight: 500 }}>
+                              {(org.pendingPaymentCount || 0) > 0 ? "Awaiting Payment" : "Awaiting Review"}
+                            </div>
+                          </div>
                         ) : (
                           <span style={{ color: "#94a3b8" }}>No active batch</span>
                         )}
@@ -676,27 +766,31 @@ function OrganizationsContent() {
                           <Link
                             href={`/users/organizations/${org.id}`}
                             style={{
-                              display: "inline-block",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "5px",
                               padding: "6px 14px",
                               borderRadius: "6px",
-                              background: "#f1f5f9",
-                              color: "#0f172a",
+                              background: (org.pendingApprovalCount || 0) > 0
+                                ? "#16a34a"
+                                : (org.pendingPaymentCount || 0) > 0
+                                  ? "#c97a1e"
+                                  : "#f1f5f9",
+                              color: ((org.pendingApprovalCount || 0) > 0 || (org.pendingPaymentCount || 0) > 0)
+                                ? "#ffffff"
+                                : "#0f172a",
                               fontWeight: 600,
                               fontSize: "0.82rem",
                               textDecoration: "none",
                               border: "1px solid #cbd5e1",
                               transition: "all 0.15s ease",
                             }}
-                            onMouseEnter={(e) => {
-                              (e.currentTarget as HTMLElement).style.background = "#c97a1e";
-                              (e.currentTarget as HTMLElement).style.color = "#ffffff";
-                            }}
-                            onMouseLeave={(e) => {
-                              (e.currentTarget as HTMLElement).style.background = "#f1f5f9";
-                              (e.currentTarget as HTMLElement).style.color = "#0f172a";
-                            }}
                           >
-                            Workspace &rarr;
+                            {(org.pendingApprovalCount || 0) > 0
+                              ? "Review Request →"
+                              : (org.pendingPaymentCount || 0) > 0
+                                ? "View Workspace (Payment Pending) →"
+                                : "Workspace →"}
                           </Link>
                           <button
                             type="button"

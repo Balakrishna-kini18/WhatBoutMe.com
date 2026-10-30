@@ -28,6 +28,17 @@ export default function Step6AddPdfLesson({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const MAX_SIZE = 100 * 1024 * 1024; // 100MB
+    if (file.size > MAX_SIZE) {
+      setErrorMsg(
+        `Selected PDF is ${(file.size / (1024 * 1024)).toFixed(1)}MB, which exceeds the 100MB limit. Please compress or optimize the file.`
+      );
+      e.target.value = "";
+      setSelectedFile(null);
+      return;
+    }
+
+    setErrorMsg(null);
     setSelectedFile(file);
     if (!title.trim()) {
       setTitle(file.name.replace(/\.pdf$/i, ""));
@@ -42,6 +53,13 @@ export default function Step6AddPdfLesson({
     }
     if (!selectedFile) {
       setErrorMsg("Please choose a PDF file to upload.");
+      return;
+    }
+
+    if (selectedFile.size > 100 * 1024 * 1024) {
+      setErrorMsg(
+        `Selected PDF is ${(selectedFile.size / (1024 * 1024)).toFixed(1)}MB. The maximum allowed size is 100MB.`
+      );
       return;
     }
 
@@ -141,7 +159,7 @@ export default function Step6AddPdfLesson({
               <h3 className={styles.uploadTitle}>
                 {selectedFile ? selectedFile.name : "Upload PDF Document"}
               </h3>
-              <p className={styles.uploadHint}>Drag and drop PDF file here (PDF format up to 50MB)</p>
+              <p className={styles.uploadHint}>Drag and drop PDF file here (PDF format up to 100MB)</p>
               <input
                 type="file"
                 accept="application/pdf"

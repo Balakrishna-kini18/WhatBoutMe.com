@@ -41,6 +41,8 @@ import {
   getQualityTransformedUrl,
   VIDEO_QUALITY_OPTIONS,
   type VideoQuality,
+  saveLocalVideoAudioPreferences,
+  getLocalVideoAudioPreferences,
 } from "./videoPlayerLogic";
 
 export default function CompulsoryVideoPlayer({
@@ -102,6 +104,16 @@ export default function CompulsoryVideoPlayer({
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
   const speedMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // Hydrate persisted audio and playback speed preferences on mount
+  useEffect(() => {
+    const prefs = getLocalVideoAudioPreferences();
+    if (prefs.isMuted) setIsMuted(true);
+    if (typeof prefs.volume === "number") setVolume(prefs.volume);
+    if (typeof prefs.playbackSpeed === "number" && prefs.playbackSpeed > 0) {
+      setPlaybackSpeed(prefs.playbackSpeed);
+    }
+  }, []);
+
   // Close speed menu on outside click
   useEffect(() => {
     if (!showSpeedMenu) return;
@@ -128,7 +140,9 @@ export default function CompulsoryVideoPlayer({
 
   const handleSpeedChange = (speed: number) => {
     setPlaybackSpeed(speed);
+    saveLocalVideoAudioPreferences({ playbackSpeed: speed });
     if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = speed;
       videoRef.current.playbackRate = speed;
     }
     setShowSpeedMenu(false);
@@ -231,6 +245,54 @@ export default function CompulsoryVideoPlayer({
     }, 2800);
   }, []);
 
+  // Synchronize audio properties (mute, volume, playback speed) with HTML video DOM element
+  const syncVideoAudioAndSpeed = useCallback(
+    (videoEl?: HTMLVideoElement | null) => {
+      const video = videoEl || videoRef.current;
+      if (!video) return;
+      try {
+        video.muted = isMuted;
+        video.volume = isMuted ? 0 : volume;
+        video.defaultPlaybackRate = playbackSpeed;
+        video.playbackRate = playbackSpeed;
+      } catch {
+        // Safe guard against browser restrictions
+      }
+    },
+    [isMuted, volume, playbackSpeed]
+  );
+
+  // Handle mute toggling with preference persistence and smart volume restoration
+  const handleToggleMute = useCallback(() => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      let nextVolume = volume;
+      if (!next && volume === 0) {
+        nextVolume = 1;
+        setVolume(1);
+      }
+      saveLocalVideoAudioPreferences({ isMuted: next, volume: nextVolume });
+      if (videoRef.current) {
+        videoRef.current.muted = next;
+        videoRef.current.volume = next ? 0 : nextVolume;
+      }
+      return next;
+    });
+  }, [volume]);
+
+  // Handle volume slider adjustments
+  const handleVolumeChange = useCallback((newVolume: number) => {
+    const clamped = Math.max(0, Math.min(1, newVolume));
+    setVolume(clamped);
+    const nextMuted = clamped === 0;
+    setIsMuted(nextMuted);
+    saveLocalVideoAudioPreferences({ volume: clamped, isMuted: nextMuted });
+    if (videoRef.current) {
+      videoRef.current.muted = nextMuted;
+      videoRef.current.volume = clamped;
+    }
+  }, []);
+
   // Rewind helper: jump back by seconds (safe and non-destructive to watched progress)
   const handleRewind = useCallback((seconds = 10) => {
     const video = videoRef.current;
@@ -300,28 +362,19 @@ export default function CompulsoryVideoPlayer({
         }
       } else if (e.code === "KeyM" || e.key === "m") {
         e.preventDefault();
-        setIsMuted((prev) => !prev);
+        handleToggleMute();
       } else if (e.code === "KeyF" || e.key === "f") {
         e.preventDefault();
         handleToggleFullscreen();
       }
     },
-    [triggerSeekWarning, handleRewind, duration]
+    [triggerSeekWarning, handleRewind, duration, handleToggleMute]
   );
 
-  // Synchronize mute with video element
+  // Re-synchronize DOM audio properties whenever mute, volume, speed, lessonId, or video source changes
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = isMuted;
-    }
-  }, [isMuted]);
-
-  // Synchronize volume
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.volume = volume;
-    }
-  }, [volume]);
+    syncVideoAudioAndSpeed();
+  }, [syncVideoAudioAndSpeed, lessonId, resolvedVideoSrc]);
 
   // Synchronize external seekToTime from notes jump
   useEffect(() => {
@@ -447,9 +500,10 @@ export default function CompulsoryVideoPlayer({
   };
 
   // Playback rate: ensure video adheres to selected speed
-  const handleRateChange = () => {
-    const video = videoRef.current;
+  const handleRateChange = (e?: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = (e?.currentTarget as HTMLVideoElement | undefined) || videoRef.current;
     if (video && video.playbackRate !== playbackSpeed) {
+      video.defaultPlaybackRate = playbackSpeed;
       video.playbackRate = playbackSpeed;
     }
   };
@@ -843,6 +897,7 @@ export default function CompulsoryVideoPlayer({
           ref={videoRef}
           key={`${lessonId}-${resolvedVideoSrc}`}
           src={resolvedVideoSrc}
+          muted={isMuted}
           playsInline
           preload="metadata"
           controls={false}
@@ -850,6 +905,7 @@ export default function CompulsoryVideoPlayer({
           disablePictureInPicture
           onContextMenu={(e) => e.preventDefault()}
           onPlay={() => {
+            syncVideoAudioAndSpeed();
             setIsPlaying(true);
             if (pauseTimeoutRef.current) {
               clearTimeout(pauseTimeoutRef.current);
@@ -859,14 +915,21 @@ export default function CompulsoryVideoPlayer({
           }}
           onPause={handlePause}
           onWaiting={() => setIsBuffering(true)}
-          onPlaying={() => {
+          onPlaying={(e) => {
+            syncVideoAudioAndSpeed(e.currentTarget);
             setIsBuffering(false);
             scheduleControlsHide();
           }}
           onSeeking={handleSeeking}
           onRateChange={handleRateChange}
-          onLoadedMetadata={handleLoadedMetadata}
-          onCanPlay={(e) => applyResumeIfEligible(e.currentTarget)}
+          onLoadedMetadata={(e) => {
+            syncVideoAudioAndSpeed(e.currentTarget);
+            handleLoadedMetadata(e);
+          }}
+          onCanPlay={(e) => {
+            syncVideoAudioAndSpeed(e.currentTarget);
+            applyResumeIfEligible(e.currentTarget);
+          }}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           onError={() => {
@@ -1189,7 +1252,7 @@ export default function CompulsoryVideoPlayer({
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <button
                 type="button"
-                onClick={() => setIsMuted(!isMuted)}
+                onClick={handleToggleMute}
                 aria-label={isMuted ? "Unmute" : "Mute"}
                 style={{
                   background: "none",
@@ -1209,11 +1272,7 @@ export default function CompulsoryVideoPlayer({
                 max="1"
                 step="0.05"
                 value={isMuted ? 0 : volume}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setVolume(val);
-                  setIsMuted(val === 0);
-                }}
+                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
                 style={{
                   width: "60px",
                   height: "4px",

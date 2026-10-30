@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import Reveal from "./Reveal";
+import { isLocalImage } from "@/lib/siteContent";
 
 const FACTS = [
   { value: "25", label: "CPD Hours" },
@@ -10,7 +11,9 @@ const FACTS = [
 ];
 
 /** Short facilitator intro for the landing page; the full story lives on /about. */
-export default function AboutTeaser() {
+export default function AboutTeaser({ image }: { image?: string }) {
+  const displayImage = image && image.trim() ? image.trim() : "/site/gallery/roweena-01.webp";
+
   return (
     <section id="facilitator" className="px-5 sm:px-4 py-16 md:px-8 md:py-24">
       <Reveal className="mx-auto grid max-w-[1240px] overflow-hidden rounded-[2rem] bg-ink text-cream lg:grid-cols-[1.2fr_0.8fr]">
@@ -49,11 +52,12 @@ export default function AboutTeaser() {
           </Link>
         </div>
 
-        {/* her own photo, filling the panel's right side */}
+        {/* Facilitator photo from CMS */}
         <div className="relative aspect-square w-full lg:aspect-auto">
           <Image
-            src="/site/gallery/roweena-01.webp"
-            alt="Roweena Britto on her motorbike"
+            src={displayImage}
+            unoptimized={!isLocalImage(displayImage)}
+            alt="Roweena Britto, Brain Health Coach"
             fill
             quality={80}
             loading="lazy"

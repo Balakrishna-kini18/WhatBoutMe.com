@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./page.module.css";
 import Link from "next/link";
 import Image from "next/image";
@@ -140,6 +141,7 @@ interface DropdownPosition {
 }
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [leadsData, setLeadsData] = useState<any[]>([]);
   const [certificatesData, setCertificatesData] = useState<any[]>([]);
@@ -154,18 +156,38 @@ export default function AdminDashboard() {
     try {
       const stored = localStorage.getItem("user");
       if (stored) {
-        setCurrentUser(JSON.parse(stored));
+        const u = JSON.parse(stored);
+        setCurrentUser(u);
+        const isPlatformAdmin = u.role === "SUPER_ADMIN" || u.role === "ADMIN";
+        const isOrgAccount = Boolean(u.isOrgUser || u.organizationId || u.organization || u.orgRole);
+        if (!isPlatformAdmin && (isOrgAccount || u.role === "USER")) {
+          const targetOrgId = u.organization?.id || u.organizationId;
+          if (targetOrgId) {
+            router.replace(`/users/organizations/${targetOrgId}`);
+          } else {
+            router.replace("/users/organizations");
+          }
+        }
       }
     } catch (e) {
       console.warn("Failed to parse stored user session", e);
     }
-  }, []);
+  }, [router]);
 
   // Fetch real admin dashboard metrics in parallel via Promise.all
   useEffect(() => {
     let active = true;
     const fetchDashboardMetrics = async () => {
       try {
+        const stored = typeof window !== "undefined" ? localStorage.getItem("user") : null;
+        if (stored) {
+          const u = JSON.parse(stored);
+          const isPlatformAdmin = u.role === "SUPER_ADMIN" || u.role === "ADMIN";
+          if (!isPlatformAdmin) {
+            setLoading(false);
+            return;
+          }
+        }
         const [dash, leads, certs, batches, coachingReqs, missions] = await Promise.all([
           apiGet<any>('/admin/dashboard').catch((e) => {
             console.warn("Dashboard fetch error:", e);

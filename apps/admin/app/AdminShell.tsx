@@ -397,16 +397,15 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     (effectiveUser as any)?.isOrgUser ||
     (effectiveUser as any)?.organizationId ||
     (effectiveUser as any)?.organization ||
-    (effectiveUser as any)?.orgRole ||
-    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+    (effectiveUser as any)?.orgRole
   );
   const isPlatformAdmin = Boolean(
-    !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
+    effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN"
   );
   const isOrgUser = Boolean(
-    isOrgAccount || (!isPlatformAdmin && (effectiveUser?.role === "USER" || !effectiveUser?.role))
+    !isPlatformAdmin && (isOrgAccount || effectiveUser?.role === "USER" || !effectiveUser?.role)
   );
-  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
+  const orgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || null;
   const orgName = ((effectiveUser as any)?.organization?.name || "Organization Partner");
   const homeHref = mounted && !isPlatformAdmin && orgId ? `/users/organizations/${orgId}` : "/";
 
@@ -867,9 +866,17 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             ],
           },
         ]
-        : [];
+        : [
+          {
+            title: "ORGANIZATION WORKSPACE",
+            permission: true,
+            items: [
+              { label: "My Organization", href: `/users/organizations`, icon: <Icons.Organizations />, perm: "all" },
+            ],
+          },
+        ];
 
-      const effectiveNavGroups = isPlatformAdmin ? navGroups : (orgId ? orgNavGroups : []);
+      const effectiveNavGroups = isPlatformAdmin ? navGroups : orgNavGroups;
 
       return (
         <div className={`${styles.appContainer} ${isCollapsed ? styles.collapsed : ""}`}>

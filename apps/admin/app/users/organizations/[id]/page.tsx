@@ -15,6 +15,66 @@ import {
 } from "../../../components";
 import { apiGet, apiPatch, apiPost, apiDelete, API_URL } from "../../../lib/api";
 
+function CrownIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={style}
+    >
+      <path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
+function CreditCardIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={style}
+    >
+      <rect width="20" height="14" x="2" y="5" rx="2" />
+      <line x1="2" x2="22" y1="10" y2="10" />
+    </svg>
+  );
+}
+
+function ClockIcon({ size = 13, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={style}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
 interface OrgWorkspaceProps {
   params: Promise<{ id: string }>;
 }
@@ -32,6 +92,11 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const router = useRouter();
   const toast = useToast();
   const { user } = useAuth();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const effectiveUser = user || (typeof window !== "undefined" ? (() => {
     try {
@@ -46,16 +111,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     (effectiveUser as any)?.isOrgUser ||
     (effectiveUser as any)?.organizationId ||
     (effectiveUser as any)?.organization ||
-    (effectiveUser as any)?.orgRole ||
-    (effectiveUser as any)?.email?.toLowerCase() === "gagan@foxwel.ai"
+    (effectiveUser as any)?.orgRole
   );
   const isPlatformAdmin = Boolean(
-    !isOrgAccount && (effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN")
+    effectiveUser?.role === "SUPER_ADMIN" || effectiveUser?.role === "ADMIN"
   );
   const isOrgUser = Boolean(
-    isOrgAccount || (!isPlatformAdmin && (effectiveUser?.role === "USER" || !effectiveUser?.role))
+    !isPlatformAdmin && (isOrgAccount || effectiveUser?.role === "USER" || !effectiveUser?.role)
   );
-  const userOrgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || (isOrgAccount ? "178686d6-d90e-4d1f-aff0-2a3381ebf2b3" : null);
+  const userOrgId = (effectiveUser as any)?.organization?.id || (effectiveUser as any)?.organizationId || null;
 
   useEffect(() => {
     if (!isPlatformAdmin && userOrgId && orgId !== userOrgId) {
@@ -66,6 +130,11 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const tabParam = searchParams?.get("tab");
 
   const [org, setOrg] = useState<any>(null);
+  const [accessError, setAccessError] = useState<{
+    code: "NOT_MEMBER" | "NOT_FOUND" | "SUSPENDED" | "UNKNOWN";
+    title: string;
+    message: string;
+  } | null>(null);
   const [learners, setLearners] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"students" | "pools" | "billing" | "team">("students");
@@ -156,7 +225,29 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
         body: JSON.stringify({ confirmEmail: confirmDeleteEmail.trim() }),
       });
       toast.success(`Organization "${org.name}" permanently deleted.`, "Organization Deleted");
-      router.push("/users/organizations");
+
+      // Clear deleted organization from local storage session
+      if (typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem("user");
+          if (raw) {
+            const u = JSON.parse(raw);
+            if (u.organizationId === org.id || u.organization?.id === org.id) {
+              u.organizationId = null;
+              u.organization = null;
+              u.isOrgUser = false;
+              u.orgRole = null;
+              localStorage.setItem("user", JSON.stringify(u));
+            }
+          }
+        } catch {}
+      }
+
+      if (isPlatformAdmin) {
+        router.push("/users/organizations");
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       setDeleteError(err?.message || "Failed to delete organization");
     } finally {
@@ -224,14 +315,50 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const fetchOrganizationDetails = async () => {
     try {
       setIsLoading(true);
+      setAccessError(null);
       const data = await apiGet(`/admin/organizations/${orgId}`);
       setOrg(data);
       if (data?.defaultCurrency) {
         setPoolForm((prev) => ({ ...prev, currency: data.defaultCurrency }));
         setRequestForm((prev) => ({ ...prev, currency: data.defaultCurrency }));
       }
+      fetchAvailableBatches();
+      fetchLearners();
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load organization", "Error");
+      const msg = e?.message || "";
+      const lower = msg.toLowerCase();
+      if (
+        lower.includes("not a member") ||
+        lower.includes("not member") ||
+        lower.includes("403") ||
+        lower.includes("forbidden")
+      ) {
+        setAccessError({
+          code: "NOT_MEMBER",
+          title: "You are not a member of this organization",
+          message:
+            "Your account is not registered as a member of this organization workspace, or this organization has been deleted.",
+        });
+      } else if (lower.includes("not found") || lower.includes("404")) {
+        setAccessError({
+          code: "NOT_FOUND",
+          title: "Organization Not Found",
+          message:
+            "The requested organization workspace could not be found. It may have been permanently deleted.",
+        });
+      } else if (lower.includes("suspended") || lower.includes("archived")) {
+        setAccessError({
+          code: "SUSPENDED",
+          title: "Organization Inactive",
+          message: msg,
+        });
+      } else {
+        setAccessError({
+          code: "UNKNOWN",
+          title: "Unable to Load Organization",
+          message: msg || "Failed to load organization workspace.",
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -246,8 +373,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
       const data = await apiGet(`/admin/organizations/${orgId}/students?${query.toString()}`);
       setLearners(Array.isArray(data) ? data : []);
-    } catch (e: any) {
-      console.error(e);
+    } catch {
+      // Quietly ignore secondary errors if org is inaccessible
     } finally {
       setIsLearnersLoading(false);
     }
@@ -261,19 +388,22 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       if (batchList.length > 0 && !requestForm.batchId) {
         setRequestForm((prev) => ({ ...prev, batchId: batchList[0].id }));
       }
-    } catch (e) {
-      console.error("Failed to load available batches", e);
+    } catch {
+      // Quietly ignore secondary errors if org is inaccessible
     }
   };
 
   useEffect(() => {
-    fetchOrganizationDetails();
-    fetchAvailableBatches();
+    if (orgId) {
+      fetchOrganizationDetails();
+    }
   }, [orgId]);
 
   useEffect(() => {
-    fetchLearners();
-  }, [orgId, selectedBatchId, studentSearch]);
+    if (org && !accessError) {
+      fetchLearners();
+    }
+  }, [selectedBatchId, studentSearch]);
 
   // Click outside listener for custom batch dropdown
   useEffect(() => {
@@ -516,6 +646,180 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     }
   };
 
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  if (!mounted) {
+    return (
+      <div className={styles.dashboard}>
+        <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
+          <p style={{ fontWeight: 600, fontSize: "1rem" }}>Loading organization workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (accessError) {
+    return (
+      <div className={styles.dashboard}>
+        <div
+          style={{
+            maxWidth: 580,
+            margin: "4rem auto",
+            padding: "2.75rem 2rem",
+            background: "#ffffff",
+            borderRadius: "16px",
+            border: "1px solid var(--border-light, #f0e6d9)",
+            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.05)",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: "50%",
+              background: "#fef3c7",
+              color: "#d97706",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 1.5rem",
+              boxShadow: "0 2px 8px rgba(217, 119, 6, 0.15)",
+            }}
+          >
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+
+          <h2
+            style={{
+              fontSize: "1.35rem",
+              fontWeight: 700,
+              color: "var(--text-primary, #1e1e1e)",
+              margin: "0 0 0.75rem",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {accessError.title}
+          </h2>
+
+          <p
+            style={{
+              fontSize: "0.925rem",
+              color: "var(--text-muted, #6b7280)",
+              lineHeight: 1.55,
+              margin: "0 0 2rem",
+            }}
+          >
+            {accessError.message === "Failed to fetch"
+              ? "Unable to connect to the backend API. The server may have restarted or connectivity was briefly lost."
+              : accessError.message}
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              className={styles.primaryBtn}
+              disabled={isRetrying}
+              onClick={async () => {
+                setIsRetrying(true);
+                setAccessError(null);
+                try {
+                  await fetchOrganizationDetails();
+                } finally {
+                  setIsRetrying(false);
+                }
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              {isRetrying ? "Retrying..." : "🔄 Retry Connection"}
+            </button>
+
+            {isPlatformAdmin ? (
+              <>
+                <Link
+                  href="/users/organizations"
+                  className={styles.secondaryBtn}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    textDecoration: "none",
+                  }}
+                >
+                  ← Back to Organizations Directory
+                </Link>
+                <Link
+                  href="/"
+                  className={styles.secondaryBtn}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    textDecoration: "none",
+                  }}
+                >
+                  Admin Dashboard
+                </Link>
+              </>
+            ) : (
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => {
+                  localStorage.clear();
+                  window.location.href = "/login";
+                }}
+              >
+                Sign Out / Switch Account
+              </button>
+            )}
+          </div>
+
+          <div
+            style={{
+              marginTop: "2rem",
+              paddingTop: "1.25rem",
+              borderTop: "1px solid var(--border-light, #f0e6d9)",
+              fontSize: "0.8125rem",
+              color: "var(--text-muted, #9ca3af)",
+            }}
+          >
+            Need help or think this is an error? Contact{" "}
+            <a
+              href="mailto:support@whatboutme.com"
+              style={{ color: "#d97706", textDecoration: "none", fontWeight: 600 }}
+            >
+              support@whatboutme.com
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading || !org) {
     return (
       <div className={styles.dashboard}>
@@ -656,7 +960,22 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               boxShadow: "0 1px 2px rgba(217, 119, 6, 0.08)",
             }}
           >
-            <span style={{ fontSize: "1.1rem" }}>👑</span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "24px",
+                height: "24px",
+                borderRadius: "6px",
+                background: "rgba(217, 119, 6, 0.15)",
+                color: "#b45309",
+                flexShrink: 0,
+              }}
+              aria-label="Owner Icon"
+            >
+              <CrownIcon size={15} />
+            </span>
             <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#92400e" }}>
               Organization Owner:
             </span>
@@ -676,8 +995,12 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 borderRadius: "4px",
                 textTransform: "uppercase",
                 letterSpacing: "0.5px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
               }}
             >
+              <CrownIcon size={11} />
               Owner
             </span>
           </div>
@@ -1339,10 +1662,21 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             >
               <div>
                 <div style={{ fontWeight: 700, color: "#1e40af", fontSize: "0.88rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>🎉</span> Slot Request Approved — Payment Required
+                  {isOrgUser ? (
+                    <>
+                      <span>🎉</span> Slot Request Approved — Payment Required
+                    </>
+                  ) : (
+                    <>
+                      <ClockIcon size={15} style={{ color: "#1e40af" }} />
+                      Slot Request Approved — Awaiting Organization Payment
+                    </>
+                  )}
                 </div>
                 <div style={{ fontSize: "0.82rem", color: "#1e3a8a", marginTop: "3px" }}>
-                  WhatBoutMe Admin has approved your booking! Complete the simulated payment below to unlock and assign your student seats.
+                  {isOrgUser
+                    ? "WhatBoutMe Admin has approved your booking! Complete the simulated payment below to unlock and assign your student seats."
+                    : `Slot booking request has been approved. Awaiting payment from ${org.name} to activate and unlock the student slots.`}
                 </div>
               </div>
             </div>
@@ -1472,8 +1806,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                                   </>
                                 ) : (
                                   <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
-                                    <span style={{ color: "#b45309", fontSize: "0.8rem", fontWeight: 600 }}>
-                                      ⏳ Awaiting Admin Approval
+                                    <span style={{ color: "#b45309", fontSize: "0.8rem", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                                      <ClockIcon size={13} /> Awaiting Admin Approval
                                     </span>
                                     <button
                                       type="button"
@@ -1500,40 +1834,85 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                             {/* State 2: PENDING_PAYMENT */}
                             {isPendingPayment && (
                               <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenPaymentModal(pool)}
-                                  style={{
-                                    padding: "7px 16px",
-                                    borderRadius: "6px",
-                                    border: "none",
-                                    background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
-                                    color: "#ffffff",
-                                    fontWeight: 700,
-                                    fontSize: "0.82rem",
-                                    cursor: "pointer",
-                                    boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
-                                  }}
-                                >
-                                  💳 Pay Now ({pool.currency} {pool.netAmount?.toLocaleString()}) &rarr;
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCancelPool(pool.id, pool.poolCode)}
-                                  style={{
-                                    padding: "7px 10px",
-                                    borderRadius: "6px",
-                                    border: "1px solid #e2e8f0",
-                                    background: "#ffffff",
-                                    color: "#dc2626",
-                                    fontWeight: 600,
-                                    fontSize: "0.78rem",
-                                    cursor: "pointer",
-                                  }}
-                                  title="Cancel this pending slot request"
-                                >
-                                  ✕ Cancel
-                                </button>
+                                {isOrgUser ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenPaymentModal(pool)}
+                                      style={{
+                                        padding: "7px 16px",
+                                        borderRadius: "6px",
+                                        border: "none",
+                                        background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
+                                        color: "#ffffff",
+                                        fontWeight: 700,
+                                        fontSize: "0.82rem",
+                                        cursor: "pointer",
+                                        boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "6px",
+                                      }}
+                                    >
+                                      <CreditCardIcon size={14} />
+                                      Pay Now ({pool.currency} {pool.netAmount?.toLocaleString()}) &rarr;
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                      style={{
+                                        padding: "7px 10px",
+                                        borderRadius: "6px",
+                                        border: "1px solid #e2e8f0",
+                                        background: "#ffffff",
+                                        color: "#dc2626",
+                                        fontWeight: 600,
+                                        fontSize: "0.78rem",
+                                        cursor: "pointer",
+                                      }}
+                                      title="Cancel this pending slot request"
+                                    >
+                                      ✕ Cancel
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span
+                                      style={{
+                                        color: "#b45309",
+                                        fontSize: "0.78rem",
+                                        fontWeight: 600,
+                                        background: "#fef3c7",
+                                        border: "1px solid #fde68a",
+                                        padding: "5px 10px",
+                                        borderRadius: "6px",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "5px",
+                                      }}
+                                    >
+                                      <ClockIcon size={12} />
+                                      Awaiting Org Payment
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                      style={{
+                                        padding: "5px 9px",
+                                        borderRadius: "6px",
+                                        border: "1px solid #e2e8f0",
+                                        background: "#ffffff",
+                                        color: "#dc2626",
+                                        fontWeight: 600,
+                                        fontSize: "0.76rem",
+                                        cursor: "pointer",
+                                      }}
+                                      title="Cancel this slot request"
+                                    >
+                                      ✕ Cancel
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
 
@@ -1665,8 +2044,12 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                         fontWeight: 700,
                         background: m.role === "OWNER" ? "#fef3c7" : "#f1f5f9",
                         color: m.role === "OWNER" ? "#b45309" : "#475569",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
                       }}
                     >
+                      {m.role === "OWNER" && <CrownIcon size={12} />}
                       {m.role}
                     </span>
                   </td>

@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsNotEmpty, ValidateIf } from 'class-validator';
+import { IsString, IsEmail, IsNotEmpty, ValidateIf, IsOptional } from 'class-validator';
 
 export class LoginDto {
   // Sign in with either the account email or mobile phone
@@ -15,4 +15,8 @@ export class LoginDto {
   @IsString()
   @IsNotEmpty({ message: 'Password is required' })
   password: string;
+
+  @IsOptional()
+  @IsString()
+  loginType?: string;
 }

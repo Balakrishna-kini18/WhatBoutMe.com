@@ -132,19 +132,6 @@ function CoursesContent() {
     ? Math.round(courses.reduce((sum, c) => sum + c.progress, 0) / courses.length)
     : 0;
 
-  const rawTotal = courses.reduce((sum, c) => sum + (c.totalItems ?? 0), 0);
-  const rawDone = courses.reduce((sum, c) => sum + (c.completedItems ?? 0), 0);
-  const rawPending = courses.reduce((sum, c) => sum + (c.pending?.length ?? 0), 0);
-
-  // Dynamic safe fallbacks in case totalItems/completedItems was omitted by the API endpoint
-  const safeItemsTotal = rawTotal > 0
-    ? rawTotal
-    : (courses.length > 0 ? (overall >= 100 ? 41 : courses.length * 10) : 0);
-  const safeItemsDone = rawTotal > 0
-    ? rawDone
-    : (courses.length > 0 ? (overall >= 100 ? safeItemsTotal : Math.round((overall / 100) * safeItemsTotal)) : 0);
-  const safePending = rawPending > 0 ? rawPending : Math.max(0, safeItemsTotal - safeItemsDone);
-
   // SVG Circular Ring circumference for radius 41
   const ringCircumference = 2 * Math.PI * 41; // ~257.61
   const strokeOffset = ringCircumference - (ringCircumference * Math.min(100, Math.max(0, overall))) / 100;
@@ -259,19 +246,10 @@ function CoursesContent() {
             {/* Subtle Vertical Divider Line */}
             <div className={styles.bannerDivider} aria-hidden="true" />
 
-            {/* My Courses Title, Subtitle & Live Dynamic Item Counts */}
+            {/* My Courses Title & Subtitle */}
             <div className={styles.bannerProgressText}>
               <h1 className={styles.bannerTitle}>My Courses</h1>
               <p className={styles.bannerSubtitle}>Continue your learning journey and build your skills</p>
-              
-              <div className={styles.bannerMetricsCol}>
-                <span className={styles.bannerProgressDone}>
-                  {safeItemsDone} of {safeItemsTotal} items done
-                </span>
-                <span className={styles.bannerProgressPending}>
-                  {safePending} still to do
-                </span>
-              </div>
             </div>
           </div>
 

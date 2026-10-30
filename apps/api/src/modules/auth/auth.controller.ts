@@ -158,12 +158,17 @@ export class AuthController {
     const userAgent = req?.headers?.['user-agent'] || null;
     const deviceFingerprint = (req?.headers?.['x-device-fingerprint'] as string) || null;
     const country = (req?.headers?.['cf-ipcountry'] as string) || (req?.headers?.['x-country-code'] as string) || null;
-    return this.authService.adminLogin(body.email ?? '', body.password, {
-      ipAddress,
-      userAgent,
-      deviceFingerprint,
-      country,
-    });
+    return this.authService.adminLogin(
+      body.email ?? '',
+      body.password,
+      {
+        ipAddress,
+        userAgent,
+        deviceFingerprint,
+        country,
+      },
+      body.loginType,
+    );
   }
 
   /**

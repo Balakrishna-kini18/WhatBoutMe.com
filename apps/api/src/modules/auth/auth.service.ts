@@ -679,52 +679,96 @@ export class AuthService {
   /**
    * Admin login: only ADMIN / SUPER_ADMIN / MANAGER roles can log in here.
    */
-  async adminLogin(email: string, password: string, metadata?: DeviceSessionMetadata) {
+  async adminLogin(
+    email: string,
+    password: string,
+    metadata?: DeviceSessionMetadata,
+    loginType?: string,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
 
-    if (!user || !user.passwordHash) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
-
-    // Enforce role-based access: only admin roles can use admin login
     const adminRoles: string[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER];
-    const isPlatformAdmin = adminRoles.includes(user.role);
+    const isPlatformAdmin = user ? adminRoles.includes(user.role) : false;
 
-    const orgMembership = await this.prisma.organizationMember.findFirst({
-      where: { userId: user.id },
-      include: {
-        organization: true,
-      },
-    });
-    if (!isPlatformAdmin && !orgMembership) {
-      await this.recordLoginAudit({
-        userId: user.id,
-        ipAddress: metadata?.ipAddress,
-        userAgent: metadata?.userAgent,
-        country: metadata?.country,
-        deviceFingerprint: metadata?.deviceFingerprint,
-        isSuspicious: true,
-        reason: 'INSUFFICIENT_PERMISSIONS',
-        userCountry: user.country,
-      });
-      throw new UnauthorizedException('Insufficient permissions for admin or organization access');
-    }
+    const orgMembership = user
+      ? await this.prisma.organizationMember.findFirst({
+          where: { userId: user.id },
+          include: {
+            organization: true,
+          },
+        })
+      : null;
 
-    const passwordValid = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordValid) {
-      await this.recordLoginAudit({
-        userId: user.id,
-        ipAddress: metadata?.ipAddress,
-        userAgent: metadata?.userAgent,
-        country: metadata?.country,
-        deviceFingerprint: metadata?.deviceFingerprint,
-        isSuspicious: true,
-        reason: 'INVALID_PASSWORD',
-        userCountry: user.country,
-      });
-      throw new UnauthorizedException('Invalid email or password');
+    const isOrgPortal = loginType === 'organization';
+
+    if (isOrgPortal) {
+      // For organization partners: if account doesn't exist, tell them clearly
+      if (!user || !orgMembership) {
+        throw new UnauthorizedException('No organization is found for this email address');
+      }
+
+      if (
+        orgMembership.organization.status === 'SUSPENDED' ||
+        orgMembership.organization.status === 'ARCHIVED'
+      ) {
+        throw new UnauthorizedException(
+          `This organization workspace is currently ${orgMembership.organization.status.toLowerCase()}. Please contact WhatBoutMe administration.`,
+        );
+      }
+
+      if (!user.passwordHash) {
+        throw new UnauthorizedException('Please set up your organization password using the invite link sent to your email');
+      }
+
+      const passwordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordValid) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: 'INVALID_PASSWORD',
+          userCountry: user.country,
+        });
+        throw new UnauthorizedException('Invalid email or password');
+      }
+    } else {
+      if (!user || !user.passwordHash) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      if (!isPlatformAdmin && !orgMembership) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: 'INSUFFICIENT_PERMISSIONS',
+          userCountry: user.country,
+        });
+        throw new UnauthorizedException('No organization is found for this email address');
+      }
+
+      const passwordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordValid) {
+        await this.recordLoginAudit({
+          userId: user.id,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          country: metadata?.country,
+          deviceFingerprint: metadata?.deviceFingerprint,
+          isSuspicious: true,
+          reason: 'INVALID_PASSWORD',
+          userCountry: user.country,
+        });
+        throw new UnauthorizedException('Invalid email or password');
+      }
     }
 
     // If SUPER_ADMIN or ADMIN and 2FA is enabled: DO NOT create a session yet!

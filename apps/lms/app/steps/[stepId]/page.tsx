@@ -1891,6 +1891,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   {currentMedia?.mediaUrl ? (
                     <div className={styles.videoPlayerViewport}>
                       <CompulsoryVideoPlayer
+                        key={currentMedia.id}
                         lessonId={currentMedia.id}
                         videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
                         userName={userName}

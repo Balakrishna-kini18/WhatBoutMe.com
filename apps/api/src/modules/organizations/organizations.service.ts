@@ -98,6 +98,12 @@ export class OrganizationsService {
               currency: true,
               status: true,
               batchId: true,
+              batch: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
             },
           },
           _count: {
@@ -118,6 +124,10 @@ export class OrganizationsService {
       let assignedSlots = 0;
       let consumedSlots = 0;
       let availableSlots = 0;
+      let pendingApprovalCount = 0;
+      let pendingPaymentCount = 0;
+      let pendingSlots = 0;
+      const pendingBatchNames: string[] = [];
       const batchIds = new Set<string>();
       const revenueByCurrency: Record<string, number> = { USD: 0, AED: 0, INR: 0 };
 
@@ -130,6 +140,18 @@ export class OrganizationsService {
           batchIds.add(pool.batchId);
           revenueByCurrency[pool.currency] =
             (revenueByCurrency[pool.currency] || 0) + pool.netAmount;
+        } else if (pool.status === 'PENDING_APPROVAL') {
+          pendingApprovalCount++;
+          pendingSlots += pool.totalSeats;
+          if (pool.batch?.name && !pendingBatchNames.includes(pool.batch.name)) {
+            pendingBatchNames.push(pool.batch.name);
+          }
+        } else if (pool.status === 'PENDING_PAYMENT') {
+          pendingPaymentCount++;
+          pendingSlots += pool.totalSeats;
+          if (pool.batch?.name && !pendingBatchNames.includes(pool.batch.name)) {
+            pendingBatchNames.push(pool.batch.name);
+          }
         }
       }
 
@@ -153,6 +175,10 @@ export class OrganizationsService {
         assignedSlots,
         consumedSlots,
         availableSlots,
+        pendingApprovalCount,
+        pendingPaymentCount,
+        pendingSlots,
+        pendingBatchNames,
         activeBatchesCount: batchIds.size,
         revenueByCurrency,
         membersCount: org._count.members,

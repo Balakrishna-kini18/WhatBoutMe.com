@@ -419,10 +419,10 @@ export class QuizzesService {
       ? previousAttempts.filter((a) => a.createdAt > lastReset.createdAt)
       : previousAttempts;
 
-    // Verify Max Attempts & Cooldown via computeRetryMetadata
+    // Verify Max Attempts & Cooldown via computeRetryMetadata (Unlimited when maxAttempts >= 999 or not set)
     const retryMeta = this.computeRetryMetadata(quiz, relevantAttempts, quiz.step);
 
-    if (retryMeta.attemptsRemaining <= 0) {
+    if (quiz.maxAttempts && quiz.maxAttempts < 999 && retryMeta.attemptsRemaining <= 0) {
       throw new ForbiddenException({
         statusCode: 403,
         message: `Maximum attempts (${retryMeta.maxAttempts}) exceeded for this quiz. Contact support or your instructor.`,
@@ -433,7 +433,7 @@ export class QuizzesService {
       });
     }
 
-    if (retryMeta.isCooldownActive) {
+    if (quiz.cooldownHours && quiz.cooldownHours > 0 && retryMeta.isCooldownActive) {
       throw new ForbiddenException({
         statusCode: 403,
         message: `Cooldown period active. You may retry after ${retryMeta.cooldownUntil}`,
@@ -1477,8 +1477,8 @@ export class QuizzesService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private computeRetryMetadata(quiz: any, relevantAttempts: any[], step?: any) {
-    const maxAttempts = quiz.maxAttempts ?? 3;
-    const cooldownHours = quiz.cooldownHours ?? 24;
+    const maxAttempts = quiz.maxAttempts && quiz.maxAttempts > 0 ? quiz.maxAttempts : 999;
+    const cooldownHours = quiz.cooldownHours ?? 0;
     const attemptsUsed = relevantAttempts.length;
     const attemptsRemaining = Math.max(0, maxAttempts - attemptsUsed);
 

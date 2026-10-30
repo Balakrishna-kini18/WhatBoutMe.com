@@ -128,9 +128,33 @@ const getUserTimeZone = () => {
   }
 };
 
+const formatTimeOnly = (d: Date) => {
+  const tz = getUserTimeZone();
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: tz });
+};
+
+const getTimeZoneShort = () => {
+  try {
+    const tz = getUserTimeZone();
+    const parts = new Intl.DateTimeFormat([], { timeZoneName: "short", timeZone: tz }).formatToParts(new Date());
+    const tzPart = parts.find((p) => p.type === "timeZoneName");
+    return tzPart?.value || "";
+  } catch {
+    return "";
+  }
+};
+
 const formatTime = (d: Date) => {
   const tz = getUserTimeZone();
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZoneName: "short", timeZone: tz });
+};
+
+const formatTimeRange = (start: Date, end: Date) => {
+  const startTime = formatTimeOnly(start);
+  const endTime = formatTimeOnly(end);
+  const tz = getTimeZoneShort();
+  const dur = formatDuration(start, end);
+  return `${startTime} – ${endTime} ${tz ? `(${tz})` : ""} · ${dur}`;
 };
 
 const formatMonth = (d: Date) =>
@@ -754,14 +778,37 @@ export default function LiveSessionsPage() {
           </div>
           <p className={styles.emptyStateTitle}>
             {tab === "upcoming"
-              ? "No meetings are scheduled for your cohort yet."
-              : "No past meetings."}
+              ? "No upcoming meetings scheduled right now."
+              : "No past meetings yet."}
           </p>
           <p className={styles.emptyStateSubtitle}>
             {tab === "upcoming"
-              ? "Upcoming live classes and 1-on-1 coaching sessions will appear here once scheduled."
-              : "Past live recordings will appear here once they conclude."}
+              ? "Upcoming live cohort classes and 1-on-1 coaching sessions will appear here once scheduled."
+              : "Past live recordings and completed sessions will appear here once they conclude."}
           </p>
+
+          {tab === "upcoming" && (past.length > 0 || sessions.length > 0) && (
+            <div className={styles.emptyActions}>
+              {past.length > 0 && (
+                <button
+                  type="button"
+                  className={styles.emptyActionBtnPrimary}
+                  onClick={() => setTab("past")}
+                >
+                  {Icons.play}
+                  <span>View Past Sessions &amp; Recordings ({past.length})</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.emptyActionBtnSecondary}
+                onClick={() => setTab("calendar")}
+              >
+                {Icons.calendar}
+                <span>Open Calendar Schedule</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div
@@ -882,7 +929,7 @@ export default function LiveSessionsPage() {
                     <div className={styles.metaRow}>
                       <span className={styles.metaIcon} aria-hidden="true">{Icons.clock}</span>
                       <span className={styles.metaText}>
-                        {formatTime(start)} – {formatTime(end)} ({formatDuration(start, end)})
+                        {formatTimeRange(start, end)}
                       </span>
                     </div>
                     <div className={styles.metaRow}>
@@ -931,7 +978,10 @@ export default function LiveSessionsPage() {
                     </a>
                   ) : ended ? (
                     /* Ended, no recording yet */
-                    <span className={styles.statusNote} role="status">Session completed</span>
+                    <span className={styles.statusNote} role="status">
+                      <span className={styles.statusNoteCheck}>{Icons.badgeCheck}</span>
+                      <span>Session completed</span>
+                    </span>
                   ) : s.status === "CANCELLED" ? (
                     /* Cancelled session */
                     <span className={styles.statusNote} role="status">Session cancelled</span>

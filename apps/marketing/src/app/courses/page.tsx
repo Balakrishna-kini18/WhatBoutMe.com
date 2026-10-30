@@ -9,6 +9,8 @@ import PromoBanner from "@/components/site/PromoBanner";
 import { getSiteContent } from "@/lib/siteContent";
 import { getCourses, type Course } from "@/lib/courses";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Courses & Workshops — whatboutme",
   description:

@@ -949,7 +949,13 @@ export class SessionsService {
 
     const cohortSessions = enrolments.length > 0
       ? await this.prisma.session.findMany({
-          where: { batchId: { in: enrolments.map((e) => e.batchId) } },
+          where: {
+            batchId: { in: enrolments.map((e) => e.batchId) },
+            OR: [
+              { sessionType: { not: 'ONE_ON_ONE' } },
+              { learnerId: userId },
+            ],
+          },
           orderBy: { startTime: 'desc' },
           include: {
             hostTrainer: { select: { id: true, name: true, email: true } },

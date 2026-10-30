@@ -4,9 +4,25 @@ import React, { useEffect } from "react";
 
 export interface MediaPreviewConfig {
   isOpen: boolean;
-  type: "VIDEO" | "PDF" | "CERTIFICATE" | "IMAGE";
+  type: "VIDEO" | "PDF" | "CERTIFICATE" | "IMAGE" | "QUIZ";
   title: string;
   src?: string;
+  quizData?: {
+    title?: string;
+    description?: string;
+    passingScore?: number;
+    quizPlacement?: string;
+    questions?: Array<{
+      id?: string;
+      question?: string;
+      title?: string;
+      prompt?: string;
+      type?: string;
+      options?: any[];
+      correctAnswer?: any;
+      points?: number;
+    }>;
+  };
   certificateData?: {
     programTitle: string;
     studentName?: string;
@@ -37,7 +53,7 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
 
   if (!config || !config.isOpen) return null;
 
-  const { type, title, src, certificateData } = config;
+  const { type, title, src, quizData, certificateData } = config;
 
   return (
     <div
@@ -197,6 +213,153 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
                 style={{ width: "100%", height: "100%", border: "none", borderRadius: 8 }}
                 title={`PDF: ${title}`}
               />
+            </div>
+          )}
+
+          {type === "QUIZ" && (
+            <div style={{ width: "100%", maxHeight: "65vh", overflowY: "auto", padding: "1rem" }}>
+              <div
+                style={{
+                  background: "#ffffff",
+                  borderRadius: 12,
+                  border: "1px solid #e7decb",
+                  padding: "1.25rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div>
+                    <h4 style={{ margin: "0 0 0.25rem", fontSize: "1.1rem", fontWeight: 700, color: "#14110f" }}>
+                      {quizData?.title || title}
+                    </h4>
+                    {quizData?.description && (
+                      <p style={{ margin: 0, fontSize: "0.85rem", color: "#78716a" }}>{quizData.description}</p>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {quizData?.quizPlacement && (
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          padding: "0.2rem 0.6rem",
+                          borderRadius: 9999,
+                          background: "#f3e8ff",
+                          color: "#7e22ce",
+                        }}
+                      >
+                        {quizData.quizPlacement === "BEFORE_VIDEO" ? "Pre-Assessment (Before Video)" : "Comprehension (After Video)"}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        padding: "0.2rem 0.6rem",
+                        borderRadius: 9999,
+                        background: "#fef3c7",
+                        color: "#92400e",
+                      }}
+                    >
+                      {quizData?.questions?.length || 0} Questions
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Questions List */}
+              {(!quizData?.questions || quizData.questions.length === 0) ? (
+                <div
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: 12,
+                    border: "1px dashed #ded6cb",
+                    padding: "2rem",
+                    textAlign: "center",
+                    color: "#78716a",
+                  }}
+                >
+                  No questions found in this quiz.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {quizData.questions.map((q, idx) => {
+                    const questionText = q.question || q.title || q.prompt || `Question ${idx + 1}`;
+                    const options = Array.isArray(q.options) ? q.options : [];
+                    return (
+                      <div
+                        key={q.id || idx}
+                        style={{
+                          background: "#ffffff",
+                          borderRadius: 10,
+                          border: "1px solid #ece4d7",
+                          padding: "1rem 1.25rem",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                          <div style={{ display: "flex", gap: "0.5rem" }}>
+                            <span style={{ fontWeight: 700, color: "#d97706", fontSize: "0.9rem" }}>{idx + 1}.</span>
+                            <span style={{ fontWeight: 600, color: "#14110f", fontSize: "0.92rem" }}>{questionText}</span>
+                          </div>
+                          {q.points !== undefined && (
+                            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#78716a", whiteSpace: "nowrap" }}>
+                              {q.points} {q.points === 1 ? "point" : "points"}
+                            </span>
+                          )}
+                        </div>
+
+                        {options.length > 0 && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.45rem", marginLeft: "1.5rem" }}>
+                            {options.map((opt: any, optIdx: number) => {
+                              const text = typeof opt === "string" ? opt : opt.text || String(opt);
+                              const isCorrect = typeof opt === "object" && opt.isCorrect !== undefined
+                                ? opt.isCorrect
+                                : q.correctAnswer === text || q.correctAnswer === String(optIdx);
+
+                              return (
+                                <div
+                                  key={optIdx}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "0.5rem",
+                                    padding: "0.45rem 0.75rem",
+                                    borderRadius: 6,
+                                    fontSize: "0.85rem",
+                                    background: isCorrect ? "#ecfdf5" : "#fdfbf7",
+                                    border: isCorrect ? "1px solid #a7f3d0" : "1px solid #f2ede4",
+                                    color: isCorrect ? "#065f46" : "#44403c",
+                                    fontWeight: isCorrect ? 600 : 400,
+                                  }}
+                                >
+                                  <span style={{ color: isCorrect ? "#059669" : "#a8a29e", fontSize: "0.8rem", fontWeight: 700 }}>
+                                    {String.fromCharCode(65 + optIdx)}.
+                                  </span>
+                                  <span>{text}</span>
+                                  {isCorrect && (
+                                    <span
+                                      style={{
+                                        marginLeft: "auto",
+                                        fontSize: "0.7rem",
+                                        fontWeight: 700,
+                                        textTransform: "uppercase",
+                                        color: "#059669",
+                                        letterSpacing: "0.04em",
+                                      }}
+                                    >
+                                      Correct
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

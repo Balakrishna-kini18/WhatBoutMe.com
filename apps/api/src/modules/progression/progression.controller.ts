@@ -194,6 +194,14 @@ export class ProgressionController {
     return this.stageGateService.evaluateStages(enrolmentId, req?.user);
   }
 
+  @Get('batches/:batchId/stages')
+  async getBatchStages(
+    @Param('batchId') batchId: string,
+    @Request() req: any,
+  ) {
+    return this.stageGateService.evaluateBatchStages(batchId, req?.user);
+  }
+
   @RequirePermission(Permission.STEPS_UNLOCK)
   @Post('admin/enrolments/:enrolmentId/stages/:stage/override')
   async overrideStage(

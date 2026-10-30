@@ -157,3 +157,23 @@ export function formatCourseInfo(info: CourseInfo): string {
     .filter(Boolean)
     .join("\n\n");
 }
+
+
+/**
+ * Strips basic markdown and HTML tags so plain text previews (like card summaries)
+ * do not show raw markup syntax.
+ */
+export function stripFormatting(text?: string | null): string {
+  if (!text) return "";
+  return text
+    .replace(/<[^>]*>/g, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}

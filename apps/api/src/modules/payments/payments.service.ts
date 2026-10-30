@@ -485,8 +485,8 @@ export class PaymentsService {
       // Send Emails
       if (this.emailService && enrolment.user?.email) {
         const { lmsUrl } = getAppUrls();
-        this.emailService
-          .sendTemplateEmail({
+        try {
+          await this.emailService.sendTemplateEmail({
             to: enrolment.user.email,
             subject: `Payment Successful - ${enrolment.program.title} (${invoiceNumber})`,
             template: 'PaymentSuccessEmail',
@@ -498,8 +498,10 @@ export class PaymentsService {
               invoiceNumber,
               dashboardUrl: `${lmsUrl}/dashboard`,
             },
-          })
-          .catch((e) => this.logger.warn(`Email delivery warning: ${e?.message}`));
+          });
+        } catch (e: any) {
+          this.logger.warn(`Email delivery warning: ${e?.message}`);
+        }
       }
 
       return {

@@ -480,8 +480,8 @@ export class CertificatesService {
         });
         if (enrolment?.user?.email) {
           const { lmsUrl, marketingUrl } = getAppUrls();
-          this.emailService
-            .sendTemplateEmail({
+          try {
+            await this.emailService.sendTemplateEmail({
               to: enrolment.user.email,
               subject: `Certificate Issued: ${enrolment.program?.title || 'Program'}`,
               template: 'CertificateIssuedEmail',
@@ -492,8 +492,10 @@ export class CertificatesService {
                 certificateUrl: issuedCert.pdfUrl || `${lmsUrl}/certificates/${issuedCert.id}`,
                 verificationUrl: `${marketingUrl}/verify/${code}`,
               },
-            })
-            .catch((e: any) => this.logger.warn(`Failed to send certificate email: ${e.message}`));
+            });
+          } catch (e: any) {
+            this.logger.warn(`Failed to send certificate email: ${e.message}`);
+          }
         }
       } catch (err: any) {
         this.logger.warn(`Failed to process certificate email: ${err.message}`);

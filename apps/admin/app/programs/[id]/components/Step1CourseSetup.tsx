@@ -7,6 +7,7 @@ import styles from "../curriculum.module.css";
 import { uploadFile } from "../../../lib/api";
 import { CustomSelect } from "../../../components";
 import { parseCourseInfo } from "../../courseInfo";
+import FormattedPreview from "./FormattedPreview";
 
 interface Step1CourseSetupProps {
   programData: any;
@@ -116,14 +117,18 @@ export default function Step1CourseSetup({
   const [isFaqsExpanded, setIsFaqsExpanded] = useState(initialFaqs.length > 0);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [editorTab, setEditorTab] = useState<"write" | "preview">("write");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Text formatting toolbar insertion helper
+  // Text formatting toolbar insertion helper with intelligent selection
   const applyFormat = (
     type: "bold" | "italic" | "underline" | "bullet" | "number" | "link" | "code"
   ) => {
+    // Switch to write tab if currently previewing
+    if (editorTab === "preview") setEditorTab("write");
+
     const textarea = textareaRef.current;
     if (!textarea) return;
 
@@ -131,28 +136,90 @@ export default function Step1CourseSetup({
     const end = textarea.selectionEnd;
     const selected = shortDescription.substring(start, end);
     let replacement = "";
+    let selectStart = start;
+    let selectEnd = start;
 
     switch (type) {
       case "bold":
-        replacement = `**${selected || "bold text"}**`;
+        if (selected) {
+          replacement = `**${selected}**`;
+          selectStart = start;
+          selectEnd = start + replacement.length;
+        } else {
+          replacement = `**bold text**`;
+          selectStart = start + 2;
+          selectEnd = selectStart + "bold text".length;
+        }
         break;
       case "italic":
-        replacement = `*${selected || "italic text"}*`;
+        if (selected) {
+          replacement = `*${selected}*`;
+          selectStart = start;
+          selectEnd = start + replacement.length;
+        } else {
+          replacement = `*italic text*`;
+          selectStart = start + 1;
+          selectEnd = selectStart + "italic text".length;
+        }
         break;
       case "underline":
-        replacement = `<u>${selected || "underlined text"}</u>`;
+        if (selected) {
+          replacement = `<u>${selected}</u>`;
+          selectStart = start;
+          selectEnd = start + replacement.length;
+        } else {
+          replacement = `<u>underlined text</u>`;
+          selectStart = start + 3;
+          selectEnd = selectStart + "underlined text".length;
+        }
         break;
       case "bullet":
-        replacement = `\n• ${selected || "List item"}`;
+        if (selected) {
+          const lines = selected.split("\n");
+          replacement = lines.map((l: string) => (l.startsWith("• ") ? l : `• ${l}`)).join("\n");
+          selectStart = start;
+          selectEnd = start + replacement.length;
+        } else {
+          const needsNewline = start > 0 && shortDescription[start - 1] !== "\n";
+          replacement = `${needsNewline ? "\n" : ""}• List item`;
+          selectStart = start + (needsNewline ? 1 : 0) + 2;
+          selectEnd = selectStart + "List item".length;
+        }
         break;
       case "number":
-        replacement = `\n1. ${selected || "List item"}`;
+        if (selected) {
+          const lines = selected.split("\n");
+          replacement = lines.map((l: string, idx: number) => `${idx + 1}. ${l.replace(/^\d+\.\s*/, "")}`).join("\n");
+          selectStart = start;
+          selectEnd = start + replacement.length;
+        } else {
+          const needsNewline = start > 0 && shortDescription[start - 1] !== "\n";
+          replacement = `${needsNewline ? "\n" : ""}1. List item`;
+          selectStart = start + (needsNewline ? 1 : 0) + 3;
+          selectEnd = selectStart + "List item".length;
+        }
         break;
       case "link":
-        replacement = `[${selected || "Link text"}](https://...)`;
+        if (selected) {
+          replacement = `[${selected}](https://)`;
+          selectStart = start + selected.length + 3;
+          selectEnd = selectStart + "https://".length;
+        } else {
+          replacement = `[Link text](https://)`;
+          selectStart = start + 1;
+          selectEnd = selectStart + "Link text".length;
+        }
         break;
       case "code":
-        replacement = `\`${selected || "code"}\``;
+        if (selected) {
+          replacement = `\`${selected}\``;
+          selectStart = start;
+          selectEnd = start + replacement.length;
+        } else {
+          replacement = `\`code\``;
+          selectStart = start + 1;
+          selectEnd = selectStart + "code".length;
+        }
         break;
     }
 
@@ -164,8 +231,7 @@ export default function Step1CourseSetup({
 
     setTimeout(() => {
       textarea.focus();
-      const cursorOffset = start + replacement.length;
-      textarea.setSelectionRange(cursorOffset, cursorOffset);
+      textarea.setSelectionRange(selectStart, selectEnd);
     }, 0);
   };
 
@@ -415,82 +481,151 @@ export default function Step1CourseSetup({
 
                 {/* Toolbar */}
                 <div className={styles.editorToolbar}>
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("bold")}
-                    title="Bold"
-                    aria-label="Bold"
-                  >
-                    <strong>B</strong>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("italic")}
-                    title="Italic"
-                    aria-label="Italic"
-                  >
-                    <em>I</em>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("underline")}
-                    title="Underline"
-                    aria-label="Underline"
-                  >
-                    <u>U</u>
-                  </button>
-                  <div className={styles.editorToolbarSep} />
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("bullet")}
-                    title="Bullet List"
-                    aria-label="Bullet List"
-                  >
-                    • List
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("number")}
-                    title="Numbered List"
-                    aria-label="Numbered List"
-                  >
-                    1. List
-                  </button>
-                  <div className={styles.editorToolbarSep} />
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("link")}
-                    title="Add Link"
-                    aria-label="Add Link"
-                  >
-                    🔗 Link
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.editorToolbarBtn}
-                    onClick={() => applyFormat("code")}
-                    title="Code"
-                    aria-label="Code"
-                  >
-                    &lt;/&gt;
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("bold")}
+                      title="Bold (**text**)"
+                      aria-label="Bold"
+                    >
+                      <strong>B</strong>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("italic")}
+                      title="Italic (*text*)"
+                      aria-label="Italic"
+                    >
+                      <em>I</em>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("underline")}
+                      title="Underline (<u>text</u>)"
+                      aria-label="Underline"
+                    >
+                      <u>U</u>
+                    </button>
+                    <div className={styles.editorToolbarSep} />
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("bullet")}
+                      title="Bullet List (• item)"
+                      aria-label="Bullet List"
+                    >
+                      • List
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("number")}
+                      title="Numbered List (1. item)"
+                      aria-label="Numbered List"
+                    >
+                      1. List
+                    </button>
+                    <div className={styles.editorToolbarSep} />
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("link")}
+                      title="Add Link [text](url)"
+                      aria-label="Add Link"
+                    >
+                      🔗 Link
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.editorToolbarBtn}
+                      onClick={() => applyFormat("code")}
+                      title="Inline Code"
+                      aria-label="Code"
+                    >
+                      &lt;/&gt;
+                    </button>
+                  </div>
+
+                  {/* Mode Tabs: Write vs Preview */}
+                  <div className={styles.editorToolbarRight}>
+                    <div className={styles.editorTabGroup}>
+                      <button
+                        type="button"
+                        className={`${styles.editorTabBtn} ${editorTab === "write" ? styles.editorTabBtnActive : ""}`}
+                        onClick={() => setEditorTab("write")}
+                        title="Edit text"
+                      >
+                        ✍️ Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.editorTabBtn} ${editorTab === "preview" ? styles.editorTabBtnActive : ""}`}
+                        onClick={() => setEditorTab("preview")}
+                        title="Preview formatted text"
+                      >
+                        👁️ Preview
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <textarea
-                  ref={textareaRef}
-                  required
-                  rows={4}
-                  placeholder="A short overview of the program, target outcomes, and core curriculum highlights..."
-                  value={shortDescription}
-                  onChange={(e) => setShortDescription(e.target.value)}
-                  className={styles.editorTextarea}
-                />
+                {editorTab === "write" ? (
+                  <>
+                    <textarea
+                      ref={textareaRef}
+                      required
+                      rows={4}
+                      placeholder="A short overview of the program, target outcomes, and core curriculum highlights..."
+                      value={shortDescription}
+                      onChange={(e) => setShortDescription(e.target.value)}
+                      className={styles.editorTextarea}
+                    />
+                    <div className={styles.editorHelperNote}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="16" x2="12" y2="12" />
+                        <line x1="12" y1="8" x2="12.01" y2="8" />
+                      </svg>
+                      <span>
+                        Formatting tags like <strong>**bold**</strong>, <em>*italic*</em>, <u>&lt;u&gt;underline&lt;/u&gt;</u>, and lists are automatically rendered on the marketing website.
+                      </span>
+                    </div>
+
+                    {/* Live Website Preview Card */}
+                    {shortDescription.trim() && (
+                      <div className={styles.livePreviewCard}>
+                        <div className={styles.livePreviewHeader}>
+                          <span className={styles.livePreviewBadge}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                            <span>Live Website Preview</span>
+                          </span>
+                          <span className={styles.livePreviewHelp}>
+                            How visitors and learners see your description
+                          </span>
+                        </div>
+                        <div className={styles.livePreviewBody}>
+                          <FormattedPreview text={shortDescription} />
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className={styles.editorPreviewContainer}>
+                    {shortDescription.trim() ? (
+                      <FormattedPreview text={shortDescription} />
+                    ) : (
+                      <p className={styles.editorPreviewEmpty}>
+                        Nothing to preview yet. Switch to the <strong>Edit</strong> tab to write your description.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 2-Column Row: Category | Skill Level */}

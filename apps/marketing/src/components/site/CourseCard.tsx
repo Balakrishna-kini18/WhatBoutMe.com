@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { isOptimisable, type Course } from "@/lib/courses";
+import { stripFormatting } from "./FormattedText";
 
 /**
  * Course card used on the landing page and the course pages, in the same style
@@ -43,7 +44,7 @@ export default function CourseCard({ course }: { course: Course }) {
         {/* wrapper takes the spare height so the clamp stays at two lines */}
         <span className="mt-2 block flex-1">
           <span className="line-clamp-2 text-sm leading-relaxed text-ink-soft">
-            {course.body}
+            {stripFormatting(course.body)}
           </span>
         </span>
       </span>

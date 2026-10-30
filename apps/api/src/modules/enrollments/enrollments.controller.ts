@@ -349,8 +349,8 @@ export class CheckoutController {
       const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
 
       // 1. Payment Confirmation Email
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: user.email,
           subject: `Payment Successful - ${program.title}`,
           template: 'PaymentSuccessEmail',
@@ -360,13 +360,15 @@ export class CheckoutController {
             amount: program.price || 0,
             dashboardUrl: `${lmsUrl}/dashboard`,
           },
-        })
-        .catch((e: any) => console.warn('[CheckoutController] Payment email error:', e?.message));
+        });
+      } catch (e: any) {
+        console.warn('[CheckoutController] Payment email error:', e?.message);
+      }
 
       // 2. Enrolment Confirmed Email
       if (batch) {
-        this.emailService
-          .sendTemplateEmail({
+        try {
+          await this.emailService.sendTemplateEmail({
             to: user.email,
             subject: `Enrollment Confirmed: ${program.title}`,
             template: 'EnrolmentConfirmedEmail',
@@ -377,8 +379,10 @@ export class CheckoutController {
               startDate: batch.startDate ? new Date(batch.startDate).toLocaleDateString() : 'Immediate',
               dashboardUrl: `${lmsUrl}/dashboard`,
             },
-          })
-          .catch((e: any) => console.warn('[CheckoutController] Enrolment email error:', e?.message));
+          });
+        } catch (e: any) {
+          console.warn('[CheckoutController] Enrolment email error:', e?.message);
+        }
       }
     }
 

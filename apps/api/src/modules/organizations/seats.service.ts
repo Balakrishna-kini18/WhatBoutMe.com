@@ -305,14 +305,16 @@ export class SeatsService {
           </div>
         `;
 
-        this.emailService
-          .sendEmail({
+        try {
+          await this.emailService.sendEmail({
             to: result.user.email,
             subject: `Set up your WhatBoutMe account — Sponsored by ${orgName}`,
             html,
             text: `Hello ${studentName},\n\n${orgName} has sponsored your seat in ${programTitle} (${batchName}).\n\nSet up your password and start learning:\n${setupUrl}\n\nWhatBoutMe Team`,
-          })
-          .catch((e: any) => console.warn('[SeatsService] Email dispatch failed:', e?.message));
+          });
+        } catch (e: any) {
+          console.warn('[SeatsService] Email dispatch failed:', e?.message);
+        }
       }
     } else {
       setupUrl = `${lmsUrl}/courses`;
@@ -341,14 +343,16 @@ export class SeatsService {
           </div>
         `;
 
-        this.emailService
-          .sendEmail({
+        try {
+          await this.emailService.sendEmail({
             to: result.user.email,
             subject: `New Course Enrollment: ${programTitle} — Sponsored by ${orgName}`,
             html,
             text: `Hello ${studentName},\n\nYou have been enrolled in ${programTitle} by ${orgName}.\n\nAccess your course:\n${lmsUrl}/courses\n\nWhatBoutMe Team`,
-          })
-          .catch((e: any) => console.warn('[SeatsService] Email dispatch failed:', e?.message));
+          });
+        } catch (e: any) {
+          console.warn('[SeatsService] Email dispatch failed:', e?.message);
+        }
       }
     }
 
@@ -458,6 +462,7 @@ export class SeatsService {
       inviteUrl?: string;
       voucherCode?: string;
     }> = [];
+    const emailsToSend: Array<{ to: string; subject: string; html: string; text: string }> = [];
 
     const { lmsUrl, marketingUrl } = getAppUrls();
     const defaultPasswordHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
@@ -581,7 +586,7 @@ export class SeatsService {
           voucherCode: voucher ? voucher.raw : undefined,
         });
 
-        // Dispatch email notification
+        // Queue email notification to dispatch after tx commits
         if (this.emailService) {
           const studentName = user.name || 'Learner';
           const emailSubject = passwordSetupToken
@@ -609,14 +614,12 @@ export class SeatsService {
             </div>
           `;
 
-          this.emailService
-            .sendEmail({
-              to: email,
-              subject: emailSubject,
-              html,
-              text: `Hello ${studentName},\n\n${pool.organization.name} has enrolled you in ${pool.program.title}.\n\nAccess your course:\n${setupUrl}\n\nWhatBoutMe Team`,
-            })
-            .catch((e: any) => console.warn('[SeatsService] Bulk invite email failed:', e?.message));
+          emailsToSend.push({
+            to: email,
+            subject: emailSubject,
+            html,
+            text: `Hello ${studentName},\n\n${pool.organization.name} has enrolled you in ${pool.program.title}.\n\nAccess your course:\n${setupUrl}\n\nWhatBoutMe Team`,
+          });
         }
       }
 
@@ -644,6 +647,17 @@ export class SeatsService {
         },
       });
     }, { maxWait: 20000, timeout: 60000 });
+
+    // Dispatch queued bulk emails after database transaction successfully commits
+    if (this.emailService && emailsToSend.length > 0) {
+      await Promise.allSettled(
+        emailsToSend.map((item) =>
+          this.emailService!.sendEmail(item).catch((e: any) =>
+            console.warn('[SeatsService] Bulk invite email failed for', item.to, e?.message),
+          ),
+        ),
+      );
+    }
 
     return {
       success: true,

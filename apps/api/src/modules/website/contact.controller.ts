@@ -165,8 +165,8 @@ export class ContactController {
 
       // Email the team
       if (this.emailService) {
-        this.emailService
-          .sendTemplateEmail({
+        try {
+          await this.emailService.sendTemplateEmail({
             to: adminEmail,
             subject: `High-Intent Course Inquiry: ${name} (${courseTitle})`,
             template: 'LeadEnquiryNotificationEmail',
@@ -176,10 +176,10 @@ export class ContactController {
               phone,
               message: `Course: ${courseTitle} (ID: ${courseId})\n\n${message}`,
             },
-          })
-          .catch((err) =>
-            console.warn('[ContactController] Course inquiry email error:', err?.message),
-          );
+          });
+        } catch (err: any) {
+          console.warn('[ContactController] Course inquiry email error:', err?.message);
+        }
       }
 
       return {
@@ -265,8 +265,8 @@ export class ContactController {
 
     // Email team
     if (this.emailService) {
-      this.emailService
-        .sendTemplateEmail({
+      try {
+        await this.emailService.sendTemplateEmail({
           to: adminEmail,
           subject: `New General Inquiry from ${name}`,
           template: 'LeadEnquiryNotificationEmail',
@@ -276,10 +276,10 @@ export class ContactController {
             phone,
             message: `[General Inquiry]\n\n${message}`,
           },
-        })
-        .catch((err) =>
-          console.warn('[ContactController] General inquiry email error:', err?.message),
-        );
+        });
+      } catch (err: any) {
+        console.warn('[ContactController] General inquiry email error:', err?.message);
+      }
     }
 
     // Also save as Lead in DB so it surfaces in Admin CRM (apps/admin/app/leads/page.tsx)

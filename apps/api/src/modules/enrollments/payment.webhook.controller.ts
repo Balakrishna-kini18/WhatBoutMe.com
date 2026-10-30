@@ -329,8 +329,8 @@ export class PaymentWebhookController {
       // Send confirmation email
       if (this.emailService && enrolment.user?.email && enrolment.program) {
         const { lmsUrl } = getAppUrls();
-        this.emailService
-          .sendTemplateEmail({
+        try {
+          await this.emailService.sendTemplateEmail({
             to: enrolment.user.email,
             subject: `Payment Successful - ${enrolment.program.title}`,
             template: 'PaymentSuccessEmail',
@@ -340,8 +340,10 @@ export class PaymentWebhookController {
               amount: amount || enrolment.program.price || 0,
               dashboardUrl: `${lmsUrl}/dashboard`,
             },
-          })
-          .catch((e: any) => this.logger.warn(`Failed to send payment email: ${e?.message}`));
+          });
+        } catch (e: any) {
+          this.logger.warn(`Failed to send payment email: ${e?.message}`);
+        }
       }
 
       return {

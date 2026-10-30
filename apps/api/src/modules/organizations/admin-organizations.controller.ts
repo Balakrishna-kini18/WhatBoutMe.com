@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Request,
   Res,
@@ -17,12 +18,14 @@ import { OrgMemberRole, Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
+import { Public } from '../../common/decorators/public.decorator.js';
 import { OrgScopeGuard } from './guards/org-scope.guard.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { OrganizationsService } from './organizations.service.js';
 import { SeatPoolsService } from './seat-pools.service.js';
 import { SeatsService } from './seats.service.js';
 import { OrgAcademicTrackerService } from './org-academic-tracker.service.js';
+import { VolumePricingService } from './volume-pricing.service.js';
 import {
   AssignSeatDto,
   CreateOrganizationDto,
@@ -40,6 +43,7 @@ export class AdminOrganizationsController {
     private readonly seatPoolsService: SeatPoolsService,
     private readonly seatsService: SeatsService,
     private readonly trackerService: OrgAcademicTrackerService,
+    private readonly volumePricingService: VolumePricingService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -90,6 +94,22 @@ export class AdminOrganizationsController {
     @Request() req: any,
   ) {
     return this.orgsService.createOrganization(dto, req.user);
+  }
+
+  @Public()
+  @Get('pricing-tiers')
+  async getVolumePricingTiers() {
+    return this.volumePricingService.getPricingConfig();
+  }
+
+  @Put('pricing-tiers')
+  @UseGuards(RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async updateVolumePricingTiers(
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.volumePricingService.updatePricingConfig(body, req.user);
   }
 
   @Get(':id')

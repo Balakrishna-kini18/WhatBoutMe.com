@@ -17,10 +17,14 @@ import {
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CreateSeatPoolDto, SeatPoolCheckoutDto } from './dto/index.js';
 import { CAPACITY_OCCUPYING_STATUSES } from '../enrollments/enrollments.service.js';
+import { VolumePricingService } from './volume-pricing.service.js';
 
 @Injectable()
 export class SeatPoolsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly volumePricingService: VolumePricingService,
+  ) {}
 
   /**
    * Evaluates volume-tier discount percentage based on batch slot quantity:
@@ -114,7 +118,7 @@ export class SeatPoolsService {
       }
     }
 
-    const discountRate = customPricePerSeat ? 0 : this.getVolumeDiscountPercent(seatsCount);
+    const discountRate = customPricePerSeat ? 0 : await this.volumePricingService.getDiscountRate(seatsCount);
     const subtotal = seatsCount * baseUnitPrice;
     const discountAmount = Math.round(subtotal * discountRate * 100) / 100;
     const netAmount = Math.round((subtotal - discountAmount) * 100) / 100;

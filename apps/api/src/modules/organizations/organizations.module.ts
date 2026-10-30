@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module.js';
 import { OrganizationsService } from './organizations.service.js';
 import { SeatPoolsService } from './seat-pools.service.js';
+import { VolumePricingService } from './volume-pricing.service.js';
 import { SeatsService } from './seats.service.js';
 import { OrgAcademicTrackerService } from './org-academic-tracker.service.js';
 import { AdminOrganizationsController } from './admin-organizations.controller.js';
@@ -15,6 +16,7 @@ import { OrgRoleGuard } from './guards/org-role.guard.js';
   providers: [
     OrganizationsService,
     SeatPoolsService,
+    VolumePricingService,
     SeatsService,
     OrgAcademicTrackerService,
     OrgScopeGuard,
@@ -23,6 +25,7 @@ import { OrgRoleGuard } from './guards/org-role.guard.js';
   exports: [
     OrganizationsService,
     SeatPoolsService,
+    VolumePricingService,
     SeatsService,
     OrgAcademicTrackerService,
     OrgScopeGuard,

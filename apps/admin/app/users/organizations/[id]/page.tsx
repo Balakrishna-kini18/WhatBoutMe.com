@@ -14,6 +14,7 @@ import {
   EmptyState,
 } from "../../../components";
 import { apiGet, apiPatch, apiPost, apiDelete, API_URL } from "../../../lib/api";
+import VolumePricingModal, { VolumePricingConfig } from "../components/VolumePricingModal";
 
 function CrownIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
   return (
@@ -165,6 +166,17 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
   // Self-Service Slot Booking & Purchase Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [pricingConfig, setPricingConfig] = useState<VolumePricingConfig>({
+    enabled: true,
+    tiers: [
+      { minSeats: 10, discountPercent: 10, label: "10+ seats" },
+      { minSeats: 25, discountPercent: 15, label: "25+ seats" },
+      { minSeats: 50, discountPercent: 25, label: "50+ seats" },
+    ],
+    quickPresets: [10, 25, 50, 100],
+    customNote: "Volume discounts: 10+ seats: 10% off • 25+ seats: 15% off • 50+ seats: 25% off",
+  });
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
   const [isBatchDropdownOpen, setIsBatchDropdownOpen] = useState(false);
   const [batchSearchTerm, setBatchSearchTerm] = useState("");
@@ -324,6 +336,11 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       }
       fetchAvailableBatches();
       fetchLearners();
+      apiGet<VolumePricingConfig>("/admin/organizations/pricing-tiers")
+        .then((cfg) => {
+          if (cfg && cfg.tiers) setPricingConfig(cfg);
+        })
+        .catch(() => {});
     } catch (e: any) {
       const msg = e?.message || "";
       const lower = msg.toLowerCase();
@@ -861,9 +878,13 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   };
   const unitPrice = getBatchPrice(selectedBatchForRequest, requestCurrency);
   const getDiscountPercent = (qty: number) => {
-    if (qty >= 50) return 25;
-    if (qty >= 25) return 15;
-    if (qty >= 10) return 10;
+    if (!pricingConfig.enabled) return 0;
+    const sorted = [...pricingConfig.tiers].sort((a, b) => b.minSeats - a.minSeats);
+    for (const tier of sorted) {
+      if (qty >= tier.minSeats) {
+        return tier.discountPercent;
+      }
+    }
     return 0;
   };
   const discountPercent = getDiscountPercent(Number(requestForm.totalSeats) || 0);
@@ -2958,7 +2979,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 Number of Student Seats <span style={{ color: "#dc2626" }}>*</span>
               </label>
               <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                Volume discount unlocks at <strong>10+ seats</strong>
+                Volume discount unlocks at <strong>{pricingConfig.enabled && pricingConfig.tiers?.length > 0 ? `${pricingConfig.tiers[0]?.minSeats || 10}+ seats` : "10+ seats"}</strong>
               </span>
             </div>
 
@@ -3027,20 +3048,16 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 </button>
               </div>
 
-              {/* Quick Preset Buttons */}
+              {/* Quick Preset Buttons (Dynamic) */}
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                {[
-                  { qty: 10, label: "10 seats", discount: "10% OFF" },
-                  { qty: 25, label: "25 seats", discount: "15% OFF" },
-                  { qty: 50, label: "50 seats", discount: "25% OFF" },
-                  { qty: 100, label: "100 seats", discount: "25% OFF" },
-                ].map((preset) => {
-                  const isCurrent = Number(requestForm.totalSeats) === preset.qty;
+                {(pricingConfig.quickPresets || [10, 25, 50, 100]).map((qty: number) => {
+                  const disc = getDiscountPercent(qty);
+                  const isCurrent = Number(requestForm.totalSeats) === qty;
                   return (
                     <button
-                      key={preset.qty}
+                      key={qty}
                       type="button"
-                      onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: preset.qty }))}
+                      onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: qty }))}
                       style={{
                         padding: "7px 12px",
                         borderRadius: "20px",
@@ -3054,7 +3071,11 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                         transition: "all 0.15s ease",
                       }}
                     >
-                      {preset.label} <span style={{ color: "#16a34a", fontWeight: 700 }}>({preset.discount})</span>
+                      {qty} seats {disc > 0 ? (
+                        <span style={{ color: "#16a34a", fontWeight: 700 }}>({disc}% OFF)</span>
+                      ) : (
+                        <span style={{ color: "#64748b", fontWeight: 600 }}>(Standard)</span>
+                      )}
                     </button>
                   );
                 })}
@@ -3168,9 +3189,47 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               </span>
             </div>
 
-            {/* Volume Tier Pill */}
-            <div style={{ marginTop: "12px", fontSize: "0.75rem", color: "#78350f", background: "#fffbeb", padding: "6px 10px", borderRadius: "6px", border: "1px solid #fde68a" }}>
-              💡 Volume discounts: <strong>10+ seats: 10% off</strong> &bull; <strong>25+ seats: 15% off</strong> &bull; <strong>50+ seats: 25% off</strong>
+            {/* Volume Tier Pill (Dynamic) */}
+            <div
+              style={{
+                marginTop: "12px",
+                fontSize: "0.76rem",
+                color: "#78350f",
+                background: "#fffbeb",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                border: "1px solid #fde68a",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "8px",
+                flexWrap: "wrap",
+              }}
+            >
+              <span>
+                💡 {pricingConfig.customNote || `Volume discounts: ${pricingConfig.tiers.map((t: { minSeats: number; discountPercent: number }) => `${t.minSeats}+ seats: ${t.discountPercent}% off`).join(" • ")}`}
+              </span>
+              {isPlatformAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setIsPricingModalOpen(true)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: "5px",
+                    background: "#fef3c7",
+                    border: "1px solid #d97706",
+                    color: "#92400e",
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                  title="Configure Volume Tiers"
+                >
+                  ⚙️ Edit Tiers
+                </button>
+              )}
             </div>
           </div>
 
@@ -3577,6 +3636,13 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           </form>
         )}
       </Modal>
+
+      <VolumePricingModal
+        isOpen={isPricingModalOpen}
+        onClose={() => setIsPricingModalOpen(false)}
+        config={pricingConfig}
+        onConfigSaved={(newCfg) => setPricingConfig(newCfg)}
+      />
     </div>
   );
 }

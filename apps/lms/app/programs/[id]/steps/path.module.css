@@ -506,25 +506,39 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  min-width: 125px;
+  width: 140px;
+  min-width: 140px;
   padding-top: 2px;
 }
 
-.startBtn {
+.startBtn,
+.reviewBtn,
+.lockedPill {
+  width: 140px;
+  min-width: 140px;
+  height: 38px;
+  min-height: 38px;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.55rem 1.15rem;
   border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  padding: 0 0.65rem;
+  transition: all 0.15s ease;
+}
+
+.startBtn {
   background: linear-gradient(135deg, #d97706, #c26904);
   box-shadow: 0 2px 6px rgba(217, 119, 6, 0.22);
   color: #ffffff;
-  font-size: 0.85rem;
-  font-weight: 600;
   text-decoration: none;
   border: 1px solid var(--accent-primary, #c97a1e);
-  transition: all 0.15s ease;
-  white-space: nowrap;
+  cursor: pointer;
 }
 
 .startBtn:hover {
@@ -539,19 +553,11 @@
 }
 
 .reviewBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.55rem 1.15rem;
-  border-radius: 8px;
   background: #ffffff;
   color: var(--text-primary, #14110f);
   border: 1px solid var(--border-light, #ece4d7);
-  font-size: 0.85rem;
-  font-weight: 600;
   text-decoration: none;
-  transition: all 0.15s ease;
-  white-space: nowrap;
+  cursor: pointer;
 }
 
 .reviewBtn:hover {
@@ -566,20 +572,12 @@
 }
 
 .lockedPill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0.45rem 1rem;
-  border-radius: 8px;
+  gap: 6px;
   background: var(--bg-soft, #f5ece1);
   border: 1px solid var(--border-light, #ece4d7);
   color: var(--text-muted, #78716a);
-  font-size: 0.8125rem;
-  font-weight: 500;
   cursor: not-allowed;
   user-select: none;
-  white-space: nowrap;
 }
 
 /* Right Column: Progress Card */

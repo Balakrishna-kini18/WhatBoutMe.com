@@ -15,6 +15,7 @@ import {
   Pagination,
 } from "../../components";
 import { apiGet, apiPost, apiDelete } from "../../lib/api";
+import VolumePricingModal, { VolumePricingConfig } from "./components/VolumePricingModal";
 
 interface OrganizationItem {
   id: string;
@@ -120,6 +121,17 @@ function OrganizationsContent() {
 
   // Create Modal & Simplified Onboarding State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [pricingConfig, setPricingConfig] = useState<VolumePricingConfig>({
+    enabled: true,
+    tiers: [
+      { minSeats: 10, discountPercent: 10, label: "10+ seats" },
+      { minSeats: 25, discountPercent: 15, label: "25+ seats" },
+      { minSeats: 50, discountPercent: 25, label: "50+ seats" },
+    ],
+    quickPresets: [10, 25, 50, 100],
+    customNote: "Volume discounts: 10+ seats: 10% off • 25+ seats: 15% off • 50+ seats: 25% off",
+  });
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvancedCreate, setShowAdvancedCreate] = useState(false);
   const [showPasswordText, setShowPasswordText] = useState(false);
@@ -345,7 +357,30 @@ function OrganizationsContent() {
             Institutional B2B buyers, reseller academies, batch slot capacity pools & co-branded sponsorship.
           </p>
         </div>
-        <div className={styles.headerActions}>
+        <div className={styles.headerActions} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {isPlatformAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsPricingModalOpen(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "#fef3c7",
+                color: "#92400e",
+                border: "1px solid #fde68a",
+                padding: "8px 16px",
+                borderRadius: "8px",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              title="Configure dynamic volume discount tiers and offers"
+            >
+              <span>⚙️ Pricing &amp; Volume Offers</span>
+            </button>
+          )}
           <button
             type="button"
             className={styles.primaryBtn}

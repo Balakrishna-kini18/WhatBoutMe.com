@@ -25,6 +25,11 @@ export interface CompulsoryVideoPlayerProps {
   onRestart?: () => void;
   onTimeUpdate?: (currentSec: number, durationSec?: number) => void;
   seekToTime?: number | null;
+  nextStepInfo?: {
+    title: string;
+    label?: string;
+    onAdvance: () => void;
+  } | null;
 }
 
 import {
@@ -58,6 +63,7 @@ export default function CompulsoryVideoPlayer({
   onRestart,
   onTimeUpdate,
   seekToTime,
+  nextStepInfo,
 }: CompulsoryVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -100,6 +106,7 @@ export default function CompulsoryVideoPlayer({
   const [seekWarning, setSeekWarning] = useState<string | null>(null);
   const [resumedNotice, setResumedNotice] = useState<number | null>(null);
   const [hasEnded, setHasEnded] = useState(false);
+  const [dismissed30sPopup, setDismissed30sPopup] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
   const speedMenuRef = useRef<HTMLDivElement | null>(null);
@@ -228,6 +235,7 @@ export default function CompulsoryVideoPlayer({
     lastHeartbeatPositionRef.current = resumePos;
     lastHeartbeatTimeRef.current = Date.now();
     setHasEnded(false);
+    setDismissed30sPopup(false);
     setCurrentTime(resumePos);
     setIsPlaying(false);
   }, [lessonId]);
@@ -1129,6 +1137,83 @@ export default function CompulsoryVideoPlayer({
           <Play size={28} fill="#ffffff" style={{ marginLeft: "4px" }} />
         </button>
       ) : null}
+
+      {/* 5b. Simple 30-Second Remaining / Advance to Next Step Floating Pill */}
+      {(duration > 0 &&
+        currentTime > 5 &&
+        (duration - currentTime <= 30 ||
+          (duration <= 30 && (currentTime >= duration - 1.0 || currentTime >= duration * 0.9)) ||
+          currentTime >= duration * 0.9 ||
+          hasEnded)) &&
+        nextStepInfo &&
+        !dismissed30sPopup && (
+          <div
+            role="dialog"
+            aria-label="Continue to next step"
+            style={{
+              position: "absolute",
+              bottom: showControls ? "78px" : "20px",
+              right: "18px",
+              background: "rgba(20, 17, 15, 0.92)",
+              backdropFilter: "blur(16px) saturate(180%)",
+              WebkitBackdropFilter: "blur(16px) saturate(180%)",
+              border: "1px solid rgba(245, 158, 11, 0.45)",
+              borderRadius: "9999px",
+              padding: "4px 6px 4px 12px",
+              boxShadow: "0 10px 30px rgba(0, 0, 0, 0.45), 0 0 16px rgba(245, 158, 11, 0.25)",
+              zIndex: 55,
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              color: "#ffffff",
+              transition: "bottom 0.2s ease",
+            }}
+          >
+            <button
+              type="button"
+              onClick={nextStepInfo.onAdvance}
+              style={{
+                background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                color: "#1c1917",
+                border: "none",
+                padding: "8px 16px",
+                borderRadius: "9999px",
+                fontSize: "0.85rem",
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                letterSpacing: "0.01em",
+                boxShadow: "0 2px 8px rgba(245, 158, 11, 0.35)",
+              }}
+            >
+              <span>{nextStepInfo.label || "Next Part"}</span>
+              <span>&rarr;</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissed30sPopup(true)}
+              aria-label="Dismiss notification"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "rgba(255, 255, 255, 0.7)",
+                fontSize: "14px",
+                cursor: "pointer",
+                padding: "4px 8px",
+                borderRadius: "9999px",
+                lineHeight: 1,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
       {/* 6. Apple Liquid Glass Floating Player Transport Bar (HIG Playing Video & Liquid Glass) */}
       <div

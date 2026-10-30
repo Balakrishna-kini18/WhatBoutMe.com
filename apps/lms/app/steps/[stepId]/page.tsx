@@ -1340,7 +1340,102 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       ? Math.round((completedLessonsCount / totalLessonsCount) * 100)
       : currentStepProg?.progressPercent || 0;
 
+  const isCurrentWatched = Boolean(
+    lessonProgress[currentMedia?.id]?.isCompleted || isCurrentLessonLeftUnder30s
+  );
 
+  const nextAdvanceTarget = useMemo(() => {
+    if (activeLessonIndex < videoLessons.length - 1) {
+      const nextPart = videoLessons[activeLessonIndex + 1];
+      return {
+        type: "PART" as const,
+        title: nextPart.title,
+        label: "Next Part",
+        isUnlocked: isCurrentWatched,
+        onClick: () => {
+          if (currentMedia?.id) {
+            handleLessonComplete(currentMedia.id, false);
+          }
+          setSelectedMediaId(nextPart.id);
+        },
+      };
+    } else if (stepMaterials.length > 0) {
+      return {
+        type: "MATERIALS" as const,
+        title: "Module Materials",
+        label: "Materials",
+        isUnlocked: Boolean(isCurrentWatched || isMaterialsUnlocked),
+        onClick: () => {
+          if (currentMedia?.id) {
+            handleLessonComplete(currentMedia.id, false);
+          }
+          if (isCurrentWatched || isMaterialsUnlocked) {
+            setActiveTab("materials");
+          }
+        },
+      };
+    } else if (step?.quiz && !isQuizAlreadyPassed) {
+      return {
+        type: "QUIZ" as const,
+        title: "Module Quiz",
+        label: "Module Quiz",
+        isUnlocked: Boolean(isQuizUnlocked || isCurrentWatched),
+        onClick: () => {
+          if (currentMedia?.id) {
+            handleLessonComplete(currentMedia.id, false);
+          }
+          setActiveTab("quiz");
+        },
+      };
+    } else if (nextStep && nextStepId) {
+      const isReadyForNextStep = Boolean(
+        isStepCompleted || completedLessonsCount >= totalLessonsCount || isCurrentWatched
+      );
+      return {
+        type: "NEXT_STEP" as const,
+        title: nextStep.title,
+        label: "Next Module",
+        isUnlocked: isReadyForNextStep,
+        onClick: () => {
+          if (isReadyForNextStep) {
+            if (currentMedia?.id) {
+              handleLessonComplete(currentMedia.id, false);
+            }
+            router.push(`/steps/${nextStepId}`);
+          }
+        },
+      };
+    } else if (step?.programId) {
+      return {
+        type: "ROADMAP" as const,
+        title: "Course Roadmap",
+        label: "Course Roadmap",
+        isUnlocked: true,
+        onClick: () => {
+          router.push(`/programs/${step.programId}/steps`);
+        },
+      };
+    }
+    return null;
+  }, [
+    activeLessonIndex,
+    videoLessons,
+    currentMedia?.id,
+    isCurrentWatched,
+    stepMaterials,
+    step?.quiz,
+    step?.programId,
+    isQuizAlreadyPassed,
+    isQuizUnlocked,
+    isMaterialsUnlocked,
+    nextStep,
+    nextStepId,
+    isStepCompleted,
+    completedLessonsCount,
+    totalLessonsCount,
+    handleLessonComplete,
+    router,
+  ]);
 
   // Loading State (Apple HIG skeleton matching real workspace)
   if (loading && !step) {
@@ -1395,7 +1490,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             >
               {isRecheckingUnlock ? (
                 <>
-                  <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>⏳</span>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ display: "inline-block", animation: "spin 1s linear infinite" }}
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                    <path d="M12 2a10 10 0 0 1 10 10" />
+                  </svg>
                   <span>Verifying previous module completion... Unlocking step</span>
                 </>
               ) : recheckCount < 6 ? (
@@ -1448,128 +1557,55 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const renderLessonNavigationRow = () => {
     const hasPrevious = activeLessonIndex > 0;
     const prevLesson = hasPrevious ? videoLessons[activeLessonIndex - 1] : null;
-    const isCurrentWatched = Boolean(
-      lessonProgress[currentMedia?.id]?.isCompleted || isCurrentLessonLeftUnder30s
-    );
 
     let nextBtnNode = null;
 
-    if (activeLessonIndex < videoLessons.length - 1) {
-      // Part N -> Part N+1
-      const nextPart = videoLessons[activeLessonIndex + 1];
-      nextBtnNode = (
-        <button
-          type="button"
-          disabled={!isCurrentWatched}
-          onClick={() => {
-            if (currentMedia?.id) {
-              handleLessonComplete(currentMedia.id, false);
+    if (nextAdvanceTarget) {
+      if (!nextAdvanceTarget.isUnlocked && nextAdvanceTarget.type === "QUIZ") {
+        nextBtnNode = (
+          <button
+            type="button"
+            disabled
+            className={styles.btnSecondaryOutline}
+            style={{ opacity: 0.6, cursor: "not-allowed" }}
+            title="Complete all video lessons in this module to unlock the quiz"
+          >
+            🔒 Complete all parts to unlock Quiz
+          </button>
+        );
+      } else if (!nextAdvanceTarget.isUnlocked && nextAdvanceTarget.type === "NEXT_STEP") {
+        nextBtnNode = (
+          <button
+            type="button"
+            disabled
+            className={styles.btnPrimaryOrange}
+            style={{ opacity: 0.6, cursor: "not-allowed" }}
+            title="Complete all parts to unlock Next Module"
+          >
+            🔒 Complete all parts to unlock Next Module
+          </button>
+        );
+      } else {
+        nextBtnNode = (
+          <button
+            type="button"
+            disabled={!nextAdvanceTarget.isUnlocked}
+            onClick={nextAdvanceTarget.onClick}
+            className={styles.btnPrimaryOrange}
+            style={{
+              opacity: !nextAdvanceTarget.isUnlocked ? 0.6 : 1,
+              cursor: !nextAdvanceTarget.isUnlocked ? "not-allowed" : "pointer",
+            }}
+            title={
+              !nextAdvanceTarget.isUnlocked
+                ? "Complete this video (or reach the last 30s) to unlock"
+                : `${nextAdvanceTarget.label} →`
             }
-            setSelectedMediaId(nextPart.id);
-          }}
-          className={styles.btnPrimaryOrange}
-          style={{
-            opacity: !isCurrentWatched ? 0.6 : 1,
-            cursor: !isCurrentWatched ? "not-allowed" : "pointer",
-          }}
-          title={
-            !isCurrentWatched
-              ? "Complete this video (or reach the last 30s) to unlock next part"
-              : `Next: Part ${activeLessonIndex + 2} (${nextPart.title})`
-          }
-        >
-          Next Part ({nextPart.title}) &rarr;
-        </button>
-      );
-    } else if (stepMaterials.length > 0) {
-      // Last video part -> Materials (strictly locked until this final video part is completed)
-      nextBtnNode = (
-        <button
-          type="button"
-          disabled={!isCurrentWatched}
-          onClick={() => {
-            if (currentMedia?.id) {
-              handleLessonComplete(currentMedia.id, false);
-            }
-            if (isCurrentWatched || isMaterialsUnlocked) {
-              setActiveTab("materials");
-            }
-          }}
-          className={styles.btnPrimaryOrange}
-          style={{
-            opacity: !isCurrentWatched ? 0.6 : 1,
-            cursor: !isCurrentWatched ? "not-allowed" : "pointer",
-          }}
-          title={
-            !isCurrentWatched
-              ? "Complete this video (or reach the last 30s) to unlock materials"
-              : "Next: Module Learning Materials"
-          }
-        >
-          Next: Materials ({stepMaterials.length}) &rarr;
-        </button>
-      );
-    } else if (step?.quiz && !isQuizAlreadyPassed) {
-      // Last video part & no materials -> Quiz
-      nextBtnNode = isQuizUnlocked || isCurrentWatched ? (
-        <button
-          type="button"
-          onClick={() => {
-            if (currentMedia?.id) {
-              handleLessonComplete(currentMedia.id, false);
-            }
-            setActiveTab("quiz");
-          }}
-          className={styles.btnPrimaryOrange}
-        >
-          Next: Module Quiz &rarr;
-        </button>
-      ) : (
-        <button
-          type="button"
-          disabled
-          className={styles.btnSecondaryOutline}
-          style={{ opacity: 0.6, cursor: "not-allowed" }}
-          title="Complete all video lessons in this module to unlock the quiz"
-        >
-          🔒 Complete all parts to unlock Quiz
-        </button>
-      );
-    } else if (nextStep && nextStepId) {
-      // Last part -> Next module
-      const isReadyForNextStep = isStepCompleted || completedLessonsCount >= totalLessonsCount || isCurrentWatched;
-      nextBtnNode = (
-        <button
-          type="button"
-          disabled={!isReadyForNextStep}
-          onClick={() => {
-            if (isReadyForNextStep) {
-              if (currentMedia?.id) {
-                handleLessonComplete(currentMedia.id, false);
-              }
-              router.push(`/steps/${nextStepId}`);
-            }
-          }}
-          className={styles.btnPrimaryOrange}
-          style={{
-            opacity: !isReadyForNextStep ? 0.6 : 1,
-            cursor: !isReadyForNextStep ? "not-allowed" : "pointer",
-          }}
-        >
-          {!isReadyForNextStep
-            ? `🔒 Complete all parts to unlock Next Module`
-            : `Next Module (${nextStep.title}) →`}
-        </button>
-      );
-    } else {
-      nextBtnNode = (
-        <Link
-          href={`/programs/${step?.programId}/steps`}
-          className={styles.btnPrimaryOrange}
-        >
-          Course Roadmap &rarr;
-        </Link>
-      );
+          >
+            {nextAdvanceTarget.label} &rarr;
+          </button>
+        );
+      }
     }
 
     return (
@@ -1908,6 +1944,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           }
                         }}
                         seekToTime={videoSeekTarget}
+                        nextStepInfo={
+                          nextAdvanceTarget
+                            ? {
+                                title: nextAdvanceTarget.title,
+                                label: nextAdvanceTarget.label,
+                                onAdvance: nextAdvanceTarget.onClick,
+                              }
+                            : null
+                        }
                       />
                     </div>
                   ) : (
@@ -2440,8 +2485,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         {(currentQuizQuestion as any).imageUrl && (
                           <div style={{ marginBottom: "1rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 480 }}>
                             <img
-                              src={(currentQuizQuestion as any).imageUrl}
+                              src={resolveMediaDownloadUrl((currentQuizQuestion as any).imageUrl)}
                               alt={`Question ${safeActiveIndex + 1}`}
+                              onError={(e) => {
+                                (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
+                              }}
                               style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
                             />
                           </div>
@@ -2528,8 +2576,11 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
                                       {opt.imageUrl && (
                                         <img
-                                          src={opt.imageUrl}
+                                          src={resolveMediaDownloadUrl(opt.imageUrl)}
                                           alt={opt.text}
+                                          onError={(e) => {
+                                            (e.currentTarget as HTMLElement).style.display = "none";
+                                          }}
                                           style={{ maxWidth: 220, maxHeight: 120, objectFit: "cover", borderRadius: 6 }}
                                         />
                                       )}

@@ -2,12 +2,10 @@
 
 import React, { useState, useRef } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import styles from "../curriculum.module.css";
-import { uploadFile } from "../../../lib/api";
-import { CustomSelect } from "../../../components";
-import { parseCourseInfo } from "../../courseInfo";
-import FormattedPreview from "./FormattedPreview";
+import { uploadFile, cachedFetch, API_URL } from "../../../lib/api";
+import { CustomSelect, AgreementMarkdown, InputDialog } from "../../../components";
+import { parseCourseInfo, sanitizeCleanSummary } from "../../courseInfo";
 
 interface Step1CourseSetupProps {
   programData: any;
@@ -17,7 +15,6 @@ interface Step1CourseSetupProps {
     shortDescription?: string;
     thumbnailUrl?: string;
     category?: string;
-    level?: string;
     price?: number;
     currency?: "USD" | "AED" | "INR";
     priceUSD?: number;
@@ -44,11 +41,20 @@ interface Step1CourseSetupProps {
   onCancel?: () => void;
 }
 
+const DEFAULT_CATEGORIES = [
+  "Certification",
+  "Leadership & Mindset",
+  "Web Development",
+  "UI/UX & Product Design",
+  "Business Strategy",
+  "Personal Growth",
+  "Speaking & Workshops",
+];
+
 export default function Step1CourseSetup({
   programData,
   onSaveAndContinue,
   isSaving,
-  onCancel,
 }: Step1CourseSetupProps) {
   const courseInfo = parseCourseInfo(programData?.description);
   const rawInitialThumb = programData?.thumbnailUrl || courseInfo.image || "";
@@ -61,21 +67,81 @@ export default function Step1CourseSetup({
       ? `/${rawInitialThumb}`
       : "";
 
-  const [title, setTitle] = useState(programData?.title || "");
-  const [description, setDescription] = useState(programData?.description || "");
-  const [shortDescription, setShortDescription] = useState(
-    programData?.shortDescription ||
-      courseInfo.summary ||
-      programData?.description ||
-      ""
-  );
-  const [thumbnailUrl, setThumbnailUrl] = useState(initialThumb);
-  const [category, setCategory] = useState(
-    programData?.category || courseInfo.type || "Leadership & Mindset"
-  );
-  const [level, setLevel] = useState(programData?.level || "Beginner");
+  // Clean initial descriptions so metadata headers never bleed into text inputs
+  const initialCleanSummary = sanitizeCleanSummary(courseInfo.summary || programData?.description || "");
+  const initialCleanShort = sanitizeCleanSummary(courseInfo.short || programData?.shortDescription || "");
 
-  // Keep existing pricing / certificate settings from programData so zero data is lost
+  // Form States
+  const [title, setTitle] = useState(programData?.title || "");
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (programData?.title === "Untitled Program") {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [programData?.title]);
+  const [price, setPrice] = useState<string>(
+    programData?.price !== undefined && programData?.price !== null ? String(programData.price) : ""
+  );
+  const [shortDescription, setShortDescription] = useState(initialCleanShort);
+  const [description, setDescription] = useState(initialCleanSummary);
+  const [markdownTab, setMarkdownTab] = useState<"edit" | "preview">("edit");
+  const [thumbnailUrl, setThumbnailUrl] = useState(initialThumb);
+
+  const initialCategory = (programData?.category || courseInfo.type || "Certification").trim() || "Certification";
+  const [category, setCategory] = useState(initialCategory);
+
+  const [availableCategories, setAvailableCategories] = useState<string[]>(() => {
+    const list = new Set<string>(DEFAULT_CATEGORIES);
+    if (initialCategory) list.add(initialCategory);
+    return Array.from(list);
+  });
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+
+  React.useEffect(() => {
+    let isCancelled = false;
+    const fetchExistingCategories = async () => {
+      try {
+        const res = await cachedFetch(`${API_URL}/programs`, { skipCache: true });
+        if (res.ok && !isCancelled) {
+          const progs = await res.json();
+          if (Array.isArray(progs)) {
+            setAvailableCategories((prev) => {
+              const merged = new Set<string>(prev);
+              for (const p of progs) {
+                const info = parseCourseInfo(p.description);
+                const cat = (p.category || info.type || "").trim();
+                if (cat) merged.add(cat);
+              }
+              return Array.from(merged);
+            });
+          }
+        }
+      } catch {}
+    };
+    fetchExistingCategories();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  const handleAddNewCategory = (newCat: string) => {
+    const trimmed = newCat.trim();
+    if (!trimmed) return;
+    setAvailableCategories((prev) => {
+      if (prev.includes(trimmed)) return prev;
+      return [...prev, trimmed];
+    });
+    setCategory(trimmed);
+    setIsAddCategoryOpen(false);
+  };
+
+  const [hasCertificate, setHasCertificate] = useState<boolean>(
+    programData?.hasCertificate !== false
+  );
+
+  // Currency & Multi-pricing preservation
   const currency = (programData?.currency as "USD" | "AED" | "INR") || "USD";
   const priceUSD = programData?.priceUSD;
   const priceAED = programData?.priceAED;
@@ -83,13 +149,12 @@ export default function Step1CourseSetup({
   const earlyBirdPrice = programData?.earlyBirdPrice;
   const earlyBirdCurrency = programData?.earlyBirdCurrency;
   const earlyBirdDeadline = programData?.earlyBirdDeadline;
-  const hasCertificate = programData?.hasCertificate ?? true;
 
-  // Course-Specific FAQs State
+  // Course FAQs
   const initialFaqs = (() => {
     if (Array.isArray(programData?.faqs) && programData.faqs.length > 0) {
       return programData.faqs.map((f: any, idx: number) => ({
-        id: f.id || `faq-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        id: f.id || `faq-${idx}`,
         question: f.question || f.q || "",
         answer: f.answer || f.a || "",
         sortOrder: typeof f.sortOrder === "number" ? f.sortOrder : idx,
@@ -97,7 +162,7 @@ export default function Step1CourseSetup({
     }
     if (Array.isArray(courseInfo.faqs) && courseInfo.faqs.length > 0) {
       return courseInfo.faqs.map((f: any, idx: number) => ({
-        id: f.id || `faq-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        id: f.id || `faq-${idx}`,
         question: f.question || f.q || "",
         answer: f.answer || f.a || "",
         sortOrder: typeof f.sortOrder === "number" ? f.sortOrder : idx,
@@ -114,129 +179,60 @@ export default function Step1CourseSetup({
       sortOrder: number;
     }>
   >(initialFaqs);
-  const [isFaqsExpanded, setIsFaqsExpanded] = useState(initialFaqs.length > 0);
+
+  // Cover image states
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [editorTab, setEditorTab] = useState<"write" | "preview">("write");
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
+  const [isShortDescFocused, setIsShortDescFocused] = useState(false);
 
-  // Text formatting toolbar insertion helper with intelligent selection
-  const applyFormat = (
-    type: "bold" | "italic" | "underline" | "bullet" | "number" | "link" | "code"
-  ) => {
-    // Switch to write tab if currently previewing
-    if (editorTab === "preview") setEditorTab("write");
-
+  // Markdown Quick Formatter
+  const applyMarkdownFormat = (action: "bold" | "italic" | "h2" | "bullet" | "link") => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const selected = shortDescription.substring(start, end);
-    let replacement = "";
-    let selectStart = start;
-    let selectEnd = start;
+    const text = description;
+    const selection = text.substring(start, end);
 
-    switch (type) {
+    let replacement = "";
+    let newCursorPos = start;
+
+    switch (action) {
       case "bold":
-        if (selected) {
-          replacement = `**${selected}**`;
-          selectStart = start;
-          selectEnd = start + replacement.length;
-        } else {
-          replacement = `**bold text**`;
-          selectStart = start + 2;
-          selectEnd = selectStart + "bold text".length;
-        }
+        replacement = selection ? `**${selection}**` : "**bold text**";
+        newCursorPos = selection ? end + 4 : start + 2;
         break;
       case "italic":
-        if (selected) {
-          replacement = `*${selected}*`;
-          selectStart = start;
-          selectEnd = start + replacement.length;
-        } else {
-          replacement = `*italic text*`;
-          selectStart = start + 1;
-          selectEnd = selectStart + "italic text".length;
-        }
+        replacement = selection ? `*${selection}*` : "*italic text*";
+        newCursorPos = selection ? end + 2 : start + 1;
         break;
-      case "underline":
-        if (selected) {
-          replacement = `<u>${selected}</u>`;
-          selectStart = start;
-          selectEnd = start + replacement.length;
-        } else {
-          replacement = `<u>underlined text</u>`;
-          selectStart = start + 3;
-          selectEnd = selectStart + "underlined text".length;
-        }
+      case "h2":
+        replacement = `\n## ${selection || "Heading"}\n`;
+        newCursorPos = start + replacement.length;
         break;
       case "bullet":
-        if (selected) {
-          const lines = selected.split("\n");
-          replacement = lines.map((l: string) => (l.startsWith("• ") ? l : `• ${l}`)).join("\n");
-          selectStart = start;
-          selectEnd = start + replacement.length;
-        } else {
-          const needsNewline = start > 0 && shortDescription[start - 1] !== "\n";
-          replacement = `${needsNewline ? "\n" : ""}• List item`;
-          selectStart = start + (needsNewline ? 1 : 0) + 2;
-          selectEnd = selectStart + "List item".length;
-        }
-        break;
-      case "number":
-        if (selected) {
-          const lines = selected.split("\n");
-          replacement = lines.map((l: string, idx: number) => `${idx + 1}. ${l.replace(/^\d+\.\s*/, "")}`).join("\n");
-          selectStart = start;
-          selectEnd = start + replacement.length;
-        } else {
-          const needsNewline = start > 0 && shortDescription[start - 1] !== "\n";
-          replacement = `${needsNewline ? "\n" : ""}1. List item`;
-          selectStart = start + (needsNewline ? 1 : 0) + 3;
-          selectEnd = selectStart + "List item".length;
-        }
+        replacement = selection ? selection.split("\n").map((l: string) => `- ${l}`).join("\n") : "\n- Point\n";
+        newCursorPos = start + replacement.length;
         break;
       case "link":
-        if (selected) {
-          replacement = `[${selected}](https://)`;
-          selectStart = start + selected.length + 3;
-          selectEnd = selectStart + "https://".length;
-        } else {
-          replacement = `[Link text](https://)`;
-          selectStart = start + 1;
-          selectEnd = selectStart + "Link text".length;
-        }
-        break;
-      case "code":
-        if (selected) {
-          replacement = `\`${selected}\``;
-          selectStart = start;
-          selectEnd = start + replacement.length;
-        } else {
-          replacement = `\`code\``;
-          selectStart = start + 1;
-          selectEnd = selectStart + "code".length;
-        }
+        replacement = selection ? `[${selection}](https://...)` : "[link text](https://example.com)";
+        newCursorPos = start + replacement.length;
         break;
     }
 
-    const nextText =
-      shortDescription.substring(0, start) +
-      replacement +
-      shortDescription.substring(end);
-    setShortDescription(nextText);
-
+    const nextText = text.substring(0, start) + replacement + text.substring(end);
+    setDescription(nextText);
     setTimeout(() => {
       textarea.focus();
-      textarea.setSelectionRange(selectStart, selectEnd);
-    }, 0);
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 10);
   };
 
   const handleAddFaq = () => {
-    setIsFaqsExpanded(true);
     setFaqs((prev) => [
       ...prev,
       {
@@ -248,30 +244,24 @@ export default function Step1CourseSetup({
     ]);
   };
 
-  const handleFaqChange = (
-    index: number,
-    field: "question" | "answer",
-    value: string
-  ) => {
+  const handleFaqChange = (index: number, field: "question" | "answer", value: string) => {
     setFaqs((prev) =>
-      prev.map((item, idx) =>
-        idx === index ? { ...item, [field]: value } : item
-      )
+      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
     );
   };
 
   const handleDeleteFaq = (index: number) => {
     setFaqs((prev) =>
-      prev
-        .filter((_, idx) => idx !== index)
-        .map((item, idx) => ({ ...item, sortOrder: idx }))
+      prev.filter((_, idx) => idx !== index).map((item, idx) => ({ ...item, sortOrder: idx }))
     );
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Image upload processor
+  const processImageFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setErrorMsg("Please upload a valid image file (PNG, JPG, WebP).");
+      return;
+    }
     if (file.size > 5 * 1024 * 1024) {
       setErrorMsg("File size exceeds 5MB limit. Please upload a smaller image.");
       return;
@@ -291,6 +281,41 @@ export default function Step1CourseSetup({
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await processImageFile(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await processImageFile(file);
+    }
+  };
+
+  const handleRemoveImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setThumbnailUrl("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -299,34 +324,26 @@ export default function Step1CourseSetup({
     }
     setErrorMsg(null);
 
-    // Validate FAQs
+    // Validate FAQs if any
     for (let i = 0; i < faqs.length; i++) {
       const item = faqs[i];
       if (!item) continue;
       const q = item.question.trim();
       const a = item.answer.trim();
-      if (!q && !a) {
-        setErrorMsg(
-          `FAQ Item #${i + 1} has an empty question and answer. Please complete it or remove it.`
-        );
-        return;
-      }
-      if (!q) {
-        setErrorMsg(`FAQ Item #${i + 1} is missing a question.`);
-        return;
-      }
-      if (!a) {
-        setErrorMsg(`FAQ Item #${i + 1} is missing an answer.`);
+      if ((q && !a) || (!q && a)) {
+        setErrorMsg(`FAQ #${i + 1} must have both question and answer completed, or be removed.`);
         return;
       }
     }
 
-    const cleanedFaqs = faqs.map((f, idx) => ({
-      id: f.id,
-      question: f.question.trim(),
-      answer: f.answer.trim(),
-      sortOrder: idx,
-    }));
+    const cleanedFaqs = faqs
+      .filter((f) => f.question.trim() && f.answer.trim())
+      .map((f, idx) => ({
+        id: f.id,
+        question: f.question.trim(),
+        answer: f.answer.trim(),
+        sortOrder: idx,
+      }));
 
     await onSaveAndContinue({
       title: title.trim(),
@@ -334,10 +351,9 @@ export default function Step1CourseSetup({
       shortDescription: shortDescription.trim(),
       thumbnailUrl,
       category,
-      level,
-      price: programData?.price || 0,
+      price: parseFloat(price) || 0,
       currency,
-      priceUSD,
+      priceUSD: priceUSD !== undefined ? priceUSD : (currency === "USD" ? parseFloat(price) || 0 : undefined),
       priceAED,
       priceINR,
       earlyBirdPrice,
@@ -355,41 +371,20 @@ export default function Step1CourseSetup({
   };
 
   return (
-    <section className={styles.cardSurface}>
-      {/* Screen 1 Header */}
-      <div className={styles.cardHeaderArea}>
-        <div style={{ marginBottom: "0.5rem" }}>
-          <Link
-            href="/programs"
-            className={styles.backLink}
-            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="19" y1="12" x2="5" y2="12" />
-              <polyline points="12 19 5 12 12 5" />
-            </svg>
-            <span>Back to Programs</span>
-          </Link>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", width: "100%" }}>
+      {/* Keyframe animations for cover dropzone upload */}
+      <style>{`
+        @keyframes uploaderSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes uploaderShimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
 
-        <h2 className={styles.stepTitle}>
-          {programData?.id ? "Edit Program Track" : "Create New Program Track"}
-        </h2>
-        <p className={styles.stepSubtitle}>
-          Set up your program with basic information. You can add curriculum, pricing, and publish later.
-        </p>
-      </div>
-
+      {/* Top Error Alert */}
       {errorMsg && (
         <div
           role="alert"
@@ -397,555 +392,1039 @@ export default function Step1CourseSetup({
             background: "#fef2f2",
             border: "1px solid #fecdd3",
             color: "#991b1b",
-            padding: "12px 16px",
-            borderRadius: 12,
-            fontSize: "0.88rem",
-            marginBottom: "1.5rem",
+            padding: "11px 16px",
+            borderRadius: "10px",
+            fontSize: "0.85rem",
             display: "flex",
             alignItems: "center",
-            gap: "0.5rem",
+            gap: "0.6rem",
+            boxShadow: "0 1px 2px rgba(153, 27, 27, 0.05)",
           }}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
-          <span>{errorMsg}</span>
+          <span style={{ fontWeight: 500 }}>{errorMsg}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
-        {/* 2-Column Layout (Left 65% Basic Information | Right 35% Cover Image) */}
-        <div className={styles.studioBasicGrid}>
-          {/* =========================================================
-              Left Column (65%): Basic Information
-              ========================================================= */}
-          <div>
-            <div className={styles.formSectionPanel} style={{ marginBottom: "1.5rem" }}>
-              <h3 className={styles.sectionPanelTitle}>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#D97706"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-                <span>Basic Information</span>
-              </h3>
-              <p className={styles.sectionPanelSubtitle}>
-                Primary identifiers and summary presented across learner catalog cards.
-              </p>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        {/* ===================================================================
+            SECTION 1: Basic Information & Cover Image (Integrated 2-Column)
+            =================================================================== */}
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-light, #e7decb)",
+            borderRadius: "14px",
+            padding: "1.35rem 1.5rem",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.02)",
+          }}
+        >
+          {/* Section Header - Clean Title, No Subtitle */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "1.25rem", borderBottom: "1px solid #f5ede4", paddingBottom: "0.75rem" }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 7,
+                background: "#fdf8f0",
+                border: "1px solid #ebd9c4",
+                color: "var(--accent-primary, #c97a1e)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+              aria-hidden="true"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </div>
+            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary, #14110f)", margin: 0, lineHeight: 1.2 }}>
+              Basic Information
+            </h2>
+          </div>
 
+          {/* 2-Column Grid: Left = Details, Right = 16:9 Cover Banner */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(240px, 320px)", gap: "1.5rem", alignItems: "start" }}>
+            {/* Left: Fields */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {/* Program Title */}
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  <span>
-                    Program Title <span style={{ color: "#dc2626" }}>*</span>
-                  </span>
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#44403c", marginBottom: "5px" }}>
+                  Program Title <span style={{ color: "var(--status-error, #dc2626)" }}>*</span>
                 </label>
                 <input
+                  ref={titleInputRef}
                   type="text"
                   required
-                  placeholder="e.g. Executive Leadership & Mindset Mastery"
+                  placeholder="e.g. 11 Steps to U Certification"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className={styles.formInput}
+                  style={{
+                    fontSize: "0.95rem",
+                    padding: "0.65rem 0.85rem",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-light, #e7decb)",
+                    width: "100%",
+                  }}
                 />
               </div>
 
-              {/* Short Description with Formatting Toolbar */}
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  <span>
-                    Short Description <span style={{ color: "#dc2626" }}>*</span>
-                  </span>
-                </label>
-
-                {/* Toolbar */}
-                <div className={styles.editorToolbar}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("bold")}
-                      title="Bold (**text**)"
-                      aria-label="Bold"
-                    >
-                      <strong>B</strong>
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("italic")}
-                      title="Italic (*text*)"
-                      aria-label="Italic"
-                    >
-                      <em>I</em>
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("underline")}
-                      title="Underline (<u>text</u>)"
-                      aria-label="Underline"
-                    >
-                      <u>U</u>
-                    </button>
-                    <div className={styles.editorToolbarSep} />
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("bullet")}
-                      title="Bullet List (• item)"
-                      aria-label="Bullet List"
-                    >
-                      • List
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("number")}
-                      title="Numbered List (1. item)"
-                      aria-label="Numbered List"
-                    >
-                      1. List
-                    </button>
-                    <div className={styles.editorToolbarSep} />
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("link")}
-                      title="Add Link [text](url)"
-                      aria-label="Add Link"
-                    >
-                      🔗 Link
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.editorToolbarBtn}
-                      onClick={() => applyFormat("code")}
-                      title="Inline Code"
-                      aria-label="Code"
-                    >
-                      &lt;/&gt;
-                    </button>
-                  </div>
-
-                  {/* Mode Tabs: Write vs Preview */}
-                  <div className={styles.editorToolbarRight}>
-                    <div className={styles.editorTabGroup}>
-                      <button
-                        type="button"
-                        className={`${styles.editorTabBtn} ${editorTab === "write" ? styles.editorTabBtnActive : ""}`}
-                        onClick={() => setEditorTab("write")}
-                        title="Edit text"
-                      >
-                        ✍️ Edit
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.editorTabBtn} ${editorTab === "preview" ? styles.editorTabBtnActive : ""}`}
-                        onClick={() => setEditorTab("preview")}
-                        title="Preview formatted text"
-                      >
-                        👁️ Preview
-                      </button>
-                    </div>
-                  </div>
+              {/* 2-Column: Price & Category (Skill Level removed) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#44403c", marginBottom: "5px" }}>
+                    Price (USD)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="1999"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    className={styles.formInput}
+                    style={{
+                      padding: "0.65rem 0.85rem",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-light, #e7decb)",
+                      width: "100%",
+                      fontSize: "0.9rem",
+                    }}
+                  />
                 </div>
 
-                {editorTab === "write" ? (
-                  <>
-                    <textarea
-                      ref={textareaRef}
-                      required
-                      rows={4}
-                      placeholder="A short overview of the program, target outcomes, and core curriculum highlights..."
-                      value={shortDescription}
-                      onChange={(e) => setShortDescription(e.target.value)}
-                      className={styles.editorTextarea}
-                    />
-                    <div className={styles.editorHelperNote}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="16" x2="12" y2="12" />
-                        <line x1="12" y1="8" x2="12.01" y2="8" />
-                      </svg>
-                      <span>
-                        Formatting tags like <strong>**bold**</strong>, <em>*italic*</em>, <u>&lt;u&gt;underline&lt;/u&gt;</u>, and lists are automatically rendered on the marketing website.
-                      </span>
-                    </div>
-
-                    {/* Live Website Preview Card */}
-                    {shortDescription.trim() && (
-                      <div className={styles.livePreviewCard}>
-                        <div className={styles.livePreviewHeader}>
-                          <span className={styles.livePreviewBadge}>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                            <span>Live Website Preview</span>
-                          </span>
-                          <span className={styles.livePreviewHelp}>
-                            How visitors and learners see your description
-                          </span>
-                        </div>
-                        <div className={styles.livePreviewBody}>
-                          <FormattedPreview text={shortDescription} />
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className={styles.editorPreviewContainer}>
-                    {shortDescription.trim() ? (
-                      <FormattedPreview text={shortDescription} />
-                    ) : (
-                      <p className={styles.editorPreviewEmpty}>
-                        Nothing to preview yet. Switch to the <strong>Edit</strong> tab to write your description.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* 2-Column Row: Category | Skill Level */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "1rem",
-                  marginTop: "1.25rem",
-                }}
-              >
                 <div>
-                  <label className={styles.formLabel}>
-                    Category <span style={{ color: "#dc2626" }}>*</span>
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "5px" }}>
+                    <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c" }}>
+                      Category <span style={{ color: "var(--status-error, #dc2626)" }}>*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddCategoryOpen(true)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--accent-primary, #c97a1e)",
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        padding: "0 2px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                      title="Add a custom course category"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      <span>Add Category</span>
+                    </button>
+                  </div>
                   <CustomSelect
                     value={category}
                     onChange={setCategory}
                     fullWidth
+                    searchable
                     ariaLabel="Select Category"
-                    options={[
-                      { value: "Leadership & Mindset", label: "Leadership & Mindset" },
-                      { value: "Web Development", label: "Web Development" },
-                      { value: "UI/UX & Product Design", label: "UI/UX & Product Design" },
-                      { value: "Business Strategy", label: "Business Strategy" },
-                      { value: "Personal Growth", label: "Personal Growth" },
-                    ]}
-                  />
-                </div>
-
-                <div>
-                  <label className={styles.formLabel}>Skill Level</label>
-                  <CustomSelect
-                    value={level}
-                    onChange={setLevel}
-                    fullWidth
-                    ariaLabel="Select Skill Level"
-                    options={[
-                      { value: "Beginner", label: "Beginner" },
-                      { value: "Intermediate", label: "Intermediate" },
-                      { value: "Advanced", label: "Advanced" },
-                    ]}
+                    placeholder="Select or create category..."
+                    searchPlaceholder="Search or type new category..."
+                    onCreateOption={handleAddNewCategory}
+                    createOptionLabel={(query) => `Add "${query}" as new category`}
+                    options={availableCategories.map((cat) => ({
+                      value: cat,
+                      label: cat,
+                    }))}
                   />
                 </div>
               </div>
-            </div>
 
-            {/* Collapsible Course FAQs Repeater */}
-            <div className={styles.formSectionPanel}>
+              {/* Certificate Checkbox */}
               <div
                 style={{
+                  background: hasCertificate ? "#fefaf4" : "#faf8f5",
+                  border: hasCertificate ? "1.5px solid #ebd9c4" : "1px solid #e7decb",
+                  borderRadius: "10px",
+                  padding: "0.85rem 1rem",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  cursor: "pointer",
+                  gap: "0.75rem",
+                  transition: "all 0.15s ease",
                 }}
-                onClick={() => setIsFaqsExpanded((prev) => !prev)}
               >
-                <div>
-                  <h3 className={styles.sectionPanelTitle} style={{ margin: 0 }}>
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#D97706"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                      <line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
-                    <span>Course FAQs ({faqs.length})</span>
-                  </h3>
-                  <p className={styles.sectionPanelSubtitle} style={{ margin: "2px 0 0" }}>
-                    Frequently asked questions displayed in the public course accordion.
-                  </p>
-                </div>
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.65rem",
+                    cursor: "pointer",
+                    fontSize: "0.84rem",
+                    fontWeight: 600,
+                    color: "var(--text-primary, #14110f)",
+                    userSelect: "none",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={hasCertificate}
+                    onChange={(e) => setHasCertificate(e.target.checked)}
+                    style={{
+                      accentColor: "var(--accent-primary, #c97a1e)",
+                      width: 17,
+                      height: 17,
+                      cursor: "pointer",
+                    }}
+                  />
+                  <span>Issue Certificate of Completion upon course completion</span>
+                </label>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: hasCertificate ? "#15803d" : "#78716a",
+                    background: hasCertificate ? "#ecfdf5" : "#f5ece1",
+                    border: `1px solid ${hasCertificate ? "#bbf7d0" : "#e7decb"}`,
+                    padding: "2px 8px",
+                    borderRadius: "9999px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {hasCertificate ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+            </div>
+
+            {/* Right: Cover Banner Uploader (Neat, clean 16:9 box without redundant clutter) */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "5px" }}>
+                <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c", margin: 0 }}>
+                  Cover Banner
+                </label>
+                <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>16:9</span>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={handleImageUpload}
+              />
+
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                style={{
+                  position: "relative",
+                  aspectRatio: "16 / 9",
+                  borderRadius: "12px",
+                  border: isDragging
+                    ? "2px solid var(--accent-primary, #c97a1e)"
+                    : "1.5px dashed #d6cbbe",
+                  background: isDragging ? "#fdf6ed" : "#faf8f5",
+                  overflow: "hidden",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: isDragging ? "scale(1.02)" : "scale(1)",
+                  boxShadow: isDragging ? "0 8px 24px -4px rgba(201, 122, 30, 0.25)" : "none",
+                }}
+                title="Click or drop image to upload"
+              >
+                {/* UPLOADING STATE WITH SMOOTH SPINNER & SHIMMER */}
+                {isUploadingImage && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      background: "linear-gradient(90deg, #faf6f0 0%, #f5ece1 50%, #faf6f0 100%)",
+                      backgroundSize: "200% 100%",
+                      animation: "uploaderShimmer 1.8s infinite linear",
+                      zIndex: 5,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        border: "3px solid rgba(201, 122, 30, 0.2)",
+                        borderTopColor: "var(--accent-primary, #c97a1e)",
+                        borderRadius: "50%",
+                        animation: "uploaderSpin 0.75s linear infinite",
+                      }}
+                    />
+                    <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                      Uploading...
+                    </span>
+                  </div>
+                )}
+
+                {/* IMAGE PREVIEW OR CLEAN DROPZONE PLACEHOLDER */}
+                {thumbnailUrl ? (
+                  <>
+                    <Image
+                      src={thumbnailUrl}
+                      alt="Course cover"
+                      fill
+                      style={{ objectFit: "cover" }}
+                      unoptimized={!thumbnailUrl.startsWith("/")}
+                    />
+
+                    {/* Smooth Hover Overlay */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "linear-gradient(180deg, rgba(20, 17, 15, 0.2) 0%, rgba(20, 17, 15, 0.75) 100%)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.5rem",
+                        opacity: 0,
+                        transition: "opacity 0.2s ease",
+                        zIndex: 3,
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fileInputRef.current?.click();
+                        }}
+                        style={{
+                          background: "#ffffff",
+                          color: "#14110f",
+                          border: "none",
+                          padding: "0.35rem 0.75rem",
+                          borderRadius: "6px",
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                        }}
+                      >
+                        Change
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        style={{
+                          background: "rgba(220, 38, 38, 0.9)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "0.35rem 0.75rem",
+                          borderRadius: "6px",
+                          fontSize: "0.76rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", color: "#78716a", padding: "0.75rem", textAlign: "center" }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        background: "#f5ece1",
+                        color: "var(--accent-primary, #c97a1e)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                    </div>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-primary, #14110f)" }}>
+                      Upload banner
+                    </span>
+                    <span style={{ fontSize: "0.7rem", color: "#a8a29e" }}>
+                      Drop or click (Max 5MB)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Direct Image URL input for pasting links */}
+              <div style={{ position: "relative", marginTop: "8px", width: "100%" }}>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "9px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#a8a29e",
+                    display: "flex",
+                    alignItems: "center",
+                    pointerEvents: "none",
+                  }}
+                  aria-hidden="true"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Or paste image URL (https://...)"
+                  value={thumbnailUrl}
+                  onChange={(e) => setThumbnailUrl(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "0.45rem 1.8rem 0.45rem 1.8rem",
+                    fontSize: "0.78rem",
+                    borderRadius: "7px",
+                    border: "1px solid var(--border-light, #e7decb)",
+                    background: "#faf8f5",
+                    color: "var(--text-primary, #14110f)",
+                    outline: "none",
+                    fontFamily: "inherit",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {thumbnailUrl && (
                   <button
                     type="button"
-                    className={styles.secondaryActionBtn}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleAddFaq();
+                      setThumbnailUrl("");
+                      if (fileInputRef.current) fileInputRef.current.value = "";
                     }}
-                    style={{ fontSize: "0.82rem", height: 32 }}
+                    title="Clear image URL"
+                    style={{
+                      position: "absolute",
+                      right: "6px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "#a8a29e",
+                      cursor: "pointer",
+                      padding: "3px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-                    + Add FAQ
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                   </button>
-                  <span style={{ color: "#78716a", fontSize: "0.85rem" }}>
-                    {isFaqsExpanded ? "▲" : "▼"}
-                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ===================================================================
+            SECTION 2: Descriptions (Short Note & Long Note)
+            =================================================================== */}
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-light, #e7decb)",
+            borderRadius: "14px",
+            padding: "1.35rem 1.5rem",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.02)",
+          }}
+        >
+          {/* Section Header - Clean Title, No Subtitle */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "1.25rem", borderBottom: "1px solid #f5ede4", paddingBottom: "0.75rem" }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 7,
+                background: "#fdf8f0",
+                border: "1px solid #ebd9c4",
+                color: "var(--accent-primary, #c97a1e)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+              aria-hidden="true"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+            </div>
+            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary, #14110f)", margin: 0, lineHeight: 1.2 }}>
+              Course Descriptions
+            </h2>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            {/* Short Description */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c", margin: 0 }}>
+                  Short Description (Plain Text)
+                </label>
+                <span style={{ fontSize: "0.72rem", color: "#a8a29e", fontWeight: 500 }}>
+                  {shortDescription.length} characters (shown on catalog cards)
+                </span>
+              </div>
+              <textarea
+                rows={2}
+                placeholder="Brief 1-2 sentence overview for catalog cards and search previews..."
+                value={shortDescription}
+                onChange={(e) => setShortDescription(e.target.value)}
+                onFocus={() => setIsShortDescFocused(true)}
+                onBlur={() => setIsShortDescFocused(false)}
+                style={{
+                  width: "100%",
+                  padding: "0.7rem 0.9rem",
+                  borderRadius: "8px",
+                  border: `1px solid ${isShortDescFocused ? "var(--accent-primary, #d97706)" : "var(--border-light, #e7decb)"}`,
+                  outline: "none",
+                  boxShadow: isShortDescFocused ? "0 0 0 3px rgba(217, 119, 6, 0.12)" : "none",
+                  transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+                  fontSize: "0.88rem",
+                  lineHeight: 1.5,
+                  minHeight: "60px",
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                  color: "#1c1917",
+                  background: "#ffffff",
+                }}
+              />
+            </div>
+
+            {/* Full Description with Markdown & Preview Tabs */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "0.5rem" }}>
+                <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c", margin: 0 }}>
+                  Full Description &amp; Syllabus Details
+                </label>
+
+                {/* Edit / Preview Tabs */}
+                <div style={{ display: "inline-flex", background: "#f5ede4", padding: "2px", borderRadius: "6px", border: "1px solid #e7decb" }}>
+                  <button
+                    type="button"
+                    onClick={() => setMarkdownTab("edit")}
+                    style={{
+                      border: "none",
+                      background: markdownTab === "edit" ? "#ffffff" : "transparent",
+                      color: markdownTab === "edit" ? "#14110f" : "#78716a",
+                      padding: "4px 10px",
+                      borderRadius: "4px",
+                      fontSize: "0.76rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      boxShadow: markdownTab === "edit" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    Edit Markdown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMarkdownTab("preview")}
+                    style={{
+                      border: "none",
+                      background: markdownTab === "preview" ? "#ffffff" : "transparent",
+                      color: markdownTab === "preview" ? "#14110f" : "#78716a",
+                      padding: "4px 10px",
+                      borderRadius: "4px",
+                      fontSize: "0.76rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      boxShadow: markdownTab === "preview" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    Live Preview
+                  </button>
                 </div>
               </div>
 
-              {isFaqsExpanded && (
-                <div style={{ marginTop: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-                  {faqs.length === 0 ? (
-                    <div
-                      style={{
-                        padding: "1.5rem",
-                        textAlign: "center",
-                        background: "#faf7f2",
-                        borderRadius: 10,
-                        border: "1px dashed #ece6dd",
-                        color: "#78716a",
-                        fontSize: "0.88rem",
-                      }}
-                    >
-                      No FAQs added yet. Click &ldquo;+ Add FAQ&rdquo; to address common learner questions.
-                    </div>
-                  ) : (
-                    faqs.map((faq, idx) => (
-                      <div
-                        key={faq.id}
+              {markdownTab === "edit" ? (
+                <div
+                  style={{
+                    border: `1px solid ${isEditorFocused ? "var(--accent-primary, #d97706)" : "var(--border-light, #e7decb)"}`,
+                    borderRadius: "10px",
+                    background: "#ffffff",
+                    boxShadow: isEditorFocused ? "0 0 0 3px rgba(217, 119, 6, 0.12)" : "0 1px 2px rgba(0,0,0,0.02)",
+                    transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+                    overflow: "hidden",
+                  }}
+                >
+                  {/* Markdown Quick Toolbar */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "6px 10px",
+                      background: "#faf8f5",
+                      borderBottom: "1px solid var(--border-light, #ece4d7)",
+                      flexWrap: "wrap",
+                      gap: "6px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("bold")}
                         style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
                           background: "#ffffff",
-                          border: "1px solid #ece6dd",
-                          borderRadius: 10,
-                          padding: "1rem",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
                         }}
+                        title="Bold (**text**)"
                       >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            marginBottom: "0.6rem",
-                          }}
-                        >
-                          <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#d97706" }}>
-                            Question #{idx + 1}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFaq(idx)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#dc2626",
-                              fontSize: "0.78rem",
-                              fontWeight: 600,
-                              cursor: "pointer",
-                            }}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        B
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("italic")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontStyle: "italic",
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Italic (*text*)"
+                      >
+                        I
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("h2")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Heading 2 (## Heading)"
+                      >
+                        H2
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("bullet")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Bullet List (- item)"
+                      >
+                        • List
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("link")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Insert Link ([label](url))"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        </svg>
+                        Link
+                      </button>
+                    </div>
 
-                        <input
-                          type="text"
-                          placeholder="e.g. Do I get lifetime access to all course recordings?"
-                          value={faq.question}
-                          onChange={(e) => handleFaqChange(idx, "question", e.target.value)}
-                          className={styles.formInput}
-                          style={{ marginBottom: "0.6rem" }}
-                        />
+                    <span style={{ fontSize: "0.72rem", color: "#a8a29e", fontWeight: 500 }}>
+                      Markdown supported
+                    </span>
+                  </div>
 
-                        <textarea
-                          rows={2}
-                          placeholder="Answer details..."
-                          value={faq.answer}
-                          onChange={(e) => handleFaqChange(idx, "answer", e.target.value)}
-                          className={styles.formTextarea}
-                          style={{ minHeight: 70 }}
-                        />
-                      </div>
-                    ))
+                  <textarea
+                    ref={textareaRef}
+                    rows={7}
+                    placeholder="Comprehensive program overview in Markdown format (# Headings, **bold**, - points)..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    onFocus={() => setIsEditorFocused(true)}
+                    onBlur={() => setIsEditorFocused(false)}
+                    style={{
+                      width: "100%",
+                      padding: "0.85rem 1rem",
+                      border: "none",
+                      outline: "none",
+                      boxShadow: "none",
+                      fontSize: "0.92rem",
+                      lineHeight: 1.6,
+                      fontFamily: "inherit",
+                      color: "#1c1917",
+                      resize: "vertical",
+                      minHeight: "150px",
+                      background: "transparent",
+                      display: "block",
+                    }}
+                  />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    background: "#fdfbf7",
+                    border: "1px solid var(--border-light, #ece4d7)",
+                    borderRadius: "10px",
+                    padding: "1rem 1.25rem",
+                    minHeight: "185px",
+                    maxHeight: "380px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {description.trim() ? (
+                    <AgreementMarkdown content={description} />
+                  ) : (
+                    <span style={{ color: "#78716a", fontSize: "0.85rem", fontStyle: "italic" }}>
+                      No full description entered yet. Switch back to &ldquo;Edit Markdown&rdquo; to add content.
+                    </span>
                   )}
                 </div>
               )}
             </div>
           </div>
+        </section>
 
-          {/* =========================================================
-              Right Column (35%): Program Cover Image
-              ========================================================= */}
-          <div>
-            <div className={styles.coverDropzoneCard}>
-              <h3 className={styles.sectionPanelTitle} style={{ fontSize: "0.95rem", marginBottom: "0.25rem" }}>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#D97706"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-                <span>Program Cover Image</span>
-              </h3>
-              <p className={styles.sectionPanelSubtitle} style={{ marginBottom: "0.75rem" }}>
-                16:9 banner thumbnail displayed across catalogs and learner dashboards.
-              </p>
-
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png, image/jpeg, image/webp"
-                style={{ display: "none" }}
-                onChange={handleImageUpload}
-              />
-
-              {/* Dropzone Card */}
+        {/* ===================================================================
+            SECTION 3: Course FAQs (Accordion Style)
+            =================================================================== */}
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-light, #e7decb)",
+            borderRadius: "14px",
+            padding: "1.35rem 1.5rem",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.02)",
+          }}
+        >
+          {/* Section Header - Clean Title, No Subtitle */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem", borderBottom: "1px solid #f5ede4", paddingBottom: "0.75rem", flexWrap: "wrap", gap: "0.75rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
               <div
-                className={styles.dropzoneArea}
-                onClick={() => fileInputRef.current?.click()}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    fileInputRef.current?.click();
-                  }
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  background: "#fdf8f0",
+                  border: "1px solid #ebd9c4",
+                  color: "var(--accent-primary, #c97a1e)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+                aria-hidden="true"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+              <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary, #14110f)", margin: 0, lineHeight: 1.2 }}>
+                Course FAQs ({faqs.length})
+              </h2>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddFaq}
+              style={{
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                color: "var(--accent-primary, #c97a1e)",
+                background: "#fdf8f0",
+                border: "1px solid #ebd9c4",
+                borderRadius: "8px",
+                padding: "6px 14px",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>Add FAQ</span>
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.95rem" }}>
+            {faqs.length === 0 ? (
+              <div
+                style={{
+                  padding: "1.75rem 1.5rem",
+                  textAlign: "center",
+                  background: "#faf8f5",
+                  borderRadius: "10px",
+                  border: "1.5px dashed #e7decb",
+                  color: "#78716a",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "0.5rem",
                 }}
               >
-                {thumbnailUrl ? (
-                  <>
-                    <Image
-                      src={thumbnailUrl}
-                      alt="Program Cover Preview"
-                      fill
-                      style={{ objectFit: "cover" }}
-                      unoptimized={!thumbnailUrl.startsWith("/")}
-                    />
-                    <div className={styles.coverOverlay}>
-                      <span>Click to Change Image</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className={styles.uploadIconWrap}>
-                      <svg
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                    </div>
-                    <span className={styles.uploadTitle}>
-                      {isUploadingImage ? "Uploading Image..." : "Upload program image"}
-                    </span>
-                    <span className={styles.uploadHint}>PNG, JPG (Max 5MB)</span>
-                  </>
-                )}
-              </div>
-
-              <div style={{ marginTop: "1rem", display: "flex", justifyContent: "center" }}>
+                <span style={{ fontSize: "0.86rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                  No FAQs added yet
+                </span>
+                <p style={{ fontSize: "0.78rem", color: "#78716a", margin: 0, maxWidth: 360 }}>
+                  Add common questions about schedule, prerequisites, recordings, or policies.
+                </p>
                 <button
                   type="button"
-                  className={styles.secondaryActionBtn}
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploadingImage}
-                  style={{ width: "100%", justifyContent: "center" }}
+                  onClick={handleAddFaq}
+                  style={{
+                    marginTop: "0.35rem",
+                    padding: "5px 12px",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    color: "#ffffff",
+                    background: "var(--accent-primary, #c97a1e)",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                  }}
                 >
-                  {isUploadingImage ? "Uploading..." : thumbnailUrl ? "Change Image" : "Choose Image"}
+                  + Add First Question
                 </button>
               </div>
-            </div>
+            ) : (
+              faqs.map((faq, idx) => (
+                <div
+                  key={faq.id}
+                  style={{
+                    background: "#faf8f5",
+                    border: "1px solid #e7decb",
+                    borderRadius: "10px",
+                    padding: "1rem",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.65rem",
+                    transition: "border-color 0.15s ease",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span
+                      style={{
+                        fontSize: "0.74rem",
+                        fontWeight: 700,
+                        color: "var(--accent-primary, #c97a1e)",
+                        background: "#fdf8f0",
+                        border: "1px solid #ebd9c4",
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Question #{idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFaq(idx)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--status-error, #dc2626)",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. Do I get lifetime access to recordings and materials?"
+                    value={faq.question}
+                    onChange={(e) => handleFaqChange(idx, "question", e.target.value)}
+                    style={{
+                      background: "#ffffff",
+                      padding: "0.6rem 0.85rem",
+                      fontSize: "0.88rem",
+                      borderRadius: "8px",
+                      border: "1px solid #ebd9c4",
+                      width: "100%",
+                    }}
+                  />
+                  <textarea
+                    rows={2}
+                    placeholder="Provide a helpful, detailed answer for prospective learners..."
+                    value={faq.answer}
+                    onChange={(e) => handleFaqChange(idx, "answer", e.target.value)}
+                    style={{
+                      background: "#ffffff",
+                      padding: "0.6rem 0.85rem",
+                      fontSize: "0.88rem",
+                      minHeight: "55px",
+                      borderRadius: "8px",
+                      border: "1px solid #ebd9c4",
+                      width: "100%",
+                      fontFamily: "inherit",
+                      resize: "vertical",
+                    }}
+                  />
+                </div>
+              ))
+            )}
           </div>
-        </div>
+        </section>
 
-        {/* Bottom Bar: Cancel on Left, Warm-Orange Save & Continue on Right */}
+        {/* ===================================================================
+            BOTTOM ACTION BAR
+            =================================================================== */}
         <div
           style={{
             display: "flex",
+            justifyContent: "flex-end",
             alignItems: "center",
-            justifyContent: "space-between",
-            marginTop: "2.5rem",
-            paddingTop: "1.5rem",
-            borderTop: "1px solid #ece6dd",
+            padding: "0.75rem 0 2rem 0",
           }}
         >
-          {onCancel ? (
-            <button
-              type="button"
-              className={styles.secondaryActionBtn}
-              onClick={onCancel}
-              disabled={isSaving}
-            >
-              Cancel
-            </button>
-          ) : (
-            <Link
-              href="/programs"
-              className={styles.secondaryActionBtn}
-              style={{ textDecoration: "none" }}
-            >
-              Cancel
-            </Link>
-          )}
-
           <button
             type="submit"
-            className={styles.btnPrimary}
             disabled={isSaving}
+            style={{
+              padding: "0.65rem 1.75rem",
+              fontSize: "0.88rem",
+              fontWeight: 700,
+              background: "var(--accent-primary, #c97a1e)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "8px",
+              cursor: isSaving ? "not-allowed" : "pointer",
+              boxShadow: "0 2px 6px rgba(201, 122, 30, 0.25)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              transition: "all 0.15s ease",
+              opacity: isSaving ? 0.75 : 1,
+            }}
           >
-            {isSaving ? "Saving Details..." : "Save & Continue ->"}
+            {isSaving ? (
+              <>
+                <div
+                  style={{
+                    width: 14,
+                    height: 14,
+                    border: "2px solid rgba(255, 255, 255, 0.4)",
+                    borderTopColor: "#ffffff",
+                    borderRadius: "50%",
+                    animation: "uploaderSpin 0.75s linear infinite",
+                  }}
+                />
+                <span>Saving Details...</span>
+              </>
+            ) : (
+              <>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" />
+                  <polyline points="7 3 7 8 15 8" />
+                </svg>
+                <span>Save Program Details</span>
+              </>
+            )}
           </button>
         </div>
       </form>
-    </section>
+
+      <InputDialog
+        isOpen={isAddCategoryOpen}
+        onClose={() => setIsAddCategoryOpen(false)}
+        onSubmit={handleAddNewCategory}
+        title="Add New Course Category"
+        label="Category Name"
+        placeholder="e.g. Executive Coaching, Digital Marketing, AI..."
+        required
+        multiline={false}
+        confirmText="Add Category"
+        tone="info"
+      />
+    </div>
   );
 }

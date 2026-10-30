@@ -28,6 +28,9 @@ export interface CustomSelectProps {
   menuMaxHeight?: string;
   searchable?: boolean;
   searchPlaceholder?: string;
+
+  onCreateOption?: (newVal: string) => void;
+  createOptionLabel?: (query: string) => string;
 }
 
 export function CustomSelect({
@@ -47,6 +50,8 @@ export function CustomSelect({
   menuMaxHeight = "380px",
   searchable,
   searchPlaceholder = "Type to filter...",
+  onCreateOption,
+  createOptionLabel,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -58,6 +63,7 @@ export function CustomSelect({
     left: number;
     width: number;
     openUpwards: boolean;
+    effectiveMaxHeight: number;
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -87,6 +93,16 @@ export function CustomSelect({
     );
   }, [options, isSearchable, searchQuery]);
 
+  const showCreateOption = useMemo(() => {
+    if (!onCreateOption || !searchQuery.trim()) return false;
+    const q = searchQuery.trim().toLowerCase();
+    return !options.some(
+      (opt) =>
+        opt.label.toLowerCase() === q ||
+        opt.value.toLowerCase() === q
+    );
+  }, [onCreateOption, searchQuery, options]);
+
   const closeMenu = () => {
     setIsOpen(false);
     setMenuPos(null);
@@ -101,10 +117,15 @@ export function CustomSelect({
 
     const rect = button.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
     const parsedMaxH = parseInt(menuMaxHeight, 10) || 380;
     const estimatedHeight = Math.min(options.length * 36 + (isSearchable ? 52 : 12), parsedMaxH);
     const openUpwards =
-      spaceBelow < estimatedHeight + 16 && rect.top > estimatedHeight + 16;
+      spaceBelow < estimatedHeight + 20 && spaceAbove > spaceBelow;
+
+    const effectiveMaxHeight = openUpwards
+      ? Math.min(parsedMaxH, Math.max(120, spaceAbove - 24))
+      : Math.min(parsedMaxH, Math.max(120, spaceBelow - 24));
 
     const triggerWidth = rect.width;
     const parsedMenuMinWidth = menuMinWidth ? parseInt(menuMinWidth, 10) : triggerWidth;
@@ -118,6 +139,7 @@ export function CustomSelect({
         left,
         width: triggerWidth,
         openUpwards: true,
+        effectiveMaxHeight,
       });
     } else {
       const top = rect.bottom + 4;
@@ -126,6 +148,7 @@ export function CustomSelect({
         left,
         width: triggerWidth,
         openUpwards: false,
+        effectiveMaxHeight,
       });
     }
 
@@ -238,6 +261,10 @@ export function CustomSelect({
         closeMenu();
         triggerRef.current?.focus();
       }
+    } else if (showCreateOption && onCreateOption) {
+      onCreateOption(searchQuery.trim());
+      closeMenu();
+      triggerRef.current?.focus();
     } else if (e.key === "Escape") {
       e.preventDefault();
       closeMenu();
@@ -314,7 +341,7 @@ export function CustomSelect({
               minWidth: menuMinWidth || `${menuPos.width}px`,
               width: "max-content",
               maxWidth: "min(480px, calc(100vw - 24px))",
-              maxHeight: menuMaxHeight,
+              maxHeight: `${menuPos.effectiveMaxHeight}px`,
             }}
             role="listbox"
             aria-label={ariaLabel || displayLabel}
@@ -350,7 +377,10 @@ export function CustomSelect({
                     title="Clear filter"
                     aria-label="Clear filter"
                   >
-                    ✕
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                   </button>
                 )}
               </div>
@@ -358,7 +388,42 @@ export function CustomSelect({
 
             {/* Scrollable Options List */}
             <div className={styles.optionsList}>
-              {filteredOptions.length === 0 ? (
+              {showCreateOption && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className={styles.option}
+                  style={{
+                    color: "var(--accent-primary, #c97a1e)",
+                    fontWeight: 600,
+                    background: "#fdf8f0",
+                    borderBottom: "1px dashed #e7decb",
+                    cursor: "pointer",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateOption!(searchQuery.trim());
+                    closeMenu();
+                    triggerRef.current?.focus();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onCreateOption!(searchQuery.trim());
+                      closeMenu();
+                      triggerRef.current?.focus();
+                    }
+                  }}
+                >
+                  <div className={styles.optionTextWrapper}>
+                    <span style={{ fontSize: "1.1rem", lineHeight: 1, marginRight: "4px" }}>+</span>
+                    <span className={styles.optionLabel}>
+                      {createOptionLabel ? createOptionLabel(searchQuery.trim()) : `Add "${searchQuery.trim()}"`}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {filteredOptions.length === 0 && !showCreateOption ? (
                 <div className={styles.noResults}>
                   No options matching &ldquo;{searchQuery}&rdquo;
                 </div>

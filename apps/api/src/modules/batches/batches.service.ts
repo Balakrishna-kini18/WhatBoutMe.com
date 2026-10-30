@@ -6,7 +6,7 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
-import { BatchStatus, Role, EnrolmentStatus } from '@prisma/client';
+import { BatchStatus, Role, EnrolmentStatus, AgreementStatus, ContentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import {
@@ -104,6 +104,21 @@ export class BatchesService {
           },
         }).catch(() => {});
       }
+
+      // Automatically restore any ARCHIVED batches to ACTIVE so they are never hidden
+      if (typeof (this.prisma.batch as any)?.updateMany === 'function') {
+        await this.prisma.batch.updateMany({
+          where: {
+            status: BatchStatus.ARCHIVED,
+          },
+          data: {
+            status: BatchStatus.ACTIVE,
+          },
+        }).catch(() => {});
+      }
+
+      // Automatically absorb waitlisted learners into any open batches for the same program
+      await this.absorbWaitlistLearners().catch(() => {});
 
       const batches = await this.prisma.batch.findMany({
         where,
@@ -276,6 +291,12 @@ export class BatchesService {
       throw new NotFoundException('Program not found');
     }
 
+    if (!program.isActive || program.status === ContentStatus.DRAFT) {
+      throw new BadRequestException(
+        'Cannot assign batches to a draft program. Please publish the program first.',
+      );
+    }
+
     if (existing) {
       throw new ConflictException(
         `A batch named "${data.name.trim()}" already exists in the selected program`,
@@ -380,6 +401,71 @@ export class BatchesService {
         }
       }
 
+      // Automatically assign waitlisted learners for this program to the newly created batch
+      if (
+        batch.status !== BatchStatus.COMPLETED &&
+        batch.status !== BatchStatus.ARCHIVED &&
+        batch.capacity > 0 &&
+        !(batch.registrationDeadline && new Date(batch.registrationDeadline).getTime() < Date.now())
+      ) {
+        const waitlisted = await tx.enrolment.findMany({
+          where: {
+            programId: data.programId,
+            status: EnrolmentStatus.WAITLIST,
+          },
+          orderBy: { createdAt: 'asc' },
+          take: batch.capacity,
+          include: {
+            signedAgreement: true,
+            payments: true,
+          },
+        });
+
+        for (const enr of waitlisted) {
+          const hasSigned = enr.signedAgreement?.status === AgreementStatus.SIGNED;
+          const hasPayment = enr.payments?.some(
+            (p) =>
+              p.status === 'succeeded' ||
+              p.status === 'paid' ||
+              p.status === 'COMPLETED',
+          );
+          let targetStatus: EnrolmentStatus = EnrolmentStatus.ACTIVE;
+          if (hasSigned) {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          } else if (hasPayment) {
+            targetStatus = EnrolmentStatus.PENDING_AGREEMENT;
+          } else {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          }
+
+          await tx.enrolment.update({
+            where: { id: enr.id },
+            data: {
+              batchId: batch.id,
+              status: targetStatus,
+            },
+          });
+
+          if (typeof (tx as any).auditLog?.create === 'function') {
+            await (tx as any).auditLog.create({
+              data: {
+                actorId: actorId || null,
+                action: 'WAITLIST_AUTO_ASSIGNED',
+                entity: 'Enrolment',
+                entityId: enr.id,
+                meta: {
+                  batchId: batch.id,
+                  batchName: batch.name,
+                  programId: data.programId,
+                  previousStatus: EnrolmentStatus.WAITLIST,
+                  newStatus: targetStatus,
+                },
+              },
+            }).catch(() => null);
+          }
+        }
+      }
+
       return tx.batch.findUnique({
         where: { id: batch.id },
         include: {
@@ -417,6 +503,7 @@ export class BatchesService {
     }
 
     await this.cacheHelper.invalidateNamespace('batches');
+    await this.cacheHelper.invalidateNamespace('enrolments');
     return this.formatBatchResponse(created!);
   }
 
@@ -433,6 +520,12 @@ export class BatchesService {
       });
       if (!program) {
         throw new NotFoundException('Program not found');
+    }
+
+    if (!program.isActive || program.status === ContentStatus.DRAFT) {
+      throw new BadRequestException(
+        'Cannot assign batches to a draft program. Please publish the program first.',
+      );
       }
     }
 
@@ -548,6 +641,91 @@ export class BatchesService {
     });
 
     await this.cacheHelper.invalidateNamespace('batches');
+
+    // If capacity was increased, automatically absorb waitlisted learners up to new capacity
+    const effectiveDeadline = updated.registrationDeadline;
+    const isDeadlinePassed = effectiveDeadline && new Date(effectiveDeadline).getTime() < Date.now();
+    const isBatchOpen = updated.status !== BatchStatus.COMPLETED && updated.status !== BatchStatus.ARCHIVED;
+
+    // If capacity was increased, registration deadline has NOT passed, and batch is active/upcoming:
+    // automatically absorb waitlisted learners up to new capacity
+    if (
+      data.capacity !== undefined &&
+      data.capacity > (batch.capacity ?? 0) &&
+      isBatchOpen &&
+      !isDeadlinePassed
+    ) {
+      const currentEnrolled = await this.prisma.enrolment.count({
+        where: {
+          batchId: id,
+          status: {
+            in: [
+              EnrolmentStatus.ACTIVE,
+              EnrolmentStatus.PENDING_AGREEMENT,
+              EnrolmentStatus.COMPLETED,
+            ],
+          },
+        },
+      });
+      const availableSeats = Math.max(0, data.capacity - currentEnrolled);
+      if (availableSeats > 0) {
+        const waitlistedInBatch = await this.prisma.enrolment.findMany({
+          where: {
+            batchId: id,
+            status: EnrolmentStatus.WAITLIST,
+          },
+          orderBy: { createdAt: 'asc' },
+          take: availableSeats,
+          include: {
+            signedAgreement: true,
+            payments: true,
+          },
+        });
+
+        for (const enr of waitlistedInBatch) {
+          const hasSigned = enr.signedAgreement?.status === AgreementStatus.SIGNED;
+          const hasPayment = enr.payments?.some(
+            (p) =>
+              p.status === 'succeeded' ||
+              p.status === 'paid' ||
+              p.status === 'COMPLETED',
+          );
+          let targetStatus: EnrolmentStatus = EnrolmentStatus.ACTIVE;
+          if (hasSigned) {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          } else if (hasPayment) {
+            targetStatus = EnrolmentStatus.PENDING_AGREEMENT;
+          } else {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          }
+
+          await this.prisma.enrolment.update({
+            where: { id: enr.id },
+            data: { status: targetStatus },
+          });
+
+          if (typeof this.prisma.auditLog?.create === 'function') {
+            await this.prisma.auditLog.create({
+              data: {
+                actorId: actorId || null,
+                action: 'WAITLIST_AUTO_PROMOTED',
+                entity: 'Enrolment',
+                entityId: enr.id,
+                meta: {
+                  batchId: id,
+                  batchName: batch.name,
+                  reason: 'Batch capacity increased',
+                  previousStatus: EnrolmentStatus.WAITLIST,
+                  newStatus: targetStatus,
+                },
+              },
+            }).catch(() => null);
+          }
+        }
+      }
+    }
+
+    await this.cacheHelper.invalidateNamespace('enrolments');
 
     if (updateData.status && updateData.status !== batch.status && typeof this.prisma.auditLog?.create === 'function') {
       await this.prisma.auditLog.create({
@@ -971,4 +1149,132 @@ export class BatchesService {
       updatedAt: batch.updatedAt,
     };
   }
+
+  async absorbWaitlistLearners(): Promise<number> {
+    if (
+      typeof (this.prisma.enrolment as any)?.findMany !== 'function' ||
+      typeof (this.prisma.batch as any)?.findMany !== 'function'
+    ) {
+      return 0;
+    }
+
+    const waitlisted = await this.prisma.enrolment.findMany({
+      where: {
+        status: EnrolmentStatus.WAITLIST,
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        signedAgreement: true,
+        payments: true,
+      },
+    });
+
+    if (!waitlisted.length) return 0;
+
+    const now = new Date();
+    let absorbedCount = 0;
+
+    const programMap = new Map<string, typeof waitlisted>();
+    for (const enr of waitlisted) {
+      if (!programMap.has(enr.programId)) {
+        programMap.set(enr.programId, []);
+      }
+      programMap.get(enr.programId)!.push(enr);
+    }
+
+    for (const [programId, learners] of programMap.entries()) {
+      const openBatches = await this.prisma.batch.findMany({
+        where: {
+          programId,
+          status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
+          OR: [
+            { registrationDeadline: null },
+            { registrationDeadline: { gte: now } },
+          ],
+        },
+        include: {
+          _count: {
+            select: {
+              enrolments: {
+                where: {
+                  status: {
+                    in: [
+                      EnrolmentStatus.ACTIVE,
+                      EnrolmentStatus.PENDING_AGREEMENT,
+                      EnrolmentStatus.COMPLETED,
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { startDate: 'asc' },
+      });
+
+      for (const batch of openBatches) {
+        let currentCount = batch._count.enrolments;
+        const availableSeats = batch.capacity - currentCount;
+        if (availableSeats <= 0) continue;
+
+        const toAbsorb = learners.splice(0, availableSeats);
+        for (const enr of toAbsorb) {
+          const hasSigned = enr.signedAgreement?.status === AgreementStatus.SIGNED;
+          const hasPayment = enr.payments?.some(
+            (p: any) =>
+              p.status === 'succeeded' ||
+              p.status === 'paid' ||
+              p.status === 'COMPLETED',
+          );
+          let targetStatus: EnrolmentStatus = EnrolmentStatus.ACTIVE;
+          if (hasSigned) {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          } else if (hasPayment) {
+            targetStatus = EnrolmentStatus.PENDING_AGREEMENT;
+          } else {
+            targetStatus = EnrolmentStatus.ACTIVE;
+          }
+
+          await this.prisma.enrolment.update({
+            where: { id: enr.id },
+            data: {
+              batchId: batch.id,
+              status: targetStatus,
+            },
+          });
+
+          if (typeof (this.prisma as any).auditLog?.create === 'function') {
+            await (this.prisma as any).auditLog.create({
+              data: {
+                actorId: null,
+                action: 'WAITLIST_AUTO_ASSIGNED',
+                entity: 'Enrolment',
+                entityId: enr.id,
+                meta: {
+                  batchId: batch.id,
+                  batchName: batch.name,
+                  programId,
+                  previousStatus: EnrolmentStatus.WAITLIST,
+                  newStatus: targetStatus,
+                },
+              },
+            }).catch(() => null);
+          }
+
+          absorbedCount++;
+          currentCount++;
+        }
+
+        if (learners.length === 0) break;
+      }
+    }
+
+    if (absorbedCount > 0) {
+      await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
+      await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+    }
+
+    return absorbedCount;
+  }
+
 }

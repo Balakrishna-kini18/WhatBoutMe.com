@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import styles from "../curriculum.module.css";
 
-export type LessonTypeChoice = "VIDEO" | "PDF" | "QUIZ" | "TEXT" | "LIVE" | "LINK";
+export type LessonTypeChoice = "VIDEO" | "PDF" | "QUIZ";
 
 interface Step5AddLessonChooserProps {
   moduleSequence: number;
@@ -14,7 +14,6 @@ interface Step5AddLessonChooserProps {
 interface LessonCardItem {
   type: LessonTypeChoice;
   title: string;
-  desc: string;
   badgeBg: string;
   iconColor: string;
   renderIcon: () => React.ReactNode;
@@ -25,17 +24,14 @@ export default function Step5AddLessonChooser({
   onCancel,
   onSelectType,
 }: Step5AddLessonChooserProps) {
-  const [selected, setSelected] = useState<LessonTypeChoice>("VIDEO");
-
   const cards: LessonCardItem[] = [
     {
       type: "VIDEO",
-      title: "Video Lecture",
-      desc: "Upload or stream video lecture with secure watermark optimization",
+      title: "Video Lesson",
       badgeBg: "#ede9fe",
       iconColor: "#7c3aed",
       renderIcon: () => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect width="20" height="15" x="2" y="5" rx="2" />
           <path d="m4 9 3-4" />
           <path d="m10 9 3-4" />
@@ -47,11 +43,10 @@ export default function Step5AddLessonChooser({
     {
       type: "PDF",
       title: "PDF Document",
-      desc: "Upload study material, slide decks, or downloadable worksheets",
       badgeBg: "#ffe4e6",
       iconColor: "#e11d48",
       renderIcon: () => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
           <line x1="16" y1="13" x2="8" y2="13" />
@@ -63,179 +58,120 @@ export default function Step5AddLessonChooser({
     {
       type: "QUIZ",
       title: "Knowledge Quiz",
-      desc: "Create interactive assessment with pass mark requirements",
       badgeBg: "#fce7f3",
       iconColor: "#c026d3",
       renderIcon: () => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c026d3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c026d3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-5.04z" />
           <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-5.04z" />
         </svg>
       ),
     },
-    {
-      type: "TEXT",
-      title: "Text Content",
-      desc: "Add comprehensive reading notes, takeaways, or guides",
-      badgeBg: "#fef3c7",
-      iconColor: "#d97706",
-      renderIcon: () => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-          <polyline points="10 9 9 9 8 9" />
-        </svg>
-      ),
-    },
-    {
-      type: "LIVE",
-      title: "Live Session",
-      desc: "Schedule interactive live Zoom or cohort webinar",
-      badgeBg: "#ffedd5",
-      iconColor: "#ea580c",
-      renderIcon: () => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polygon points="23 7 16 12 23 17 23 7" />
-          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-        </svg>
-      ),
-    },
-    {
-      type: "LINK",
-      title: "External Link",
-      desc: "Add link to GitHub repository, Figma board, or external article",
-      badgeBg: "#e0f2fe",
-      iconColor: "#0284c7",
-      renderIcon: () => (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-      ),
-    },
   ];
-
-  const calloutMap: Record<LessonTypeChoice, { title: string; desc: string }> = {
-    VIDEO: {
-      title: "About Video Lecture",
-      desc: "You can upload a video file or provide a streaming URL. The video will be protected with secure watermark and optimized for all devices.",
-    },
-    PDF: {
-      title: "About PDF Document",
-      desc: "You can upload study material, slide decks, or downloadable worksheets. Files can be viewed online or downloaded by learners.",
-    },
-    QUIZ: {
-      title: "About Knowledge Quiz",
-      desc: "Create interactive assessments with pass mark requirements, automated grading, and instant feedback.",
-    },
-    TEXT: {
-      title: "About Text Content",
-      desc: "Add comprehensive reading notes, takeaways, or guides with formatted text, images, and code snippets.",
-    },
-    LIVE: {
-      title: "About Live Session",
-      desc: "Schedule interactive live Zoom or cohort webinars with custom calendar invites, agendas, and join links.",
-    },
-    LINK: {
-      title: "About External Link",
-      desc: "Add link to GitHub repository, Figma board, or external articles for learners to explore supplementary materials.",
-    },
-  };
-
-  const currentCard: LessonCardItem = cards.find((c) => c.type === selected) ?? cards[0]!;
-  const currentCallout = calloutMap[selected] ?? calloutMap.VIDEO;
 
   return (
     <section className={styles.cardSurface}>
+      {/* Top Back Navigation Button */}
+      <button
+        type="button"
+        onClick={onCancel}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          color: "var(--text-muted, #78716a)",
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          padding: "0.3rem 0",
+          marginBottom: "0.75rem",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+        <span>Back to Steps &amp; Lessons</span>
+      </button>
+
       {/* Header */}
-      <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>ADD CONTENT TO MODULE {moduleSequence}</div>
+      <div className={styles.cardHeaderArea} style={{ marginBottom: "1.25rem" }}>
         <h2 className={styles.stepTitle}>Select Lesson Type</h2>
-        <p className={styles.stepSubtitle}>
-          Choose the format of learning material you would like to introduce to learners in this step.
-        </p>
       </div>
 
-      {/* 6-Card Grid Selector */}
-      <div className={styles.chooserGrid} role="radiogroup" aria-label="Select Lesson Type">
-        {cards.map((c) => {
-          const isSelected = selected === c.type;
-          return (
+      {/* 3-Card Grid Selector - Click immediately navigates */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "1.25rem",
+          maxWidth: "850px",
+        }}
+      >
+        {cards.map((c) => (
+          <div
+            key={c.type}
+            onClick={() => onSelectType(c.type)}
+            style={{
+              padding: "1.5rem 1.25rem",
+              borderRadius: "14px",
+              border: "1.5px solid #ece6dd",
+              background: "#ffffff",
+              cursor: "pointer",
+              transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
+              gap: "0.85rem",
+              boxShadow: "0 1px 3px rgba(20, 17, 15, 0.03)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--accent-primary, #c97a1e)";
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = "0 8px 20px -4px rgba(201, 122, 30, 0.12)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#ece6dd";
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "0 1px 3px rgba(20, 17, 15, 0.03)";
+            }}
+          >
             <div
-              key={c.type}
-              className={`${styles.chooserCard} ${
-                isSelected ? styles.chooserCardSelected : ""
-              }`}
-              onClick={() => setSelected(c.type)}
-              role="radio"
-              aria-checked={isSelected}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSelected(c.type);
-                }
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 14,
+                backgroundColor: c.badgeBg,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <div className={styles.chooserCardHeader}>
-                <div
-                  className={styles.chooserBadge}
-                  style={{ backgroundColor: c.badgeBg }}
-                >
-                  {c.renderIcon()}
-                </div>
-
-                {isSelected ? (
-                  <div className={styles.chooserRadioActive} aria-hidden="true">
-                    <div className={styles.chooserRadioActiveDot} />
-                  </div>
-                ) : (
-                  <div className={styles.chooserRadioEmpty} aria-hidden="true" />
-                )}
-              </div>
-
-              <h3 className={styles.chooserTitle}>{c.title}</h3>
-              <p className={styles.chooserDesc}>{c.desc}</p>
+              {c.renderIcon()}
             </div>
-          );
-        })}
-      </div>
 
-      {/* Info Callout Box */}
-      <div className={styles.infoCallout}>
-        <div className={styles.infoCalloutIcon} aria-hidden="true">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="16" x2="12" y2="12" />
-            <line x1="12" y1="8" x2="12.01" y2="8" />
-          </svg>
-        </div>
-        <div className={styles.infoCalloutContent}>
-          <h4 className={styles.infoCalloutTitle}>{currentCallout.title}</h4>
-          <p className={styles.infoCalloutDesc}>{currentCallout.desc}</p>
-        </div>
-      </div>
+            <h3 style={{ fontSize: "1.05rem", fontWeight: 700, margin: 0, color: "var(--text-primary, #14110f)" }}>
+              {c.title}
+            </h3>
 
-      {/* Footer Action Controls */}
-      <div className={styles.chooserFooterRow}>
-        <button
-          type="button"
-          className={styles.chooserCancelBtn}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-
-        <button
-          type="button"
-          className={styles.chooserPrimaryBtn}
-          onClick={() => onSelectType(selected)}
-        >
-          <span>Continue with {currentCard.title}</span>
-          <span aria-hidden="true">&rarr;</span>
-        </button>
+            <span
+              style={{
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                color: "var(--accent-primary, #c97a1e)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                marginTop: "0.25rem",
+              }}
+            >
+              <span>Add {c.title}</span>
+              <span aria-hidden="true">&rarr;</span>
+            </span>
+          </div>
+        ))}
       </div>
     </section>
   );

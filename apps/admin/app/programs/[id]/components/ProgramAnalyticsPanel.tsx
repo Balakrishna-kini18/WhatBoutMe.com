@@ -196,7 +196,7 @@ export default function ProgramAnalyticsPanel({
           }}
         >
           <span style={{ fontSize: "0.8rem", color: "#78716a", fontWeight: 600 }}>
-            Cohort Size (Enrolments)
+            Batch Enrolments
           </span>
           <div style={{ fontSize: "1.85rem", fontWeight: 800, color: "#14110f", marginTop: 4 }}>
             {totalEnrolments}

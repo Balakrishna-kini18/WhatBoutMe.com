@@ -2070,7 +2070,7 @@ export async function getBatches(query?: { programId?: string; status?: string }
 }
 
 export async function getBatchById(id: string): Promise<any> {
-  return apiGet<any>(`/batches/${id}`);
+  return apiGet<any>(`/batches/${id}`, { skipCache: true });
 }
 
 export async function getBatchSessions(batchId: string): Promise<any[]> {

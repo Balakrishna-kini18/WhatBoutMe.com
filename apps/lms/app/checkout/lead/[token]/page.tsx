@@ -357,7 +357,7 @@ export default function LeadCheckoutPage({
                     {data.program.title}
                   </h2>
                   <div style={{ fontSize: "0.8rem", color: "#78716A" }}>
-                    Cohort: <strong style={{ color: "#44403C" }}>{data.batch?.name || "Upcoming Cohort"}</strong>
+                    Batch: <strong style={{ color: "#44403C" }}>{data.batch?.name || "Upcoming Batch"}</strong>
                   </div>
                 </div>
                 <div style={{ textAlign: "right" }}>

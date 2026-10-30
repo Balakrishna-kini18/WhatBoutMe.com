@@ -72,6 +72,9 @@ interface UserDetail {
   id: string;
   name: string;
   email: string;
+  phone?: string | null;
+  country?: string | null;
+  timezone?: string | null;
   role: string;
   twoFactorEnabled?: boolean;
   status?: string;
@@ -294,9 +297,9 @@ export interface CertificateEligibility {
 export default function UserDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as any) : params;
+  const unwrappedParams = use(params);
   const userId = (unwrappedParams as { id?: string })?.id || "";
 
   const router = useRouter();
@@ -332,6 +335,9 @@ export default function UserDetailPage({
   // In-profile Stage 4 & Stage 5 direct actions
   const [oneOnOneRequests, setOneOnOneRequests] = useState<OneOnOneRequestItem[]>([]);
   const [missionSubmissions, setMissionSubmissions] = useState<MissionStatementItem[]>([]);
+  const [previewMissionModalDoc, setPreviewMissionModalDoc] = useState<MissionStatementItem | null>(null);
+  const [previewDocLoading, setPreviewDocLoading] = useState(true);
+  const [previewDocError, setPreviewDocError] = useState(false);
   const [actingOneOnOne, setActingOneOnOne] = useState(false);
   const [actingMission, setActingMission] = useState(false);
   const [rejectingMissionModal, setRejectingMissionModal] = useState<MissionStatementItem | null>(null);
@@ -946,6 +952,45 @@ export default function UserDetailPage({
                   <span>{user.email}</span>
                 </span>
 
+                {user.country && (
+                  <>
+                    <span className={styles.metaDot}>&bull;</span>
+                    <span className={styles.metaItem} title="Learner Country">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                      </svg>
+                      <span>{user.country}</span>
+                    </span>
+                  </>
+                )}
+
+                {user.phone && (
+                  <>
+                    <span className={styles.metaDot}>&bull;</span>
+                    <span className={styles.metaItem} title="Mobile Number">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                      </svg>
+                      <span>{user.phone}</span>
+                    </span>
+                  </>
+                )}
+
+                {user.timezone && (
+                  <>
+                    <span className={styles.metaDot}>&bull;</span>
+                    <span className={styles.metaItem} title="Learner Timezone">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                      <span>{user.timezone}</span>
+                    </span>
+                  </>
+                )}
+
                 <span className={styles.metaDot}>&bull;</span>
 
                 <span className={styles.metaItem}>
@@ -1148,7 +1193,13 @@ export default function UserDetailPage({
               {/* STAGE 2: FINAL EXAM */}
               {(() => {
                 const s2 = stagesEval?.stages?.STAGE_2_EXAM;
-                const isDone = Boolean(s2?.isCompleted);
+                const isOverridden = Boolean(s2?.isOverridden);
+                const passMark = (s2?.details as any)?.passMark ?? 75;
+                const bestScore = (s2?.details as any)?.bestScore ?? (s2?.details as any)?.examScore ?? null;
+                const hasAttempted = Boolean((s2?.details as any)?.attemptCount > 0 || bestScore !== null);
+                const isPassed = Boolean(s2?.isCompleted || (bestScore !== null && bestScore >= passMark));
+                const isFailed = hasAttempted && !isPassed && !isOverridden;
+                const isDone = isOverridden || isPassed;
                 const isUnlocked = Boolean(s2?.isUnlocked);
                 const isSelected = selectedStageKey === "STAGE_2_EXAM";
                 return (
@@ -1158,16 +1209,30 @@ export default function UserDetailPage({
                     onClick={() => setSelectedStageKey("STAGE_2_EXAM")}
                   >
                     <div className={styles.stepCardTop}>
-                      <span className={`${styles.stepNumberPill} ${isDone ? styles.stepNumberPillCompleted : ""}`}>
+                      <span
+                        className={`${styles.stepNumberPill} ${isDone ? styles.stepNumberPillCompleted : ""}`}
+                        style={isFailed ? { background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5" } : undefined}
+                      >
                         {isDone ? (
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
+                        ) : isFailed ? (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
                         ) : "2"}
                       </span>
-                      {isDone ? (
+                      {isOverridden ? (
+                        <span className={styles.pipelineBadgeCompleted}>Overridden</span>
+                      ) : isPassed ? (
                         <span className={styles.pipelineBadgeCompleted}>
-                          {s2?.isOverridden ? "Overridden" : "Passed"}
+                          {bestScore !== null ? `${bestScore}% Passed` : "Passed"}
+                        </span>
+                      ) : isFailed ? (
+                        <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "1px 6px", borderRadius: "4px", background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5" }}>
+                          {bestScore !== null ? `${bestScore}%` : "Failed"}
                         </span>
                       ) : isUnlocked ? (
                         <span className={styles.pipelineBadgeActive}>Pending</span>
@@ -2067,127 +2132,179 @@ export default function UserDetailPage({
                         </div>
                       </div>
 
-                      {/* In-Profile Action: Booking Request Pending Approval */}
-                      {latest1on1 && latest1on1.status === "PENDING_APPROVAL" && (
-                        <div style={{ padding: "0.85rem 1rem", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "8px", marginTop: "1rem" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-                            <div>
-                              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#92400e", textTransform: "uppercase" }}>
-                                Booking Request Pending Approval
-                              </div>
-                              <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#78350f", marginTop: "2px" }}>
-                                Requested Slot: {new Date(latest1on1.requestedStart).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                                {latest1on1.learnerTimezone ? ` (${latest1on1.learnerTimezone})` : ""}
-                              </div>
-                              {latest1on1.notes && (
-                                <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "3px" }}>
-                                  Learner Notes: <em>{latest1on1.notes}</em>
-                                </div>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", gap: "0.5rem" }}>
-                              <button
-                                type="button"
-                                disabled={actingOneOnOne}
-                                onClick={async () => {
-                                  setActingOneOnOne(true);
-                                  try {
-                                    await approveOneOnOneRequest(latest1on1.id, {
-                                      startTime: latest1on1.requestedStart,
-                                      endTime: latest1on1.requestedEnd,
-                                    });
-                                    toast.success("1:1 Call booking approved and scheduled with Zoom link!");
-                                    await fetchProgression(selectedEnrolmentId);
-                                  } catch (err: any) {
-                                    toast.error(err.message || "Failed to approve 1:1 request");
-                                  } finally {
-                                    setActingOneOnOne(false);
-                                  }
-                                }}
-                                className={styles.actionBtnPrimary}
-                                style={{ padding: "0.45rem 0.85rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }}
-                              >
-                                {actingOneOnOne ? "Approving..." : "Approve Call Slot ✓"}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={actingOneOnOne}
-                                onClick={async () => {
-                                  const reason = prompt("Enter rejection reason for learner:") || "";
-                                  if (!reason.trim()) return;
-                                  setActingOneOnOne(true);
-                                  try {
-                                    await rejectOneOnOneRequest(latest1on1.id, reason.trim());
-                                    toast.info("1:1 Call booking request rejected.");
-                                    await fetchProgression(selectedEnrolmentId);
-                                  } catch (err: any) {
-                                    toast.error(err.message || "Failed to reject 1:1 request");
-                                  } finally {
-                                    setActingOneOnOne(false);
-                                  }
-                                }}
-                                className={styles.tableActionBtn}
-                                style={{ color: "#991b1b", borderColor: "#fecaca" }}
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          </div>
+                      {/* Clean Structured 1:1 Coaching Session Table (Approvals Hub Standard) */}
+                      <div style={{ marginTop: "1.25rem", border: "1px solid var(--border-light)", borderRadius: "8px", overflow: "hidden", background: "#ffffff" }}>
+                        <div style={{ padding: "0.75rem 1rem", background: "var(--bg-card-muted, #fdfbf7)", borderBottom: "1px solid var(--border-light)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                            1-on-1 Coaching Consultation Status
+                          </span>
+                          <Link href="/approvals?tab=coaching" style={{ fontSize: "0.78rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600 }}>
+                            View in Approvals Hub ↗
+                          </Link>
                         </div>
-                      )}
 
-                      {/* In-Profile Action: Scheduled Session Ready to Mark Completed */}
-                      {((latest1on1 && latest1on1.status === "APPROVED") || oneOnOne) && !isCompleted && (
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.85rem 1rem", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", marginTop: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
-                          <div>
-                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#166534", textTransform: "uppercase" }}>Scheduled 1:1 Consultation</span>
-                            <div style={{ fontSize: "0.875rem", fontWeight: 700, color: "#15803d", marginTop: "2px" }}>
-                              {latest1on1?.session?.startTime
-                                ? new Date(latest1on1.session.startTime).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                                : (oneOnOne ? formatNumericDate(oneOnOne.startTimeUtc) : "Confirmed")}
-                            </div>
-                            {latest1on1?.session?.joinUrl && (
-                              <a href={latest1on1.session.joinUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.78rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600, marginTop: "3px", display: "inline-block" }}>
-                                Join Zoom Meeting ↗
-                              </a>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            disabled={actingOneOnOne}
-                            onClick={async () => {
-                              const sessionId = latest1on1?.sessionId || latest1on1?.session?.id || oneOnOne?.sessionId;
-                              if (!sessionId) {
-                                toast.error("No active session ID found to mark completed.");
-                                return;
-                              }
-                              setActingOneOnOne(true);
-                              try {
-                                const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                                const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
-                                  method: "PATCH",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                                  },
-                                  body: JSON.stringify({ status: "COMPLETED" }),
-                                });
-                                if (!res.ok) throw new Error(await errorMessage(res, "Failed to complete session"));
-                                toast.success("1:1 Call marked completed! Stage 5 (Mission Statement) unlocked.");
-                                await fetchProgression(selectedEnrolmentId);
-                              } catch (err: any) {
-                                toast.error(err.message || "Failed to mark call completed");
-                              } finally {
-                                setActingOneOnOne(false);
-                              }
-                            }}
-                            className={styles.actionBtnPrimary}
-                            style={{ padding: "0.45rem 0.9rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }}
-                          >
-                            {actingOneOnOne ? "Completing Session..." : "Mark Session Completed ✓"}
-                          </button>
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
+                            <thead>
+                              <tr style={{ background: "#faf8f5", borderBottom: "1px solid var(--border-light)", color: "var(--text-muted)", textAlign: "left" }}>
+                                <th style={{ padding: "8px 12px", fontWeight: 600 }}>Session Topic</th>
+                                <th style={{ padding: "8px 12px", fontWeight: 600 }}>Scheduled Slot</th>
+                                <th style={{ padding: "8px 12px", fontWeight: 600 }}>Duration</th>
+                                <th style={{ padding: "8px 12px", fontWeight: 600 }}>Zoom Link</th>
+                                <th style={{ padding: "8px 12px", fontWeight: 600 }}>Status</th>
+                                <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {latest1on1 || oneOnOne ? (
+                                <tr style={{ borderBottom: "1px solid var(--border-light)" }}>
+                                  <td style={{ padding: "10px 12px" }}>
+                                    <strong style={{ color: "var(--text-primary)" }}>
+                                      {oneOnOne?.sessionTitle || (latest1on1?.session?.title || "1-on-1 Coaching Consultation")}
+                                    </strong>
+                                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                                      Host: {latest1on1?.session?.hostTrainer?.name || "Roweena Britto"}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: "10px 12px" }}>
+                                    <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                                      {latest1on1?.requestedStart
+                                        ? new Date(latest1on1.requestedStart).toLocaleString()
+                                        : oneOnOne ? formatNumericDate(oneOnOne.startTimeUtc) : "Confirmed"}
+                                    </div>
+                                    <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                                      TZ: {latest1on1?.learnerTimezone || "UTC"}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>
+                                    {oneOnOne ? `${oneOnOne.durationMinutes} min` : "45 min"}
+                                  </td>
+                                  <td style={{ padding: "10px 12px" }}>
+                                    {latest1on1?.session?.joinUrl ? (
+                                      <a
+                                        href={latest1on1.session.joinUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ color: "#0284c7", fontWeight: 600, textDecoration: "underline", fontSize: "0.8rem" }}
+                                      >
+                                        Join Zoom ↗
+                                      </a>
+                                    ) : (
+                                      <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>Awaiting slot</span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "10px 12px" }}>
+                                    <StatusBadge status={isCompleted ? "COMPLETED" : (latest1on1?.status || "SCHEDULED")} />
+                                  </td>
+                                  <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                                      {latest1on1 && latest1on1.status === "PENDING_APPROVAL" && (
+                                        <>
+                                          <button
+                                            type="button"
+                                            disabled={actingOneOnOne}
+                                            onClick={async () => {
+                                              setActingOneOnOne(true);
+                                              try {
+                                                await approveOneOnOneRequest(latest1on1.id, {
+                                                  startTime: latest1on1.requestedStart,
+                                                  endTime: latest1on1.requestedEnd,
+                                                });
+                                                toast.success("1:1 Call booking approved and scheduled with Zoom link!");
+                                                await fetchProgression(selectedEnrolmentId);
+                                              } catch (err: any) {
+                                                toast.error(err.message || "Failed to approve 1:1 request");
+                                              } finally {
+                                                setActingOneOnOne(false);
+                                              }
+                                            }}
+                                            className={styles.actionBtnPrimary}
+                                            style={{ padding: "4px 8px", fontSize: "0.78rem", background: "#15803d", borderColor: "#15803d" }}
+                                          >
+                                            {actingOneOnOne ? "Approving..." : "Approve Slot ✓"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={actingOneOnOne}
+                                            onClick={async () => {
+                                              const reason = prompt("Enter rejection reason for learner:") || "";
+                                              if (!reason.trim()) return;
+                                              setActingOneOnOne(true);
+                                              try {
+                                                await rejectOneOnOneRequest(latest1on1.id, reason.trim());
+                                                toast.info("1:1 Call booking request rejected.");
+                                                await fetchProgression(selectedEnrolmentId);
+                                              } catch (err: any) {
+                                                toast.error(err.message || "Failed to reject 1:1 request");
+                                              } finally {
+                                                setActingOneOnOne(false);
+                                              }
+                                            }}
+                                            className={styles.tableActionBtn}
+                                            style={{ padding: "4px 8px", fontSize: "0.78rem", color: "#991b1b", borderColor: "#fecaca" }}
+                                          >
+                                            Reject
+                                          </button>
+                                        </>
+                                      )}
+
+                                      {((latest1on1 && latest1on1.status === "APPROVED") || oneOnOne) && !isCompleted && (
+                                        <button
+                                          type="button"
+                                          disabled={actingOneOnOne}
+                                          onClick={async () => {
+                                            const sessionId = latest1on1?.sessionId || latest1on1?.session?.id || oneOnOne?.sessionId;
+                                            if (!sessionId) {
+                                              toast.error("No active session ID found to mark completed.");
+                                              return;
+                                            }
+                                            setActingOneOnOne(true);
+                                            try {
+                                              const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                                              const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+                                                method: "PATCH",
+                                                headers: {
+                                                  "Content-Type": "application/json",
+                                                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                                },
+                                                body: JSON.stringify({ status: "COMPLETED" }),
+                                              });
+                                              if (!res.ok) throw new Error(await errorMessage(res, "Failed to complete session"));
+                                              toast.success("1:1 Call marked completed! Stage 5 (Mission Statement) unlocked.");
+                                              await fetchProgression(selectedEnrolmentId);
+                                            } catch (err: any) {
+                                              toast.error(err.message || "Failed to mark call completed");
+                                            } finally {
+                                              setActingOneOnOne(false);
+                                            }
+                                          }}
+                                          className={styles.actionBtnPrimary}
+                                          style={{ padding: "5px 10px", fontSize: "0.78rem", background: "#15803d", borderColor: "#15803d" }}
+                                        >
+                                          {actingOneOnOne ? "Completing..." : "Mark Session Completed ✓"}
+                                        </button>
+                                      )}
+
+                                      {isCompleted && (
+                                        <span style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                                          <span>Cleared</span>
+                                          <span>✓</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr>
+                                  <td colSpan={6} style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)" }}>
+                                    No 1-on-1 coaching requests submitted yet by this learner.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
                         </div>
-                      )}
+                      </div>
                     </>
                   );
                 })()}
@@ -2301,13 +2418,25 @@ export default function UserDetailPage({
                         </div>
 
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewDocLoading(true);
+                              setPreviewDocError(false);
+                              setPreviewMissionModalDoc(latestMission);
+                            }}
+                            className={styles.tableActionBtn}
+                            style={{ color: "var(--accent-primary)", borderColor: "var(--accent-primary)", cursor: "pointer" }}
+                          >
+                            Preview Document ↗
+                          </button>
                           <a
                             href={fileLink}
                             target="_blank"
                             rel="noopener noreferrer"
                             className={styles.tableActionBtn}
                           >
-                            View / Download Document ↗
+                            Download Document ↗
                           </a>
 
                           {latestMission.status === "SUBMITTED" && (

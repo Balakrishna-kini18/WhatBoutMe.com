@@ -49,9 +49,9 @@ interface QuizDetails {
 export default function EditQuizPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as any) : params;
+  const unwrappedParams = use(params);
   const quizId = (unwrappedParams as { id: string }).id;
 
   const [quiz, setQuiz] = useState<QuizDetails | null>(null);

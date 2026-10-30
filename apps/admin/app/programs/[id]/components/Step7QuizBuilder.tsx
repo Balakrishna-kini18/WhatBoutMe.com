@@ -27,7 +27,7 @@ interface Question {
   options: Option[];
 }
 
-export type QuestionKind = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TEXT_BOX';
+export type QuestionKind = "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TEXT_BOX";
 
 interface Step7QuizBuilderProps {
   moduleId: string;
@@ -49,10 +49,8 @@ export default function Step7QuizBuilder({
     existingQuiz?.title || `${moduleTitle} Knowledge Check`
   );
   const [passMark, setPassMark] = useState(existingQuiz?.passMark ?? 75);
-  const [maxAttempts, setMaxAttempts] = useState(existingQuiz?.maxAttempts ?? 3);
-  const [cooldownHours, setCooldownHours] = useState(existingQuiz?.cooldownHours ?? 24);
-  const [quizPlacement, setQuizPlacement] = useState<'BEFORE_VIDEO' | 'AFTER_VIDEO'>(
-    existingQuiz?.quizPlacement || 'AFTER_VIDEO'
+  const [quizPlacement, setQuizPlacement] = useState<"BEFORE_VIDEO" | "AFTER_VIDEO">(
+    existingQuiz?.quizPlacement || "AFTER_VIDEO"
   );
   const toast = useToast();
 
@@ -63,7 +61,7 @@ export default function Step7QuizBuilder({
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
 
   // Question Type selection
-  const [selectedKind, setSelectedKind] = useState<QuestionKind>('SINGLE_CHOICE');
+  const [selectedKind, setSelectedKind] = useState<QuestionKind>("SINGLE_CHOICE");
 
   // New Question Form State
   const [newPrompt, setNewPrompt] = useState("");
@@ -90,115 +88,85 @@ export default function Step7QuizBuilder({
 
   const handleSelectKind = (kind: QuestionKind) => {
     setSelectedKind(kind);
-    if (kind === 'TEXT_BOX') {
-      // Preserve prompt and prompt image
-    } else {
-      if (newOptions.length < 2) {
-        setNewOptions([
-          { text: "", imageUrl: "", isCorrect: true },
-          { text: "", imageUrl: "", isCorrect: false },
-          { text: "", imageUrl: "", isCorrect: false },
-          { text: "", imageUrl: "", isCorrect: false },
-        ]);
-      } else if (!newOptions.some((o) => o.isCorrect)) {
-        setNewOptions((prev) =>
-          prev.map((o, idx) => (idx === 0 ? { ...o, isCorrect: true } : o))
-        );
-      }
-      if (kind === 'SINGLE_CHOICE') {
-        let found = false;
-        setNewOptions((prev) =>
-          prev.map((o) => {
-            if (o.isCorrect && !found) {
-              found = true;
-              return o;
-            }
-            return { ...o, isCorrect: false };
-          })
-        );
-      }
+    if (kind !== "TEXT_BOX" && newOptions.length < 2) {
+      setNewOptions([
+        { text: "", imageUrl: "", isCorrect: true },
+        { text: "", imageUrl: "", isCorrect: false },
+        { text: "", imageUrl: "", isCorrect: false },
+        { text: "", imageUrl: "", isCorrect: false },
+      ]);
     }
   };
 
-  // Load existing questions or auto-discover quiz for this step
   useEffect(() => {
     if (existingQuiz?.id) {
       setQuizId(existingQuiz.id);
-      if (existingQuiz.title) setQuizTitle(existingQuiz.title);
-      if (existingQuiz.passMark != null) setPassMark(existingQuiz.passMark);
-      if (existingQuiz.maxAttempts != null) setMaxAttempts(existingQuiz.maxAttempts);
-      if (existingQuiz.cooldownHours != null) setCooldownHours(existingQuiz.cooldownHours);
-      if (existingQuiz.quizPlacement) setQuizPlacement(existingQuiz.quizPlacement);
-      if (existingQuiz.questions && existingQuiz.questions.length > 0) {
-        setQuestions(existingQuiz.questions);
-        return;
+      setQuizTitle(existingQuiz.title || `${moduleTitle} Knowledge Check`);
+      setPassMark(existingQuiz.passMark ?? 75);
+      setQuizPlacement(existingQuiz.quizPlacement || "AFTER_VIDEO");
+      fetchQuestions(existingQuiz.id);
+    } else {
+      checkExistingStepQuiz();
+    }
+  }, [existingQuiz, moduleId, moduleTitle]);
+
+  const checkExistingStepQuiz = async () => {
+    try {
+      const res = await cachedFetch(`${API_URL}/programs/steps/${moduleId}/quiz`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.id) {
+          setQuizId(data.id);
+          setQuizTitle(data.title || `${moduleTitle} Knowledge Check`);
+          setPassMark(data.passMark ?? 75);
+          setQuizPlacement(data.quizPlacement || "AFTER_VIDEO");
+          fetchQuestions(data.id);
+        }
       }
+    } catch {
+      // No existing quiz yet
+    }
+  };
+
+  const fetchQuestions = async (targetQuizId: string) => {
+    setIsLoadingQuestions(true);
+    try {
+      const res = await cachedFetch(`${API_URL}/quizzes/${targetQuizId}/questions`);
+      if (res.ok) {
+        const data = await res.json();
+        setQuestions(data);
+      }
+    } catch {
+      toast.error("Could not load quiz questions.");
+    } finally {
+      setIsLoadingQuestions(false);
+    }
+  };
+
+  const ensureQuizEntity = async (): Promise<string> => {
+    if (quizId) {
+      await cachedFetch(`${API_URL}/quizzes/${quizId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: quizTitle.trim(),
+          passMark: Number(passMark) || 75,
+          maxAttempts: 999, // Unlimited retakes
+          cooldownHours: 0,
+          quizPlacement,
+        }),
+      });
+      return quizId;
     }
 
-    const loadStepQuizOrQuestions = async () => {
-      setIsLoadingQuestions(true);
-      try {
-        let targetQuizId = quizId || existingQuiz?.id;
-
-        // Auto-discover if step already has a quiz entity
-        if (!targetQuizId && moduleId) {
-          const stepRes = await cachedFetch(`${API_URL}/programs/steps/${moduleId}`);
-          if (stepRes.ok) {
-            const stepData = await stepRes.json();
-            if (stepData?.quiz?.id) {
-              targetQuizId = stepData.quiz.id;
-              setQuizId(stepData.quiz.id);
-              if (stepData.quiz.title) setQuizTitle(stepData.quiz.title);
-              if (stepData.quiz.passMark != null) setPassMark(stepData.quiz.passMark);
-              if (stepData.quiz.maxAttempts != null) setMaxAttempts(stepData.quiz.maxAttempts);
-              if (stepData.quiz.cooldownHours != null) setCooldownHours(stepData.quiz.cooldownHours);
-              if (stepData.quiz.quizPlacement) setQuizPlacement(stepData.quiz.quizPlacement);
-              else if (stepData.quizPlacement) setQuizPlacement(stepData.quizPlacement);
-              if (stepData.quiz.questions && stepData.quiz.questions.length > 0) {
-                setQuestions(stepData.quiz.questions);
-                setIsLoadingQuestions(false);
-                return;
-              }
-            } else if (stepData?.quizPlacement) {
-              setQuizPlacement(stepData.quizPlacement);
-            }
-          }
-        }
-
-        if (targetQuizId) {
-          const qRes = await cachedFetch(`${API_URL}/quizzes/${targetQuizId}/questions`);
-          if (qRes.ok) {
-            const qData = await qRes.json();
-            setQuestions(qData);
-          } else if (existingQuiz?.questions) {
-            setQuestions(existingQuiz.questions);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not load quiz questions", err);
-      } finally {
-        setIsLoadingQuestions(false);
-      }
-    };
-
-    loadStepQuizOrQuestions();
-  }, [quizId, existingQuiz, moduleId]);
-
-  // Ensure quiz entity exists in backend
-  const ensureQuizEntity = async (): Promise<string> => {
-    if (quizId) return quizId;
-
-    const res = await cachedFetch(`${API_URL}/quizzes`, {
+    const res = await cachedFetch(`${API_URL}/programs/steps/${moduleId}/quiz`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        stepId: moduleId,
-        title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
+        title: quizTitle.trim(),
         passMark: Number(passMark) || 75,
-        maxAttempts: Number(maxAttempts) || 3,
-        cooldownHours: Number(cooldownHours) || 24,
+        maxAttempts: 999, // Unlimited retakes
+        cooldownHours: 0,
         quizPlacement,
       }),
     });
@@ -290,7 +258,7 @@ export default function Step7QuizBuilder({
 
     let validOpts: Option[] = [];
 
-    if (selectedKind !== 'TEXT_BOX') {
+    if (selectedKind !== "TEXT_BOX") {
       validOpts = newOptions.filter((o) => o.text.trim().length > 0 || Boolean(o.imageUrl));
       if (validOpts.length < 2) {
         toast.error("Choice questions require at least 2 non-empty choices.");
@@ -301,7 +269,7 @@ export default function Step7QuizBuilder({
         return;
       }
 
-      if (selectedKind === 'SINGLE_CHOICE') {
+      if (selectedKind === "SINGLE_CHOICE") {
         const correctCount = validOpts.filter((o) => o.isCorrect).length;
         if (correctCount !== 1) {
           toast.error("Single choice questions must have exactly one correct answer.");
@@ -322,33 +290,33 @@ export default function Step7QuizBuilder({
         explanation: newExplanation.trim() || undefined,
       };
 
-      if (selectedKind === 'TEXT_BOX') {
+      if (selectedKind === "TEXT_BOX") {
+        payload.options = [];
         payload.gradingMode = newGradingMode;
         payload.minCharacters = Number(newMinCharacters) || 10;
-        payload.options = [];
       } else {
         payload.options = validOpts.map((o, idx) => ({
           text: o.text.trim(),
           imageUrl: o.imageUrl || undefined,
-          isCorrect: o.isCorrect,
+          isCorrect: Boolean(o.isCorrect),
           order: idx + 1,
         }));
       }
 
       const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}/questions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to add question"));
+        throw new Error(await errorMessage(res, "Failed to create question"));
       }
 
-      const createdQ = await res.json();
-      setQuestions((prev) => [...prev, createdQ]);
+      const created = await res.json();
+      setQuestions((prev) => [...prev, created]);
+
+      // Reset form
       setNewPrompt("");
       setNewPromptImage("");
       setNewExplanation("");
@@ -358,35 +326,35 @@ export default function Step7QuizBuilder({
         { text: "", imageUrl: "", isCorrect: false },
         { text: "", imageUrl: "", isCorrect: false },
       ]);
-      setFeedbackMsg("Question added successfully");
-      toast.success("Question added successfully.");
-      setTimeout(() => setFeedbackMsg(null), 2500);
+      setFeedbackMsg("Question added successfully!");
+      setTimeout(() => setFeedbackMsg(null), 3500);
+      toast.success("Question added.");
     } catch (err: any) {
-      toast.error(err.message || "Failed to append question");
+      toast.error(err.message || "Failed to add question");
     } finally {
       setIsAddingQuestion(false);
     }
   };
 
   const confirmDeleteQuestion = async () => {
-    if (!questionToDelete) return;
+    if (!quizId || !questionToDelete) return;
     setIsDeletingQuestion(true);
     try {
-      const qId = questionToDelete.id;
-      const res = await cachedFetch(`${API_URL}/quizzes/questions/${qId}?force=true`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to delete question"));
+      const res = await cachedFetch(
+        `${API_URL}/quizzes/${quizId}/questions/${questionToDelete.id}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setQuestions((prev) => prev.filter((q) => q.id !== questionToDelete.id));
+        toast.success("Question deleted.");
+      } else {
+        toast.error("Failed to delete question.");
       }
-
-      setQuestions((prev) => prev.filter((q) => q.id !== qId));
-      setQuestionToDelete(null);
-      toast.success("Question removed.");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to delete question");
+    } catch {
+      toast.error("Failed to delete question.");
     } finally {
       setIsDeletingQuestion(false);
+      setQuestionToDelete(null);
     }
   };
 
@@ -394,43 +362,17 @@ export default function Step7QuizBuilder({
     setIsSavingAll(true);
     try {
       const activeQId = await ensureQuizEntity();
-
-      const sanitizedMaxAttempts = Math.max(1, Number(maxAttempts) || 3);
-      const sanitizedPassMark = Math.min(100, Math.max(1, Number(passMark) || 75));
-      const sanitizedCooldown = Math.max(0, Number(cooldownHours) || 0);
-
-      // Update quiz parameters
-      const res = await cachedFetch(`${API_URL}/quizzes/${activeQId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
-          passMark: sanitizedPassMark,
-          maxAttempts: sanitizedMaxAttempts,
-          cooldownHours: sanitizedCooldown,
-          quizPlacement,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to update quiz settings"));
-      }
-
-      const updatedQuiz = await res.json().catch(() => ({
+      toast.success("Quiz configuration saved.");
+      onQuizSaved({
         id: activeQId,
-        title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
-        passMark: sanitizedPassMark,
-        maxAttempts: sanitizedMaxAttempts,
-        cooldownHours: sanitizedCooldown,
+        title: quizTitle.trim(),
+        passMark: Number(passMark) || 75,
         quizPlacement,
-      }));
-
-      toast.success("Quiz settings updated.");
-      onQuizSaved(updatedQuiz);
+        questions,
+      });
+      onBackToModule();
     } catch (err: any) {
-      toast.error(err.message || "Failed to update quiz settings");
+      toast.error(err.message || "Failed to save quiz");
     } finally {
       setIsSavingAll(false);
     }
@@ -443,29 +385,22 @@ export default function Step7QuizBuilder({
     const activeQId = await ensureQuizEntity();
 
     if (replaceExisting && questions.length > 0) {
-      for (const existingQ of questions) {
-        await cachedFetch(`${API_URL}/quizzes/questions/${existingQ.id}?force=true`, {
+      for (const q of questions) {
+        await cachedFetch(`${API_URL}/quizzes/${activeQId}/questions/${q.id}`, {
           method: "DELETE",
-        }).catch(() => null);
+        });
       }
-      setQuestions([]);
     }
 
     const createdList: Question[] = [];
     for (const q of parsedQuestions) {
-      const mappedType =
-        q.type === "SHORT_ANSWER"
-          ? "TEXT_BOX"
-          : q.type === "MULTI_SELECT"
-            ? "MULTIPLE_CHOICE"
-            : "SINGLE_CHOICE";
-
       const payload: any = {
         text: q.text,
-        type: mappedType,
+        type: q.type,
         points: q.points || 1,
         explanation: q.explanation || undefined,
         imageUrl: q.imageUrl || undefined,
+        minCharacters: q.minCharacters || undefined,
         options:
           q.type === "SHORT_ANSWER"
             ? []
@@ -488,51 +423,73 @@ export default function Step7QuizBuilder({
     }
 
     setQuestions((prev) => (replaceExisting ? createdList : [...prev, ...createdList]));
-    toast.success(`Imported ${createdList.length} quiz questions from Markdown (.md)!`);
+    toast.success(`Imported ${createdList.length} quiz questions from Markdown!`);
   };
 
   return (
     <section className={styles.cardSurface}>
+      {/* Top Back Navigation */}
+      <button
+        type="button"
+        onClick={onBackToModule}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.45rem",
+          color: "var(--text-muted, #78716a)",
+          fontSize: "0.82rem",
+          fontWeight: 600,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          padding: "0.3rem 0",
+          marginBottom: "0.75rem",
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+        <span>Back to Steps &amp; Lessons</span>
+      </button>
+
       {/* Header */}
       <div
         className={styles.cardHeaderArea}
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
+          alignItems: "center",
           flexWrap: "wrap",
           gap: "1rem",
+          marginBottom: "1.25rem",
         }}
       >
-        <div>
-          <div className={styles.stepEyebrow}>STEP 7: VISUAL QUESTION BANK &amp; QUIZ BUILDER</div>
-          <h2 className={styles.stepTitle}>Create Quiz for {moduleTitle}</h2>
-          <p className={styles.stepSubtitle}>
-            Configure pass criteria and build Google-Forms-style visual assessments with image choices, dynamic options, and written reflections.
-          </p>
-        </div>
+        <h2 className={styles.stepTitle}>Quiz Builder</h2>
+
         <button
           type="button"
           onClick={() => setIsMarkdownModalOpen(true)}
           style={{
-            padding: "0.55rem 1rem",
-            borderRadius: 9,
+            padding: "0.45rem 0.95rem",
+            borderRadius: 8,
             border: "1px solid #14110f",
             background: "#14110f",
             color: "#ffffff",
-            fontWeight: 700,
-            fontSize: "0.82rem",
+            fontWeight: 600,
+            fontSize: "0.8rem",
             cursor: "pointer",
           }}
         >
-          📤 Upload .md Questions
+          Upload .md Questions
         </button>
       </div>
 
-      {/* Top Configuration Grid */}
-      <div className={styles.quizParamsGrid}>
+      {/* Top Parameters (Quiz Title & Passing Score Only) */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: "1.25rem", marginBottom: "1.5rem" }}>
         <div>
-          <label className={styles.formLabel}>Quiz Title</label>
+          <label className={styles.formLabel}>
+            <span>Quiz Title</span>
+          </label>
           <input
             type="text"
             value={quizTitle}
@@ -542,7 +499,9 @@ export default function Step7QuizBuilder({
         </div>
 
         <div>
-          <label className={styles.formLabel}>Passing Score (%)</label>
+          <label className={styles.formLabel}>
+            <span>Passing Score (%)</span>
+          </label>
           <input
             type="number"
             min={1}
@@ -552,76 +511,36 @@ export default function Step7QuizBuilder({
             className={styles.formInput}
           />
         </div>
-
-        <div>
-          <label className={styles.formLabel}>Max Attempts</label>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={maxAttempts}
-            onChange={(e) => setMaxAttempts(Number(e.target.value))}
-            className={styles.formInput}
-          />
-        </div>
-
-        <div>
-          <label className={styles.formLabel}>Cooldown Window (Hrs)</label>
-          <input
-            type="number"
-            min={0}
-            max={72}
-            value={cooldownHours}
-            onChange={(e) => setCooldownHours(Number(e.target.value))}
-            className={styles.formInput}
-          />
-        </div>
       </div>
 
-      {/* Quiz Placement Selector (First/Before Video vs. Last/After Video) */}
-      <div style={{
-        marginTop: "1.25rem",
-        marginBottom: "1.75rem",
-        padding: "1.25rem",
-        borderRadius: "12px",
-        background: "var(--bg-soft, #f8fafc)",
-        border: "1px solid var(--border-light, #e2e8f0)",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
-          <label className={styles.formLabel} style={{ margin: 0, fontWeight: 700, fontSize: "0.95rem" }}>
-            Quiz Execution Placement &amp; Unlock Rule
-          </label>
-          <span style={{
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            padding: "3px 10px",
-            borderRadius: "6px",
-            background: quizPlacement === "BEFORE_VIDEO" ? "#fef3c7" : "#eff6ff",
-            color: quizPlacement === "BEFORE_VIDEO" ? "#b45309" : "#1d4ed8",
-            border: `1px solid ${quizPlacement === "BEFORE_VIDEO" ? "#fde68a" : "#bfdbfe"}`,
-          }}>
-            {quizPlacement === "BEFORE_VIDEO" ? "Pre-Video Diagnostic Gate" : "Post-Video Comprehension Gate"}
-          </span>
-        </div>
-        <p style={{ margin: "0 0 1rem", fontSize: "0.85rem", color: "var(--text-secondary, #64748b)" }}>
-          Determine whether learners take this quiz BEFORE watching the compulsory video or AFTER 100% video completion.
-        </p>
+      {/* Quiz Placement Selector (Simplified & Clean) */}
+      <div
+        style={{
+          marginBottom: "1.75rem",
+          padding: "1rem 1.25rem",
+          borderRadius: "12px",
+          background: "#faf7f2",
+          border: "1px solid #ece6dd",
+        }}
+      >
+        <label className={styles.formLabel} style={{ marginBottom: "0.75rem", fontSize: "0.9rem" }}>
+          <span>Quiz Placement &amp; Unlock Rule</span>
+        </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.85rem" }}>
           {/* AFTER_VIDEO (Default) */}
           <div
             onClick={() => setQuizPlacement("AFTER_VIDEO")}
             style={{
-              padding: "1rem",
+              padding: "0.85rem 1rem",
               borderRadius: "10px",
-              border: quizPlacement === "AFTER_VIDEO" ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #cbd5e1)",
-              background: quizPlacement === "AFTER_VIDEO" ? "var(--accent-highlight, #f0f9ff)" : "var(--bg-card, #ffffff)",
+              border: quizPlacement === "AFTER_VIDEO" ? "2px solid var(--accent-primary, #c97a1e)" : "1px solid #e7decb",
+              background: quizPlacement === "AFTER_VIDEO" ? "#fffbf5" : "#ffffff",
               cursor: "pointer",
-              transition: "all 0.2s ease",
-              boxShadow: quizPlacement === "AFTER_VIDEO" ? "0 2px 8px rgba(2, 132, 199, 0.12)" : "none",
+              transition: "all 0.15s ease",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
               <input
                 type="radio"
                 id="placement_after"
@@ -629,17 +548,17 @@ export default function Step7QuizBuilder({
                 value="AFTER_VIDEO"
                 checked={quizPlacement === "AFTER_VIDEO"}
                 onChange={() => setQuizPlacement("AFTER_VIDEO")}
-                style={{ accentColor: "var(--accent-primary, #0284c7)", width: 16, height: 16, cursor: "pointer" }}
+                style={{ accentColor: "var(--accent-primary, #c97a1e)", cursor: "pointer" }}
               />
-              <label htmlFor="placement_after" style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                Last — After Video (Standard)
+              <label htmlFor="placement_after" style={{ fontWeight: 700, fontSize: "0.88rem", color: "#14110f", cursor: "pointer" }}>
+                After Video (Standard)
               </label>
-              <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#ecfdf5", color: "#065f46" }}>
+              <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "1px 5px", borderRadius: 4, background: "#ecfdf5", color: "#065f46" }}>
                 Default
               </span>
             </div>
-            <p style={{ margin: "0 0 0 26px", fontSize: "0.82rem", color: "var(--text-secondary, #64748b)", lineHeight: 1.45 }}>
-              Video player unlocks first. Students must watch 100% of the compulsory video without skipping before this quiz is unlocked.
+            <p style={{ margin: "0 0 0 22px", fontSize: "0.78rem", color: "var(--text-muted, #78716a)", lineHeight: 1.4 }}>
+              Video unlocks first. Quiz unlocks after video is completed.
             </p>
           </div>
 
@@ -647,16 +566,15 @@ export default function Step7QuizBuilder({
           <div
             onClick={() => setQuizPlacement("BEFORE_VIDEO")}
             style={{
-              padding: "1rem",
+              padding: "0.85rem 1rem",
               borderRadius: "10px",
-              border: quizPlacement === "BEFORE_VIDEO" ? "2px solid var(--accent-primary, #0284c7)" : "1px solid var(--border-light, #cbd5e1)",
-              background: quizPlacement === "BEFORE_VIDEO" ? "var(--accent-highlight, #f0f9ff)" : "var(--bg-card, #ffffff)",
+              border: quizPlacement === "BEFORE_VIDEO" ? "2px solid var(--accent-primary, #c97a1e)" : "1px solid #e7decb",
+              background: quizPlacement === "BEFORE_VIDEO" ? "#fffbf5" : "#ffffff",
               cursor: "pointer",
-              transition: "all 0.2s ease",
-              boxShadow: quizPlacement === "BEFORE_VIDEO" ? "0 2px 8px rgba(2, 132, 199, 0.12)" : "none",
+              transition: "all 0.15s ease",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
               <input
                 type="radio"
                 id="placement_before"
@@ -664,185 +582,113 @@ export default function Step7QuizBuilder({
                 value="BEFORE_VIDEO"
                 checked={quizPlacement === "BEFORE_VIDEO"}
                 onChange={() => setQuizPlacement("BEFORE_VIDEO")}
-                style={{ accentColor: "var(--accent-primary, #0284c7)", width: 16, height: 16, cursor: "pointer" }}
+                style={{ accentColor: "var(--accent-primary, #c97a1e)", cursor: "pointer" }}
               />
-              <label htmlFor="placement_before" style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                First — Before Video (Pre-Assessment)
+              <label htmlFor="placement_before" style={{ fontWeight: 700, fontSize: "0.88rem", color: "#14110f", cursor: "pointer" }}>
+                Before Video (Diagnostic)
               </label>
             </div>
-            <p style={{ margin: "0 0 0 26px", fontSize: "0.82rem", color: "var(--text-secondary, #64748b)", lineHeight: 1.45 }}>
-              Quiz is presented first. Video lesson player is locked with a prerequisite banner until the learner completes this assessment.
+            <p style={{ margin: "0 0 0 22px", fontSize: "0.78rem", color: "var(--text-muted, #78716a)", lineHeight: 1.4 }}>
+              Quiz is presented first. Video unlocks upon passing the quiz.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Question Types Pill Bar */}
+      {/* Questions Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
-        <h3 style={{ fontSize: "1.05rem", fontWeight: 700, margin: 0 }}>
+        <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: "var(--text-primary, #14110f)" }}>
           Questions ({questions.length})
         </h3>
-
-        <div className={styles.questionTypePillBar} style={{ margin: 0 }}>
-          <button
-            type="button"
-            onClick={() => handleSelectKind('SINGLE_CHOICE')}
-            className={`${styles.questionTypePill} ${selectedKind === 'SINGLE_CHOICE' ? styles.questionTypePillActive : ''}`}
-            aria-pressed={selectedKind === 'SINGLE_CHOICE'}
-          >
-            Single Choice (Radio)
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSelectKind('MULTIPLE_CHOICE')}
-            className={`${styles.questionTypePill} ${selectedKind === 'MULTIPLE_CHOICE' ? styles.questionTypePillActive : ''}`}
-            aria-pressed={selectedKind === 'MULTIPLE_CHOICE'}
-          >
-            Multiple Choice (Checkboxes)
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSelectKind('TEXT_BOX')}
-            className={`${styles.questionTypePill} ${selectedKind === 'TEXT_BOX' ? styles.questionTypePillActive : ''}`}
-            aria-pressed={selectedKind === 'TEXT_BOX'}
-          >
-            Written Reflection (Text Box)
-          </button>
-        </div>
       </div>
 
       {/* List of Created Questions */}
       {isLoadingQuestions ? (
-        <div className="skeleton" style={{ height: 120, borderRadius: 12, marginBottom: "1.5rem" }} />
+        <div className="skeleton" style={{ height: 90, borderRadius: 10, marginBottom: "1.5rem" }} />
       ) : questions.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "2.5rem 1rem", background: "var(--bg-soft)", borderRadius: 12, marginBottom: "2rem" }}>
-          <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.92rem" }}>
-            No questions added yet. Use the visual question builder card below to add single choice, multiple choice, or reflection questions!
+        <div style={{ textAlign: "center", padding: "1.75rem 1rem", background: "#faf7f2", borderRadius: 10, border: "1px dashed #ded6cb", marginBottom: "1.5rem" }}>
+          <p style={{ margin: 0, color: "var(--text-muted, #78716a)", fontSize: "0.85rem" }}>
+            No questions added yet. Build your first question below.
           </p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", marginBottom: "2rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginBottom: "1.75rem" }}>
           {questions.map((q, idx) => {
-            const hasOptionImages = q.options?.some((o) => Boolean(o.imageUrl));
-            const isText = q.type === 'TEXT_BOX' || q.type === 'SHORT_ANSWER';
+            const isText = q.type === "TEXT_BOX" || q.type === "SHORT_ANSWER";
 
             return (
-              <div key={q.id} className={styles.questionCard}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div
+                key={q.id}
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #ece6dd",
+                  borderRadius: 10,
+                  padding: "1rem 1.25rem",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem", gap: "0.5rem" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: "0.8rem", fontWeight: 800, color: "var(--accent-primary)", background: "var(--accent-highlight)", padding: "2px 8px", borderRadius: 4 }}>
-                      Question {idx + 1} &bull; {q.points || 1} Pt
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#d97706", background: "#fef3c7", padding: "1px 7px", borderRadius: 4 }}>
+                      Q{idx + 1}
                     </span>
-                    <span style={{
-                      fontSize: "0.75rem",
-                      fontWeight: 700,
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      background: isText ? "#fef3c7" : q.type === 'MULTIPLE_CHOICE' ? "#e0e7ff" : "#ecfdf5",
-                      color: isText ? "#b45309" : q.type === 'MULTIPLE_CHOICE' ? "#3730a3" : "#065f46",
-                    }}>
-                      {isText
-                        ? `Written Reflection • ${q.gradingMode === 'MANUAL_REVIEW' ? 'Manual Grading' : 'Auto-Pass'}`
-                        : q.type === 'MULTIPLE_CHOICE'
-                        ? 'Multiple Choice (Checkboxes)'
-                        : 'Single Choice (Radio)'}
+                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted, #78716a)" }}>
+                      {q.points || 1} pt &bull; {isText ? "Short Answer" : q.type === "MULTIPLE_CHOICE" ? "Multiple Choice" : "Single Choice"}
                     </span>
                   </div>
+
                   <button
                     type="button"
                     onClick={() => setQuestionToDelete(q)}
-                    className={styles.deleteItemBtn}
+                    className={styles.actionIconBtnDanger}
+                    title="Delete Question"
                   >
-                    Delete
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
                   </button>
                 </div>
 
-                {/* Prompt Image Preview */}
+                <div style={{ fontWeight: 600, fontSize: "0.92rem", color: "var(--text-primary, #14110f)", marginBottom: "0.5rem" }}>
+                  {q.text}
+                </div>
+
                 {q.imageUrl && (
-                  <div style={{ marginBottom: "1rem", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-light)", maxWidth: 360, background: "#f8fafc" }}>
-                    <img
-                      src={q.imageUrl}
-                      alt={`Question ${idx + 1} Visual`}
-                      style={{ width: "100%", maxHeight: 200, objectFit: "cover", display: "block" }}
-                    />
+                  <div style={{ marginBottom: "0.75rem", maxWidth: 280, borderRadius: 6, overflow: "hidden", border: "1px solid #ece6dd" }}>
+                    <img src={q.imageUrl} alt="" style={{ width: "100%", maxHeight: 150, objectFit: "cover", display: "block" }} />
                   </div>
                 )}
 
-                <h4 style={{ margin: "0 0 1rem", fontSize: "1rem", fontWeight: 700, whiteSpace: "pre-wrap" }}>{q.text}</h4>
-
-                {/* Choices or Text Box preview */}
-                {isText ? (
-                  <div style={{ padding: "12px 14px", borderRadius: 8, background: "#f8fafc", border: "1px dashed #cbd5e1", marginBottom: "0.75rem" }}>
-                    <div style={{ fontSize: "0.85rem", color: "#64748b", fontStyle: "italic", marginBottom: 4 }}>
-                      Open-ended learner response (Minimum {q.minCharacters || 10} characters required)
-                    </div>
-                    <div style={{ fontSize: "0.78rem", color: q.gradingMode === 'MANUAL_REVIEW' ? '#b45309' : '#047857', fontWeight: 600 }}>
-                      Evaluation Mode: {q.gradingMode === 'MANUAL_REVIEW' ? 'Manual Review Required (held in instructor queue)' : 'Self-Reflection Auto-Pass (awards credit on submit)'}
-                    </div>
-                  </div>
-                ) : hasOptionImages ? (
-                  /* 2x2 Visual Card Grid */
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                {/* Options List */}
+                {!isText && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                     {q.options?.map((opt, oIdx) => (
                       <div
                         key={oIdx}
                         style={{
-                          borderRadius: 8,
-                          border: opt.isCorrect ? "2px solid #22c55e" : "1px solid #e2e8f0",
-                          background: opt.isCorrect ? "#f0fdf4" : "#ffffff",
-                          padding: "10px",
                           display: "flex",
-                          flexDirection: "column",
-                          gap: 6,
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          padding: "0.35rem 0.65rem",
+                          borderRadius: 6,
+                          fontSize: "0.82rem",
+                          background: opt.isCorrect ? "#ecfdf5" : "#fdfbf7",
+                          border: opt.isCorrect ? "1px solid #a7f3d0" : "1px solid #f2ede4",
+                          color: opt.isCorrect ? "#065f46" : "#44403c",
+                          fontWeight: opt.isCorrect ? 600 : 400,
                         }}
                       >
-                        {opt.imageUrl && (
-                          <img
-                            src={opt.imageUrl}
-                            alt={`Option ${oIdx + 1}`}
-                            style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 6 }}
-                          />
-                        )}
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 4 }}>
-                          <span style={{ fontSize: "0.88rem", fontWeight: opt.isCorrect ? 700 : 500, color: opt.isCorrect ? "#15803d" : "inherit" }}>
-                            {opt.text || `Option ${oIdx + 1}`}
-                          </span>
-                          {opt.isCorrect && (
-                            <span style={{ fontSize: "0.72rem", background: "#22c55e", color: "#ffffff", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
-                              ✓ Correct
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  /* Standard List Row */
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.75rem" }}>
-                    {q.options?.map((opt, oIdx) => (
-                      <div key={oIdx} className={styles.optionItemRow}>
-                        <input
-                          type={q.type === 'MULTIPLE_CHOICE' ? 'checkbox' : 'radio'}
-                          checked={opt.isCorrect}
-                          readOnly
-                          className={styles.correctRadio}
-                        />
-                        <span style={{ fontSize: "0.88rem", fontWeight: opt.isCorrect ? 700 : 400, color: opt.isCorrect ? "#15803d" : "inherit", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                          <span>{opt.text}</span>
-                          {opt.isCorrect && (
-                            <span style={{ fontSize: "0.75rem", background: "#dcfce7", color: "#15803d", padding: "1px 6px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                              ✓ Correct
-                            </span>
-                          )}
+                        <span style={{ color: opt.isCorrect ? "#059669" : "#a8a29e", fontSize: "0.75rem", fontWeight: 700 }}>
+                          {String.fromCharCode(65 + oIdx)}.
                         </span>
+                        <span>{opt.text}</span>
+                        {opt.isCorrect && (
+                          <span style={{ marginLeft: "auto", fontSize: "0.68rem", fontWeight: 700, color: "#059669", textTransform: "uppercase" }}>
+                            Correct
+                          </span>
+                        )}
                       </div>
                     ))}
-                  </div>
-                )}
-
-                {q.explanation && (
-                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", background: "var(--bg-soft)", padding: "6px 10px", borderRadius: 6 }}>
-                    <strong>Explanation / Feedback:</strong> {q.explanation}
                   </div>
                 )}
               </div>
@@ -851,80 +697,119 @@ export default function Step7QuizBuilder({
         </div>
       )}
 
-      {/* Add Question Subform */}
-      <form onSubmit={handleCreateQuestion} style={{ border: "2px dashed var(--border-light)", padding: "1.75rem", borderRadius: 16, background: "#ffffff" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.5rem" }}>
-          <h4 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            + Add New {selectedKind === 'SINGLE_CHOICE' ? 'Single Choice Question' : selectedKind === 'MULTIPLE_CHOICE' ? 'Multiple Choice Question' : 'Written Reflection Question'}
+      {/* Google Forms-Style Question Builder Card */}
+      <form
+        onSubmit={handleCreateQuestion}
+        style={{
+          border: "1.5px solid #ece6dd",
+          padding: "1.25rem",
+          borderRadius: 14,
+          background: "#ffffff",
+          boxShadow: "0 1px 4px rgba(20, 17, 15, 0.03)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
+          <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary, #14110f)" }}>
+            Add Question
           </h4>
-          <span style={{
-            fontSize: "0.8rem",
-            color: selectedKind === 'TEXT_BOX' ? "#b45309" : "var(--accent-primary)",
-            background: selectedKind === 'TEXT_BOX' ? "#fef3c7" : "var(--accent-highlight)",
-            padding: "3px 10px",
-            borderRadius: 6,
-            fontWeight: 700
-          }}>
-            {selectedKind === 'SINGLE_CHOICE' ? 'Radio: Exactly 1 Correct' : selectedKind === 'MULTIPLE_CHOICE' ? 'Checkboxes: All That Apply' : 'Text Box: Open Reflection'}
-          </span>
+
+          {/* Question Kind Pills */}
+          <div style={{ display: "flex", gap: "4px", background: "#f5ece1", padding: "3px", borderRadius: 8 }}>
+            <button
+              type="button"
+              onClick={() => handleSelectKind("SINGLE_CHOICE")}
+              style={{
+                padding: "0.3rem 0.65rem",
+                borderRadius: 6,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: selectedKind === "SINGLE_CHOICE" ? "#ffffff" : "transparent",
+                color: selectedKind === "SINGLE_CHOICE" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                boxShadow: selectedKind === "SINGLE_CHOICE" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              }}
+            >
+              Single Choice
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectKind("MULTIPLE_CHOICE")}
+              style={{
+                padding: "0.3rem 0.65rem",
+                borderRadius: 6,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: selectedKind === "MULTIPLE_CHOICE" ? "#ffffff" : "transparent",
+                color: selectedKind === "MULTIPLE_CHOICE" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                boxShadow: selectedKind === "MULTIPLE_CHOICE" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              }}
+            >
+              Multiple Choice
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectKind("TEXT_BOX")}
+              style={{
+                padding: "0.3rem 0.65rem",
+                borderRadius: 6,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                background: selectedKind === "TEXT_BOX" ? "#ffffff" : "transparent",
+                color: selectedKind === "TEXT_BOX" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                boxShadow: selectedKind === "TEXT_BOX" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              }}
+            >
+              Short Answer
+            </button>
+          </div>
         </div>
 
         {feedbackMsg && (
-          <div style={{ color: "#15803d", fontWeight: 700, fontSize: "0.85rem", marginBottom: "1rem" }}>
+          <div style={{ color: "#15803d", fontWeight: 600, fontSize: "0.82rem", marginBottom: "0.75rem" }}>
             {feedbackMsg}
           </div>
         )}
 
-        {/* Prompt Text */}
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>Question Prompt</label>
-          <textarea
-            rows={2}
+        {/* Prompt Input */}
+        <div className={styles.formGroup} style={{ marginBottom: "0.85rem" }}>
+          <label className={styles.formLabel}>
+            <span>Question Prompt *</span>
+          </label>
+          <input
+            type="text"
             required
-            placeholder={
-              selectedKind === 'SINGLE_CHOICE'
-                ? "e.g. Which of the following best represents the primary principle of this step?"
-                : selectedKind === 'MULTIPLE_CHOICE'
-                ? "e.g. Which of the following tools or frameworks are applicable? (Select all that apply)"
-                : "e.g. In 2-3 sentences, reflect on how you plan to implement this strategy in your current role."
-            }
+            placeholder="e.g. Which of the following is a key foundation of this step?"
             value={newPrompt}
             onChange={(e) => setNewPrompt(e.target.value)}
-            className={styles.formTextarea}
+            className={styles.formInput}
           />
         </div>
 
-        {/* Question Prompt Image Upload */}
-        <div className={styles.formGroup}>
-          <label className={styles.formLabel}>
-            <span>Question Prompt Image (PNG, JPG, JPEG)</span>
-            <span className={styles.formLabelOptional}>Optional visual aid / diagram</span>
-          </label>
-
+        {/* Optional Question Image */}
+        <div style={{ marginBottom: "1rem" }}>
           {newPromptImage ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 10, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
-              <img
-                src={newPromptImage}
-                alt="Prompt Preview"
-                style={{ width: 100, height: 60, objectFit: "cover", borderRadius: 6 }}
-              />
-              <div style={{ flex: 1, fontSize: "0.82rem", color: "#64748b" }}>
-                Image attached to question prompt
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 8, background: "#faf7f2", borderRadius: 8, border: "1px solid #ece6dd" }}>
+              <img src={newPromptImage} alt="" style={{ width: 60, height: 40, objectFit: "cover", borderRadius: 4 }} />
+              <span style={{ fontSize: "0.78rem", color: "var(--text-muted, #78716a)", flex: 1 }}>Image attached to question</span>
               <button
                 type="button"
                 onClick={() => setNewPromptImage("")}
-                style={{ padding: "4px 10px", fontSize: "0.8rem", color: "#ef4444", background: "#fee2e2", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}
+                style={{ padding: "2px 8px", fontSize: "0.75rem", color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, cursor: "pointer" }}
               >
-                Remove Image
+                Remove
               </button>
             </div>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div>
               <input
                 type="file"
                 ref={promptFileInputRef}
-                accept="image/png, image/jpeg, image/jpg"
+                accept="image/*"
                 style={{ display: "none" }}
                 onChange={handlePromptImageFile}
               />
@@ -932,218 +817,74 @@ export default function Step7QuizBuilder({
                 type="button"
                 disabled={newPromptUploading}
                 onClick={() => promptFileInputRef.current?.click()}
-                className={styles.secondaryActionBtn}
-                style={{ fontSize: "0.85rem" }}
+                style={{
+                  background: "transparent",
+                  border: "1px dashed #d4c8b8",
+                  padding: "0.35rem 0.75rem",
+                  borderRadius: 6,
+                  fontSize: "0.78rem",
+                  color: "var(--text-secondary, #78716a)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
               >
-                {newPromptUploading ? "Uploading Image..." : "Attach Question Image"}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                  <circle cx="9" cy="9" r="2" />
+                  <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                </svg>
+                <span>{newPromptUploading ? "Uploading..." : "Attach Image"}</span>
               </button>
-              <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                Supports diagrams, formulas, and visual scenarios
-              </span>
             </div>
           )}
         </div>
 
-        {/* Text Box Configuration */}
-        {selectedKind === 'TEXT_BOX' ? (
-          <div style={{ padding: "1.25rem", borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0", marginBottom: "1.5rem" }}>
-            <h5 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem", fontWeight: 700, color: "#1e293b" }}>
-              Written Reflection Evaluation &amp; Safe Grading
-            </h5>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem", marginBottom: "1rem" }}>
-              {/* Mode A: Self-Reflection Auto Pass */}
-              <div
-                onClick={() => setNewGradingMode("SELF_REFLECTION_AUTO_PASS")}
-                style={{
-                  padding: "1rem",
-                  borderRadius: 10,
-                  border: newGradingMode === "SELF_REFLECTION_AUTO_PASS" ? "2px solid #0284c7" : "1px solid #cbd5e1",
-                  background: newGradingMode === "SELF_REFLECTION_AUTO_PASS" ? "#f0f9ff" : "#ffffff",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <input
-                    type="radio"
-                    name="grading_mode_subform"
-                    checked={newGradingMode === "SELF_REFLECTION_AUTO_PASS"}
-                    onChange={() => setNewGradingMode("SELF_REFLECTION_AUTO_PASS")}
-                    style={{ accentColor: "#0284c7" }}
-                  />
-                  <strong style={{ fontSize: "0.9rem" }}>Mode A: Self-Reflection Auto-Pass</strong>
-                </div>
-                <p style={{ margin: "4px 0 0 24px", fontSize: "0.8rem", color: "#64748b", lineHeight: 1.4 }}>
-                  Awards full credit upon reaching minimum character count so learner can unlock the next step without waiting, while saving response for instructor review.
-                </p>
-              </div>
-
-              {/* Mode B: Manual Review */}
-              <div
-                onClick={() => setNewGradingMode("MANUAL_REVIEW")}
-                style={{
-                  padding: "1rem",
-                  borderRadius: 10,
-                  border: newGradingMode === "MANUAL_REVIEW" ? "2px solid #0284c7" : "1px solid #cbd5e1",
-                  background: newGradingMode === "MANUAL_REVIEW" ? "#f0f9ff" : "#ffffff",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <input
-                    type="radio"
-                    name="grading_mode_subform"
-                    checked={newGradingMode === "MANUAL_REVIEW"}
-                    onChange={() => setNewGradingMode("MANUAL_REVIEW")}
-                    style={{ accentColor: "#0284c7" }}
-                  />
-                  <strong style={{ fontSize: "0.9rem" }}>Mode B: Manual Instructor Review</strong>
-                </div>
-                <p style={{ margin: "4px 0 0 24px", fontSize: "0.8rem", color: "#64748b", lineHeight: 1.4 }}>
-                  Submission is held in the Admin Review Queue. Pass status is held until an instructor reviews and scores the answer.
-                </p>
-              </div>
-            </div>
-
-            <div style={{ maxWidth: 220 }}>
-              <label className={styles.formLabel}>Minimum Character Count</label>
-              <input
-                type="number"
-                min={5}
-                max={500}
-                value={newMinCharacters}
-                onChange={(e) => setNewMinCharacters(Number(e.target.value))}
-                className={styles.formInput}
-              />
-            </div>
-          </div>
-        ) : (
-          /* Choice-based questions: Dynamic Choices & Visual Option Cards */
-          <div className={styles.formGroup}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-              <label className={styles.formLabel} style={{ margin: 0 }}>
-                <span>
-                  {selectedKind === 'MULTIPLE_CHOICE'
-                    ? "Answer Choices (Check ALL correct options • 2 to 8 choices)"
-                    : "Answer Choices (Select the single correct option • 2 to 8 choices)"}
-                </span>
-              </label>
-              <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                {newOptions.length} of 8 choices configured
+        {/* Choice Questions: Clean Options List */}
+        {selectedKind !== "TEXT_BOX" ? (
+          <div style={{ marginBottom: "1rem" }}>
+            <label className={styles.formLabel} style={{ marginBottom: "0.45rem", fontSize: "0.82rem" }}>
+              <span>
+                {selectedKind === "MULTIPLE_CHOICE" ? "Options (Check all correct answers)" : "Options (Select the single correct answer)"}
               </span>
-            </div>
+            </label>
 
-            {/* 2x2 Visual Choice Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               {newOptions.map((opt, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: "1rem",
-                    borderRadius: 12,
-                    border: opt.isCorrect ? "2px solid #22c55e" : "1px solid #cbd5e1",
-                    background: opt.isCorrect ? "#f0fdf4" : "#ffffff",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    position: "relative",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {selectedKind === 'MULTIPLE_CHOICE' ? (
-                        <input
-                          type="checkbox"
-                          checked={opt.isCorrect}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setNewOptions((prev) =>
-                              prev.map((o, i) => (i === idx ? { ...o, isCorrect: checked } : o))
-                            );
-                          }}
-                          className={styles.correctRadio}
-                          title="Check if correct answer"
-                        />
-                      ) : (
-                        <input
-                          type="radio"
-                          name="subform_correct_radio"
-                          checked={opt.isCorrect}
-                          onChange={() => {
-                            setNewOptions((prev) =>
-                              prev.map((o, i) => ({ ...o, isCorrect: i === idx }))
-                            );
-                          }}
-                          className={styles.correctRadio}
-                          title="Mark as correct choice"
-                        />
-                      )}
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: opt.isCorrect ? "#15803d" : "#475569" }}>
-                        Choice {idx + 1} {opt.isCorrect ? "(Correct)" : ""}
-                      </span>
-                    </div>
-
-                    {newOptions.length > 2 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveChoice(idx)}
-                        className={styles.deleteItemBtn}
-                        title="Remove choice"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Choice Image Preview or Upload */}
-                  {opt.imageUrl ? (
-                    <div style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-                      <img
-                        src={opt.imageUrl}
-                        alt={`Choice ${idx + 1}`}
-                        style={{ width: "100%", height: 100, objectFit: "cover", display: "block" }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNewOptions((prev) =>
-                            prev.map((o, i) => (i === idx ? { ...o, imageUrl: "" } : o))
-                          );
-                        }}
-                        style={{
-                          position: "absolute",
-                          top: 4,
-                          right: 4,
-                          background: "rgba(0,0,0,0.65)",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: 4,
-                          fontSize: "0.7rem",
-                          padding: "2px 6px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Remove Img
-                      </button>
-                    </div>
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  {selectedKind === "MULTIPLE_CHOICE" ? (
+                    <input
+                      type="checkbox"
+                      checked={opt.isCorrect}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setNewOptions((prev) =>
+                          prev.map((o, i) => (i === idx ? { ...o, isCorrect: checked } : o))
+                        );
+                      }}
+                      style={{ accentColor: "#059669", cursor: "pointer", width: 16, height: 16 }}
+                      title="Mark as correct answer"
+                    />
                   ) : (
-                    <div>
-                      <label style={{ fontSize: "0.78rem", color: "#0284c7", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <span>Attach Option Image</span>
-                        <input
-                          type="file"
-                          accept="image/png, image/jpeg, image/jpg"
-                          style={{ display: "none" }}
-                          onChange={(e) => handleOptionImageFile(idx, e)}
-                        />
-                      </label>
-                    </div>
+                    <input
+                      type="radio"
+                      name="quiz_builder_correct_opt"
+                      checked={opt.isCorrect}
+                      onChange={() => {
+                        setNewOptions((prev) =>
+                          prev.map((o, i) => ({ ...o, isCorrect: i === idx }))
+                        );
+                      }}
+                      style={{ accentColor: "#059669", cursor: "pointer", width: 16, height: 16 }}
+                      title="Mark as correct answer"
+                    />
                   )}
 
                   <input
                     type="text"
                     required={!opt.imageUrl}
-                    placeholder={`Option ${idx + 1} text`}
+                    placeholder={`Option ${idx + 1}`}
                     value={opt.text}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -1152,8 +893,52 @@ export default function Step7QuizBuilder({
                       );
                     }}
                     className={styles.formInput}
-                    style={{ fontSize: "0.9rem", padding: "8px 10px" }}
+                    style={{ flex: 1, padding: "0.45rem 0.75rem", fontSize: "0.85rem" }}
                   />
+
+                  {/* Option Image Upload / Preview */}
+                  {opt.imageUrl ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <img src={opt.imageUrl} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4 }} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewOptions((prev) =>
+                            prev.map((o, i) => (i === idx ? { ...o, imageUrl: "" } : o))
+                          );
+                        }}
+                        style={{ border: "none", background: "transparent", color: "#b91c1c", cursor: "pointer", fontSize: "0.85rem" }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ) : (
+                    <label style={{ cursor: "pointer", color: "var(--text-muted, #78716a)", padding: "0.25rem" }} title="Attach image to this option">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                        <circle cx="9" cy="9" r="2" />
+                        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                      </svg>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => handleOptionImageFile(idx, e)}
+                      />
+                    </label>
+                  )}
+
+                  {/* Remove option button if > 2 */}
+                  {newOptions.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveChoice(idx)}
+                      style={{ border: "none", background: "transparent", color: "var(--text-muted, #78716a)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+                      title="Remove option"
+                    >
+                      &times;
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -1162,23 +947,51 @@ export default function Step7QuizBuilder({
               <button
                 type="button"
                 onClick={handleAddChoice}
-                className={styles.secondaryActionBtn}
-                style={{ marginTop: "1rem", fontSize: "0.85rem" }}
+                style={{
+                  marginTop: "0.6rem",
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--accent-primary, #c97a1e)",
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  padding: "0.2rem 0",
+                }}
               >
-                + Add Another Option ({newOptions.length}/8)
+                + Add Option
               </button>
             )}
           </div>
+        ) : (
+          /* Short Answer settings */
+          <div style={{ marginBottom: "1rem", padding: "0.75rem", background: "#faf7f2", borderRadius: 8, border: "1px solid #ece6dd" }}>
+            <label className={styles.formLabel} style={{ marginBottom: "0.3rem", fontSize: "0.8rem" }}>
+              <span>Minimum Characters Required</span>
+            </label>
+            <input
+              type="number"
+              min={5}
+              max={300}
+              value={newMinCharacters}
+              onChange={(e) => setNewMinCharacters(Number(e.target.value))}
+              className={styles.formInput}
+              style={{ maxWidth: 120 }}
+            />
+          </div>
         )}
 
-        <div className={styles.formGroup} style={{ marginTop: "1.25rem" }}>
-          <label className={styles.formLabel}>Explanation / Solution Guidance (Shown to learner post-submission)</label>
+        {/* Explanation / Solution Guidance */}
+        <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
+          <label className={styles.formLabel} style={{ marginBottom: "0.3rem", fontSize: "0.8rem" }}>
+            <span>Solution Guidance / Explanation (Optional)</span>
+          </label>
           <input
             type="text"
-            placeholder="e.g. This concept was demonstrated in step 4 under the practical module."
+            placeholder="Feedback shown to learner after submitting..."
             value={newExplanation}
             onChange={(e) => setNewExplanation(e.target.value)}
             className={styles.formInput}
+            style={{ fontSize: "0.82rem" }}
           />
         </div>
 
@@ -1186,23 +999,20 @@ export default function Step7QuizBuilder({
           type="submit"
           disabled={isAddingQuestion}
           className={styles.btnPrimary}
-          style={{ width: "100%", justifyContent: "center", padding: "0.75rem" }}
+          style={{ width: "100%", justifyContent: "center", padding: "0.55rem" }}
         >
-          {isAddingQuestion ? "Adding Question..." : "+ Append Question to Quiz"}
+          {isAddingQuestion ? "Adding..." : "+ Add Question to Quiz"}
         </button>
       </form>
 
-      {/* Action Controls */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid var(--border-light)" }}>
+      {/* Bottom Action Controls */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2rem", paddingTop: "1.25rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
         <button
           type="button"
-          className={styles.btnBack}
+          className={styles.secondaryActionBtn}
           onClick={onBackToModule}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-          <span>Back to Module</span>
+          Back to Steps &amp; Lessons
         </button>
 
         <button
@@ -1210,15 +1020,13 @@ export default function Step7QuizBuilder({
           disabled={isSavingAll}
           className={styles.btnPrimary}
           onClick={handleSaveAll}
+          style={{ padding: "0.6rem 1.4rem" }}
         >
-          <span>{isSavingAll ? "Saving Quiz..." : "Save Quiz & Return to Module"}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          {isSavingAll ? "Saving Quiz..." : "Save Quiz & Return"}
         </button>
       </div>
 
-      {/* In-website branded ConfirmDialog */}
+      {/* Branded ConfirmDialog */}
       <ConfirmDialog
         isOpen={Boolean(questionToDelete)}
         onClose={() => {
@@ -1229,7 +1037,7 @@ export default function Step7QuizBuilder({
         description={
           <>
             Are you sure you want to delete this question?
-            <div style={{ marginTop: "8px", padding: "10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.88rem" }}>
+            <div style={{ marginTop: "8px", padding: "8px 10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.85rem" }}>
               &ldquo;{questionToDelete?.text}&rdquo;
             </div>
           </>

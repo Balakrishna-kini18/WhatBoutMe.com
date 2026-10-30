@@ -233,12 +233,13 @@ export default function LearnerDashboardPage() {
     return {
       key: p.enrolmentId || `course-${p.programId || idx}`,
       title: p.programTitle || p.batchName || "Certified Resilience Program",
+      batchName: p.batchName,
+      status: p.status,
       progress: progressVal,
       totalLessons,
       completedLessons,
       image:
         courseImages[idx % courseImages.length] || "/brand/course-learning.webp",
-      status: p.status,
       route:
         p.status === "PENDING_AGREEMENT"
           ? `/agreement?programId=${p.programId}&enrolmentId=${p.enrolmentId}`

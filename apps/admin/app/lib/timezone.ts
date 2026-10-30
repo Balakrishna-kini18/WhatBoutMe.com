@@ -141,34 +141,49 @@ export function utcToWallClock(
  * Formats a start and end time range for display in the target timezone.
  */
 export function formatWhenInTz(start: string, end: string, timeZone: string): string {
+  if (!start) return "TBD";
   const s = new Date(start);
-  const e = new Date(end);
+  if (isNaN(s.getTime())) return "TBD";
+
+  let e = end ? new Date(end) : null;
+  if (e && isNaN(e.getTime())) e = null;
 
   try {
+    const tz = timeZone || "UTC";
     const dateFormatted = s.toLocaleDateString(undefined, {
-      timeZone,
+      timeZone: tz,
       day: "numeric",
       month: "short",
       year: "numeric",
     });
 
     const startTime = s.toLocaleTimeString(undefined, {
-      timeZone,
+      timeZone: tz,
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
     });
 
-    const endTime = e.toLocaleTimeString(undefined, {
-      timeZone,
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
+    if (e) {
+      const endTime = e.toLocaleTimeString(undefined, {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+      return `${dateFormatted}, ${startTime} – ${endTime}`;
+    }
 
-    return `${dateFormatted}, ${startTime} – ${endTime}`;
+    return `${dateFormatted}, ${startTime}`;
   } catch {
-    return `${s.toLocaleDateString()}, ${s.toLocaleTimeString()} – ${e.toLocaleTimeString()}`;
+    try {
+      if (e) {
+        return `${s.toLocaleDateString()}, ${s.toLocaleTimeString()} – ${e.toLocaleTimeString()}`;
+      }
+      return `${s.toLocaleDateString()}, ${s.toLocaleTimeString()}`;
+    } catch {
+      return "TBD";
+    }
   }
 }
 
@@ -176,16 +191,22 @@ export function formatWhenInTz(start: string, end: string, timeZone: string): st
  * Formats a short time string (e.g. "10:30 AM") in the target timezone.
  */
 export function formatShortTimeInTz(utcIso: string, timeZone: string): string {
+  if (!utcIso) return "";
   const d = new Date(utcIso);
+  if (isNaN(d.getTime())) return "";
   try {
     return d.toLocaleTimeString(undefined, {
-      timeZone,
+      timeZone: timeZone || "UTC",
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
     });
   } catch {
-    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true });
+    try {
+      return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true });
+    } catch {
+      return "";
+    }
   }
 }
 

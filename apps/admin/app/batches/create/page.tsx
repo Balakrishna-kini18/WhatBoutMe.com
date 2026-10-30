@@ -76,19 +76,20 @@ export default function CreateBatchPage() {
         if (progsRes.ok) {
           const progsData = await progsRes.json();
           if (Array.isArray(progsData)) {
-            setPrograms(progsData);
-            if (progsData.length > 0) {
-              setProgramId(progsData[0].id);
+            const published = progsData.filter((p: any) => p && p.isActive !== false && p.status !== "DRAFT");
+            setPrograms(published);
+            if (published.length > 0) {
+              setProgramId(published[0].id);
               // Prepopulate suggested pricing from selected program
-              if (progsData[0].price !== undefined) {
-                setBasePrice(String(progsData[0].price));
+              if (published[0].price !== undefined) {
+                setBasePrice(String(published[0].price));
               }
-              if (progsData[0].currency) {
-                setCurrency(progsData[0].currency as any);
+              if (published[0].currency) {
+                setCurrency(published[0].currency as any);
               }
-              if (progsData[0].priceUSD) setPriceUSD(String(progsData[0].priceUSD));
-              if (progsData[0].priceAED) setPriceAED(String(progsData[0].priceAED));
-              if (progsData[0].priceINR) setPriceINR(String(progsData[0].priceINR));
+              if (published[0].priceUSD) setPriceUSD(String(published[0].priceUSD));
+              if (published[0].priceAED) setPriceAED(String(published[0].priceAED));
+              if (published[0].priceINR) setPriceINR(String(published[0].priceINR));
             }
           }
         }

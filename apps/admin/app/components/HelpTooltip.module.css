@@ -1,0 +1,102 @@
+/* =========================================================================
+   WhatBoutMe Admin Help Tooltip Styles (Warm SaaS Amber Theme)
+   ========================================================================= */
+
+.helpTooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.helpIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: help;
+  border: 1px solid #fde68a;
+  transition: all 0.15s ease;
+  user-select: none;
+  outline: none;
+  line-height: 1;
+}
+
+.helpIcon:hover,
+.helpIcon:focus-visible {
+  background: #fde68a;
+  color: #92400e;
+  border-color: #f59e0b;
+  transform: scale(1.08);
+}
+
+.helpTooltipContent {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  right: auto;
+  width: 260px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 0.65rem 0.85rem;
+  background: #1c1917; /* Deep warm ink */
+  color: #faf6f0;      /* Warm ivory text */
+  border: 1px solid rgba(201, 122, 30, 0.4); /* Subtle warm amber glow */
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -4px rgba(20, 17, 15, 0.28), 0 4px 10px rgba(20, 17, 15, 0.15);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  font-weight: 500;
+  z-index: 150;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.18s;
+  text-align: left;
+  white-space: normal;
+}
+
+.helpTooltipContent::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 6px;
+  right: auto;
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent transparent #1c1917 transparent;
+}
+
+.helpTooltip:hover .helpTooltipContent,
+.helpTooltip:focus-within .helpTooltipContent {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.helpTooltipRight .helpTooltipContent {
+  left: auto;
+  right: 0;
+}
+
+.helpTooltipRight .helpTooltipContent::before {
+  left: auto;
+  right: 6px;
+}
+
+.helpTooltipLeft .helpTooltipContent {
+  left: 0;
+  right: auto;
+}
+
+.helpTooltipLeft .helpTooltipContent::before {
+  left: 6px;
+  right: auto;
+}

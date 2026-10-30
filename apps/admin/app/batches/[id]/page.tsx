@@ -17,6 +17,12 @@ import {
   cachedFetch,
   apiGet,
   invalidateCache,
+  fetchOneOnOneRequests,
+  approveOneOnOneRequest,
+  rejectOneOnOneRequest,
+  fetchMissionStatements,
+  rejectMissionStatement,
+  approveMissionStatement,
 } from "../../lib/api";
 import {
   getTimezoneOptions,
@@ -30,6 +36,7 @@ import {
   CustomSelect,
   ConfirmDialog,
   InputDialog,
+  Modal,
   ActionMenu,
   useToast,
   TableSkeleton,
@@ -67,7 +74,7 @@ interface EnrolledLearner {
 interface BatchSession {
   id: string;
   title: string;
-  sessionType: "GROUP_COHORT" | "ONE_ON_ONE";
+  sessionType: "GROUP_COHORT" | "ONE_ON_ONE" | string;
   capacity: number;
   meetingProvider?: string | null;
   durationMinutes?: number | null;
@@ -79,10 +86,11 @@ interface BatchSession {
   recordingUrl: string | null;
   quizId: string | null;
   hostTrainer?: { id: string; name: string; email: string } | null;
+  isRequired?: boolean;
   _count?: { attendances?: number; bookings?: number };
 }
 
-type BatchTab = "learners" | "sessions" | "broadcast" | "settings";
+type BatchTab = "learners" | "awaiting_payment" | "sessions" | "broadcast";
 type LearnerSortField = "name" | "status" | "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
 type SessionSortField = "title" | "date" | "trainer" | "status";
 
@@ -99,7 +107,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   // Sync tab with URL query param if present
   useEffect(() => {
     const tabParam = searchParams.get("tab") as BatchTab;
-    if (tabParam && ["learners", "sessions", "broadcast", "settings"].includes(tabParam)) {
+    if (tabParam && ["learners", "awaiting_payment", "sessions", "broadcast"].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
@@ -123,8 +131,10 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const [learnerSortField, setLearnerSortField] = useState<LearnerSortField>("name");
   const [learnerSortOrder, setLearnerSortOrder] = useState<SortOrder>("asc");
 
-  // Tab 1 Sub-View: Confirmed Roster vs Incomplete/Unpaid Checkouts
-  const [rosterSubView, setRosterSubView] = useState<"confirmed" | "pending_payment">("confirmed");
+  // Tab 2: Awaiting Payment State
+  const [pendingSearch, setPendingSearch] = useState("");
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPageSize, setPendingPageSize] = useState(10);
   const [releasingLearner, setReleasingLearner] = useState<EnrolledLearner | null>(null);
   const [isReleasingSeat, setIsReleasingSeat] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -138,18 +148,53 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   };
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [assignMode, setAssignMode] = useState<"existing" | "new">("existing");
-  const [newLearnerName, setNewLearnerName] = useState("");
-  const [newLearnerEmail, setNewLearnerEmail] = useState("");
-  const [newLearnerPhone, setNewLearnerPhone] = useState("");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [selectedUserToAssign, setSelectedUserToAssign] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
 
   // Mission Statement Approval Modal State
   const [missionModalLearner, setMissionModalLearner] = useState<EnrolledLearner | null>(null);
+  const [missionSubmission, setMissionSubmission] = useState<any | null>(null);
+  const [isLoadingMissionDoc, setIsLoadingMissionDoc] = useState(false);
   const [missionFeedback, setMissionFeedback] = useState("");
   const [isApprovingMission, setIsApprovingMission] = useState(false);
+
+  // 1-on-1 Coaching Modal State
+  const [coachingModalLearner, setCoachingModalLearner] = useState<EnrolledLearner | null>(null);
+  const [coachingRequest, setCoachingRequest] = useState<any | null>(null);
+  const [isLoadingCoaching, setIsLoadingCoaching] = useState(false);
+  const [actingCoaching, setActingCoaching] = useState(false);
+
+  const openMissionModal = async (learner: EnrolledLearner) => {
+    setMissionModalLearner(learner);
+    setMissionFeedback("");
+    setIsLoadingMissionDoc(true);
+    try {
+      const list = await fetchMissionStatements();
+      const found = list.find((m: any) => m.enrolmentId === learner.id || m.userId === learner.userId);
+      setMissionSubmission(found || null);
+    } catch (err) {
+      console.warn("Could not load mission statement document:", err);
+      setMissionSubmission(null);
+    } finally {
+      setIsLoadingMissionDoc(false);
+    }
+  };
+
+  const openCoachingModal = async (learner: EnrolledLearner) => {
+    setCoachingModalLearner(learner);
+    setIsLoadingCoaching(true);
+    try {
+      const reqs = await fetchOneOnOneRequests();
+      const found = reqs.find((r: any) => r.enrolmentId === learner.id || r.userId === learner.userId);
+      setCoachingRequest(found || null);
+    } catch (err) {
+      console.warn("Could not load coaching request:", err);
+      setCoachingRequest(null);
+    } finally {
+      setIsLoadingCoaching(false);
+    }
+  };
 
   // Tab 2: Sessions State
   const [sessions, setSessions] = useState<BatchSession[]>([]);
@@ -203,6 +248,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   };
 
   // Tab 3: Broadcast State
+  const [broadcastTarget, setBroadcastTarget] = useState<"ALL_BATCH" | "INDIVIDUAL">("ALL_BATCH");
+  const [selectedLearnerUserId, setSelectedLearnerUserId] = useState<string>("");
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [broadcastInApp, setBroadcastInApp] = useState(true);
@@ -215,6 +262,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     sentAt: string;
     recipientCount: number;
     channels: string[];
+    targetLabel?: string;
   }>>([]);
 
   // Batch Settings Modal State
@@ -257,9 +305,72 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     const period = h >= 12 ? "PM" : "AM";
     const displayH = h % 12 === 0 ? 12 : h % 12;
     const displayM = m < 10 ? `0${m}` : m;
-    const context = h >= 5 && h < 12 ? "Morning" : h >= 12 && h < 17 ? "Afternoon" : "Evening";
-    return `🕒 ${displayH}:${displayM} ${period} (${context})`;
+    return `${displayH}:${displayM} ${period}`;
   }, []);
+
+  // Derived 12-hour parts from sessionWallTime for easy 12-hr AM/PM editing
+  const { timeHour12, timeMinute, timeAmPm } = useMemo(() => {
+    if (!sessionWallTime || !sessionWallTime.includes(":")) {
+      return { timeHour12: "07", timeMinute: "00", timeAmPm: "PM" as "AM" | "PM" };
+    }
+    const [hStr, mStr] = sessionWallTime.split(":");
+    let h = parseInt(hStr || "0", 10);
+    const m = parseInt(mStr || "0", 10) || 0;
+    if (isNaN(h)) h = 19;
+    const period: "AM" | "PM" = h >= 12 ? "PM" : "AM";
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    const h12Str = displayH < 10 ? `0${displayH}` : String(displayH);
+    const minStr = m < 10 ? `0${m}` : String(m);
+    return { timeHour12: h12Str, timeMinute: minStr, timeAmPm: period };
+  }, [sessionWallTime]);
+
+  const setTimeHour = (hStr: string) => {
+    let hNum = parseInt(hStr, 10);
+    if (isNaN(hNum)) hNum = 12;
+    if (timeAmPm === "PM" && hNum < 12) hNum += 12;
+    if (timeAmPm === "AM" && hNum === 12) hNum = 0;
+    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
+    setSessionWallTime(`${h24}:${timeMinute}`);
+  };
+
+  const setTimeMinute = (mStr: string) => {
+    let hNum = parseInt(timeHour12, 10);
+    if (isNaN(hNum)) hNum = 12;
+    if (timeAmPm === "PM" && hNum < 12) hNum += 12;
+    if (timeAmPm === "AM" && hNum === 12) hNum = 0;
+    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
+    const normM = mStr.length === 1 ? `0${mStr}` : mStr;
+    setSessionWallTime(`${h24}:${normM}`);
+  };
+
+  const setTimeAmPm = (ampm: "AM" | "PM") => {
+    let hNum = parseInt(timeHour12, 10);
+    if (isNaN(hNum)) hNum = 12;
+    if (ampm === "PM" && hNum < 12) hNum += 12;
+    if (ampm === "AM" && hNum === 12) hNum = 0;
+    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
+    setSessionWallTime(`${h24}:${timeMinute}`);
+  };
+
+  // Calculated session end time based on start time + duration minutes
+  const sessionEndTimeFormatted = useMemo(() => {
+    if (!sessionWallTime || !sessionWallTime.includes(":")) return "";
+    const [hStr, mStr] = sessionWallTime.split(":");
+    const h = parseInt(hStr || "0", 10);
+    const m = parseInt(mStr || "0", 10);
+    if (isNaN(h) || isNaN(m)) return "";
+
+    const durationNum = parseInt(sessionDurationMinutes, 10) || 60;
+    const totalMinutes = h * 60 + m + durationNum;
+    const endH24 = Math.floor(totalMinutes / 60) % 24;
+    const endM = totalMinutes % 60;
+
+    const period = endH24 >= 12 ? "PM" : "AM";
+    const displayH = endH24 % 12 === 0 ? 12 : endH24 % 12;
+    const displayM = endM < 10 ? `0${endM}` : String(endM);
+
+    return `${displayH}:${displayM} ${period}`;
+  }, [sessionWallTime, sessionDurationMinutes]);
 
   // Initial Data Fetch
   const loadBatchData = useCallback(async () => {
@@ -278,16 +389,18 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       setSettingsManagerId(data.managerId || "");
       setSettingsStatus(data.status || "ACTIVE");
 
-      // Extract Enrolled Learners
+      // Extract Enrolled Learners (waitlist is managed globally at Batches level, not inside individual batch)
       const rawEnrolments: any[] = data.enrolments || [];
-      const formattedLearners: EnrolledLearner[] = rawEnrolments.map((e) => ({
-        id: e.id,
-        userId: e.userId,
-        status: e.status,
-        createdAt: e.createdAt,
-        user: e.user || { id: e.userId, name: "Learner", email: "", role: "USER" },
-        signedAgreement: e.signedAgreement || null,
-      }));
+      const formattedLearners: EnrolledLearner[] = rawEnrolments
+        .filter((e) => e.status !== "WAITLIST")
+        .map((e) => ({
+          id: e.id,
+          userId: e.userId,
+          status: e.status,
+          createdAt: e.createdAt,
+          user: e.user || { id: e.userId, name: "Learner", email: "", role: "USER" },
+          signedAgreement: e.signedAgreement || null,
+        }));
       setLearners(formattedLearners);
 
       // Lazy-load individual 5-step stages for confirmed learners only
@@ -300,25 +413,46 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   }, [batchId]);
 
-  // Fetch 5-Stage Progression for learners in parallel
+  // Fetch 5-Stage Progression for batch in 1 single optimized API call
   const fetchLearnerStages = async (learnerList: EnrolledLearner[]) => {
-    const updated = [...learnerList];
-    for (let i = 0; i < updated.length; i++) {
-      const enrolment = updated[i];
-      if (!enrolment) continue;
-      try {
-        const stagesRes = await apiGet<any>(`/progression/enrolments/${enrolment.id}/stages`).catch(() => null);
-        if (stagesRes?.stages) {
-          updated[i] = {
-            ...enrolment,
-            stages: stagesRes.stages,
-          };
-        }
-      } catch {
-        // Soft fail per learner
+    try {
+      const batchStagesRes = await apiGet<Record<string, any>>(`/progression/batches/${batchId}/stages`).catch(() => null);
+      if (batchStagesRes && typeof batchStagesRes === "object") {
+        setLearners((prev) =>
+          prev.map((l) => (batchStagesRes[l.id]?.stages ? { ...l, stages: batchStagesRes[l.id].stages } : l))
+        );
+        return;
       }
+    } catch (err) {
+      console.warn("Batch progression endpoint fallback:", err);
     }
-    setLearners(updated);
+
+    const targets = learnerList.filter(
+      (l) => l.status !== "PENDING_PAYMENT" && l.status !== "PENDING_AGREEMENT" && !l.stages
+    );
+    if (targets.length === 0) return;
+
+    try {
+      const results = await Promise.allSettled(
+        targets.map(async (enrolment) => {
+          const stagesRes = await apiGet<any>(`/progression/enrolments/${enrolment.id}/stages`).catch(() => null);
+          return { id: enrolment.id, stages: stagesRes?.stages || null };
+        })
+      );
+
+      const stagesMap = new Map<string, any>();
+      for (const res of results) {
+        if (res.status === "fulfilled" && res.value?.stages) {
+          stagesMap.set(res.value.id, res.value.stages);
+        }
+      }
+
+      setLearners((prev) =>
+        prev.map((l) => (stagesMap.has(l.id) ? { ...l, stages: stagesMap.get(l.id) } : l))
+      );
+    } catch (err) {
+      console.warn("Could not load learner stages:", err);
+    }
   };
 
   // Load Sessions for Tab 2
@@ -360,9 +494,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     loadSupportingData();
   }, [loadBatchData, loadSessions, loadSupportingData]);
 
-  // Split Confirmed vs Unpaid
+  // Split Confirmed vs Awaiting Payment (waitlist is managed globally at Batches level)
   const confirmedLearners = useMemo(() => {
-    return learners.filter((l) => l.status !== "PENDING_PAYMENT");
+    return learners.filter((l) => l.status !== "PENDING_PAYMENT" && l.status !== "WAITLIST");
   }, [learners]);
 
   const pendingPaymentLearners = useMemo(() => {
@@ -397,11 +531,11 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   };
 
-  // Filtered Learners for Tab 1
+  // Filtered Confirmed Learners for Tab 1
   const filteredLearners = useMemo(() => {
-    let result = rosterSubView === "confirmed" ? confirmedLearners : pendingPaymentLearners;
+    let result = confirmedLearners;
 
-    if (rosterSubView === "confirmed" && learnerStatusFilter !== "ALL") {
+    if (learnerStatusFilter !== "ALL") {
       result = result.filter((l) => {
         if (learnerStatusFilter === "CALL_PENDING") {
           const s4 = l.stages?.STAGE_4_ONE_ON_ONE;
@@ -432,7 +566,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         l.user?.name?.toLowerCase().includes(q) ||
         l.user?.email?.toLowerCase().includes(q)
     );
-  }, [confirmedLearners, pendingPaymentLearners, rosterSubView, learnerSearch, learnerStatusFilter]);
+  }, [confirmedLearners, learnerSearch, learnerStatusFilter]);
 
   const filteredAndSortedLearners = useMemo(() => {
     const list = [...filteredLearners];
@@ -488,6 +622,30 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     const start = (learnerPage - 1) * learnerPageSize;
     return filteredAndSortedLearners.slice(start, start + learnerPageSize);
   }, [filteredAndSortedLearners, learnerPage, learnerPageSize]);
+
+  // Filtered Awaiting Payment Learners for Tab 2
+  const filteredPendingLearners = useMemo(() => {
+    const q = pendingSearch.toLowerCase().trim();
+    if (!q) return pendingPaymentLearners;
+    return pendingPaymentLearners.filter(
+      (l) =>
+        l.user?.name?.toLowerCase().includes(q) ||
+        l.user?.email?.toLowerCase().includes(q)
+    );
+  }, [pendingPaymentLearners, pendingSearch]);
+
+  const totalPendingPages = Math.max(1, Math.ceil(filteredPendingLearners.length / pendingPageSize));
+
+  useEffect(() => {
+    if (pendingPage > totalPendingPages) {
+      setPendingPage(1);
+    }
+  }, [pendingPage, totalPendingPages]);
+
+  const paginatedPendingLearners = useMemo(() => {
+    const start = (pendingPage - 1) * pendingPageSize;
+    return filteredPendingLearners.slice(start, start + pendingPageSize);
+  }, [filteredPendingLearners, pendingPage, pendingPageSize]);
 
   // Tab 2: Sorted Sessions
   const sortedSessions = useMemo(() => {
@@ -610,39 +768,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     setIsAssigning(true);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      let targetUserId = selectedUserToAssign;
-
-      if (assignMode === "new") {
-        if (!newLearnerName.trim() || !newLearnerEmail.trim()) {
-          toastError("Please enter the learner's name and email address.");
-          setIsAssigning(false);
-          return;
-        }
-
-        const createRes = await fetch(`${API_URL}/users`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            name: newLearnerName.trim(),
-            email: newLearnerEmail.trim().toLowerCase(),
-            phone: newLearnerPhone.trim() || undefined,
-            role: "USER",
-          }),
-        });
-
-        if (!createRes.ok) {
-          throw new Error(await errorMessage(createRes, "Could not create user account."));
-        }
-
-        const createdUser = await createRes.json();
-        targetUserId = createdUser.id || createdUser.user?.id;
-      }
-
-      if (!targetUserId) {
-        toastError("Please select a user to assign.");
+      if (!selectedUserToAssign) {
+        toastError("Please select an existing user to assign.");
         setIsAssigning(false);
         return;
       }
@@ -654,7 +781,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          userId: targetUserId,
+          userId: selectedUserToAssign,
           programId: batch.programId,
           batchId: batch.id,
         }),
@@ -664,13 +791,14 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         throw new Error(await errorMessage(res, "Could not assign learner to batch."));
       }
 
-      toastSuccess(assignMode === "new" ? "New learner created and enrolled in batch." : "Learner successfully assigned to batch.");
+      const created = await res.json();
+      if (created?.status === "WAITLIST") {
+        toastSuccess("Batch is at full capacity. Learner was placed on the waitlist.");
+      } else {
+        toastSuccess("Learner successfully assigned to batch.");
+      }
       setIsAssignModalOpen(false);
       setSelectedUserToAssign("");
-      setNewLearnerName("");
-      setNewLearnerEmail("");
-      setNewLearnerPhone("");
-      setAssignMode("existing");
       await loadBatchData();
     } catch (err: any) {
       toastError(err.message || "Failed to assign learner.");
@@ -738,7 +866,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         capacity: batch?.capacity || 50,
       });
 
-      toastSuccess("Live cohort session scheduled successfully.");
+      toastSuccess("Live batch session scheduled successfully.");
       setIsCreateSessionModalOpen(false);
       setSessionTitle("");
       await loadSessions();
@@ -791,9 +919,17 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       return;
     }
 
+    if (broadcastTarget === "INDIVIDUAL" && !selectedLearnerUserId) {
+      toastError("Please select an individual learner from the batch.");
+      return;
+    }
+
     setIsSendingBroadcast(true);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const isIndividual = broadcastTarget === "INDIVIDUAL";
+      const targetUser = isIndividual ? confirmedLearners.find((l) => l.userId === selectedLearnerUserId) : null;
+
       const res = await fetch(`${API_URL}/notifications/broadcast`, {
         method: "POST",
         headers: {
@@ -801,8 +937,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          target: "BATCH",
-          targetId: batchId,
+          target: isIndividual ? "USER" : "BATCH",
+          targetId: isIndividual ? selectedLearnerUserId : batchId,
           title: broadcastTitle.trim(),
           message: broadcastMessage.trim(),
           channels,
@@ -810,18 +946,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       });
 
       if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to send batch broadcast."));
+        throw new Error(await errorMessage(res, "Failed to send broadcast announcement."));
       }
 
-      toastSuccess(`Announcement broadcast sent to ${learners.length} cohort learner(s).`);
+      const count = isIndividual ? 1 : confirmedLearners.length;
+      toastSuccess(
+        isIndividual
+          ? `Announcement successfully sent to ${targetUser?.user?.name || "learner"}.`
+          : `Announcement broadcast dispatched to ${count} batch learner(s).`
+      );
+
       setBroadcastHistory((prev) => [
         {
           id: `bcast-${Date.now()}`,
           title: broadcastTitle.trim(),
           message: broadcastMessage.trim(),
           sentAt: new Date().toISOString(),
-          recipientCount: learners.length,
+          recipientCount: count,
           channels,
+          targetLabel: isIndividual ? (targetUser?.user?.name || "Individual Learner") : `All in ${batch?.name}`,
         },
         ...prev,
       ]);
@@ -974,14 +1117,36 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
   return (
     <div className={styles.dashboardContainer} style={{ gap: "1rem" }}>
-      {/* 1. Clean Back Navigation */}
-      <div>
+      {/* 1. Top Bar: Back Navigation & Edit Batch */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
         <Link href="/batches" className={batchStyles.backLink}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m15 18-6-6 6-6" />
           </svg>
           <span>Back to Batches</span>
         </Link>
+
+        <button
+          type="button"
+          onClick={openSettingsModal}
+          className={styles.secondaryBtn}
+          style={{
+            fontSize: "0.82rem",
+            padding: "0.42rem 0.85rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            fontWeight: 600,
+            borderRadius: "6px",
+          }}
+          title="Edit batch parameters, schedule, capacity & instructor"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          <span>Edit Batch</span>
+        </button>
       </div>
 
       {/* 2. Unified Batch Header Card */}
@@ -1004,91 +1169,80 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 <StatusBadge status={batch?.status || "ACTIVE"} />
               </div>
 
-              {/* Clean Sub-Metadata Row matching User & Enrolment detail style */}
-              <div className={batchStyles.metaRow}>
-                <span className={batchStyles.metaItem}>
+              {/* Responsive Single-Row Sub-Metadata Layout (Keeps each Label:Value locked together) */}
+              <div className={batchStyles.metaContainer}>
+                <span className={batchStyles.metaItemWrap} title={batch?.program?.title || "—"}>
                   <span className={batchStyles.metaLabel}>Program:</span>
-                  <span className={batchStyles.metaValue}>{batch?.program?.title || "—"}</span>
+                  <span className={batchStyles.metaValue} style={{ maxWidth: "340px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {batch?.program?.title || "—"}
+                  </span>
                 </span>
-
-                <span className={batchStyles.metaDot}>•</span>
 
                 <span className={batchStyles.metaItem}>
                   <span className={batchStyles.metaLabel}>Manager:</span>
                   <span
                     className={batchStyles.metaValue}
                     style={{
-                      color: batch?.manager?.name && batch.manager.name !== "Unassigned" ? "var(--text-primary)" : "var(--text-muted)",
-                      fontStyle: batch?.manager?.name && batch.manager.name !== "Unassigned" ? "normal" : "italic",
+                      color:
+                        batch?.manager?.name && batch.manager.name !== "Unassigned"
+                          ? "var(--text-primary)"
+                          : "var(--text-muted)",
+                      fontStyle:
+                        batch?.manager?.name && batch.manager.name !== "Unassigned"
+                          ? "normal"
+                          : "italic",
                     }}
                   >
                     {batch?.manager?.name || "Unassigned"}
                   </span>
                 </span>
 
-                <span className={batchStyles.metaDot}>•</span>
-
                 <span className={batchStyles.metaItem}>
                   <span className={batchStyles.metaLabel}>Schedule:</span>
                   <span className={batchStyles.metaValue}>{scheduleDisplay}</span>
                 </span>
 
-                <span className={batchStyles.metaDot}>•</span>
-
                 <span className={batchStyles.metaItem}>
                   <span className={batchStyles.metaLabel}>Capacity:</span>
-                  <span className={batchStyles.metaValue} style={{ color: "var(--accent-primary)" }}>
-                    {batch?.enrolledCount ?? learners.length}
-                  </span>
-                  <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
-                    / {batch?.capacity && batch.capacity < 9000 ? `${batch.capacity} Learners` : "Open Capacity"}
+                  <span className={batchStyles.metaValue}>
+                    <span style={{ color: "var(--accent-primary)" }}>
+                      {confirmedLearners.length}
+                    </span>
+                    <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                      {" "}/ {batch?.capacity && batch.capacity < 9000 ? `${batch.capacity} Learners` : "Open Capacity"}
+                    </span>
                   </span>
                 </span>
-
-                <span className={batchStyles.metaDot}>•</span>
 
                 <span className={batchStyles.metaItem}>
                   <span className={batchStyles.metaLabel}>Registration:</span>
                   <span
                     className={batchStyles.metaValue}
                     style={{
-                      color: batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline) ? "#dc2626" : "#166534",
+                      color:
+                        batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline)
+                          ? "#dc2626"
+                          : "#166534",
                       fontWeight: 600,
                     }}
                   >
                     {batch?.registrationDeadline
-                      ? (new Date() > new Date(batch.registrationDeadline)
-                          ? `Closed (${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })})`
-                          : `Until ${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`)
+                      ? new Date() > new Date(batch.registrationDeadline)
+                        ? `Closed (${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })})`
+                        : `Until ${new Date(batch.registrationDeadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
                       : "Open (Auto)"}
                   </span>
+                  {batch?.registrationDeadline && new Date() > new Date(batch.registrationDeadline) && (
+                    <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", fontWeight: 400, marginLeft: "0.25rem" }}>
+                      (Next cohort)
+                    </span>
+                  )}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className={batchStyles.headerActions}>
-            <button
-              type="button"
-              onClick={() => handleTabChange("settings")}
-              className={styles.secondaryBtn}
-              style={{
-                fontSize: "0.78rem",
-                padding: "0.38rem 0.75rem",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                fontWeight: 600,
-              }}
-              title="Configure batch parameters, schedule & instructor assignment"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              <span>Batch Settings</span>
-            </button>
-          </div>
+
         </div>
       </div>
 
@@ -1100,6 +1254,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           aria-label="Batch management workspace views"
           style={{ gap: "0.75rem", margin: 0, paddingBottom: 0 }}
         >
+          {/* Tab 1: Learners */}
           <button
             type="button"
             role="tab"
@@ -1115,23 +1270,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <span>Learners ({confirmedLearners.length})</span>
-            {pendingPaymentLearners.length > 0 && (
-              <span
-                style={{
-                  fontSize: "0.7rem",
-                  fontWeight: 700,
-                  background: "#ea580c",
-                  color: "#ffffff",
-                  padding: "1px 6px",
-                  borderRadius: "100px",
-                }}
-                title={`${pendingPaymentLearners.length} unconfirmed checkouts`}
-              >
-                +{pendingPaymentLearners.length}
-              </span>
-            )}
           </button>
 
+          {/* Tab 2: Awaiting Payment */}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "awaiting_payment"}
+            className={`${styles.tabBtn} ${activeTab === "awaiting_payment" ? styles.tabBtnActive : ""}`}
+            onClick={() => handleTabChange("awaiting_payment")}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            <span>Awaiting Payment ({pendingPaymentLearners.length})</span>
+          </button>
+
+          {/* Tab 3: Live Sessions */}
           <button
             type="button"
             role="tab"
@@ -1149,6 +1306,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             <span>Live Sessions ({sessions.length})</span>
           </button>
 
+          {/* Tab 4: Broadcast */}
           <button
             type="button"
             role="tab"
@@ -1163,21 +1321,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             </svg>
             <span>Broadcast</span>
           </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "settings"}
-            className={`${styles.tabBtn} ${activeTab === "settings" ? styles.tabBtnActive : ""}`}
-            onClick={() => handleTabChange("settings")}
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            <span>Settings</span>
-          </button>
         </div>
       </div>
 
@@ -1186,110 +1329,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "learners" && (
         <section className={styles.tableSection}>
-          {/* Sub-View Navigation: Confirmed Class Roster vs Awaiting Payment */}
-          <div style={{ display: "flex", gap: "0.5rem", padding: "1rem 1rem 0", flexWrap: "wrap", alignItems: "center" }}>
-            <button
-              type="button"
-              onClick={() => {
-                setRosterSubView("confirmed");
-                setLearnerStatusFilter("ALL");
-                setLearnerPage(1);
-              }}
-              style={{
-                padding: "0.45rem 1rem",
-                borderRadius: "6px",
-                fontSize: "0.84rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                border: rosterSubView === "confirmed" ? "1px solid var(--accent-primary, #c97a1e)" : "1px solid var(--border-color, #e5e7eb)",
-                background: rosterSubView === "confirmed" ? "rgba(201, 122, 30, 0.12)" : "transparent",
-                color: rosterSubView === "confirmed" ? "var(--accent-primary, #c97a1e)" : "var(--text-secondary, #6b7280)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <span>Official Class Roster</span>
-              <span
-                style={{
-                  background: rosterSubView === "confirmed" ? "var(--accent-primary, #c97a1e)" : "rgba(0,0,0,0.06)",
-                  color: rosterSubView === "confirmed" ? "#ffffff" : "inherit",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  padding: "1px 6px",
-                  borderRadius: "100px",
-                }}
-              >
-                {confirmedLearners.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setRosterSubView("pending_payment");
-                setLearnerPage(1);
-              }}
-              style={{
-                padding: "0.45rem 1rem",
-                borderRadius: "6px",
-                fontSize: "0.84rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                border: rosterSubView === "pending_payment" ? "1px solid #f97316" : "1px solid var(--border-color, #e5e7eb)",
-                background: rosterSubView === "pending_payment" ? "#fff7ed" : "transparent",
-                color: rosterSubView === "pending_payment" ? "#c2410c" : "var(--text-secondary, #6b7280)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <span>Awaiting Payment / Incomplete</span>
-              <span
-                style={{
-                  background: pendingPaymentLearners.length > 0 ? "#ea580c" : "rgba(0,0,0,0.06)",
-                  color: pendingPaymentLearners.length > 0 ? "#ffffff" : "inherit",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  padding: "1px 6px",
-                  borderRadius: "100px",
-                }}
-              >
-                {pendingPaymentLearners.length}
-              </span>
-            </button>
-          </div>
-
-          {rosterSubView === "pending_payment" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "0.6rem 1rem",
-                margin: "0.75rem 1rem 0",
-                background: "#fffbeb",
-                border: "1px solid #fef3c7",
-                borderRadius: "8px",
-                fontSize: "0.82rem",
-                color: "#92400e",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span>
-                  These learners initiated registration or signed the workshop agreement but haven&apos;t completed payment. They do not consume batch capacity. Unpaid checkouts older than 48 hours are automatically revoked.
-                </span>
-              </div>
-            </div>
-          )}
-
           <div
             className={styles.sectionHeader}
             style={{
@@ -1298,6 +1337,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               alignItems: "center",
               flexWrap: "wrap",
               gap: "0.75rem",
+              padding: 0,
+              marginBottom: "1rem",
             }}
           >
             {/* Search & Filter Group */}
@@ -1309,7 +1350,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 </svg>
                 <input
                   type="text"
-                  placeholder={rosterSubView === "confirmed" ? "Search enrolled learners by name or email..." : "Search pending checkouts..."}
+                  placeholder="Search enrolled learners by name or email..."
                   value={learnerSearch}
                   onChange={(e) => {
                     setLearnerSearch(e.target.value);
@@ -1319,27 +1360,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 />
               </div>
 
-              {/* Status & Stage Filter (Only shown on confirmed roster) */}
-              {rosterSubView === "confirmed" && (
-                <div style={{ minWidth: "175px" }}>
-                  <CustomSelect
-                    value={learnerStatusFilter}
-                    onChange={(val) => {
-                      setLearnerStatusFilter(val);
-                      setLearnerPage(1);
-                    }}
-                    options={[
-                      { value: "ALL", label: `All Confirmed (${confirmedLearners.length})` },
-                      { value: "ACTIVE", label: "Active Status" },
-                      { value: "CALL_PENDING", label: "Needs Approval (1:1 Call)" },
-                      { value: "MISSION_PENDING", label: "Needs Approval (Stage 5)" },
-                      { value: "CERTIFIED", label: "Certified / Completed" },
-                      { value: "PENDING_AGREEMENT", label: "Pending Agreement" },
-                    ]}
-                    ariaLabel="Filter learners by status or progression"
-                  />
-                </div>
-              )}
+              {/* Status & Stage Filter */}
+              <div style={{ minWidth: "175px" }}>
+                <CustomSelect
+                  value={learnerStatusFilter}
+                  onChange={(val) => {
+                    setLearnerStatusFilter(val);
+                    setLearnerPage(1);
+                  }}
+                  options={[
+                    { value: "ALL", label: `All Confirmed (${confirmedLearners.length})` },
+                    { value: "ACTIVE", label: "Active Status" },
+                    { value: "CALL_PENDING", label: "Needs Approval (1:1 Call)" },
+                    { value: "MISSION_PENDING", label: "Needs Approval (Stage 5)" },
+                    { value: "CERTIFIED", label: "Certified / Completed" },
+                    { value: "PENDING_AGREEMENT", label: "Pending Agreement" },
+                  ]}
+                  ariaLabel="Filter learners by status or progression"
+                />
+              </div>
             </div>
 
             {/* Action Buttons: Export CSV & Assign Learner */}
@@ -1348,7 +1387,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 type="button"
                 className={styles.secondaryBtn}
                 onClick={handleExportRoster}
-                disabled={learners.length === 0}
+                disabled={confirmedLearners.length === 0}
                 title="Export enrolled learners roster to CSV"
                 style={{ fontSize: "0.82rem", padding: "0.4rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
               >
@@ -1371,129 +1410,712 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             </div>
           </div>
 
-          <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
-            <table className={styles.adminTable} style={{ width: "100%" }}>
+          <div className={batchStyles.cohortTableWrapper}>
+            <table className={`${styles.adminTable} ${batchStyles.cohortTable}`}>
               <thead>
-                {rosterSubView === "pending_payment" ? (
-                  <tr>
-                    <th
-                      onClick={() => handleLearnerSort("name")}
-                      style={{ minWidth: "180px", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>Prospect / Learner</span>
-                        <SortIndicator active={learnerSortField === "name"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th style={{ width: "150px" }}>Checkout Status</th>
-                    <th style={{ width: "150px" }}>Workshop Agreement</th>
-                    <th style={{ width: "130px" }}>Initiated Date</th>
-                    <th style={{ width: "220px", textAlign: "right", whiteSpace: "nowrap" }}>Quick Actions</th>
-                  </tr>
-                ) : (
-                  <tr>
-                    <th
-                      onClick={() => handleLearnerSort("name")}
-                      style={{ minWidth: "150px", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>Learner</span>
-                        <SortIndicator active={learnerSortField === "name"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("status")}
-                      style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "status" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>Status</span>
-                        <SortIndicator active={learnerSortField === "status"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage1")}
-                      style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage1" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>1. Curriculum</span>
-                        <SortIndicator active={learnerSortField === "stage1"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage2")}
-                      style={{ width: "80px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage2" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>2. Exam</span>
-                        <SortIndicator active={learnerSortField === "stage2"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage3")}
-                      style={{ width: "95px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage3" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>3. Attendance</span>
-                        <SortIndicator active={learnerSortField === "stage3"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage4")}
-                      style={{ width: "85px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage4" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>4. 1:1 Call</span>
-                        <SortIndicator active={learnerSortField === "stage4"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleLearnerSort("stage5")}
-                      style={{ width: "140px", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
-                      aria-sort={learnerSortField === "stage5" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
-                    >
-                      <div style={{ display: "inline-flex", alignItems: "center" }}>
-                        <span>5. Mission Statement</span>
-                        <SortIndicator active={learnerSortField === "stage5"} order={learnerSortOrder} />
-                      </div>
-                    </th>
-                    <th style={{ width: "95px", textAlign: "right", whiteSpace: "nowrap" }}>Action</th>
-                  </tr>
-                )}
+                <tr>
+                  <th
+                    onClick={() => handleLearnerSort("name")}
+                    style={{ width: "21%", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "name" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>Learner</span>
+                      <SortIndicator active={learnerSortField === "name"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("status")}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "status" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>Status</span>
+                      <SortIndicator active={learnerSortField === "status"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage1")}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage1" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>1. Curriculum</span>
+                      <SortIndicator active={learnerSortField === "stage1"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage2")}
+                    style={{ width: "9%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage2" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>2. Exam</span>
+                      <SortIndicator active={learnerSortField === "stage2"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage3")}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage3" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>3. Attendance</span>
+                      <SortIndicator active={learnerSortField === "stage3"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage4")}
+                    style={{ width: "11%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage4" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>4. 1:1 Call</span>
+                      <SortIndicator active={learnerSortField === "stage4"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleLearnerSort("stage5")}
+                    style={{ width: "13%", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" }}
+                    aria-sort={learnerSortField === "stage5" ? (learnerSortOrder === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    <div style={{ display: "inline-flex", alignItems: "center" }}>
+                      <span>5. Mission Statement</span>
+                      <SortIndicator active={learnerSortField === "stage5"} order={learnerSortOrder} />
+                    </div>
+                  </th>
+                  <th style={{ width: "13%", textAlign: "right", whiteSpace: "nowrap" }}>Action</th>
+                </tr>
               </thead>
               <tbody>
                 {filteredLearners.length === 0 ? (
                   <tr>
-                    <td colSpan={rosterSubView === "pending_payment" ? 5 : 8} style={{ padding: "3rem 1rem" }}>
+                    <td colSpan={8} style={{ padding: "3rem 1rem" }}>
                       <EmptyState
                         icon="users"
                         title={
                           learnerSearch
                             ? "No learners match your search"
-                            : rosterSubView === "pending_payment"
-                            ? "No pending checkouts in this batch"
                             : "No learners enrolled in this batch"
                         }
                         description={
                           learnerSearch
                             ? `No students found matching "${learnerSearch}". Try clearing your query.`
-                            : rosterSubView === "pending_payment"
-                            ? "All students who registered for this cohort have either completed payment or their holds have expired."
-                            : "Click '+ Assign Learner' to add students from this program into this cohort."
+                            : "No learners have been confirmed for this batch yet. Assign an existing learner to get started."
                         }
-                        actionLabel={rosterSubView === "confirmed" ? "+ Assign Learner" : undefined}
-                        onAction={rosterSubView === "confirmed" ? () => setIsAssignModalOpen(true) : undefined}
+                        actionLabel="+ Assign Learner"
+                        onAction={() => setIsAssignModalOpen(true)}
                       />
                     </td>
                   </tr>
-                ) : rosterSubView === "pending_payment" ? (
+                ) : (
                   paginatedLearners.map((learner) => {
+                    const s1 = learner.stages?.STAGE_1_CURRICULUM;
+                    const s2 = learner.stages?.STAGE_2_EXAM;
+                    const s3 = learner.stages?.STAGE_3_ATTENDANCE;
+                    const s4 = learner.stages?.STAGE_4_ONE_ON_ONE;
+                    const s5 = learner.stages?.STAGE_5_MISSION_STATEMENT;
+
+                    const isPendingAgreement = learner.status === "PENDING_AGREEMENT";
+                    const isStagesLoading = !learner.stages && !isPendingAgreement;
+
+                    const isMissionApproved = Boolean(s5?.isCompleted || (s5?.details ? (s5.details as any).latestStatus === "APPROVED" : false));
+                    const isMissionSubmitted = !isMissionApproved && Boolean(
+                      (s5?.details as any)?.latestStatus === "SUBMITTED" ||
+                      (s5?.details as any)?.status === "SUBMITTED" ||
+                      Boolean((s5?.details as any)?.submissionCount && Number((s5?.details as any)?.submissionCount) > 0)
+                    );
+                    const isCertified = Boolean(isMissionApproved || learner.status === "COMPLETED");
+
+                    const curriculumPct = s1?.isCompleted
+                      ? 100
+                      : s1?.details?.totalSteps && s1.details.totalSteps > 0
+                      ? Math.round(((s1.details.completedSteps || 0) / s1.details.totalSteps) * 100)
+                      : ((learner as any).progress ?? 0);
+
+                    const bestExamScore = (s2?.details as any)?.bestScore ?? (s2?.details as any)?.examScore ?? null;
+                    const examPassMark = (s2?.details as any)?.passMark ?? 75;
+                    const isExamPassed = Boolean(s2?.isCompleted || (s2?.details as any)?.examPassed || (bestExamScore !== null && bestExamScore >= examPassMark));
+
+                    const requiredCohortSessionsCount = sessions.filter(
+                      (s) =>
+                        s.isRequired !== false &&
+                        s.status !== "CANCELLED" &&
+                        s.sessionType !== "ONE_ON_ONE" &&
+                        (s.sessionType as string) !== "ONE_ON_ONE_WITH_RO"
+                    ).length;
+
+                    const attendedSessionsCount = s3?.details?.attendedSessions ?? 0;
+                    const requiredSessionsCount = s3?.details?.requiredSessions !== undefined
+                      ? Number(s3.details.requiredSessions)
+                      : requiredCohortSessionsCount;
+                    const thresholdPercent = s3?.details?.thresholdPercent ?? 80;
+                    const hasZeroSessions = requiredCohortSessionsCount === 0 && requiredSessionsCount === 0;
+
+                    const attendancePct = hasZeroSessions
+                      ? 0
+                      : s3?.details?.attendancePercentage !== undefined && s3?.details?.attendancePercentage !== null
+                      ? Math.round(Number(s3.details.attendancePercentage))
+                      : 0;
+
+                    const isAttendanceSatisfied = !hasZeroSessions && Boolean(s3?.isCompleted);
+                    const attendanceDisplayText = `${attendancePct}%`;
+
+                    const isCallCompleted = Boolean(s4?.isCompleted);
+                    const isCallScheduled = Boolean(
+                      s4?.details?.isScheduled ||
+                      s4?.details?.callStatus === "SCHEDULED" ||
+                      sessions.some(
+                        (ses) =>
+                          ses.sessionType === "ONE_ON_ONE" &&
+                          ses.status === "SCHEDULED" &&
+                          (ses.hostTrainer?.id === learner.userId || (ses as any).learnerId === learner.userId)
+                      )
+                    );
+                    const isCallRequested = Boolean(
+                      s4?.details?.hasPendingRequest ||
+                      s4?.details?.callStatus === "REQUESTED"
+                    );
+                    const isCallRejected = Boolean(
+                      !isCallCompleted &&
+                      !isCallScheduled &&
+                      !isCallRequested &&
+                      (s4?.details?.isRejected || s4?.details?.callStatus === "REJECTED")
+                    );
+
+                    return (
+                      <tr key={learner.id}>
+                        {/* Learner Info (Truncated on desktop to prevent horizontal scroll) */}
+                        <td style={{ overflow: "hidden" }}>
+                          <Link
+                            href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
+                            style={{ textDecoration: "none", color: "inherit", display: "block", overflow: "hidden" }}
+                            title={`${learner.user?.name || "Learner"} (${learner.user?.email || ""})`}
+                          >
+                            <div style={{ overflow: "hidden" }}>
+                              <span
+                                style={{
+                                  color: "var(--accent-primary)",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                  display: "block",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  fontSize: "0.85rem",
+                                }}
+                              >
+                                {learner.user?.name || "Learner"}
+                              </span>
+                              <span
+                                style={{
+                                  color: "var(--text-muted)",
+                                  fontSize: "0.74rem",
+                                  display: "block",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {learner.user?.email || "—"}
+                              </span>
+                            </div>
+                          </Link>
+                        </td>
+
+                        {/* Enrolment Status */}
+                        <td>
+                          <StatusBadge status={isCertified ? "CERTIFIED" : learner.status} />
+                        </td>
+
+                        {/* Stage 1: Curriculum (Overall progress % or Completed badge when 100%) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#fffbeb",
+                                color: "#b45309",
+                                border: "1px solid #fde68a",
+                              }}
+                              title="Digital workshop consent & agreement is pending signature. Learning path is locked."
+                            >
+                              Agreement Pending
+                            </span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "45px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : curriculumPct >= 100 || s1?.isCompleted ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                              }}
+                              title="Curriculum 100% completed"
+                            >
+                              Completed
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: curriculumPct > 0 ? "#fef3c7" : "#f3f4f6",
+                                color: curriculumPct > 0 ? "#b45309" : "#6b7280",
+                                border: curriculumPct > 0 ? "1px solid #fde68a" : "1px solid #e5e7eb",
+                              }}
+                              title={`Curriculum Progress: ${curriculumPct}%`}
+                            >
+                              {curriculumPct}%
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 2: Exam (Best score with green badge if >= pass mark, red badge if < pass mark, neutral Pending if not taken) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "52px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : bestExamScore !== null && bestExamScore !== undefined ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: isExamPassed ? "#dcfce7" : "#fee2e2",
+                                color: isExamPassed ? "#15803d" : "#dc2626",
+                                border: isExamPassed ? "1px solid #bbf7d0" : "1px solid #fca5a5",
+                              }}
+                              title={
+                                isExamPassed
+                                  ? `Passed final exam with score ${bestExamScore}% (Pass mark: ${examPassMark}%)`
+                                  : `Final exam score ${bestExamScore}% is below required passing mark (${examPassMark}%)`
+                              }
+                            >
+                              {bestExamScore}%
+                            </span>
+                          ) : isExamPassed ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                              }}
+                            >
+                              Passed
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#f3f4f6",
+                                color: "#9ca3af",
+                                border: "1px solid #e5e7eb",
+                              }}
+                              title="Final exam not attempted yet"
+                            >
+                              Pending
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 3: Live Attendance (Green if >= threshold, Red if < threshold, neutral if 0 sessions scheduled) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "45px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : hasZeroSessions ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#f3f4f6",
+                                color: "#6b7280",
+                                border: "1px solid #e5e7eb",
+                              }}
+                              title="No live cohort sessions scheduled yet for this batch"
+                            >
+                              0%
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#dcfce7" : (attendedSessionsCount === 0 || attendancePct === 0) ? "#f3f4f6" : "#fee2e2",
+                                color: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "#15803d" : (attendedSessionsCount === 0 || attendancePct === 0) ? "#6b7280" : "#dc2626",
+                                border: (attendancePct >= thresholdPercent || isAttendanceSatisfied) ? "1px solid #bbf7d0" : (attendedSessionsCount === 0 || attendancePct === 0) ? "1px solid #e5e7eb" : "1px solid #fca5a5",
+                              }}
+                              title={`${attendedSessionsCount}/${requiredSessionsCount} live sessions attended (${attendanceDisplayText} vs ${thresholdPercent}% required)`}
+                            >
+                              {attendanceDisplayText}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 4: 1:1 Session (Interactive In-Batch Management) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "65px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : isCallCompleted ? (
+                            <span
+                              onClick={() => openCoachingModal(learner)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                                cursor: "pointer",
+                              }}
+                              title="1-on-1 coaching call attended and completed. Click to view details."
+                            >
+                              <span>Completed</span>
+                              <span>✓</span>
+                            </span>
+                          ) : isCallScheduled ? (
+                            <button
+                              type="button"
+                              onClick={() => openCoachingModal(learner)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#eff6ff",
+                                color: "#1d4ed8",
+                                border: "1px solid #bfdbfe",
+                                cursor: "pointer",
+                              }}
+                              title="1-on-1 coaching call is scheduled. Click to view Zoom link or complete session."
+                            >
+                              <span>Scheduled</span>
+                              <span style={{ fontSize: "0.68rem" }}>⚙</span>
+                            </button>
+                          ) : isCallRequested ? (
+                            <button
+                              type="button"
+                              onClick={() => openCoachingModal(learner)}
+                              style={{
+                                background: "#fef3c7",
+                                border: "1px solid #fde68a",
+                                color: "#b45309",
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                whiteSpace: "nowrap",
+                              }}
+                              title="Learner requested 1-on-1 slot. Click to approve or reject directly."
+                            >
+                              <span>Review Slot</span>
+                              <span style={{ fontSize: "0.68rem" }}>↗</span>
+                            </button>
+                          ) : isCallRejected ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#fee2e2",
+                                color: "#991b1b",
+                                border: "1px solid #fca5a5",
+                              }}
+                              title="Previous 1-on-1 request was declined. Learner can re-schedule a new slot."
+                            >
+                              Declined
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#f3f4f6",
+                                color: "#6b7280",
+                                border: "1px solid #e5e7eb",
+                              }}
+                              title="No 1-on-1 coaching call booked yet"
+                            >
+                              Pending
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Stage 5: Mission Statement (Not Submitted -> Submitted -> Approved) */}
+                        <td>
+                          {isPendingAgreement ? (
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.82rem" }} title="Locked — agreement pending">—</span>
+                          ) : isStagesLoading ? (
+                            <div
+                              className={batchStyles.skeletonShimmer}
+                              style={{ width: "75px", height: "20px", borderRadius: "4px", display: "inline-block" }}
+                            />
+                          ) : isMissionApproved ? (
+                            <span
+                              onClick={() => openMissionModal(learner)}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#dcfce7",
+                                color: "#15803d",
+                                border: "1px solid #bbf7d0",
+                                cursor: "pointer",
+                              }}
+                              title="Mission Statement Approved — Learner Certified. Click to view submission details."
+                            >
+                              <span>Approved</span>
+                              <span>✓</span>
+                            </span>
+                          ) : isMissionSubmitted ? (
+                            <button
+                              type="button"
+                              onClick={() => openMissionModal(learner)}
+                              style={{
+                                background: "#fef3c7",
+                                border: "1px solid #fde68a",
+                                color: "#b45309",
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                              }}
+                              title="Learner uploaded handwritten mission statement. Click to read document and approve."
+                            >
+                              <span>Submitted</span>
+                              <span style={{ fontSize: "0.68rem" }}>↗</span>
+                            </button>
+                          ) : (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.74rem",
+                                fontWeight: 600,
+                                background: "#f3f4f6",
+                                color: "#9ca3af",
+                                border: "1px solid #e5e7eb",
+                              }}
+                              title="Learner has not uploaded handwritten mission statement yet"
+                            >
+                              Not Submitted
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Action: View Profile */}
+                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          <Link
+                            href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
+                            className={styles.secondaryBtn}
+                            style={{
+                              fontSize: "0.74rem",
+                              padding: "0.26rem 0.55rem",
+                              textDecoration: "none",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                            title="Open full student profile & progression card"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                            <span>View Profile</span>
+                            <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>↗</span>
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {filteredLearners.length > 0 && (
+            <Pagination
+              currentPage={learnerPage}
+              totalItems={filteredLearners.length}
+              pageSize={learnerPageSize}
+              onPageChange={(p) => setLearnerPage(p)}
+              onPageSizeChange={(sz) => {
+                setLearnerPageSize(sz);
+                setLearnerPage(1);
+              }}
+              pageSizeOptions={[10, 20, 50]}
+              itemLabel="learners"
+            />
+          )}
+        </section>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────
+          TAB 2: AWAITING PAYMENT (INCOMPLETE CHECKOUTS)
+          ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "awaiting_payment" && (
+        <section className={styles.tableSection}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "0.65rem 1rem",
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderLeft: "4px solid #f59e0b",
+              borderRadius: "8px",
+              fontSize: "0.84rem",
+              color: "#92400e",
+              lineHeight: 1.45,
+              marginBottom: "1rem",
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>
+              <strong>Note:</strong> Learners in awaiting payment have not completed checkout and do not consume batch capacity. Unpaid checkouts older than 48 hours are automatically revoked.
+            </span>
+          </div>
+
+          <div
+            className={styles.sectionHeader}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+              padding: 0,
+              marginBottom: "1rem",
+            }}
+          >
+            <div className={styles.searchContainer} style={{ minWidth: "320px", maxWidth: "420px", width: "340px" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", marginRight: "0.4rem" }}>
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search pending checkouts by name or email..."
+                value={pendingSearch}
+                onChange={(e) => {
+                  setPendingSearch(e.target.value);
+                  setPendingPage(1);
+                }}
+                className={styles.searchInput}
+              />
+            </div>
+            <span style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 500 }}>
+              {pendingPaymentLearners.length} pending checkout{pendingPaymentLearners.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
+            <table className={styles.adminTable} style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th style={{ minWidth: "180px" }}>Prospect / Learner</th>
+                  <th style={{ width: "150px" }}>Checkout Status</th>
+                  <th style={{ width: "150px" }}>Workshop Agreement</th>
+                  <th style={{ width: "130px" }}>Initiated Date</th>
+                  <th style={{ width: "220px", textAlign: "right", whiteSpace: "nowrap" }}>Quick Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPendingLearners.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "3rem 1rem" }}>
+                      <EmptyState
+                        icon="users"
+                        title={pendingSearch ? "No matching checkouts" : "No pending checkouts in this batch"}
+                        description={
+                          pendingSearch
+                            ? `No students found matching "${pendingSearch}".`
+                            : "All students who registered for this batch have either completed payment or their holds have expired."
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedPendingLearners.map((learner) => {
                     const isAgreementSigned = learner.signedAgreement?.status === "SIGNED";
                     const dateFormatted = learner.createdAt
                       ? new Date(learner.createdAt).toLocaleDateString(undefined, {
@@ -1637,331 +2259,30 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       </tr>
                     );
                   })
-                ) : (
-                  paginatedLearners.map((learner) => {
-                    const s1 = learner.stages?.STAGE_1_CURRICULUM;
-                    const s2 = learner.stages?.STAGE_2_EXAM;
-                    const s3 = learner.stages?.STAGE_3_ATTENDANCE;
-                    const s4 = learner.stages?.STAGE_4_ONE_ON_ONE;
-                    const s5 = learner.stages?.STAGE_5_MISSION_STATEMENT;
-
-                    const isMissionPending = s5?.details?.status === "SUBMITTED" || (!s5?.isCompleted && s4?.isCompleted);
-                    const isCertified = Boolean(s5?.isCompleted || learner.status === "COMPLETED");
-
-                    const attendedSessionsCount = s3?.details?.attendedSessions ?? 0;
-                    const requiredSessionsCount = s3?.details?.requiredSessions ?? 0;
-                    const thresholdPercent = s3?.details?.thresholdPercent ?? 80;
-                    const hasZeroSessions = requiredSessionsCount === 0;
-
-                    const attendancePct = hasZeroSessions
-                      ? 0
-                      : s3?.details?.attendancePercentage !== undefined && s3?.details?.attendancePercentage !== null
-                      ? Math.round(Number(s3.details.attendancePercentage))
-                      : 0;
-
-                    const isAttendanceSatisfied = !hasZeroSessions && Boolean(s3?.isCompleted);
-                    const attendanceDisplayText = `${attendancePct}%`;
-
-                    const isCallCompleted = Boolean(s4?.isCompleted);
-                    const isCallScheduled = Boolean(
-                      s4?.details?.isScheduled ||
-                      s4?.details?.callStatus === "SCHEDULED" ||
-                      sessions.some(
-                        (ses) =>
-                          ses.sessionType === "ONE_ON_ONE" &&
-                          ses.status === "SCHEDULED" &&
-                          (ses.hostTrainer?.id === learner.userId || (ses as any).learnerId === learner.userId)
-                      )
-                    );
-                    const isCallRequested = Boolean(
-                      s4?.details?.hasPendingRequest ||
-                      s4?.details?.callStatus === "REQUESTED"
-                    );
-                    const isCallRejected = Boolean(
-                      !isCallCompleted &&
-                      !isCallScheduled &&
-                      !isCallRequested &&
-                      (s4?.details?.isRejected || s4?.details?.callStatus === "REJECTED")
-                    );
-
-                    return (
-                      <tr key={learner.id}>
-                        {/* Learner Info */}
-                        <td>
-                          <Link
-                            href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
-                            style={{ textDecoration: "none", color: "inherit" }}
-                            title="Open full student profile & progression card"
-                          >
-                            <div className={styles.cellUser}>
-                              <span className={styles.cellUserName} style={{ color: "var(--accent-primary)", cursor: "pointer" }}>
-                                {learner.user?.name}
-                              </span>
-                              <span className={styles.cellUserEmail}>{learner.user?.email}</span>
-                            </div>
-                          </Link>
-                        </td>
-
-                        {/* Enrolment Status */}
-                        <td>
-                          <StatusBadge status={isCertified ? "CERTIFIED" : learner.status} />
-                        </td>
-
-                        {/* Stage 1: Curriculum */}
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.74rem",
-                              fontWeight: 600,
-                              background: s1?.isCompleted ? "#dcfce7" : "#fef3c7",
-                              color: s1?.isCompleted ? "#15803d" : "#b45309",
-                            }}
-                          >
-                            {s1?.isCompleted ? "Completed" : "In Progress"}
-                          </span>
-                        </td>
-
-                        {/* Stage 2: Exam */}
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.74rem",
-                              fontWeight: 600,
-                              background: s2?.isCompleted ? "#dcfce7" : "#fef3c7",
-                              color: s2?.isCompleted ? "#15803d" : "#b45309",
-                            }}
-                          >
-                            {s2?.isCompleted ? "Passed" : "Pending"}
-                          </span>
-                        </td>
-
-                        {/* Stage 3: Live Attendance */}
-                        <td>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontSize: "0.74rem",
-                              fontWeight: 600,
-                              background: isAttendanceSatisfied ? "#dcfce7" : "#fef3c7",
-                              color: isAttendanceSatisfied ? "#15803d" : "#b45309",
-                              border: isAttendanceSatisfied ? "1px solid #bbf7d0" : "1px solid #fde68a",
-                            }}
-                            title={
-                              hasZeroSessions
-                                ? `0/0 live sessions attended (0% vs ${thresholdPercent}% required — No live sessions scheduled yet)`
-                                : `${attendedSessionsCount}/${requiredSessionsCount} live sessions attended (${attendanceDisplayText} vs ${thresholdPercent}% required)`
-                            }
-                          >
-                            {attendanceDisplayText}
-                          </span>
-                        </td>
-
-                        {/* Stage 4: 1:1 Session */}
-                        <td>
-                          {isCallCompleted ? (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#dcfce7",
-                                color: "#15803d",
-                                border: "1px solid #bbf7d0",
-                              }}
-                              title="1-on-1 coaching call attended and completed"
-                            >
-                              Completed
-                            </span>
-                          ) : isCallScheduled ? (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#eff6ff",
-                                color: "#1d4ed8",
-                                border: "1px solid #bfdbfe",
-                              }}
-                              title={
-                                s4?.details?.scheduledStartTime
-                                  ? `1-on-1 coaching call scheduled for ${new Date(s4.details.scheduledStartTime).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
-                                  : "1-on-1 coaching call is scheduled"
-                              }
-                            >
-                              Scheduled
-                            </span>
-                          ) : isCallRequested ? (
-                            <Link
-                              href="/approvals?tab=coaching"
-                              style={{
-                                background: "rgba(201, 122, 30, 0.1)",
-                                border: "1px solid var(--accent-primary)",
-                                color: "var(--accent-primary)",
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                textDecoration: "none",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "2px",
-                                whiteSpace: "nowrap",
-                              }}
-                              title="1-on-1 coaching request submitted. Click to review, approve or decline in Approvals hub"
-                            >
-                              Review &amp; Approve ↗
-                            </Link>
-                          ) : isCallRejected ? (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#fee2e2",
-                                color: "#991b1b",
-                                border: "1px solid #fca5a5",
-                              }}
-                              title="Previous 1-on-1 request was declined. Learner can re-schedule a new slot."
-                            >
-                              Declined
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#f3f4f6",
-                                color: "#6b7280",
-                                border: "1px solid #e5e7eb",
-                              }}
-                              title="No 1-on-1 coaching call booked yet"
-                            >
-                              Pending
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Stage 5: Mission Statement */}
-                        <td>
-                          {s5?.isCompleted ? (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#dcfce7",
-                                color: "#15803d",
-                              }}
-                              title="Mission Statement Approved — Learner Certified"
-                            >
-                              Approved
-                            </span>
-                          ) : isMissionPending ? (
-                            <button
-                              type="button"
-                              onClick={() => setMissionModalLearner(learner)}
-                              style={{
-                                background: "rgba(201, 122, 30, 0.1)",
-                                border: "1px solid var(--accent-primary)",
-                                color: "var(--accent-primary)",
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                cursor: "pointer",
-                              }}
-                              title="Click to review and approve mission statement"
-                            >
-                              Review &amp; Approve ↗
-                            </button>
-                          ) : (
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "0.74rem",
-                                fontWeight: 600,
-                                background: "#f3f4f6",
-                                color: "#9ca3af",
-                              }}
-                            >
-                              Not Submitted
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Action: View Profile */}
-                        <td style={{ textAlign: "right" }}>
-                          <Link
-                            href={`/users/${learner.userId}?enrolmentId=${learner.id}&batchId=${batchId}&batchName=${encodeURIComponent(batch?.name || "Batch")}`}
-                            className={styles.secondaryBtn}
-                            style={{
-                              fontSize: "0.76rem",
-                              padding: "0.3rem 0.65rem",
-                              textDecoration: "none",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                            }}
-                            title="Open full student profile & progression card"
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                              <circle cx="12" cy="7" r="4" />
-                            </svg>
-                            <span>View Profile</span>
-                            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>↗</span>
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })
                 )}
               </tbody>
             </table>
           </div>
 
-          {filteredLearners.length > 0 && (
+          {filteredPendingLearners.length > 0 && (
             <Pagination
-              currentPage={learnerPage}
-              totalItems={filteredLearners.length}
-              pageSize={learnerPageSize}
-              onPageChange={(p) => setLearnerPage(p)}
+              currentPage={pendingPage}
+              totalItems={filteredPendingLearners.length}
+              pageSize={pendingPageSize}
+              onPageChange={(p) => setPendingPage(p)}
               onPageSizeChange={(sz) => {
-                setLearnerPageSize(sz);
-                setLearnerPage(1);
+                setPendingPageSize(sz);
+                setPendingPage(1);
               }}
               pageSizeOptions={[10, 20, 50]}
-              itemLabel="learners"
+              itemLabel="checkouts"
             />
           )}
         </section>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          TAB 2: WEEKLY LIVE SESSIONS & ATTENDANCE MANAGEMENT
+          TAB 3: WEEKLY LIVE SESSIONS & ATTENDANCE MANAGEMENT
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "sessions" && (
         <section className={styles.tableSection}>
@@ -1976,7 +2297,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             }}
           >
             <div>
-              <h2 style={{ fontSize: "1.1rem", margin: 0, fontWeight: 700 }}>Live Cohort Sessions</h2>
+              <h2 style={{ fontSize: "1.1rem", margin: 0, fontWeight: 700 }}>Live Batch Sessions</h2>
               <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
                 Weekly live Zoom meetings and attendance tracking for {batch?.name}
               </p>
@@ -2049,7 +2370,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       <EmptyState
                         icon="calendar"
                         title="No live sessions scheduled yet"
-                        description="Schedule the weekly Zoom classes for this batch cohort."
+                        description="Schedule the weekly Zoom classes for this batch."
                         actionLabel="+ Schedule First Session"
                         onAction={() => setIsCreateSessionModalOpen(true)}
                       />
@@ -2085,7 +2406,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         <td>
                           <span className={styles.cellUserName}>{sess.title}</span>
                           <span className={styles.cellUserEmail}>
-                            {sess.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching Session" : "Cohort Live Workshop"}
+                            {sess.sessionType === "ONE_ON_ONE" ? "1-on-1 Coaching Session" : "Batch Live Workshop"}
                           </span>
                         </td>
                         <td>
@@ -2280,7 +2601,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 gap: "4px",
                                 whiteSpace: "nowrap",
                               }}
-                              title="Mark attendance for cohort learners"
+                              title="Mark attendance for batch learners"
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M9 11l3 3L22 4" />
@@ -2302,24 +2623,68 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          TAB 3: BROADCAST ANNOUNCEMENTS TO BATCH
+          TAB 4: BROADCAST ANNOUNCEMENTS TO BATCH & INDIVIDUAL LEARNERS
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "broadcast" && (
-        <section className={styles.tableSection} style={{ padding: "1.75rem" }}>
-          <div style={{ maxWidth: "680px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "0 0 0.5rem" }}>
-              Targeted Batch Announcement
-            </h2>
-            <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", margin: "0 0 1.5rem", lineHeight: 1.5 }}>
-              Send an announcement directly to the <strong>{learners.length} active learners</strong> enrolled in {batch?.name}. Notifications are delivered to their in-app bell and sent to their email.
-            </p>
+        <section className={styles.tableSection} style={{ padding: "2.5rem 1rem", display: "flex", justifyContent: "center" }}>
+          <div style={{ width: "100%", maxWidth: "620px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.75rem", boxShadow: "0 1px 4px rgba(0,0,0,0.03)" }}>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: "0 0 0.35rem", color: "var(--text-primary)" }}>
+                Batch Announcement Dispatch
+              </h2>
+              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                Send official announcements to confirmed learners enrolled in <strong>{batch?.name}</strong>.
+              </p>
+            </div>
 
             <form onSubmit={handleSendBroadcast} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+              {/* Audience Targeting */}
               <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Announcement Title *</label>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Recipient Audience</label>
+                <div style={{ display: "flex", gap: "1.25rem", marginTop: "6px", flexWrap: "wrap" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="bcastTarget"
+                      checked={broadcastTarget === "ALL_BATCH"}
+                      onChange={() => setBroadcastTarget("ALL_BATCH")}
+                      style={{ accentColor: "var(--accent-primary)" }}
+                    />
+                    <span>All Confirmed Learners in Batch ({confirmedLearners.length})</span>
+                  </label>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="bcastTarget"
+                      checked={broadcastTarget === "INDIVIDUAL"}
+                      onChange={() => setBroadcastTarget("INDIVIDUAL")}
+                      style={{ accentColor: "var(--accent-primary)" }}
+                    />
+                    <span>Individual Learner</span>
+                  </label>
+                </div>
+              </div>
+
+              {broadcastTarget === "INDIVIDUAL" && (
+                <div className={styles.formGroup}>
+                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Select Learner *</label>
+                  <CustomSelect
+                    value={selectedLearnerUserId}
+                    onChange={(val) => setSelectedLearnerUserId(val)}
+                    options={confirmedLearners.map((l) => ({
+                      value: l.userId,
+                      label: `${l.user?.name || "Learner"} (${l.user?.email || "—"})`,
+                    }))}
+                    placeholder="Choose a learner from this batch..."
+                  />
+                </div>
+              )}
+
+              <div className={styles.formGroup}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Announcement Subject *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Workshop Rescheduled: Tomorrow at 7:30 PM GST"
+                  placeholder="e.g. Schedule Update: Live Session tomorrow at 7:30 PM GST"
                   value={broadcastTitle}
                   onChange={(e) => setBroadcastTitle(e.target.value)}
                   className={styles.formInput}
@@ -2330,7 +2695,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <div className={styles.formGroup}>
                 <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Message Content *</label>
                 <textarea
-                  placeholder="Write your announcement message, Zoom update, or preparation instructions for the batch..."
+                  placeholder="Write your announcement details, workshop updates, or preparation instructions..."
                   value={broadcastMessage}
                   onChange={(e) => setBroadcastMessage(e.target.value)}
                   className={styles.formInput}
@@ -2365,7 +2730,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       onChange={(e) => setBroadcastInApp(e.target.checked)}
                       style={{ accentColor: "var(--accent-primary)" }}
                     />
-                    <span style={{ fontWeight: broadcastInApp ? 600 : 500 }}>🔔 In-App Notification Bell</span>
+                    <span style={{ fontWeight: broadcastInApp ? 600 : 500 }}>In-App Notification</span>
                   </label>
                   <label
                     style={{
@@ -2387,33 +2752,38 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       onChange={(e) => setBroadcastEmail(e.target.checked)}
                       style={{ accentColor: "var(--accent-primary)" }}
                     />
-                    <span style={{ fontWeight: broadcastEmail ? 600 : 500 }}>✉️ Direct Email Dispatch</span>
+                    <span style={{ fontWeight: broadcastEmail ? 600 : 500 }}>Email Notification</span>
                   </label>
                 </div>
+                {broadcastInApp && broadcastEmail && (
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "6px" }}>
+                    Notice: Learners will receive an in-app notification advising them that a complete copy has been sent to their registered email.
+                  </div>
+                )}
               </div>
 
               <div style={{ paddingTop: "0.5rem" }}>
                 <button
                   type="submit"
                   className={styles.primaryBtn}
-                  disabled={isSendingBroadcast || learners.length === 0}
+                  disabled={
+                    isSendingBroadcast ||
+                    (broadcastTarget === "ALL_BATCH" ? confirmedLearners.length === 0 : !selectedLearnerUserId)
+                  }
                   style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
                 >
-                  {isSendingBroadcast ? (
-                    "Broadcasting..."
-                  ) : (
-                    <>
-                      <span>Send Announcement to All {learners.length} Learners</span>
-                      <span>✈</span>
-                    </>
-                  )}
+                  {isSendingBroadcast
+                    ? "Dispatching Announcement..."
+                    : broadcastTarget === "INDIVIDUAL"
+                    ? "Send Announcement to Selected Learner"
+                    : `Send Announcement to Batch (${confirmedLearners.length} Learners)`}
                 </button>
               </div>
             </form>
 
             {broadcastHistory.length > 0 && (
               <div style={{ marginTop: "2.5rem", borderTop: "1px solid var(--border-light)", paddingTop: "1.5rem" }}>
-                <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem" }}>Sent in this Session</h3>
+                <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem" }}>Dispatched in this Session</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                   {broadcastHistory.map((item) => (
                     <div
@@ -2425,210 +2795,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         borderRadius: "8px",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                        <strong style={{ fontSize: "0.9rem" }}>{item.title}</strong>
-                        <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                          {new Date(item.sentAt).toLocaleTimeString()}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.25rem" }}>
+                        <strong style={{ fontSize: "0.88rem" }}>{item.title}</strong>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          {new Date(item.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
-                      <p style={{ margin: "0 0 6px", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                      <p style={{ margin: "0 0 0.5rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
                         {item.message}
                       </p>
-                      <span style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 600 }}>
-                        ✓ Delivered to {item.recipientCount} recipient(s) via {item.channels.join(" + ")}
-                      </span>
+                      <div style={{ display: "flex", gap: "0.5rem", fontSize: "0.72rem", color: "var(--text-muted)", flexWrap: "wrap" }}>
+                        <span>Target: {item.targetLabel || `${item.recipientCount} recipient(s)`}</span>
+                        <span>•</span>
+                        <span>Channels: {item.channels.join(", ")}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-          </div>
-        </section>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────────────────
-          TAB 4: BATCH CONFIGURATION & SETTINGS
-          ───────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "settings" && (
-        <section className={styles.tableSection} style={{ padding: "1.75rem" }}>
-          <div style={{ maxWidth: "680px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "0 0 0.5rem" }}>
-              Batch Configuration & Lifecycle
-            </h2>
-            <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", margin: "0 0 1.5rem", lineHeight: 1.5 }}>
-              Update cohort schedule, capacity constraints, status, and assigned manager for <strong>{batch?.name}</strong>.
-            </p>
-
-            <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-              {settingsError && (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    background: "rgba(220, 38, 38, 0.08)",
-                    border: "1px solid rgba(220, 38, 38, 0.3)",
-                    borderRadius: "8px",
-                    color: "#dc2626",
-                    fontSize: "0.88rem",
-                  }}
-                  role="alert"
-                >
-                  {settingsError}
-                </div>
-              )}
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                  Batch Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Winter Batch 2026"
-                  required
-                  value={settingsName}
-                  onChange={(e) => setSettingsName(e.target.value)}
-                  className={styles.formInput}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Program</label>
-                <input
-                  type="text"
-                  value={batch?.program?.title || "—"}
-                  disabled
-                  className={styles.formInput}
-                  style={{ background: "#f5ece1", color: "var(--text-secondary)", cursor: "not-allowed" }}
-                />
-              </div>
-
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    Start Date <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                  </label>
-                  <DatePicker
-                    value={settingsStartDate}
-                    onChange={(val) => {
-                      setSettingsStartDate(val);
-                      if (settingsEndDate && val && val > settingsEndDate) {
-                        setSettingsEndDate("");
-                      }
-                    }}
-                    placeholder="Select Start Date"
-                    ariaLabel="Start Date"
-                    minWidth="100%"
-                    maxDate={settingsEndDate || undefined}
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    End Date <span className={styles.optionalLabel}>(Optional)</span>
-                  </label>
-                  <DatePicker
-                    value={settingsEndDate}
-                    onChange={setSettingsEndDate}
-                    placeholder="Select End Date (Optional)"
-                    ariaLabel="End Date (Optional)"
-                    minWidth="100%"
-                    minDate={settingsStartDate || undefined}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  <span>Registration Deadline</span>
-                  <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                  <div className={styles.helpTooltip}>
-                    <span
-                      className={styles.helpIcon}
-                      aria-label="Registration Cutoff Information"
-                      tabIndex={0}
-                    >
-                      ?
-                    </span>
-                    <div className={styles.helpTooltipContent}>
-                      Learners cannot self-enroll after this date. Admins can manually assign students anytime.
-                    </div>
-                  </div>
-                </label>
-                <DatePicker
-                  value={settingsRegistrationDeadline}
-                  onChange={setSettingsRegistrationDeadline}
-                  placeholder="Select Registration Deadline"
-                  ariaLabel="Registration Deadline"
-                  minWidth="100%"
-                  maxDate={settingsEndDate || undefined}
-                />
-              </div>
-
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                    Max Capacity <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min={learners.length}
-                    required
-                    value={settingsCapacity}
-                    onChange={(e) => setSettingsCapacity(e.target.value)}
-                    className={styles.formInput}
-                  />
-                  <small style={{ color: "var(--text-muted)", fontSize: "0.72rem", marginTop: "3px" }}>
-                    Currently enrolled: {learners.length} students
-                  </small>
-                </div>
-
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Batch Status</label>
-                  <CustomSelect
-                    value={settingsStatus}
-                    onChange={setSettingsStatus}
-                    fullWidth
-                    ariaLabel="Batch Status"
-                    options={[
-                      { value: "ACTIVE", label: "Active" },
-                      { value: "UPCOMING", label: "Upcoming" },
-                      { value: "COMPLETED", label: "Completed" },
-                      { value: "ARCHIVED", label: "Archived" },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                  Assign Manager <span className={styles.optionalLabel}>(Optional)</span>
-                </label>
-                <CustomSelect
-                  value={settingsManagerId}
-                  onChange={setSettingsManagerId}
-                  fullWidth
-                  ariaLabel="Assign Manager"
-                  placeholder="Select a Manager..."
-                  options={[
-                    { value: "", label: "None / Unassigned" },
-                    ...managers.map((m) => ({
-                      value: m.id,
-                      label: m.name || m.email,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <div style={{ paddingTop: "0.5rem" }}>
-                <button
-                  type="submit"
-                  className={styles.primaryBtn}
-                  disabled={isSavingSettings}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
-                >
-                  {isSavingSettings ? "Saving Settings..." : "Save Batch Settings"}
-                </button>
-              </div>
-            </form>
           </div>
         </section>
       )}
@@ -2645,7 +2830,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Assign Learner to {batch?.name}</h3>
                 <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 400 }}>
-                  Select an existing user to provision an active enrollment in <strong>{batch?.program?.title}</strong> for this cohort batch.
+                  Select an existing user to provision an active enrollment in <strong>{batch?.program?.title}</strong> for this batch.
                 </p>
               </div>
               <button
@@ -2659,103 +2844,40 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             </div>
 
             <div className={styles.modalBody} style={{ padding: "1.25rem" }}>
-              {/* Dual-Mode Segmented Tabs */}
-              <div style={{ display: "flex", background: "#f5ece1", padding: "3px", borderRadius: "8px", marginBottom: "1.25rem", gap: "4px" }}>
-                <button
-                  type="button"
-                  onClick={() => setAssignMode("existing")}
-                  style={{
-                    flex: 1,
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "none",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    background: assignMode === "existing" ? "#ffffff" : "transparent",
-                    color: assignMode === "existing" ? "var(--text-primary)" : "var(--text-muted)",
-                    boxShadow: assignMode === "existing" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  Assign Existing Learner
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAssignMode("new")}
-                  style={{
-                    flex: 1,
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "none",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    background: assignMode === "new" ? "#ffffff" : "transparent",
-                    color: assignMode === "new" ? "var(--text-primary)" : "var(--text-muted)",
-                    boxShadow: assignMode === "new" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  Create New Learner &amp; Assign
-                </button>
+              <div
+                style={{
+                  background: "#fdf8f0",
+                  border: "1px solid #f3e5ce",
+                  borderRadius: "8px",
+                  padding: "0.75rem 1rem",
+                  fontSize: "0.8rem",
+                  color: "#78350f",
+                  lineHeight: "1.4",
+                  marginBottom: "1.25rem",
+                }}
+              >
+                💡 <strong>Existing Users Only:</strong> Learners self-register via checkout to capture their verified country, timezone, and digital workshop consent. Select an existing user account below to provision an enrollment.
               </div>
 
-              {assignMode === "existing" ? (
-                <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Select User *</label>
-                  <CustomSelect
-                    value={selectedUserToAssign}
-                    onChange={setSelectedUserToAssign}
-                    options={[
-                      { value: "", label: "Search and select a user..." },
-                      ...allUsers.map((u) => ({
-                        value: u.id,
-                        label: `${u.name || "Unnamed"} (${u.email})`,
-                      })),
-                    ]}
-                    fullWidth
-                    menuMaxHeight="200px"
-                    ariaLabel="Select user"
-                  />
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>Full Name *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., Alex Johnson"
-                      value={newLearnerName}
-                      onChange={(e) => setNewLearnerName(e.target.value)}
-                      className={styles.modalInput}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "0.55rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>Email Address *</label>
-                    <input
-                      type="email"
-                      placeholder="e.g., alex@example.com"
-                      value={newLearnerEmail}
-                      onChange={(e) => setNewLearnerEmail(e.target.value)}
-                      className={styles.modalInput}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "0.55rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>Phone Number (Optional)</label>
-                    <input
-                      type="tel"
-                      placeholder="e.g., +971 50 123 4567"
-                      value={newLearnerPhone}
-                      onChange={(e) => setNewLearnerPhone(e.target.value)}
-                      className={styles.modalInput}
-                      style={{ width: "100%", boxSizing: "border-box", padding: "0.55rem 0.75rem", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                </div>
-              )}
+              <div className={styles.formGroup}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>
+                  Select Existing User <span style={{ color: "var(--accent-primary)" }}>*</span>
+                </label>
+                <CustomSelect
+                  value={selectedUserToAssign}
+                  onChange={setSelectedUserToAssign}
+                  options={[
+                    { value: "", label: "Search and select a user..." },
+                    ...allUsers.map((u) => ({
+                      value: u.id,
+                      label: `${u.name || "Unnamed"} (${u.email})`,
+                    })),
+                  ]}
+                  fullWidth
+                  menuMaxHeight="220px"
+                  ariaLabel="Select user"
+                />
+              </div>
             </div>
 
             <div className={styles.modalFooter}>
@@ -2771,18 +2893,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 type="button"
                 className={styles.primaryBtn}
                 onClick={handleAssignLearner}
-                disabled={
-                  isAssigning ||
-                  (assignMode === "existing"
-                    ? !selectedUserToAssign
-                    : !newLearnerName.trim() || !newLearnerEmail.trim())
-                }
+                disabled={isAssigning || !selectedUserToAssign}
               >
-                {isAssigning
-                  ? "Processing..."
-                  : assignMode === "new"
-                  ? "Create & Assign to Batch"
-                  : "Assign to Batch"}
+                {isAssigning ? "Assigning..." : "Assign to Batch"}
               </button>
             </div>
           </div>
@@ -2797,7 +2910,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "540px" }}>
             <form onSubmit={handleCreateSession}>
               <div className={styles.modalHeader}>
-                <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Schedule Live Cohort Session</h3>
+                <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Schedule Live Batch Session</h3>
                 <button
                   type="button"
                   className={styles.closeBtn}
@@ -2831,70 +2944,93 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       placeholder="Select session date"
                     />
                   </div>
+
+                  {/* Clean 24-Hour Start Time Picker */}
                   <div className={styles.formGroup}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                       <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
                         Start Time (24h) *
                       </label>
-                      {sessionWallTime && (
-                        <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 600 }}>
-                          {format24To12(sessionWallTime)}
+                      <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 700 }}>
+                        {sessionWallTime ? `${format24To12(sessionWallTime)} (${sessionWallTime})` : ""}
+                      </span>
+                    </div>
+
+                    <input
+                      type="time"
+                      value={sessionWallTime}
+                      onChange={(e) => setSessionWallTime(e.target.value)}
+                      className={styles.formInput}
+                      style={{ width: "100%", height: "38px", fontSize: "0.88rem", fontWeight: 600 }}
+                      required
+                      aria-label="Start Time in 24-hour format"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem", alignItems: "flex-start" }}>
+                  {/* Duration Field with End Time Calculation */}
+                  <div className={styles.formGroup}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "4px" }}>
+                      <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Duration (Minutes) *</label>
+                      {sessionEndTimeFormatted && (
+                        <span style={{ fontSize: "0.75rem", color: "var(--accent-primary, #c97a1e)", fontWeight: 700 }}>
+                          Ends at {sessionEndTimeFormatted}
                         </span>
                       )}
                     </div>
                     <input
-                      type="text"
-                      placeholder="19:00 (HH:MM)"
-                      value={sessionWallTime}
-                      onChange={(e) => setSessionWallTime(e.target.value)}
-                      className={styles.formInput}
-                      required
-                    />
-                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "4px" }}>
-                      {["10:00", "14:00", "18:00", "19:00", "20:00"].map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => setSessionWallTime(t)}
-                          style={{
-                            background: sessionWallTime === t ? "var(--accent-primary)" : "var(--surface)",
-                            color: sessionWallTime === t ? "#fff" : "var(--text-secondary)",
-                            border: "1px solid var(--border-light)",
-                            borderRadius: "4px",
-                            padding: "1px 6px",
-                            fontSize: "0.7rem",
-                            cursor: "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Duration (Minutes)</label>
-                    <input
                       type="number"
                       min={15}
-                      step={15}
+                      max={360}
+                      step={5}
                       value={sessionDurationMinutes}
                       onChange={(e) => setSessionDurationMinutes(e.target.value)}
                       className={styles.formInput}
+                      style={{ width: "100%", height: "38px" }}
+                      required
                     />
                   </div>
-                  <div className={styles.formGroup}>
-                    <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Timezone</label>
+
+                  <div className={styles.formGroup} style={{ minWidth: 0 }}>
+                    <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "4px" }}>Timezone *</label>
                     <CustomSelect
                       value={selectedTz}
                       onChange={setSelectedTz}
                       options={tzOptions}
                       fullWidth
+                      menuMaxHeight="200px"
                       ariaLabel="Timezone"
                     />
+                  </div>
+                </div>
+
+                {/* Scheduled Session Window Summary */}
+                <div
+                  style={{
+                    background: "#fdf8f0",
+                    border: "1px solid #ebdccb",
+                    borderRadius: "8px",
+                    padding: "0.7rem 0.9rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontSize: "0.82rem",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <div>
+                    <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.035em", fontWeight: 600, display: "block" }}>
+                      Session Window
+                    </span>
+                    <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>
+                      {format24To12(sessionWallTime)} – {sessionEndTimeFormatted || "..."}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ display: "inline-block", background: "#f5ece1", color: "#8a5814", padding: "2px 8px", borderRadius: "4px", fontSize: "0.75rem", fontWeight: 700 }}>
+                      {sessionDurationMinutes || 60} mins · {selectedTz.split("/")[1]?.replace(/_/g, " ") || selectedTz}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2921,29 +3057,73 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
-          MODAL: MISSION STATEMENT REVIEW & CERTIFICATE APPROVAL
+          MODAL: MISSION STATEMENT REVIEW & CERTIFICATE APPROVAL (IN-MODAL PREVIEW & REVISION)
           ───────────────────────────────────────────────────────────────────────── */}
       {missionModalLearner && (
-        <div className={styles.modalOverlay} onClick={() => setMissionModalLearner(null)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
-            <div className={styles.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>
-                Mission Statement Review: {missionModalLearner.user.name}
-              </h3>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setMissionModalLearner(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <div className={styles.modalBody} style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
-                Review the learner's submitted manifesto or graduation requirement. Approving marks Stage 5 satisfied and awards their Certificate of Completion.
-              </p>
+        <Modal
+          isOpen={true}
+          onClose={() => setMissionModalLearner(null)}
+          title={`Mission Statement Review — ${missionModalLearner.user.name}`}
+          maxWidth="780px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", padding: "0.5rem 0" }}>
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              Inspect the handwritten personal mission statement uploaded by <strong>{missionModalLearner.user.name}</strong>. Approving awards their verified Certificate of Completion.
+            </p>
 
+            {isLoadingMissionDoc ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                Loading uploaded mission statement file...
+              </div>
+            ) : missionSubmission ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", fontSize: "0.82rem", background: "#fdfbf7", border: "1px solid #ebdccb", padding: "8px 12px", borderRadius: "6px" }}>
+                  <div>
+                    <strong>Version:</strong> v{missionSubmission.version} • <strong>Uploaded:</strong> {new Date(missionSubmission.createdAt).toLocaleString()}
+                    {missionSubmission.sizeBytes ? ` • ${(missionSubmission.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : ""}
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <a
+                      href={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "var(--accent-primary)", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      Open Full Tab ↗
+                    </a>
+                  </div>
+                </div>
+
+                {/* In-Modal Visual Document Viewer */}
+                <div
+                  style={{
+                    width: "100%",
+                    minHeight: "350px",
+                    maxHeight: "55vh",
+                    overflow: "auto",
+                    background: "#22201e",
+                    borderRadius: "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {(missionSubmission.mimeType || "").includes("image") || missionSubmission.fileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) ? (
+                    <img
+                      src={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
+                      alt="Mission Statement Preview"
+                      style={{ maxWidth: "100%", maxHeight: "52vh", objectFit: "contain", borderRadius: 4 }}
+                    />
+                  ) : (
+                    <iframe
+                      src={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
+                      title="Mission Statement Document Preview"
+                      style={{ width: "100%", height: "420px", border: "none", borderRadius: 4 }}
+                    />
+                  )}
+                </div>
+              </div>
+            ) : (
               <div
                 style={{
                   padding: "1rem",
@@ -2959,19 +3139,20 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 {missionModalLearner.stages?.STAGE_5_MISSION_STATEMENT?.details?.submissionText ||
                   "Learner has fulfilled their required written commitment and graduation milestones for this program."}
               </div>
+            )}
 
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Coach Approval Feedback (Optional)</label>
-                <textarea
-                  placeholder="Add personalized congratulatory feedback for the student..."
-                  value={missionFeedback}
-                  onChange={(e) => setMissionFeedback(e.target.value)}
-                  className={styles.formInput}
-                  rows={3}
-                />
-              </div>
+            <div className={styles.formGroup}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Coach Approval or Revision Feedback</label>
+              <textarea
+                placeholder="Add personalized congratulatory feedback or revision guidance for the student..."
+                value={missionFeedback}
+                onChange={(e) => setMissionFeedback(e.target.value)}
+                className={styles.formInput}
+                rows={3}
+              />
             </div>
-            <div className={styles.modalFooter}>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "0.5rem" }}>
               <button
                 type="button"
                 className={styles.secondaryBtn}
@@ -2980,10 +3161,51 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               >
                 Cancel
               </button>
+              {missionSubmission && missionSubmission.status === "SUBMITTED" && (
+                <button
+                  type="button"
+                  className={styles.dangerBtnSmall}
+                  disabled={isApprovingMission}
+                  onClick={async () => {
+                    const reason = missionFeedback.trim() || prompt("Enter revision feedback for the learner:") || "";
+                    if (!reason.trim()) return;
+                    setIsApprovingMission(true);
+                    try {
+                      await rejectMissionStatement(missionSubmission.id, reason.trim());
+                      toastSuccess(`Revision requested for ${missionModalLearner.user.name}.`);
+                      setMissionModalLearner(null);
+                      await loadBatchData();
+                    } catch (err: any) {
+                      toastError(err.message || "Failed to request revision.");
+                    } finally {
+                      setIsApprovingMission(false);
+                    }
+                  }}
+                  style={{ padding: "0.45rem 0.85rem", fontSize: "0.82rem" }}
+                >
+                  Request Revision
+                </button>
+              )}
               <button
                 type="button"
                 className={styles.primaryBtn}
-                onClick={handleApproveMission}
+                onClick={async () => {
+                  if (missionSubmission?.id) {
+                    setIsApprovingMission(true);
+                    try {
+                      await approveMissionStatement(missionSubmission.id);
+                      toastSuccess(`Mission statement approved for ${missionModalLearner.user.name}. Certificate issued!`);
+                      setMissionModalLearner(null);
+                      await loadBatchData();
+                    } catch (err: any) {
+                      toastError(err.message || "Failed to approve mission statement.");
+                    } finally {
+                      setIsApprovingMission(false);
+                    }
+                  } else {
+                    await handleApproveMission();
+                  }
+                }}
                 disabled={isApprovingMission}
                 style={{ background: "#16a34a", borderColor: "#16a34a" }}
               >
@@ -2991,7 +3213,185 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────
+          MODAL: 1-ON-1 COACHING CALL IN-BATCH ACTIONS (APPROVE / REJECT / COMPLETE)
+          ───────────────────────────────────────────────────────────────────────── */}
+      {coachingModalLearner && (
+        <Modal
+          isOpen={true}
+          onClose={() => setCoachingModalLearner(null)}
+          title={`1-on-1 Coaching Consultation — ${coachingModalLearner.user.name}`}
+          maxWidth="640px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", padding: "0.5rem 0" }}>
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              Manage 1-on-1 closing consultation slot, meeting links, and milestone completion for <strong>{coachingModalLearner.user.name}</strong>.
+            </p>
+
+            {isLoadingCoaching ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                Loading coaching consultation record...
+              </div>
+            ) : coachingRequest ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", background: "var(--bg-card-muted, #fdfbf7)", padding: "1rem", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Requested Slot</span>
+                    <div style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-primary)", marginTop: "2px" }}>
+                      {formatWhenInTz(coachingRequest.requestedStart, coachingRequest.requestedEnd, selectedTz)}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      Learner TZ: {coachingRequest.learnerTimezone || "UTC"}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Status</span>
+                    <div style={{ marginTop: "4px" }}>
+                      <StatusBadge status={coachingRequest.status} />
+                    </div>
+                  </div>
+                </div>
+
+                {coachingRequest.notes && (
+                  <div style={{ background: "#ffffff", padding: "0.85rem 1rem", borderRadius: "8px", border: "1px solid var(--border-light)" }}>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" }}>Breakthroughs &amp; Reflections</span>
+                    <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--text-primary)", fontStyle: "italic", lineHeight: 1.5 }}>
+                      "{coachingRequest.notes}"
+                    </p>
+                  </div>
+                )}
+
+                {coachingRequest.session?.joinUrl && (
+                  <div style={{ padding: "0.85rem 1rem", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontSize: "0.75rem", color: "#166534", fontWeight: 700, textTransform: "uppercase" }}>Zoom Meeting Configured</span>
+                      <div style={{ fontSize: "0.82rem", color: "#15803d", marginTop: "2px" }}>
+                        Host: {coachingRequest.session?.hostTrainer?.name || "Roweena Britto"}
+                      </div>
+                    </div>
+                    <a
+                      href={coachingRequest.session.joinUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#0284c7", fontWeight: 700, fontSize: "0.85rem", textDecoration: "underline" }}
+                    >
+                      Join Call ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: "1.25rem", background: "var(--bg-card-muted, #fdfbf7)", borderRadius: "8px", border: "1px solid var(--border-light)", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                No active 1-on-1 coaching booking request found on record for this learner.
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "0.5rem" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setCoachingModalLearner(null)}
+                disabled={actingCoaching}
+              >
+                Close
+              </button>
+
+              {coachingRequest && coachingRequest.status === "PENDING_APPROVAL" && (
+                <>
+                  <button
+                    type="button"
+                    className={styles.dangerBtnSmall}
+                    disabled={actingCoaching}
+                    onClick={async () => {
+                      const reason = prompt("Enter rejection reason for learner:") || "";
+                      if (!reason.trim()) return;
+                      setActingCoaching(true);
+                      try {
+                        await rejectOneOnOneRequest(coachingRequest.id, reason.trim());
+                        toastSuccess("1:1 Call booking request rejected.");
+                        setCoachingModalLearner(null);
+                        await loadBatchData();
+                      } catch (err: any) {
+                        toastError(err.message || "Failed to reject request");
+                      } finally {
+                        setActingCoaching(false);
+                      }
+                    }}
+                    style={{ padding: "0.45rem 0.85rem", fontSize: "0.82rem" }}
+                  >
+                    Reject Request
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.primaryBtn}
+                    disabled={actingCoaching}
+                    onClick={async () => {
+                      setActingCoaching(true);
+                      try {
+                        await approveOneOnOneRequest(coachingRequest.id, {
+                          startTime: coachingRequest.requestedStart,
+                          endTime: coachingRequest.requestedEnd,
+                        });
+                        toastSuccess("1:1 Call booking approved with Zoom meeting link!");
+                        setCoachingModalLearner(null);
+                        await loadBatchData();
+                      } catch (err: any) {
+                        toastError(err.message || "Failed to approve slot");
+                      } finally {
+                        setActingCoaching(false);
+                      }
+                    }}
+                    style={{ background: "#15803d", borderColor: "#15803d" }}
+                  >
+                    {actingCoaching ? "Approving..." : "Approve & Schedule Slot ✓"}
+                  </button>
+                </>
+              )}
+
+              {((coachingRequest && coachingRequest.status === "APPROVED") || (coachingModalLearner.stages?.STAGE_4_ONE_ON_ONE?.details as any)?.isScheduled) && !coachingModalLearner.stages?.STAGE_4_ONE_ON_ONE?.isCompleted && (
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  disabled={actingCoaching}
+                  onClick={async () => {
+                    const sessionId = coachingRequest?.sessionId || coachingRequest?.session?.id;
+                    if (!sessionId) {
+                      toastError("No active session ID found to mark completed.");
+                      return;
+                    }
+                    setActingCoaching(true);
+                    try {
+                      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                      const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+                        method: "PATCH",
+                        headers: {
+                          "Content-Type": "application/json",
+                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        body: JSON.stringify({ status: "COMPLETED" }),
+                      });
+                      if (!res.ok) throw new Error(await errorMessage(res, "Failed to complete session"));
+                      toastSuccess("1:1 Call marked completed! Stage 5 unlocked for student.");
+                      setCoachingModalLearner(null);
+                      await loadBatchData();
+                    } catch (err: any) {
+                      toastError(err.message || "Failed to mark call completed");
+                    } finally {
+                      setActingCoaching(false);
+                    }
+                  }}
+                  style={{ background: "#15803d", borderColor: "#15803d" }}
+                >
+                  {actingCoaching ? "Completing..." : "Mark Session Completed ✓"}
+                </button>
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
       {/* ─────────────────────────────────────────────────────────────────────────
           MODAL: BATCH SETTINGS (SIMILAR TO CREATE BATCH POPUP)
@@ -3005,7 +3405,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           >
             <div className={styles.modalHeader} style={{ padding: "1rem 1.5rem" }}>
               <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
-                Batch Settings
+                Edit Batch
               </h2>
               <button
                 className={styles.closeBtn}
@@ -3115,8 +3515,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     >
                       ?
                     </span>
-                    <div className={styles.helpTooltipContent}>
-                      Learners cannot self-enroll after this date. Admins can manually assign students anytime.
+                    <div className={styles.helpTooltipContent} style={{ width: "270px", lineHeight: "1.4" }}>
+                      <strong>Registration Deadline:</strong>
+                      <ul style={{ margin: "6px 0 0", paddingLeft: "16px", fontSize: "0.75rem", display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <li>Registration closes for this batch after this date.</li>
+                        <li>New students will be added to the upcoming batch or to the waitlist.</li>
+                        <li>Even if this batch has open seats, no new students can join this batch after this deadline.</li>
+                      </ul>
                     </div>
                   </div>
                 </label>
@@ -3158,7 +3563,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       { value: "ACTIVE", label: "Active" },
                       { value: "UPCOMING", label: "Upcoming" },
                       { value: "COMPLETED", label: "Completed" },
-                      { value: "ARCHIVED", label: "Archived" },
                     ]}
                   />
                 </div>
@@ -3198,7 +3602,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   className={styles.primaryBtn}
                   disabled={isSavingSettings}
                 >
-                  {isSavingSettings ? "Saving Settings..." : "Save Settings"}
+                  {isSavingSettings ? "Saving Changes..." : "Save Changes"}
                 </button>
               </div>
             </form>

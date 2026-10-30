@@ -7,7 +7,6 @@ import { TableSkeleton, EmptyState, CustomSelect, Pagination, DatePicker, SortIn
 import { isDateInRange, calculateRevenuePeriodDates, type DateRangeFilter } from "./date-range";
 import { formatRevenueMetric, formatCurrencyAmount, getCurrencyParts } from "./revenue-utils";
 
-export { isDateInRange, type DateRangeFilter };
 
 const DATE_FILTER_OPTIONS: CustomSelectOption[] = [
   { value: "ALL", label: "All Time" },

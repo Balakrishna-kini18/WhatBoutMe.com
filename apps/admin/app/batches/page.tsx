@@ -23,6 +23,21 @@ interface Batch {
   rawRegistrationDeadline?: string;
   registrationDeadline?: string;
   capacity?: number;
+  waitlistCount?: number;
+}
+
+interface WaitlistLearner {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  programId: string;
+  programTitle: string;
+  batchId?: string;
+  batchName?: string;
+  batchCapacity?: number;
+  createdAt: string;
+  reason?: string;
 }
 
 type SortField = "name" | "program" | "manager" | "startDate" | "students" | "status";
@@ -51,6 +66,9 @@ function BatchesContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUserRole, setCurrentUserRole] = useState("USER");
   const isManager = currentUserRole === "MANAGER" || currentUserRole === "TEACHER";
+  const [waitlistLearners, setWaitlistLearners] = useState<WaitlistLearner[]>([]);
+  const [isLoadingWaitlist, setIsLoadingWaitlist] = useState(false);
+  const [isTransferring, setIsTransferring] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -108,7 +126,7 @@ function BatchesContent() {
   };
 
   useEffect(() => {
-    Promise.all([fetchBatches(), fetchPrograms(), fetchManagers()]).then(() =>
+    Promise.all([fetchBatches(), fetchPrograms(), fetchManagers(), fetchWaitlistLearners()]).then(() =>
       setIsLoading(false)
     );
   }, []);
@@ -173,16 +191,118 @@ function BatchesContent() {
       const res = await cachedFetch(`${API_URL}/programs`);
       if (res.ok) {
         const data = await res.json();
-        setPrograms(data);
+        if (Array.isArray(data)) {
+          // Strictly exclude draft programs from batch filters and assignment
+          const published = data.filter(
+            (p: any) => p && p.isActive !== false && p.status !== "DRAFT"
+          );
+          setPrograms(published);
+        }
       }
     } catch (e) {
       console.error(e);
     }
   };
 
+  const fetchWaitlistLearners = async () => {
+    setIsLoadingWaitlist(true);
+    try {
+      const res = await cachedFetch(`${API_URL}/admin/enrolments?status=WAITLIST&limit=100`, { skipCache: true });
+      if (res.ok) {
+        const json = await res.json();
+        const items = Array.isArray(json) ? json : json?.data || [];
+        const mapped: WaitlistLearner[] = items.map((e: any) => ({
+          id: e.id,
+          userId: e.userId || e.user?.id || "",
+          userName: e.user?.name || "Unknown Learner",
+          userEmail: e.user?.email || "--",
+          programId: e.programId || e.program?.id || "",
+          programTitle: e.program?.title || "Unknown Program",
+          batchId: e.batchId || e.batch?.id,
+          batchName: e.batch?.name || "--",
+          batchCapacity: e.batch?.capacity,
+          createdAt: e.createdAt
+            ? new Date(e.createdAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "--",
+          reason: e.batchId || e.batch
+            ? "Batch at Capacity"
+            : "Registration Closed / Pending Batch",
+        }));
+        setWaitlistLearners(mapped);
+      }
+    } catch (err) {
+      console.error("Failed to fetch waitlist learners", err);
+    } finally {
+      setIsLoadingWaitlist(false);
+    }
+  };
+
+  const handleTransferFromWaitlist = async (
+    enrolmentId: string,
+    destinationBatchId: string,
+    destinationBatchName: string,
+    learnerName: string
+  ) => {
+    setIsTransferring(enrolmentId);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/admin/enrolments/${enrolmentId}/transfer`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          destinationBatchId,
+          reason: `Assigned from waitlist to ${destinationBatchName}`,
+        }),
+      });
+
+      if (res.ok) {
+        toastSuccess(`${learnerName} was successfully assigned to "${destinationBatchName}" and removed from waitlist.`);
+        await Promise.all([fetchWaitlistLearners(), fetchBatches()]);
+      } else {
+        const err = await errorMessage(res, "Could not assign learner to batch.");
+        toastError(err);
+      }
+    } catch (e) {
+      console.error("Transfer error", e);
+      toastError("Failed to communicate with the server.");
+    } finally {
+      setIsTransferring(null);
+    }
+  };
+
+  const handleRemoveFromWaitlist = async (enrolmentId: string, learnerName: string) => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/admin/enrolments/${enrolmentId}/cancel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        toastSuccess(`${learnerName} was removed from the waitlist.`);
+        fetchWaitlistLearners();
+      } else {
+        const err = await errorMessage(res, "Could not remove learner from waitlist.");
+        toastError(err);
+      }
+    } catch (e) {
+      console.error("Remove waitlist error", e);
+      toastError("Failed to communicate with the server.");
+    }
+  };
+
   const fetchBatches = async () => {
     try {
-      const res = await cachedFetch(`${API_URL}/batches`);
+      const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
         const now = new Date();
@@ -213,6 +333,7 @@ function BatchesContent() {
               : "--",
             students: b.enrolledCount ?? b.students ?? 0,
             capacity: b.capacity || 50,
+            waitlistCount: b.waitlistCount ?? 0,
           };
         });
         setBatches(mappedBatches);
@@ -272,14 +393,15 @@ function BatchesContent() {
     setIsModalOpen(true);
   };
 
-  const openCreateModal = () => {
+  const openCreateModal = (preselectedProgramId?: string | React.MouseEvent) => {
+    const progId = typeof preselectedProgramId === "string" ? preselectedProgramId : "";
     setEditingBatchId(null);
     setName("");
-    setProgramId(programs[0]?.id || "");
+    setProgramId(progId || programs[0]?.id || "");
     setStartDate("");
     setEndDate("");
     setRegistrationDeadline("");
-    setBatchStatus("");
+    setBatchStatus("UPCOMING");
     setCapacity("50");
     setManager("");
     setAwardCertificate(true);
@@ -301,6 +423,7 @@ function BatchesContent() {
         setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);
         fetchBatches();
+        fetchWaitlistLearners();
       } else {
         const err = await errorMessage(res, "Could not delete batch.");
         setDeleteError(err);
@@ -406,6 +529,7 @@ function BatchesContent() {
         }
         closeModal();
         fetchBatches();
+        fetchWaitlistLearners();
       } else {
         const data = await res.json().catch(() => null);
         const raw = data?.error?.message ?? data?.message;
@@ -434,7 +558,9 @@ function BatchesContent() {
         !selectedProgramFilter || batch.program === selectedProgramFilter;
       const matchesStatus =
         !selectedStatusFilter ||
-        batch.status?.toUpperCase() === selectedStatusFilter.toUpperCase();
+        (selectedStatusFilter === "WAITLIST"
+          ? (batch.waitlistCount || 0) > 0
+          : batch.status?.toUpperCase() === selectedStatusFilter.toUpperCase());
       return matchesSearch && matchesProgram && matchesStatus;
     })
     .sort((a, b) => {
@@ -479,17 +605,57 @@ function BatchesContent() {
       ACTIVE: 0,
       UPCOMING: 0,
       COMPLETED: 0,
-      ARCHIVED: 0,
+      WAITLIST: 0,
     };
     for (const b of batches) {
       const s = (b.status || "").toUpperCase();
       if (s === "ACTIVE") counts.ACTIVE++;
       else if (s === "UPCOMING") counts.UPCOMING++;
       else if (s === "COMPLETED") counts.COMPLETED++;
-      else if (s === "ARCHIVED" || s === "DRAFT") counts.ARCHIVED++;
     }
+    counts.WAITLIST = waitlistLearners.length;
     return counts;
-  }, [batches]);
+  }, [batches, waitlistLearners]);
+
+  const filteredWaitlistLearners = useMemo(() => {
+    return waitlistLearners.filter((l) => {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        !q ||
+        l.userName.toLowerCase().includes(q) ||
+        l.userEmail.toLowerCase().includes(q) ||
+        l.programTitle.toLowerCase().includes(q);
+      const matchesProgram =
+        !selectedProgramFilter || l.programTitle === selectedProgramFilter;
+      return matchesSearch && matchesProgram;
+    });
+  }, [waitlistLearners, search, selectedProgramFilter]);
+
+  const totalWaitlisted = filteredWaitlistLearners.length;
+  const paginatedWaitlistLearners = filteredWaitlistLearners.slice(
+    (page - 1) * pageSize,
+    page * pageSize
+  );
+
+  const programsNeedingBatches = useMemo(() => {
+    const map = new Map<string, { programId: string; programTitle: string; count: number }>();
+    for (const l of filteredWaitlistLearners) {
+      const existing = map.get(l.programId) || { programId: l.programId, programTitle: l.programTitle, count: 0 };
+      existing.count++;
+      map.set(l.programId, existing);
+    }
+    const list = Array.from(map.values());
+    // Filter to those that have NO open upcoming/active batches with open seats
+    return list.filter((p) => {
+      const openBatches = batches.filter(
+        (b) =>
+          (b.programId === p.programId || b.program === p.programTitle) &&
+          (b.status?.toUpperCase() === "UPCOMING" || b.status?.toUpperCase() === "ACTIVE") &&
+          b.students < (b.capacity || 50)
+      );
+      return openBatches.length === 0;
+    });
+  }, [filteredWaitlistLearners, batches]);
 
   const activeTab = selectedStatusFilter ? selectedStatusFilter.toUpperCase() : "ALL";
 
@@ -507,9 +673,16 @@ function BatchesContent() {
         }}
       >
         <div className={styles.headerText}>
-          <h1 className={styles.title} style={{ margin: 0 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", flexWrap: "wrap" }}>
+            <h1 className={styles.title} style={{ margin: 0 }}>
             {isManager ? "Assigned Batches" : "Batches"}
           </h1>
+          {waitlistLearners.length > 0 && (
+            <span style={{ color: "#dc2626", fontSize: "0.88rem", fontWeight: 600 }}>
+              (Action required in waitlist: {waitlistLearners.length} {waitlistLearners.length === 1 ? "learner is" : "learners are"} waiting for batch)
+            </span>
+          )}
+          </div>
         </div>
         {!isManager && (
           <div className={styles.headerActions}>
@@ -573,17 +746,16 @@ function BatchesContent() {
           >
             Completed ({statusCounts.COMPLETED})
           </button>
-          {statusCounts.ARCHIVED > 0 && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "ARCHIVED"}
-              className={`${styles.tabBtn} ${activeTab === "ARCHIVED" ? styles.tabBtnActive : ""}`}
-              onClick={() => { setSelectedStatusFilter("ARCHIVED"); setPage(1); }}
-            >
-              Archived ({statusCounts.ARCHIVED})
-            </button>
-          )}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "WAITLIST"}
+            className={`${styles.tabBtn} ${activeTab === "WAITLIST" ? styles.tabBtnActive : ""}`}
+            onClick={() => { setSelectedStatusFilter("WAITLIST"); setPage(1); }}
+          >
+            Waitlist ({statusCounts.WAITLIST})
+          </button>
+          
         </div>
       </div>
 
@@ -624,7 +796,11 @@ function BatchesContent() {
             </svg>
             <input
               type="text"
-              placeholder="Search batches, programs, managers..."
+              placeholder={
+                activeTab === "WAITLIST"
+                  ? "Search waitlisted learners by name, email, program..."
+                  : "Search batches, programs, managers..."
+              }
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -698,6 +874,202 @@ function BatchesContent() {
           </div>
         </div>
 
+            {/* Program Missing Batches Alert Banners (Waitlist Mode Only) */}
+      {activeTab === "WAITLIST" && programsNeedingBatches.length > 0 && (
+        <div
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderLeft: "4px solid #ef4444",
+            borderRadius: "8px",
+            padding: "0.65rem 1rem",
+            color: "#991b1b",
+            fontSize: "0.85rem",
+            lineHeight: "1.4",
+            marginBottom: "0.85rem",
+          }}
+        >
+                    {programsNeedingBatches.length === 1 && programsNeedingBatches[0] ? (
+            <div>
+              <strong>Action Required:</strong> Create an upcoming batch for <strong>"{programsNeedingBatches[0].programTitle}"</strong> ({programsNeedingBatches[0].count} {programsNeedingBatches[0].count === 1 ? "learner waiting" : "learners waiting"}) so waitlisted learners can be added to that batch.
+            </div>
+          ) : (
+            <div>
+              <div style={{ marginBottom: "4px" }}>
+                <strong>Action Required:</strong> Create an upcoming batch for {programsNeedingBatches.length} programs so waitlisted learners can be added to that batch:
+              </div>
+              <ul style={{ margin: "0", paddingLeft: "1.2rem", display: "flex", flexDirection: "column", gap: "2px" }}>
+                {programsNeedingBatches.map((prog) => (
+                  <li key={prog.programId}>
+                    <strong>"{prog.programTitle}"</strong> ({prog.count} {prog.count === 1 ? "learner waiting" : "learners waiting"})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+      {activeTab === "WAITLIST" ? (
+        <div className={styles.tableWrapper}>
+          <table className={styles.adminTable}>
+            <thead>
+              <tr>
+                <th>Learner</th>
+                <th>Course / Program</th>
+                <th>Date Joined Waitlist</th>
+                <th>Status / Reason</th>
+                <th className={styles.alignRight} style={{ textAlign: "right" }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingWaitlist ? (
+                <TableSkeleton columns={5} rows={4} />
+              ) : filteredWaitlistLearners.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: "1.5rem" }}>
+                    <EmptyState
+                      title="No waitlisted learners"
+                      description={
+                        search
+                          ? `No waitlisted learners match "${search}". Try adjusting your query.`
+                          : "There are currently no learners on the waitlist across any active programs."
+                      }
+                      actionLabel={hasActiveFilters ? "Reset Filters" : undefined}
+                      onAction={hasActiveFilters ? resetAllFilters : undefined}
+                    />
+                  </td>
+                </tr>
+              ) : (
+                paginatedWaitlistLearners.map((learner) => {
+                  const upcomingBatchesForProg = batches.filter(
+                    (b) =>
+                      (b.programId === learner.programId || b.program === learner.programTitle) &&
+                      (b.status?.toUpperCase() === "UPCOMING" || b.status?.toUpperCase() === "ACTIVE") &&
+                      b.students < (b.capacity || 50)
+                  );
+                  const targetBatch = upcomingBatchesForProg[0];
+
+                  return (
+                    <tr key={learner.id}>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                          <div
+                            style={{
+                              width: "32px",
+                              height: "32px",
+                              borderRadius: "50%",
+                              background: "#fef3c7",
+                              color: "#b45309",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontWeight: 700,
+                              fontSize: "0.85rem",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {(learner.userName || "U").charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <Link
+                              href={`/users?search=${encodeURIComponent(learner.userEmail)}`}
+                              style={{ textDecoration: "none", color: "inherit" }}
+                              title="View learner profile"
+                            >
+                              <span style={{ color: "var(--accent-primary, #c97a1e)", fontWeight: 600 }}>
+                                {learner.userName}
+                              </span>
+                            </Link>
+                            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                              {learner.userEmail}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={styles.cellText} style={{ fontWeight: 500 }}>
+                          {learner.programTitle}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={styles.cellText}>{learner.createdAt}</span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontSize: "0.73rem",
+                              fontWeight: 600,
+                              color: "#b45309",
+                              background: "#fef3c7",
+                              padding: "2px 8px",
+                              borderRadius: "9999px",
+                              width: "fit-content",
+                            }}
+                          >
+                            <span style={{ fontSize: "0.6rem" }}>●</span> On Waitlist
+                          </span>
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                            {learner.reason}
+                          </span>
+                        </div>
+                      </td>
+                      <td className={styles.alignRight} style={{ textAlign: "right" }}>
+                        <div className={styles.rowActions} style={{ justifyContent: "flex-end", gap: "0.5rem" }}>
+                          {targetBatch ? (
+                            <button
+                              type="button"
+                              className={styles.primaryBtn}
+                              disabled={isTransferring === learner.id}
+                              onClick={() =>
+                                handleTransferFromWaitlist(
+                                  learner.id,
+                                  targetBatch.id,
+                                  targetBatch.name,
+                                  learner.userName
+                                )
+                              }
+                              style={{
+                                fontSize: "0.76rem",
+                                padding: "0.32rem 0.7rem",
+                                whiteSpace: "nowrap",
+                              }}
+                              title={`Assign to ${targetBatch.name} (${targetBatch.students}/${targetBatch.capacity || 50} enrolled)`}
+                            >
+                              {isTransferring === learner.id
+                                ? "Assigning..."
+                                : `Assign to ${targetBatch.name}`}
+                            </button>
+                          ) : (
+                            <button type="button" className={styles.secondaryBtn} onClick={() => openCreateModal(learner.programId)} style={{ fontSize: "0.78rem", padding: "0.32rem 0.75rem", whiteSpace: "nowrap" }} title="Create upcoming batch for this program">+ Create Batch</button>
+                          )}
+                          <ActionMenu
+                            items={[
+                              {
+                                label: "View Learner in Users",
+                                href: `/users?search=${encodeURIComponent(learner.userEmail)}`,
+                              },
+                              {
+                                label: "Remove from Waitlist",
+                                danger: true,
+                                dividerAbove: true,
+                                onClick: () => handleRemoveFromWaitlist(learner.id, learner.userName),
+                              },
+                            ]}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
         <div className={styles.tableWrapper}>
           <table className={styles.adminTable}>
             <thead>
@@ -853,6 +1225,7 @@ function BatchesContent() {
                                 {openSeats} open
                               </span>
                             )}
+                            
                           </div>
                         </Link>
                       </td>
@@ -1069,8 +1442,25 @@ function BatchesContent() {
             </tbody>
           </table>
         </div>
+      )}
 
-        {!isLoading && totalBatches > 0 && (
+      {activeTab === "WAITLIST" ? (
+        !isLoadingWaitlist && totalWaitlisted > 0 && (
+          <Pagination
+            currentPage={page}
+            totalItems={totalWaitlisted}
+            pageSize={pageSize}
+            onPageChange={(newPage) => setPage(newPage)}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            pageSizeOptions={[10, 20, 50]}
+            itemLabel="waitlisted learners"
+          />
+        )
+      ) : (
+        !isLoading && totalBatches > 0 && (
           <Pagination
             currentPage={page}
             totalItems={totalBatches}
@@ -1083,7 +1473,8 @@ function BatchesContent() {
             pageSizeOptions={[10, 20, 50]}
             itemLabel="batches"
           />
-        )}
+        )
+      )}
       </section>
 
       {isModalOpen && (
@@ -1220,8 +1611,13 @@ function BatchesContent() {
                     >
                       ?
                     </span>
-                    <div className={styles.helpTooltipContent}>
-                      Learners cannot self-enroll after this date. Admins can manually assign students anytime.
+                    <div className={styles.helpTooltipContent} style={{ width: "270px", lineHeight: "1.4" }}>
+                      <strong>Registration Deadline:</strong>
+                      <ul style={{ margin: "6px 0 0", paddingLeft: "16px", fontSize: "0.75rem", display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <li>Registration closes for this batch after this date.</li>
+                        <li>New students will be added to the upcoming batch or to the waitlist.</li>
+                        <li>Even if this batch has open seats, no new students can join this batch after this deadline.</li>
+                      </ul>
                     </div>
                   </div>
                 </label>
@@ -1284,7 +1680,6 @@ function BatchesContent() {
                       { value: "ACTIVE", label: "Active" },
                       { value: "UPCOMING", label: "Upcoming" },
                       { value: "COMPLETED", label: "Completed" },
-                      { value: "ARCHIVED", label: "Archived" },
                     ]}
                   />
                 </div>

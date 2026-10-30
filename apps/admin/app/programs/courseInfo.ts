@@ -10,6 +10,7 @@
  *   In person: 2 hours · Speaker 60 min
  *   Online: 12 live classes · 2 hours each
  *   Image: https://...
+ *   Short: Brief overview for catalog cards
  *
  *   What it covers:
  *   - First point
@@ -36,6 +37,7 @@ export type CourseInfo = {
   inPerson: string;
   online: string;
   image: string;
+  short?: string;
   points: string[];
   faqs?: CourseFaq[];
 };
@@ -47,11 +49,50 @@ const FIELDS: [label: string, key: Exclude<keyof CourseInfo, "summary" | "points
   ["In person", "inPerson"],
   ["Online", "online"],
   ["Image", "image"],
+  ["Short", "short"],
 ];
 
 const POINTS_HEADING = "What it covers:";
 const FAQS_HEADING = "Course FAQs:";
 const ALT_FAQS_HEADING = "FAQs:";
+
+export function sanitizeCleanSummary(text?: string | null): string {
+  if (!text) return "";
+  const lines = text.split(/\r?\n/);
+  const clean: string[] = [];
+  let inFaq = false;
+  let inPoints = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (
+      line.toLowerCase().startsWith(FAQS_HEADING.toLowerCase()) ||
+      line.toLowerCase() === ALT_FAQS_HEADING.toLowerCase()
+    ) {
+      inFaq = true;
+      inPoints = false;
+      continue;
+    }
+    if (line.toLowerCase().startsWith(POINTS_HEADING.toLowerCase())) {
+      inFaq = false;
+      inPoints = true;
+      continue;
+    }
+    if (inFaq) continue;
+    if (inPoints) {
+      if (/^[-•]\s+/.test(line)) continue;
+      inPoints = false;
+    }
+    if (
+      FIELDS.some(([label]) => line.toLowerCase().startsWith(`${label.toLowerCase()}:`)) ||
+      line.toLowerCase().startsWith("short description:") ||
+      line.toLowerCase().startsWith("cover:")
+    ) {
+      continue;
+    }
+    clean.push(raw);
+  }
+  return clean.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 
 export function parseCourseInfo(description?: string | null): CourseInfo {
   const info: CourseInfo = {
@@ -62,11 +103,13 @@ export function parseCourseInfo(description?: string | null): CourseInfo {
     inPerson: "",
     online: "",
     image: "",
+    short: "",
     points: [],
     faqs: [],
   };
   const summary: string[] = [];
   let inFaqSection = false;
+  let inPointsSection = false;
   let currentFaq: CourseFaq | null = null;
 
   for (const raw of (description ?? "").split(/\r?\n/)) {
@@ -78,11 +121,13 @@ export function parseCourseInfo(description?: string | null): CourseInfo {
       line.toLowerCase() === ALT_FAQS_HEADING.toLowerCase()
     ) {
       inFaqSection = true;
+      inPointsSection = false;
       continue;
     }
 
     if (line.toLowerCase() === POINTS_HEADING.toLowerCase()) {
       inFaqSection = false;
+      inPointsSection = true;
       continue;
     }
 
@@ -112,8 +157,22 @@ export function parseCourseInfo(description?: string | null): CourseInfo {
       }
     }
 
-    if (/^[-•]\s+/.test(line)) {
+    if (inPointsSection && /^[-•]\s+/.test(line)) {
       info.points.push(line.replace(/^[-•]\s+/, ""));
+      continue;
+    }
+
+    if (line.toLowerCase().startsWith("short description:")) {
+      info.short = line.slice("short description:".length).trim();
+      inPointsSection = false;
+      inFaqSection = false;
+      continue;
+    }
+
+    if (line.toLowerCase().startsWith("cover:")) {
+      info.image = line.slice("cover:".length).trim();
+      inPointsSection = false;
+      inFaqSection = false;
       continue;
     }
 
@@ -122,10 +181,12 @@ export function parseCourseInfo(description?: string | null): CourseInfo {
     );
     if (field) {
       info[field[1]] = line.slice(field[0].length + 1).trim();
+      inPointsSection = false;
+      inFaqSection = false;
       continue;
     }
 
-    if (!inFaqSection) {
+    if (!inFaqSection && !inPointsSection) {
       summary.push(line);
     }
   }
@@ -134,13 +195,13 @@ export function parseCourseInfo(description?: string | null): CourseInfo {
     info.faqs!.push(currentFaq);
   }
 
-  info.summary = summary.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  info.summary = sanitizeCleanSummary(summary.join("\n"));
   return info;
 }
 
 export function formatCourseInfo(info: CourseInfo): string {
-  const fields = FIELDS.filter(([, key]) => info[key].trim()).map(
-    ([label, key]) => `${label}: ${info[key].trim()}`,
+  const fields = FIELDS.filter(([, key]) => (info[key] ?? "").trim()).map(
+    ([label, key]) => `${label}: ${(info[key] ?? "").trim()}`,
   );
   const points = info.points.map((p) => p.trim()).filter(Boolean);
   const validFaqs = (info.faqs || [])
@@ -149,7 +210,7 @@ export function formatCourseInfo(info: CourseInfo): string {
     .join("\n\n");
 
   return [
-    info.summary.trim(),
+    sanitizeCleanSummary(info.summary),
     fields.join("\n"),
     points.length ? [POINTS_HEADING, ...points.map((p) => `- ${p}`)].join("\n") : "",
     validFaqs ? [FAQS_HEADING, validFaqs].join("\n") : "",

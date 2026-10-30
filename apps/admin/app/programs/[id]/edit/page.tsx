@@ -11,9 +11,9 @@ import Step1CourseSetup from "../components/Step1CourseSetup";
 export default function EditProgramPage({
   params,
 }: {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const unwrapped = typeof (params as any)?.then === "function" ? use(params as any) : params;
+  const unwrapped = use(params);
   const programId = (unwrapped as { id: string }).id;
   const router = useRouter();
 

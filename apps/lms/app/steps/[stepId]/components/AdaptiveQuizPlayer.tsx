@@ -119,9 +119,6 @@ export default function AdaptiveQuizPlayer({
             <span className={styles.metaPill}>
               Questions: <span className={styles.metaPillStrong}>{quiz.questionCount ?? 5}</span>
             </span>
-            <span className={styles.metaPill}>
-              Max Attempts: <span className={styles.metaPillStrong}>{quiz.maxAttempts ?? 3}</span>
-            </span>
           </div>
 
           {quizError && (
@@ -351,18 +348,37 @@ export default function AdaptiveQuizPlayer({
               <div className={`${styles.scoreBadge} ${styles.scoreBadgePassed}`}>
                 {lastResult.score}%
               </div>
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginBottom: "2rem" }}>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginBottom: "1.75rem" }}>
                 You correctly answered {lastResult.correctCount} of {lastResult.totalQuestions} questions.
                 Passing requirement: {lastResult.passMark}%.
               </p>
-              <button
-                type="button"
-                className={styles.continueActionBtn}
-                onClick={onProceedToCompletion}
-                style={{ padding: "0.85rem 2.25rem", fontSize: "1rem" }}
-              >
-                Proceed to Step Completion →
-              </button>
+              <div style={{ display: "flex", gap: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className={styles.continueActionBtn}
+                  onClick={onProceedToCompletion}
+                  style={{ padding: "0.85rem 2rem", fontSize: "1rem" }}
+                >
+                  Proceed to Step Completion &rarr;
+                </button>
+                <button
+                  type="button"
+                  onClick={onStartQuiz}
+                  disabled={isStartingQuiz}
+                  style={{
+                    padding: "0.85rem 1.5rem",
+                    fontSize: "0.95rem",
+                    fontWeight: 600,
+                    borderRadius: "8px",
+                    background: "transparent",
+                    border: "1.5px solid var(--border-light, #ece6dd)",
+                    color: "var(--text-secondary, #78716a)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Retake for Practice
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -376,30 +392,18 @@ export default function AdaptiveQuizPlayer({
                 {lastResult.score}%
               </div>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginBottom: "1.5rem" }}>
-                Passing score required: {lastResult.passMark}%. Attempts remaining:{" "}
-                {lastResult.attemptsRemaining ?? 0}.
+                Passing score required: {lastResult.passMark}%.
               </p>
 
-              {lastResult.isCooldownActive && (
-                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", padding: "12px", borderRadius: 10, marginBottom: "1.5rem" }}>
-                  Cooldown active until{" "}
-                  {lastResult.cooldownUntil
-                    ? new Date(lastResult.cooldownUntil).toLocaleTimeString()
-                    : "cooldown expires"}
-                  .
-                </div>
-              )}
-
-              {lastResult.canRetry && !lastResult.isCooldownActive && (
-                <button
-                  type="button"
-                  className={styles.continueActionBtn}
-                  onClick={onStartQuiz}
-                  disabled={isStartingQuiz}
-                >
-                  {isStartingQuiz ? "Starting..." : "Retry Knowledge Check →"}
-                </button>
-              )}
+              <button
+                type="button"
+                className={styles.continueActionBtn}
+                onClick={onStartQuiz}
+                disabled={isStartingQuiz}
+                style={{ padding: "0.85rem 2rem", fontSize: "1rem" }}
+              >
+                {isStartingQuiz ? "Starting..." : "Retry Knowledge Check &rarr;"}
+              </button>
             </>
           )}
         </div>

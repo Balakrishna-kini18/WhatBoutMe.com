@@ -5,7 +5,7 @@ import webpush from 'web-push';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { AuditLogService } from '../../common/audit/audit-log.service.js';
-import { DeliveryStatus, NotificationChannel, Role } from '@prisma/client';
+import { DeliveryStatus, NotificationChannel, Role, EnrolmentStatus } from '@prisma/client';
 
 export class PushSubscriptionKeysDto {
   @IsString()
@@ -491,10 +491,20 @@ export class NotificationsService {
       });
     } else if (dto.target === 'BATCH') {
       const enrolments = await this.prisma.enrolment.findMany({
-        where: { batchId: dto.targetId },
+        where: {
+          batchId: dto.targetId,
+          status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+        },
         select: { user: { select: { id: true, email: true, name: true, notificationPreferences: true } } },
       });
-      recipients = enrolments.map((e) => e.user);
+      const seenUserIds = new Set<string>();
+      recipients = [];
+      for (const e of enrolments) {
+        if (e.user && !seenUserIds.has(e.user.id)) {
+          seenUserIds.add(e.user.id);
+          recipients.push(e.user);
+        }
+      }
     } else if (dto.target === 'USER') {
       const user = await this.prisma.user.findUnique({
         where: { id: dto.targetId },
@@ -513,10 +523,14 @@ export class NotificationsService {
 
       // 1. IN_APP Channel
       if (dto.channels.includes('IN_APP')) {
+        const inAppBody = dto.channels.includes('EMAIL')
+          ? `${dto.message}\n\nNotice: A full copy has been dispatched to your email inbox.`
+          : dto.message;
+
         await this.createInAppNotification({
           userId: recipient.id,
           title: dto.title,
-          message: dto.message,
+          message: inAppBody,
           link: dto.link,
           type: 'BROADCAST_ANNOUNCEMENT',
           template: 'BroadcastAnnouncement',

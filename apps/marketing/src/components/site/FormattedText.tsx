@@ -32,4 +32,3 @@ export default function FormattedText({
   if (!text) return null;
   return <span className={className}>{stripFormatting(text)}</span>;
 }
-
